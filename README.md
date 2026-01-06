@@ -1,9 +1,9 @@
-# HockeyGameBot Site
+# hockeygamebot-site
 
-Public website for HockeyGameBot.
+Static website for HockeyGameBot (dark mode by default).
 
-- Live Bluesky feeds for NHL game bots
-- Team-specific pages
-- Static hosting (no backend)
+- NJD feed page (V1)
+- “All Teams” Bluesky list feed page
+- No backend (served via GitHub Pages)
 
-Deployed to hockeygamebot.com
+Deploy: GitHub Pages + custom domain (hockeygamebot.com)
