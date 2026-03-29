@@ -145,14 +145,15 @@ html, body {
 .hc-status.scheduled { color: var(--yellow); }
 .hc-status.intermission { color: var(--blue); }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); position: relative; flex-shrink: 0; }
-.status-dot::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 1.5px solid var(--cyan); animation: ringPulse 1.8s ease-out infinite; }
+.status-dot::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; border: 1.5px solid var(--cyan); animation: ringPulse 1.8s ease-out infinite; }
 .hc-status.final .status-dot,
 .hc-status.scheduled .status-dot { background: var(--muted); }
 .hc-status.final .status-dot::after,
 .hc-status.scheduled .status-dot::after { display: none; }
-.hc-status.intermission .status-dot { background: var(--blue); }
-.hc-status.intermission .status-dot::after { border-color: var(--blue); animation-duration: 2.5s; }
-@keyframes ringPulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.6); opacity: 0; } }
+/* Intermission: amber dot, no pulse (game is paused) */
+.hc-status.intermission .status-dot { background: var(--yellow); }
+.hc-status.intermission .status-dot::after { display: none; }
+@keyframes ringPulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.9); opacity: 0; } }
 .hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .badge { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 10px; border: 1px solid; }
 .badge.pp   { color: var(--yellow); border-color: rgba(255,202,40,0.35); background: rgba(255,202,40,0.07); }
@@ -173,10 +174,10 @@ html, body {
 .hc-sep { font-family: 'Oswald', sans-serif; font-size: clamp(28px, 4vw, 50px); color: var(--border2); }
 .hc-foot { padding: 6px 20px 12px; display: flex; flex-direction: column; gap: 6px; position: relative; z-index: 2; }
 .hc-prog { display: flex; align-items: center; gap: 10px; }
-.prog-lbl { font-size: 9px; color: var(--muted); letter-spacing: 0.06em; white-space: nowrap; min-width: 100px; }
+.prog-lbl { display: none; } /* period shown top-left; bar + clock is sufficient */
 .prog-track { flex: 1; height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; }
 .prog-fill { height: 100%; border-radius: 2px; }
-.prog-clock { font-family: 'Oswald', sans-serif; font-size: 12px; color: var(--muted); min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.prog-clock { font-family: 'Oswald', sans-serif; font-size: clamp(14px, 1.4vw, 20px); color: var(--text); min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
 .hc-bottom-row { display: flex; align-items: center; justify-content: space-between; }
 .hc-last { font-size: clamp(10px, 1.1vw, 12px); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 85%; }
 .hc-last strong { color: var(--text); }
@@ -467,7 +468,8 @@ function buildCardInner(card, washData) {
     statusHtml = `<div class="status-dot"></div> ${formatStartTime(card.startTime)}`;
   } else if (card.inIntermission) {
     statusClass = 'intermission';
-    statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} INT`;
+    const intClock = card.clock && card.clock !== '--:--' ? ` · ${card.clock}` : '';
+    statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} INT${intClock}`;
   } else {
     statusClass = card.isOT ? 'ot' : 'live';
     statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
@@ -480,7 +482,7 @@ function buildCardInner(card, washData) {
   else if (card.inIntermission) progLabel = `${pLabel} · INTERMISSION`;
   else progLabel = pLabel || '';
 
-  const showClock = !card.isFinal && !card.isScheduled && !card.inIntermission;
+  const showClock = !card.isFinal && !card.isScheduled;
 
   const washHtml = washData ? `
     <div class="goal-wash active" id="wash-${card.id}" style="background:rgba(${hexToRgb(card.teamColor)},0.96)">
