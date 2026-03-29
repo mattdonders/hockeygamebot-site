@@ -197,7 +197,7 @@ html, body {
 /* BOTTOM BAR */
 .bottombar { height: 80px; background: #0a0a0a; border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 8px; }
 .bb-label { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: var(--muted); white-space: nowrap; margin-right: 4px; }
-.tg { flex: 0 0 160px; height: 56px; background: #111; border: 1px solid var(--border); border-radius: 3px; display: flex; align-items: center; padding: 0 10px; gap: 8px; }
+.tg { flex: 1 1 150px; max-width: 220px; height: 56px; background: #111; border: 1px solid var(--border); border-radius: 3px; display: flex; align-items: center; padding: 0 10px; gap: 8px; }
 .tg.entering-bb { animation: bbEnter 0.45s ease forwards; }
 @keyframes bbEnter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .tg.exiting-bb { opacity: 0; transform: translateY(8px); transition: opacity 0.3s ease, transform 0.3s ease; }
@@ -280,11 +280,13 @@ function timeRemainingToMins(tr) {
 }
 
 function calcGamePct(period, timeRemaining, inIntermission) {
+  // Shows progress through the CURRENT period (0–100%), resets each period.
+  // More visually satisfying than total-game %; 3rd period late = nearly full bar.
   if (!period || period === 0) return 0;
-  if (inIntermission) return Math.round((period / 3) * 100);
+  if (inIntermission) return 100;
   const remainMins = timeRemainingToMins(timeRemaining);
-  const elapsed = Math.min((period - 1) * 20 + (20 - remainMins), 60);
-  return Math.min(100, Math.round((elapsed / 60) * 100));
+  const periodMins = (period >= 4) ? 5 : 20; // OT is 5 min
+  return Math.min(100, Math.round(((periodMins - remainMins) / periodMins) * 100));
 }
 
 function calcExcitement(game) {
@@ -478,10 +480,7 @@ function buildCardInner(card, washData) {
         <div class="prog-track"><div class="prog-fill" style="width:${card.pct}%;background:${card.accentFrom}"></div></div>
         <span class="prog-clock">${showClock ? card.clock : ''}</span>
       </div>
-      <div class="hc-divider"></div>
-      <div class="hc-bottom-row">
-        <div class="hc-last">${card.lastEvent}</div>
-      </div>
+      ${card.lastEvent ? `<div class="hc-divider"></div><div class="hc-bottom-row"><div class="hc-last">${card.lastEvent}</div></div>` : ''}
     </div>`;
 }
 
@@ -543,15 +542,22 @@ function updateTopBar(data) {
 }
 
 function updateTicker(cards) {
-  const live = cards.filter(c => !c.isFinal && !c.isScheduled && c.lastEvent);
-  if (!live.length) return;
-  const items = live.map(c => {
-    const cls = c.lastEvent.includes('Penalty') ? 'ti-penalty' : 'ti-goal';
-    return `<span class="${cls}"><strong>${c.away} vs ${c.home}</strong> &nbsp;${c.lastEvent} · ${periodLabel(c.period, c.isOT)} ${c.clock}</span>`;
+  if (!cards.length) return;
+  const items = cards.map(c => {
+    if (c.isFinal) {
+      return `<span class="ti-final"><strong>FINAL</strong> &nbsp;${c.away} ${c.awayScore} · ${c.home} ${c.homeScore}</span>`;
+    } else if (c.isScheduled) {
+      return `<span><strong>${c.away} vs ${c.home}</strong> &nbsp;${formatStartTime(c.startTime)}</span>`;
+    } else {
+      const p = periodLabel(c.period, c.isOT);
+      const hasEvent = c.lastEvent && c.lastEvent.includes('Goal');
+      const cls = hasEvent ? 'ti-goal' : '';
+      const suffix = c.lastEvent ? ` · ${c.lastEvent}` : '';
+      return `<span class="${cls}"><strong>${c.away} ${c.awayScore}–${c.homeScore} ${c.home}</strong> &nbsp;${p} ${c.clock}${suffix}</span>`;
+    }
   });
   // Duplicate for seamless loop
-  const html = [...items, ...items].join('');
-  document.getElementById('ticker-inner').innerHTML = html;
+  document.getElementById('ticker-inner').innerHTML = [...items, ...items].join('');
 }
 
 function showNoGames() {
