@@ -363,7 +363,7 @@ function parseLastEventForWash(lastEvent, card) {
   const numMatch = scorerRaw.match(/\((\d+)\)/);
   const scorerName = scorerRaw.replace(/\s*\(\d+\).*/, '').replace(/\s*(PP|SH|EN)\s*/g, '').trim();
   const num = numMatch ? `${numMatch[1]} on the season` : '';
-  const periodLabel = card.isOT ? 'OT' : card.period === 5 ? 'SO' : (card.period || 1) + 'T';
+  const periodLabel = periodLabel(card.period, card.isOT);
   const teamName = card.awayScore > card.homeScore ? card.away : card.home;
   return {
     eyebrow: `⚡ Goal — ${teamName}`,
@@ -383,8 +383,13 @@ function formatStartTime(isoStr) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SCORE COMPARE HELPER
+// HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
+function periodLabel(period, isOT) {
+  if (isOT || period >= 4) return period === 5 ? 'SO' : 'OT';
+  return ['', '1ST', '2ND', '3RD'][period] || `P${period}`;
+}
+
 function scoreClass(a, b) {
   if (a > b) return 'lead';
   if (a < b) return 'trail';
@@ -415,20 +420,18 @@ function buildCardInner(card, washData) {
     statusHtml = `<div class="status-dot"></div> ${formatStartTime(card.startTime)}`;
   } else if (card.inIntermission) {
     statusClass = 'intermission';
-    const periodLabel = card.isOT ? 'OT' : card.period + 'T';
-    statusHtml = `<div class="status-dot"></div> ${periodLabel} INT`;
+    statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} INT`;
   } else {
     statusClass = card.isOT ? 'ot' : 'live';
-    const periodLabel = card.isOT ? 'OT' : card.period === 5 ? 'SO' : card.period + 'T';
-    statusHtml = `<div class="status-dot"></div> ${periodLabel} · ${card.clock}`;
+    statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
   }
 
-  const periodLabel = card.isOT ? 'OT' : card.period === 5 ? 'SO' : card.period > 0 ? card.period + 'T' : '';
+  const pLabel = card.period > 0 ? periodLabel(card.period, card.isOT) : '';
   let progLabel;
   if (card.isFinal) progLabel = 'FINAL';
   else if (card.isScheduled) progLabel = `STARTS ${formatStartTime(card.startTime)}`;
-  else if (card.inIntermission) progLabel = `${periodLabel} · INTERMISSION`;
-  else if (periodLabel) progLabel = `${periodLabel} · ${Math.round(card.pct)}% COMPLETE`;
+  else if (card.inIntermission) progLabel = `${pLabel} · INTERMISSION`;
+  else if (pLabel) progLabel = `${pLabel} · ${Math.round(card.pct)}% COMPLETE`;
   else progLabel = 'UPCOMING';
 
   const showClock = !card.isFinal && !card.isScheduled && !card.inIntermission;
@@ -497,8 +500,7 @@ function buildBenchCard(card, isGoal) {
     statusText = 'UPCOMING';
     statusClass = 'pre';
   } else {
-    const p = card.isOT ? 'OT' : card.period + 'T';
-    statusText = `● ${p} · ${card.clock}`;
+    statusText = `● ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
     statusClass = 'live';
   }
   return `
@@ -546,7 +548,7 @@ function updateTicker(cards) {
   if (!live.length) return;
   const items = live.map(c => {
     const cls = c.lastEvent.includes('Penalty') ? 'ti-penalty' : 'ti-goal';
-    return `<span class="${cls}"><strong>${c.away} vs ${c.home}</strong> &nbsp;${c.lastEvent} · ${c.isOT ? 'OT' : c.period + 'T'} ${c.clock}</span>`;
+    return `<span class="${cls}"><strong>${c.away} vs ${c.home}</strong> &nbsp;${c.lastEvent} · ${periodLabel(c.period, c.isOT)} ${c.clock}</span>`;
   });
   // Duplicate for seamless loop
   const html = [...items, ...items].join('');
@@ -657,8 +659,7 @@ function flashBenchGoal(id) {
   el.classList.add('bb-goal-flash');
   setTimeout(() => {
     if (statusEl) {
-      const p = card.isOT ? 'OT' : card.period + 'T';
-      statusEl.textContent = `● ${p} · ${card.clock}`;
+      statusEl.textContent = `● ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
       statusEl.className = 'tg-status live';
     }
     el.classList.remove('bb-goal-flash');
