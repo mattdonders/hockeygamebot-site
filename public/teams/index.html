@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Team - HockeyGameBot</title>
+    <link rel="stylesheet" href="/css/styles.css" />
+    <link rel="canonical" href="/teams/" />
+</head>
+
+<body>
+    <header class="wrap">
+        <div class="brand">
+            <div class="logo">🏒</div>
+            <div>
+                <h1 id="title">Team Feed</h1>
+                <p id="subtitle" class="muted"></p>
+            </div>
+        </div>
+
+        <nav class="nav">
+            <a class="btn" href="/">Home</a>
+            <a class="btn" href="/project/">Project</a>
+        </nav>
+    </header>
+
+    <main class="wrap">
+        <section class="panel">
+            <div class="team-grid" id="team-links"></div>
+            <div id="feed" class="feed" aria-live="polite"></div>
+        </section>
+    </main>
+
+    <script type="module">
+        import { renderAuthorFeed } from "/js/bluesky-feed.js";
+        import { TEAMS } from "/js/teams.js";
+
+        const titleEl = document.getElementById("title");
+        const subtitleEl = document.getElementById("subtitle");
+        const linksEl = document.getElementById("team-links");
+        const feedEl = document.getElementById("feed");
+
+        // Build team nav
+        for (const [key, t] of Object.entries(TEAMS)) {
+            const a = document.createElement("a");
+            a.className = "btn";
+            a.href = `/teams/${encodeURIComponent(key)}`;
+            a.textContent = key.toUpperCase();
+            linksEl.appendChild(a);
+        }
+
+        // Determine team from pretty URL (via 404 router) or query param
+        const requestedPath = sessionStorage.getItem("hgb_requested_path");
+        if (requestedPath) sessionStorage.removeItem("hgb_requested_path");
+
+        let teamKeyFromPath = null;
+        if (requestedPath) {
+            const parts = requestedPath.split("/").filter(Boolean); // ["teams","njd"]
+            if (parts.length >= 2) teamKeyFromPath = parts[1];
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const teamKey = (teamKeyFromPath || params.get("team") || "").toLowerCase();
+        const team = teamKey ? TEAMS[teamKey] : null;
+
+        // If no team selected, show picker message and DO NOT load a feed
+        if (!teamKey) {
+            titleEl.textContent = "Pick a team";
+            subtitleEl.textContent = "Choose a team below to view its GameBot feed.";
+            feedEl.innerHTML = `<div class="muted">Tip: once you pick a team, bookmark /teams/&lt;team&gt; (ex: /teams/njd).</div>`;
+        } else if (!team) {
+            titleEl.textContent = "Unknown team";
+            subtitleEl.textContent = `Team "${teamKey}" not found.`;
+            feedEl.innerHTML = `<div class="muted">Valid teams: ${Object.keys(TEAMS).join(", ")}</div>`;
+        } else {
+            titleEl.textContent = `${team.name} GameBot`;
+            subtitleEl.textContent = `@${team.handle}`;
+
+            renderAuthorFeed({
+                mountId: "feed",
+                actor: team.handle,
+                limit: 25,
+            });
+        }
+    </script>
+
+</body>
+
+</html>

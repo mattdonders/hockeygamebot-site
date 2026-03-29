@@ -1,0 +1,791 @@
+---
+// HockeyGameBot live scoreboard — wired to hgb-api /v1/games/today
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HockeyGameBot · Live NHL Scoreboard</title>
+  <meta name="description" content="Live NHL scores, powered by HockeyGameBot.">
+  <meta property="og:title" content="HockeyGameBot · Live NHL Scoreboard">
+  <meta property="og:description" content="Live NHL scores, game cards, and real-time updates.">
+  <meta property="og:url" content="https://hockeygamebot.com/">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">HGB</div>
+  <div class="brand-sub" id="topbar-date">Live Tonight</div>
+  <div class="topbar-right">
+    <span class="topbar-live" id="live-count">– LIVE</span>
+    <span id="total-games">– GAMES</span>
+    <span id="wall-clock">--:--:--</span>
+  </div>
+</div>
+
+<div class="grid">
+  <div id="slot-tl" class="hcard hcard--loading"></div>
+  <div id="slot-tr" class="hcard hcard--loading"></div>
+  <div id="slot-bl" class="hcard hcard--loading"></div>
+  <div id="slot-br" class="hcard hcard--loading"></div>
+</div>
+
+<div class="ticker-strip">
+  <div class="ticker-lbl">⚡ LIVE</div>
+  <div class="ticker-content">
+    <div class="ticker-inner" id="ticker-inner">
+      <span>Loading game data…</span>
+    </div>
+  </div>
+</div>
+
+<div class="bottombar">
+  <div class="bb-label">MORE</div>
+  <div id="bb-container" style="display:flex;flex:1;gap:8px;overflow:hidden;"></div>
+  <div class="bb-nav">
+    <a href="/teams/" class="bb-link">TEAMS</a>
+    <span class="bb-sep">·</span>
+    <a href="https://twitch.tv/hockeygamebot" target="_blank" rel="noopener" class="bb-link bb-link--twitch">▶ TWITCH</a>
+  </div>
+</div>
+
+</body>
+</html>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #090909; --card: #0f0f0f; --border: #1c1c1c; --border2: #252525;
+  --dim: #2e2e2e; --muted: #555; --text: #999; --white: #f5f5f5;
+  --cyan: #00e5ff; --red: #ff3d3d; --green: #00e676; --yellow: #ffca28;
+  --purple: #ce93d8; --blue: #60a5fa; --orange: #ff9800;
+}
+html, body {
+  width: 100%; height: 100vh; overflow: hidden;
+  background: var(--bg); font-family: 'Space Grotesk', sans-serif; color: var(--text);
+}
+
+/* TOP BAR */
+.topbar {
+  height: 44px; background: var(--red); display: flex; align-items: center;
+  padding: 0 24px; gap: 16px;
+}
+.brand { font-family: 'Oswald', sans-serif; font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0.1em; }
+.brand-sub { font-size: 11px; color: rgba(255,255,255,0.65); letter-spacing: 0.14em; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 24px; font-size: 12px; color: rgba(255,255,255,0.75); }
+.topbar-live { color: #fff; font-weight: 700; letter-spacing: 0.06em; }
+
+/* 2×2 GRID */
+.grid {
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  gap: 4px; padding: 4px;
+  height: calc(100vh - 44px - 28px - 72px);
+  background: #000;
+}
+
+/* HERO CARD */
+.hcard {
+  background: var(--card); border: 1px solid var(--border);
+  position: relative; overflow: hidden;
+  display: grid; grid-template-rows: 3px auto 1fr auto;
+  transform-origin: center center;
+}
+.hcard::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.025) 0%, transparent 55%);
+}
+.hcard--loading { display: flex; align-items: center; justify-content: center; }
+.hcard--loading::before {
+  content: ''; width: 32px; height: 32px; border: 2px solid var(--border2);
+  border-top-color: var(--muted); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* CARD GOAL WASH */
+.goal-wash {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  opacity: 0; pointer-events: none;
+}
+.goal-wash.active { animation: washCycle 5s ease forwards; }
+@keyframes washCycle {
+  0%   { opacity: 0; }
+  8%   { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.gwo-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.22em; color: rgba(255,255,255,0.75); text-transform: uppercase; }
+.gwo-scorer  { font-family: 'Oswald', sans-serif; font-size: clamp(32px, 5vw, 56px); font-weight: 700; line-height: 1; color: #fff; text-shadow: 0 2px 16px rgba(0,0,0,0.5); }
+.gwo-goal-num { font-family: 'Oswald', sans-serif; font-size: clamp(14px, 2vw, 22px); color: rgba(255,255,255,0.7); letter-spacing: 0.06em; }
+.gwo-assists  { font-size: clamp(10px, 1.2vw, 14px); color: rgba(255,255,255,0.75); }
+.gwo-divider  { width: 48px; height: 1px; background: rgba(255,255,255,0.3); margin: 4px 0; }
+.gwo-score    { font-family: 'Oswald', sans-serif; font-size: clamp(20px, 3vw, 32px); font-weight: 700; color: #fff; }
+.gwo-context  { font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 0.1em; }
+
+/* CARD ENTER/EXIT TRANSITIONS */
+.hcard.exiting { opacity: 0; transform: scale(0.96); transition: opacity 0.35s ease, transform 0.35s ease; }
+.hcard.entering { animation: cardEnter 0.45s ease forwards; }
+@keyframes cardEnter { from { opacity: 0; transform: scale(1.025); } to { opacity: 1; transform: scale(1); } }
+
+/* Card sub-elements */
+.hc-accent { width: 100%; }
+.hc-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 0; position: relative; z-index: 2; }
+.hc-status { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; display: flex; align-items: center; gap: 8px; }
+.hc-status.live { color: var(--cyan); }
+.hc-status.final { color: var(--muted); }
+.hc-status.ot { color: var(--orange); }
+.hc-status.scheduled { color: var(--yellow); }
+.hc-status.intermission { color: var(--blue); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); position: relative; flex-shrink: 0; }
+.status-dot::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 1.5px solid var(--cyan); animation: ringPulse 1.8s ease-out infinite; }
+.hc-status.final .status-dot,
+.hc-status.scheduled .status-dot { background: var(--muted); }
+.hc-status.final .status-dot::after,
+.hc-status.scheduled .status-dot::after { display: none; }
+.hc-status.intermission .status-dot { background: var(--blue); }
+.hc-status.intermission .status-dot::after { border-color: var(--blue); animation-duration: 2.5s; }
+@keyframes ringPulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.6); opacity: 0; } }
+.hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.badge { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 10px; border: 1px solid; }
+.badge.pp   { color: var(--yellow); border-color: rgba(255,202,40,0.35); background: rgba(255,202,40,0.07); }
+.badge.hot  { color: var(--orange); border-color: rgba(255,152,0,0.35);  background: rgba(255,152,0,0.07);  }
+.badge.close{ color: var(--red);    border-color: rgba(255,61,61,0.35);  background: rgba(255,61,61,0.07);  }
+.badge.ot   { color: var(--orange); border-color: rgba(255,152,0,0.5);  background: rgba(255,152,0,0.12);  }
+.hc-body { display: flex; align-items: center; justify-content: center; padding: 4px 28px 0; position: relative; z-index: 2; }
+.hc-team { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
+.hc-logo { width: clamp(56px, 8vw, 100px); height: clamp(56px, 8vw, 100px); object-fit: contain; }
+.hc-logo.dim { opacity: 0.3; filter: grayscale(0.3); }
+.hc-abbr { font-family: 'Oswald', sans-serif; font-size: clamp(22px, 3.5vw, 40px); font-weight: 700; }
+.hc-abbr.lead { color: var(--white); } .hc-abbr.trail { color: var(--muted); } .hc-abbr.tie { color: var(--white); }
+.hc-name { font-size: clamp(8px, 0.9vw, 10px); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.hc-score-center { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: clamp(100px, 14vw, 180px); }
+.hc-nums { display: flex; align-items: center; gap: 12px; }
+.hc-n { font-family: 'Oswald', sans-serif; font-size: clamp(52px, 8vw, 100px); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.hc-n.lead { color: var(--white); } .hc-n.trail { color: var(--dim); } .hc-n.tie { color: var(--white); }
+.hc-sep { font-family: 'Oswald', sans-serif; font-size: clamp(28px, 4vw, 50px); color: var(--border2); }
+.hc-foot { padding: 6px 20px 12px; display: flex; flex-direction: column; gap: 6px; position: relative; z-index: 2; }
+.hc-prog { display: flex; align-items: center; gap: 10px; }
+.prog-lbl { font-size: 9px; color: var(--muted); letter-spacing: 0.06em; white-space: nowrap; min-width: 100px; }
+.prog-track { flex: 1; height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+.prog-fill { height: 100%; border-radius: 2px; }
+.prog-clock { font-family: 'Oswald', sans-serif; font-size: 12px; color: var(--muted); min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.hc-bottom-row { display: flex; align-items: center; justify-content: space-between; }
+.hc-last { font-size: clamp(10px, 1.1vw, 12px); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 85%; }
+.hc-last strong { color: var(--text); }
+.hc-divider { height: 1px; background: var(--border); margin: 0 20px; }
+
+/* TICKER */
+.ticker-strip { height: 28px; background: #000; display: flex; align-items: center; overflow: hidden; border-top: 1px solid #1a1a1a; border-bottom: 1px solid #1a1a1a; }
+.ticker-lbl { flex-shrink: 0; height: 100%; background: var(--red); padding: 0 16px; display: flex; align-items: center; font-size: 9px; font-weight: 700; letter-spacing: 0.16em; color: #fff; white-space: nowrap; }
+.ticker-content { flex: 1; overflow: hidden; white-space: nowrap; }
+.ticker-inner { display: inline-block; animation: scroll 60s linear infinite; padding-left: 100%; }
+@keyframes scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+.ticker-inner span { display: inline-block; font-size: 12px; color: #aaa; margin-right: 56px; }
+.ticker-inner span strong { color: #fff; }
+.ti-goal strong { color: var(--cyan); }
+.ti-penalty strong { color: var(--yellow); }
+.ti-final strong { color: var(--muted); }
+
+/* BOTTOM BAR */
+.bottombar { height: 72px; background: #0a0a0a; border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 12px; gap: 8px; }
+.bb-label { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: var(--muted); white-space: nowrap; margin-right: 4px; }
+.tg { flex: 1; height: 50px; background: #111; border: 1px solid var(--border); border-radius: 3px; display: flex; align-items: center; padding: 0 12px; gap: 10px; min-width: 0; }
+.tg.entering-bb { animation: bbEnter 0.45s ease forwards; }
+@keyframes bbEnter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.tg.exiting-bb { opacity: 0; transform: translateY(8px); transition: opacity 0.3s ease, transform 0.3s ease; }
+.tg-logos { display: flex; gap: 3px; flex-shrink: 0; }
+.tg-logo { width: 24px; height: 24px; object-fit: contain; }
+.tg-info { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.tg-teams { font-family: 'Oswald', sans-serif; font-size: 15px; font-weight: 700; color: var(--white); white-space: nowrap; }
+.tg-status { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; }
+.tg-status.live { color: var(--cyan); } .tg-status.pre { color: var(--yellow); } .tg-status.final { color: var(--muted); } .tg-status.goal { color: var(--cyan); }
+.tg-score { font-family: 'Oswald', sans-serif; font-size: 20px; font-weight: 700; color: var(--white); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.tg.bb-goal-flash { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan), inset 0 0 16px rgba(0,229,255,0.08); animation: bbFlash 4s ease forwards; }
+@keyframes bbFlash { 0%,60% { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan), inset 0 0 16px rgba(0,229,255,0.08); } 100% { border-color: var(--border); box-shadow: none; } }
+
+/* BOTTOM BAR NAV */
+.bb-nav { flex-shrink: 0; display: flex; align-items: center; gap: 8px; margin-left: 8px; }
+.bb-link { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); text-decoration: none; padding: 6px 10px; border: 1px solid var(--border); border-radius: 3px; white-space: nowrap; transition: color 0.2s, border-color 0.2s; }
+.bb-link:hover { color: var(--white); border-color: var(--muted); }
+.bb-link--twitch:hover { color: #9146ff; border-color: #9146ff; }
+.bb-sep { color: var(--border2); font-size: 10px; }
+
+/* NO GAMES STATE */
+.no-games {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; gap: 12px; color: var(--muted);
+}
+.no-games-title { font-family: 'Oswald', sans-serif; font-size: 28px; color: var(--dim); letter-spacing: 0.05em; }
+.no-games-sub { font-size: 12px; letter-spacing: 0.1em; }
+</style>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+const API_BASE = 'https://hgb-api.mdonders.workers.dev';
+const POLL_INTERVAL = 4000;
+const LOGO_BASE = 'https://assets.nhle.com/logos/nhl/svg';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TEAM PRIMARY COLORS (accent gradients)
+// ─────────────────────────────────────────────────────────────────────────────
+const TEAM_COLORS = {
+  ANA: ['#F47A38','#B9975B'], ARI: ['#8C2633','#E2D6B5'], BOS: ['#FFB81C','#000000'],
+  BUF: ['#003087','#FFB81C'], CAR: ['#CC0000','#000000'], CBJ: ['#002654','#CE1126'],
+  CGY: ['#C8102E','#F1BE48'], CHI: ['#CF0A2C','#000000'], COL: ['#6F263D','#236192'],
+  DAL: ['#006847','#8F8F8C'], DET: ['#CE1126','#FFFFFF'], EDM: ['#CF4520','#00205B'],
+  FLA: ['#041E42','#C8102E'], LAK: ['#111111','#A2AAAD'], MIN: ['#154734','#A6192E'],
+  MTL: ['#AF1E2D','#192168'], NSH: ['#FFB81C','#041E42'], NJD: ['#CE1126','#003087'],
+  NYI: ['#00539B','#F47D30'], NYR: ['#0038A8','#CE1126'], OTT: ['#C52032','#C69214'],
+  PHI: ['#F74902','#000000'], PIT: ['#FCB514','#000000'], SEA: ['#001628','#99D9D9'],
+  SJS: ['#006D75','#EA7200'], STL: ['#002F87','#FCB514'], TBL: ['#002868','#FFFFFF'],
+  TOR: ['#003E7E','#FFFFFF'], UTA: ['#71AFE5','#000000'], VAN: ['#00843D','#00205B'],
+  VGK: ['#B4975A','#333F42'], WSH: ['#041E42','#C8102E'], WPG: ['#041E42','#AC162C'],
+};
+
+function teamColor(abbrev, idx = 0) {
+  return (TEAM_COLORS[abbrev] || ['#555','#333'])[idx];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+const SLOTS = ['slot-tl','slot-tr','slot-bl','slot-br'];
+let grid = [null, null, null, null]; // game_ids in each slot
+let bench = [];                      // game_ids in bottom bar
+let gameCards = {};                  // game_id → card data
+let prevScores = {};                 // game_id → { away, home }
+let initialized = false;
+let noGamesShown = false;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API
+// ─────────────────────────────────────────────────────────────────────────────
+async function fetchGames() {
+  const resp = await fetch(`${API_BASE}/v1/games/today`, { cache: 'no-store' });
+  if (!resp.ok) throw new Error(`API ${resp.status}`);
+  return resp.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA TRANSFORMS
+// ─────────────────────────────────────────────────────────────────────────────
+function timeRemainingToMins(tr) {
+  if (!tr || tr === '--:--') return 20;
+  const [m, s] = tr.split(':').map(Number);
+  return (m || 0) + (s || 0) / 60;
+}
+
+function calcGamePct(period, timeRemaining, inIntermission) {
+  if (!period || period === 0) return 0;
+  if (inIntermission) return Math.round((period / 3) * 100);
+  const remainMins = timeRemainingToMins(timeRemaining);
+  const elapsed = Math.min((period - 1) * 20 + (20 - remainMins), 60);
+  return Math.min(100, Math.round((elapsed / 60) * 100));
+}
+
+function calcExcitement(game) {
+  const status = game.status;
+  if (status === 'scheduled') return -100 + (Date.now() - new Date(game.start_time).getTime()) / -3600000;
+  if (status === 'final') return -50;
+  const period = game.period || 1;
+  const away = game.away_team?.score || 0;
+  const home = game.home_team?.score || 0;
+  const goalDiff = Math.abs(away - home);
+  const isOT = period >= 4;
+  const closeness = Math.max(0, 4 - goalDiff) * 15;
+  const periodMult = [0, 1.0, 1.5, 2.5, 4.0][Math.min(period, 4)];
+  const remainMins = timeRemainingToMins(game.time_remaining);
+  const urgency = (period === 3 || isOT) ? (20 - remainMins) * 1.5 : 0;
+  const otBonus = isOT ? 80 : 0;
+  return closeness * periodMult + urgency + otBonus;
+}
+
+function buildBadgesFromGame(game) {
+  const badges = [];
+  const period = game.period || 0;
+  const away = game.away_team?.score || 0;
+  const home = game.home_team?.score || 0;
+  const goalDiff = Math.abs(away - home);
+  const isOT = period >= 4;
+  if (isOT) badges.push('ot:OT');
+  if (period > 0 && goalDiff === 0) badges.push('close:TIED');
+  else if (period > 0 && goalDiff === 1) badges.push('close:1-GOAL');
+  if (!isOT && period === 3 && timeRemainingToMins(game.time_remaining) < 5) badges.push('hot:🔥 FINAL MINS');
+  return badges;
+}
+
+function apiGameToCard(game) {
+  const away = game.away_team || {};
+  const home = game.home_team || {};
+  const period = game.period || 0;
+  const isOT = period >= 4;
+  const isFinal = game.status === 'final';
+  const isScheduled = game.status === 'scheduled' || game.status === 'unknown';
+  const inIntermission = game.in_intermission || false;
+  return {
+    id: game.game_id,
+    away: away.abbrev || '???',
+    awayCity: away.short_name || away.name || '',
+    home: home.abbrev || '???',
+    homeCity: home.short_name || home.name || '',
+    awayScore: away.score || 0,
+    homeScore: home.score || 0,
+    period,
+    clock: game.time_remaining || '--:--',
+    pct: calcGamePct(period, game.time_remaining, inIntermission),
+    excitement: calcExcitement(game),
+    status: game.status,
+    isFinal,
+    isScheduled,
+    isOT,
+    inIntermission,
+    lastEvent: game.last_event || '',
+    startTime: game.start_time,
+    accentFrom: teamColor(away.abbrev, 0),
+    accentTo: teamColor(away.abbrev, 1),
+    teamColor: teamColor(away.abbrev, 0),
+    badges: buildBadgesFromGame(game),
+  };
+}
+
+function parseLastEventForWash(lastEvent, card) {
+  if (!lastEvent) return null;
+  // Format: "⚡ Lastname (N) — Assist1, Assist2"
+  const clean = lastEvent.replace(/[⚡\s]+/, '').trim();
+  const parts = clean.split(' — ');
+  const scorerRaw = parts[0] || clean;
+  const assists = parts[1] || '';
+  const numMatch = scorerRaw.match(/\((\d+)\)/);
+  const scorerName = scorerRaw.replace(/\s*\(\d+\).*/, '').replace(/\s*(PP|SH|EN)\s*/g, '').trim();
+  const num = numMatch ? `${numMatch[1]} on the season` : '';
+  const periodLabel = card.isOT ? 'OT' : card.period === 5 ? 'SO' : (card.period || 1) + 'T';
+  const teamName = card.awayScore > card.homeScore ? card.away : card.home;
+  return {
+    eyebrow: `⚡ Goal — ${teamName}`,
+    scorer: scorerName.toUpperCase(),
+    num,
+    assists,
+    score: `${card.away} ${card.awayScore} · ${card.home} ${card.homeScore}`,
+    ctx: `${periodLabel} · ${card.clock}`,
+  };
+}
+
+function formatStartTime(isoStr) {
+  if (!isoStr) return 'UPCOMING';
+  try {
+    return new Date(isoStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  } catch { return 'UPCOMING'; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCORE COMPARE HELPER
+// ─────────────────────────────────────────────────────────────────────────────
+function scoreClass(a, b) {
+  if (a > b) return 'lead';
+  if (a < b) return 'trail';
+  return 'tie';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARD HTML BUILDER
+// ─────────────────────────────────────────────────────────────────────────────
+function buildBadgesHtml(badges) {
+  return (badges || []).map(b => {
+    const [cls, ...rest] = b.split(':');
+    return `<span class="badge ${cls}">${rest.join(':')}</span>`;
+  }).join('');
+}
+
+function buildCardInner(card, washData) {
+  if (!card) return '';
+  const ac = scoreClass(card.awayScore, card.homeScore);
+  const hc = scoreClass(card.homeScore, card.awayScore);
+
+  let statusClass, statusHtml;
+  if (card.isFinal) {
+    statusClass = 'final';
+    statusHtml = `<div class="status-dot"></div> FINAL`;
+  } else if (card.isScheduled) {
+    statusClass = 'scheduled';
+    statusHtml = `<div class="status-dot"></div> ${formatStartTime(card.startTime)}`;
+  } else if (card.inIntermission) {
+    statusClass = 'intermission';
+    const periodLabel = card.isOT ? 'OT' : card.period + 'T';
+    statusHtml = `<div class="status-dot"></div> ${periodLabel} INT`;
+  } else {
+    statusClass = card.isOT ? 'ot' : 'live';
+    const periodLabel = card.isOT ? 'OT' : card.period === 5 ? 'SO' : card.period + 'T';
+    statusHtml = `<div class="status-dot"></div> ${periodLabel} · ${card.clock}`;
+  }
+
+  const periodLabel = card.isOT ? 'OT' : card.period === 5 ? 'SO' : card.period > 0 ? card.period + 'T' : '';
+  let progLabel;
+  if (card.isFinal) progLabel = 'FINAL';
+  else if (card.isScheduled) progLabel = `STARTS ${formatStartTime(card.startTime)}`;
+  else if (card.inIntermission) progLabel = `${periodLabel} · INTERMISSION`;
+  else if (periodLabel) progLabel = `${periodLabel} · ${Math.round(card.pct)}% COMPLETE`;
+  else progLabel = 'UPCOMING';
+
+  const showClock = !card.isFinal && !card.isScheduled && !card.inIntermission;
+
+  const washHtml = washData ? `
+    <div class="goal-wash active" id="wash-${card.id}" style="background:rgba(${hexToRgb(card.teamColor)},0.96)">
+      <div class="gwo-eyebrow">${washData.eyebrow}</div>
+      <div class="gwo-scorer">${washData.scorer}</div>
+      <div class="gwo-goal-num">${washData.num}</div>
+      <div class="gwo-assists">${washData.assists}</div>
+      <div class="gwo-divider"></div>
+      <div class="gwo-score">${washData.score}</div>
+      <div class="gwo-context">${washData.ctx}</div>
+    </div>` : `<div class="goal-wash" id="wash-${card.id}"></div>`;
+
+  return `
+    ${washHtml}
+    <div class="hc-accent" style="background:linear-gradient(90deg,${card.accentFrom},${card.accentTo})"></div>
+    <div class="hc-head">
+      <div class="hc-status ${statusClass}">${statusHtml}</div>
+      <div class="hc-badges">${buildBadgesHtml(card.badges)}</div>
+    </div>
+    <div class="hc-body">
+      <div class="hc-team">
+        <img class="hc-logo ${ac==='trail'?'dim':''}" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}">
+        <div class="hc-abbr ${ac}">${card.away}</div>
+        <div class="hc-name">${card.awayCity}</div>
+      </div>
+      <div class="hc-score-center">
+        <div class="hc-nums">
+          <span class="hc-n ${ac}">${card.isScheduled ? '–' : card.awayScore}</span>
+          <span class="hc-sep">–</span>
+          <span class="hc-n ${hc}">${card.isScheduled ? '–' : card.homeScore}</span>
+        </div>
+      </div>
+      <div class="hc-team">
+        <img class="hc-logo ${hc==='trail'?'dim':''}" src="${LOGO_BASE}/${card.home}_light.svg" alt="${card.home}">
+        <div class="hc-abbr ${hc}">${card.home}</div>
+        <div class="hc-name">${card.homeCity}</div>
+      </div>
+    </div>
+    <div class="hc-foot">
+      <div class="hc-prog">
+        <span class="prog-lbl">${progLabel}</span>
+        <div class="prog-track"><div class="prog-fill" style="width:${card.pct}%;background:${card.accentFrom}"></div></div>
+        <span class="prog-clock">${showClock ? card.clock : ''}</span>
+      </div>
+      <div class="hc-divider"></div>
+      <div class="hc-bottom-row">
+        <div class="hc-last">${card.lastEvent}</div>
+      </div>
+    </div>`;
+}
+
+function buildBenchCard(card, isGoal) {
+  if (!card) return '';
+  const score = card.isScheduled ? `${formatStartTime(card.startTime)}` : `${card.awayScore}–${card.homeScore}`;
+  let statusText, statusClass;
+  if (isGoal) {
+    statusText = `⚡ GOAL`;
+    statusClass = 'goal';
+  } else if (card.isFinal) {
+    statusText = 'FINAL';
+    statusClass = 'final';
+  } else if (card.isScheduled) {
+    statusText = 'UPCOMING';
+    statusClass = 'pre';
+  } else {
+    const p = card.isOT ? 'OT' : card.period + 'T';
+    statusText = `● ${p} · ${card.clock}`;
+    statusClass = 'live';
+  }
+  return `
+    <div class="tg${isGoal ? ' bb-goal-flash' : ''}" id="bb-${card.id}">
+      <div class="tg-logos">
+        <img class="tg-logo" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}">
+        <img class="tg-logo" src="${LOGO_BASE}/${card.home}_light.svg" alt="${card.home}">
+      </div>
+      <div class="tg-info">
+        <div class="tg-teams">${card.away} · ${card.home}</div>
+        <div class="tg-status ${statusClass}">${statusText}</div>
+      </div>
+      <div class="tg-score">${score}</div>
+    </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+function renderGrid() {
+  grid.forEach((id, i) => {
+    const el = document.getElementById(SLOTS[i]);
+    el.classList.remove('hcard--loading');
+    el.innerHTML = id ? buildCardInner(gameCards[id]) : '';
+  });
+}
+
+function renderBench() {
+  document.getElementById('bb-container').innerHTML =
+    bench.map(id => buildBenchCard(gameCards[id])).join('');
+}
+
+function updateTopBar(data) {
+  const games = data.games || [];
+  const liveCount = games.filter(g => g.status === 'live').length;
+  const total = games.length;
+  const dateStr = data.date ? new Date(data.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'Tonight';
+  document.getElementById('topbar-date').textContent = `Live · ${dateStr}`;
+  document.getElementById('live-count').textContent = `${liveCount} LIVE`;
+  document.getElementById('total-games').textContent = `${total} GAMES`;
+}
+
+function updateTicker(cards) {
+  const live = cards.filter(c => !c.isFinal && !c.isScheduled && c.lastEvent);
+  if (!live.length) return;
+  const items = live.map(c => {
+    const cls = c.lastEvent.includes('Penalty') ? 'ti-penalty' : 'ti-goal';
+    return `<span class="${cls}"><strong>${c.away} vs ${c.home}</strong> &nbsp;${c.lastEvent} · ${c.isOT ? 'OT' : c.period + 'T'} ${c.clock}</span>`;
+  });
+  // Duplicate for seamless loop
+  const html = [...items, ...items].join('');
+  document.getElementById('ticker-inner').innerHTML = html;
+}
+
+function showNoGames() {
+  if (noGamesShown) return;
+  noGamesShown = true;
+  SLOTS.forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('hcard--loading');
+    el.innerHTML = '';
+  });
+  document.getElementById('slot-tl').innerHTML = `
+    <div class="no-games">
+      <div class="no-games-title">NO GAMES TODAY</div>
+      <div class="no-games-sub">CHECK BACK TOMORROW</div>
+    </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANIMATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  if (!hex || !hex.startsWith('#')) return '200,16,46';
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+
+function triggerWash(id, washData) {
+  const card = gameCards[id];
+  if (!card) return;
+  const slotIndex = grid.indexOf(id);
+  if (slotIndex < 0) return;
+  const el = document.getElementById(SLOTS[slotIndex]);
+  // Re-render with wash
+  el.innerHTML = buildCardInner(card, washData);
+  // Wash was rendered with .active class already, no extra trigger needed
+}
+
+function promoteGame(promoteId, washData) {
+  const demoteId = grid[3];
+  const brEl = document.getElementById('slot-br');
+  const bbEl = document.getElementById(`bb-${promoteId}`);
+  brEl.classList.add('exiting');
+  if (bbEl) bbEl.classList.add('exiting-bb');
+
+  setTimeout(() => {
+    grid[3] = promoteId;
+    bench = bench.filter(id => id !== promoteId);
+    if (demoteId) bench.push(demoteId);
+
+    brEl.innerHTML = buildCardInner(gameCards[promoteId], washData);
+    brEl.classList.remove('exiting');
+    brEl.style.opacity = '0'; brEl.style.transform = 'scale(1.02)';
+    brEl.offsetHeight;
+    brEl.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
+    brEl.style.opacity = '1'; brEl.style.transform = 'scale(1)';
+    setTimeout(() => { brEl.style.transition = ''; }, 500);
+
+    renderBench();
+    setTimeout(() => {
+      const newBb = document.getElementById(`bb-${demoteId}`);
+      if (newBb) newBb.classList.add('entering-bb');
+    }, 50);
+  }, 380);
+}
+
+function resortGrid(newOrder) {
+  SLOTS.forEach(id => document.getElementById(id).classList.add('exiting'));
+  setTimeout(() => {
+    grid = newOrder;
+    newOrder.forEach((gameId, i) => {
+      const el = document.getElementById(SLOTS[i]);
+      el.innerHTML = gameId ? buildCardInner(gameCards[gameId]) : '';
+      el.classList.remove('exiting');
+      el.style.opacity = '0'; el.style.transform = 'scale(1.02)';
+    });
+    document.body.offsetHeight;
+    newOrder.forEach((_, i) => {
+      const el = document.getElementById(SLOTS[i]);
+      el.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
+      el.style.opacity = '1'; el.style.transform = 'scale(1)';
+    });
+    setTimeout(() => SLOTS.forEach(id => { document.getElementById(id).style.transition = ''; }), 500);
+  }, 380);
+}
+
+function updateCardInPlace(slotIndex, card) {
+  const el = document.getElementById(SLOTS[slotIndex]);
+  if (!el || !card) return;
+  // Re-render without animation (just innerHTML update)
+  el.innerHTML = buildCardInner(card);
+}
+
+function flashBenchGoal(id) {
+  const el = document.getElementById(`bb-${id}`);
+  if (!el) return;
+  const card = gameCards[id];
+  if (!card) return;
+  const statusEl = el.querySelector('.tg-status');
+  if (statusEl) { statusEl.textContent = `⚡ GOAL`; statusEl.className = 'tg-status goal'; }
+  el.classList.remove('bb-goal-flash');
+  el.offsetHeight;
+  el.classList.add('bb-goal-flash');
+  setTimeout(() => {
+    if (statusEl) {
+      const p = card.isOT ? 'OT' : card.period + 'T';
+      statusEl.textContent = `● ${p} · ${card.clock}`;
+      statusEl.className = 'tg-status live';
+    }
+    el.classList.remove('bb-goal-flash');
+  }, 4500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GOAL DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+function checkForGoals(cards) {
+  const newGoals = [];
+  for (const card of cards) {
+    const prev = prevScores[card.id];
+    if (prev) {
+      const scored = card.awayScore > prev.away || card.homeScore > prev.home;
+      if (scored && !card.isFinal) {
+        newGoals.push(card.id);
+      }
+    }
+    prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
+  }
+  return newGoals;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN POLL LOOP
+// ─────────────────────────────────────────────────────────────────────────────
+async function pollAndUpdate() {
+  let data;
+  try {
+    data = await fetchGames();
+  } catch (e) {
+    console.warn('[HGB] API fetch failed:', e.message);
+    return;
+  }
+
+  const games = data.games || [];
+  if (!games.length) {
+    showNoGames();
+    return;
+  }
+
+  const cards = games.map(apiGameToCard);
+  const goalIds = checkForGoals(cards);
+
+  // Update game cards map
+  for (const card of cards) {
+    gameCards[card.id] = card;
+  }
+
+  // Sort by excitement
+  const sorted = [...cards].sort((a, b) => b.excitement - a.excitement);
+  const newTop4 = sorted.slice(0, 4).map(c => c.id);
+  const newBench = sorted.slice(4).map(c => c.id);
+
+  if (!initialized) {
+    // First render
+    grid = newTop4;
+    bench = newBench;
+    // Init previous scores
+    for (const card of cards) {
+      prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
+    }
+    SLOTS.forEach(id => document.getElementById(id).classList.remove('hcard--loading'));
+    renderGrid();
+    renderBench();
+    updateTopBar(data);
+    updateTicker(cards);
+    initialized = true;
+    return;
+  }
+
+  // Process goals
+  for (const id of goalIds) {
+    const card = gameCards[id];
+    const washData = parseLastEventForWash(card.lastEvent, card);
+    if (grid.includes(id)) {
+      // Goal in featured game → wash animation
+      triggerWash(id, washData);
+    } else if (bench.includes(id)) {
+      // Goal in bench game
+      flashBenchGoal(id);
+      // Promote if within 1 goal
+      const goalDiff = Math.abs(card.awayScore - card.homeScore);
+      if (goalDiff <= 1) {
+        setTimeout(() => promoteGame(id, washData), 4000);
+      }
+    }
+  }
+
+  // Check if top-4 order changed
+  const gridChanged = JSON.stringify(newTop4) !== JSON.stringify(grid);
+  if (gridChanged && !goalIds.length) {
+    // Re-sort without goal animation
+    grid = newTop4;
+    bench = newBench;
+    resortGrid(newTop4);
+    setTimeout(() => renderBench(), 400);
+  } else if (!goalIds.length) {
+    // Just update card data in place
+    for (let i = 0; i < grid.length; i++) {
+      if (grid[i]) updateCardInPlace(i, gameCards[grid[i]]);
+    }
+    bench = newBench;
+    renderBench();
+  }
+
+  updateTopBar(data);
+  updateTicker(cards);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WALL CLOCK
+// ─────────────────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const s = String(now.getSeconds()).padStart(2,'0');
+  document.getElementById('wall-clock').textContent = `${h}:${m}:${s}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// START
+// ─────────────────────────────────────────────────────────────────────────────
+pollAndUpdate();
+setInterval(pollAndUpdate, POLL_INTERVAL);
+</script>
