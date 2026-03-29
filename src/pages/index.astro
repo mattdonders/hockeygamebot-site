@@ -15,6 +15,8 @@
 </head>
 <body>
 
+<div id="catchup-pill">CATCHING UP TO LIVE…</div>
+
 <div class="topbar">
   <div class="brand">HGB</div>
   <div class="brand-sub" id="topbar-date">Live Tonight</div>
@@ -212,6 +214,17 @@ html, body {
 .tg.bb-goal-flash { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan), inset 0 0 16px rgba(0,229,255,0.08); animation: bbFlash 4s ease forwards; }
 @keyframes bbFlash { 0%,60% { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan), inset 0 0 16px rgba(0,229,255,0.08); } 100% { border-color: var(--border); box-shadow: none; } }
 
+
+/* CATCHUP INDICATOR */
+#catchup-pill {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,0.85); border: 1px solid var(--border2);
+  color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  padding: 6px 16px; border-radius: 20px; z-index: 200;
+  opacity: 0; transition: opacity 0.2s ease; pointer-events: none;
+  white-space: nowrap;
+}
+#catchup-pill.show { opacity: 1; }
 
 /* NO GAMES STATE */
 .no-games {
@@ -830,8 +843,39 @@ setInterval(updateClock, 1000);
 updateClock();
 
 // ─────────────────────────────────────────────────────────────────────────────
+// TAB VISIBILITY — throttle when hidden, catchup indicator on return
+// ─────────────────────────────────────────────────────────────────────────────
+let pollTimer = null;
+let hiddenAt = null;
+const STALE_THRESHOLD_MS = 10_000; // show catchup pill if hidden >10s
+
+function startPolling(interval) {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(pollAndUpdate, interval);
+}
+
+function showCatchupPill() {
+  const pill = document.getElementById('catchup-pill');
+  pill.classList.add('show');
+  setTimeout(() => pill.classList.remove('show'), 1500);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now();
+    startPolling(60_000); // slow down while backgrounded
+  } else {
+    const wasHiddenMs = hiddenAt ? Date.now() - hiddenAt : 0;
+    hiddenAt = null;
+    if (wasHiddenMs > STALE_THRESHOLD_MS) showCatchupPill();
+    pollAndUpdate(); // immediate refresh
+    startPolling(POLL_INTERVAL); // resume normal cadence
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // START
 // ─────────────────────────────────────────────────────────────────────────────
 pollAndUpdate();
-setInterval(pollAndUpdate, POLL_INTERVAL);
+startPolling(POLL_INTERVAL);
 </script>
