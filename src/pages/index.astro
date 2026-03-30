@@ -773,8 +773,63 @@ function resortGrid(newOrder) {
 function updateCardInPlace(slotIndex, card) {
   const el = document.getElementById(SLOTS[slotIndex]);
   if (!el || !card) return;
-  // Re-render without animation (just innerHTML update)
-  el.innerHTML = buildCardInner(card);
+
+  // Targeted DOM updates — never recreate <img> tags so logos don't flash
+  const ac = scoreClass(card.awayScore, card.homeScore);
+  const hc = scoreClass(card.homeScore, card.awayScore);
+
+  // Scores & separator
+  const nums = el.querySelectorAll('.hc-n');
+  if (nums[0]) { nums[0].textContent = card.awayScore; nums[0].className = `hc-n ${ac}`; }
+  if (nums[1]) { nums[1].textContent = card.homeScore; nums[1].className = `hc-n ${hc}`; }
+  const sep = el.querySelector('.hc-sep');
+  if (sep) sep.textContent = card.isScheduled ? 'VS' : '–';
+
+  // Abbr color classes
+  const abbrs = el.querySelectorAll('.hc-abbr');
+  if (abbrs[0]) abbrs[0].className = `hc-abbr ${ac}`;
+  if (abbrs[1]) abbrs[1].className = `hc-abbr ${hc}`;
+
+  // Logo dim (class only — no src change, no reload)
+  const logos = el.querySelectorAll('.hc-logo');
+  if (logos[0]) logos[0].className = `hc-logo ${card.isFinal && ac==='trail' ? 'dim' : ''}`;
+  if (logos[1]) logos[1].className = `hc-logo ${card.isFinal && hc==='trail' ? 'dim' : ''}`;
+
+  // Status
+  const statusEl = el.querySelector('.hc-status');
+  if (statusEl) {
+    let statusClass, statusHtml;
+    if (card.isFinal) {
+      statusClass = 'final'; statusHtml = `<div class="status-dot"></div> FINAL`;
+    } else if (card.isScheduled) {
+      statusClass = 'scheduled'; statusHtml = `<div class="status-dot"></div> ${formatStartTime(card.startTime)}`;
+    } else if (card.inIntermission) {
+      statusClass = 'intermission';
+      const intClock = card.clock && card.clock !== '--:--' ? ` · ${card.clock}` : '';
+      statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} INT${intClock}`;
+    } else {
+      statusClass = card.isOT ? 'ot' : 'live';
+      statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+    }
+    statusEl.className = `hc-status ${statusClass}`;
+    statusEl.innerHTML = statusHtml;
+  }
+
+  // Badges
+  const badgesEl = el.querySelector('.hc-badges');
+  if (badgesEl) badgesEl.innerHTML = buildBadgesHtml(card.badges);
+
+  // Last event
+  const footEl = el.querySelector('.hc-foot');
+  if (card.lastEvent) {
+    if (footEl) {
+      const lastEl = footEl.querySelector('.hc-last');
+      if (lastEl) lastEl.textContent = card.lastEvent;
+    } else {
+      // foot didn't exist yet — only then fall back to full re-render
+      el.innerHTML = buildCardInner(card);
+    }
+  }
 }
 
 function flashBenchGoal(id) {
