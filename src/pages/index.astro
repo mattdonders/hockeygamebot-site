@@ -163,9 +163,20 @@ html, body {
 .hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .badge { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 10px; border: 1px solid; }
 .badge.pp   { color: var(--yellow); border-color: rgba(255,202,40,0.35); background: rgba(255,202,40,0.07); }
+.badge.pk   { color: var(--red);    border-color: rgba(255,61,61,0.4);   background: rgba(255,61,61,0.08);  }
+.badge.adv  { color: var(--green);  border-color: rgba(0,230,118,0.4);  background: rgba(0,230,118,0.08);  }
+.badge.en   { color: var(--orange); border-color: rgba(255,152,0,0.4);  background: rgba(255,152,0,0.10);  }
 .badge.hot  { color: var(--orange); border-color: rgba(255,152,0,0.35);  background: rgba(255,152,0,0.07);  }
 .badge.close{ color: var(--red);    border-color: rgba(255,61,61,0.35);  background: rgba(255,61,61,0.07);  }
 .badge.ot   { color: var(--orange); border-color: rgba(255,152,0,0.5);  background: rgba(255,152,0,0.12);  }
+
+/* WIN PROBABILITY BAR */
+.hc-wp { display: flex; align-items: center; gap: 6px; width: 100%; padding: 0 4px; }
+.hc-wp-track { flex: 1; height: 4px; border-radius: 2px; overflow: hidden; background: var(--border2); }
+.hc-wp-bar { height: 100%; }
+.hc-wp-pct { font-family: 'Oswald', sans-serif; font-size: 11px; font-weight: 700; color: var(--text); min-width: 30px; font-variant-numeric: tabular-nums; }
+.hc-wp-pct.away { text-align: right; }
+.hc-wp-pct.home { text-align: left; }
 .hc-body { display: flex; align-items: center; justify-content: center; padding: 4px 28px 0; position: relative; z-index: 2; }
 .hc-team { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
 .hc-logo { width: clamp(56px, 8vw, 100px); height: clamp(56px, 8vw, 100px); object-fit: contain; }
@@ -445,11 +456,21 @@ function buildBadgesFromGame(game) {
   const away = game.away_team?.score || 0;
   const home = game.home_team?.score || 0;
   const goalDiff = Math.abs(away - home);
-  const isOT = period >= 4;
+  const isLive = game.status === 'live';
+  const isOT = isLive && period >= 4;
   if (isOT) badges.push('ot:OT');
   if (period > 0 && goalDiff === 0) badges.push('close:TIED');
   else if (period > 0 && goalDiff === 1) badges.push('close:1-GOAL');
   if (!isOT && period === 3 && game.status !== 'final' && timeRemainingToMins(game.time_remaining) < 5) badges.push('hot:🔥 FINAL MINS');
+  // Strength state badge (live games only)
+  if (isLive) {
+    const ss = game.strength_state;
+    if      (ss === 'PP')                       badges.push('pp:PP');
+    else if (ss === 'PK')                       badges.push('pk:PK');
+    else if (ss === '5V3')                      badges.push('adv:5v3');
+    else if (ss === '3V5')                      badges.push('pk:3v5');
+    else if (ss === 'EN_AWAY' || ss === 'EN_HOME') badges.push('en:EN');
+  }
   return badges;
 }
 
@@ -486,6 +507,8 @@ function apiGameToCard(game) {
     accentFrom: teamColor(away.abbrev, 0),
     accentTo: teamColor(away.abbrev, 1),
     teamColor: teamColor(away.abbrev, 0),
+    homeColor: teamColor(home.abbrev, 0),
+    winProbability: game.win_probability ?? null,
     badges: buildBadgesFromGame(game),
   };
 }
@@ -536,6 +559,19 @@ function scoreClass(a, b) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CARD HTML BUILDER
 // ─────────────────────────────────────────────────────────────────────────────
+function buildWpBarHtml(card) {
+  if (card.winProbability === null || card.winProbability === undefined) return '';
+  if (card.isFinal || card.isScheduled) return '';
+  const homePct = Math.round(card.winProbability * 100);
+  const awayPct = 100 - homePct;
+  const bar = `background:linear-gradient(90deg,${card.teamColor} 0%,${card.teamColor} ${awayPct}%,${card.homeColor} ${awayPct}%,${card.homeColor} 100%)`;
+  return `<div class="hc-wp">
+    <span class="hc-wp-pct away">${awayPct}%</span>
+    <div class="hc-wp-track"><div class="hc-wp-bar" style="${bar}"></div></div>
+    <span class="hc-wp-pct home">${homePct}%</span>
+  </div>`;
+}
+
 function buildBadgesHtml(badges) {
   return (badges || []).map(b => {
     const [cls, ...rest] = b.split(':');
@@ -597,6 +633,7 @@ function buildCardInner(card, washData) {
           <span class="hc-sep">${card.isScheduled ? 'VS' : '–'}</span>
           ${card.isScheduled ? '' : `<span class="hc-n ${hc}">${card.homeScore}</span>`}
         </div>
+        ${buildWpBarHtml(card)}
       </div>
       <div class="hc-team">
         <img class="hc-logo ${card.isFinal&&hc==='trail'?'dim':''}" src="${LOGO_BASE}/${card.home}_light.svg" alt="${card.home}">
