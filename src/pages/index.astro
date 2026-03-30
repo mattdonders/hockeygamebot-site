@@ -24,6 +24,7 @@
     <span class="topbar-live" id="live-count">– LIVE</span>
     <span id="total-games">– GAMES</span>
     <span id="wall-clock">--:--:--</span>
+    <span id="sse-indicator" title="Push connection">📡</span>
     <span class="topbar-divider"></span>
     <nav class="topbar-nav">
       <a href="/teams/" class="topbar-link">TEAMS</a>
@@ -78,6 +79,9 @@ html, body {
 .brand-sub { font-size: 11px; color: rgba(255,255,255,0.65); letter-spacing: 0.14em; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 20px; font-size: 12px; color: rgba(255,255,255,0.75); }
 .topbar-live { color: #fff; font-weight: 700; letter-spacing: 0.06em; }
+#sse-indicator { font-size: 14px; opacity: 0.3; transition: opacity 0.4s, filter 0.4s; }
+#sse-indicator.connected { opacity: 1; filter: drop-shadow(0 0 4px #00e676); }
+#sse-indicator.error { opacity: 0.6; filter: drop-shadow(0 0 4px #ff3d3d); }
 .topbar-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.2); }
 .topbar-nav { display: flex; gap: 6px; }
 .topbar-link { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); text-decoration: none; padding: 4px 10px; border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; transition: color 0.15s, border-color 0.15s; }
@@ -942,6 +946,38 @@ document.addEventListener('visibilitychange', () => {
     startPolling(POLL_INTERVAL); // resume normal cadence
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SSE PUSH — bot events trigger immediate poll instead of waiting for interval
+// ─────────────────────────────────────────────────────────────────────────────
+const SSE_URL = 'https://push.hockeygamebot.com/events';
+const sseIndicator = document.getElementById('sse-indicator');
+
+function connectSSE() {
+  const es = new EventSource(SSE_URL);
+
+  es.onopen = () => {
+    sseIndicator.classList.add('connected');
+    sseIndicator.classList.remove('error');
+  };
+
+  es.onmessage = (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+    if (data.type === 'goal' || data.type === 'period_end' || data.type === 'game_end') {
+      pollAndUpdate();
+    }
+  };
+
+  es.onerror = () => {
+    sseIndicator.classList.remove('connected');
+    sseIndicator.classList.add('error');
+    es.close();
+    setTimeout(connectSSE, 10_000);
+  };
+}
+
+connectSSE();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START
