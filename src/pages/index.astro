@@ -42,12 +42,7 @@
   </div>
 </div>
 
-<div class="grid">
-  <div id="slot-tl" class="hcard hcard--loading"></div>
-  <div id="slot-tr" class="hcard hcard--loading"></div>
-  <div id="slot-bl" class="hcard hcard--loading"></div>
-  <div id="slot-br" class="hcard hcard--loading"></div>
-</div>
+<div id="grid-wrapper"></div>
 
 <div class="bottombar">
   <div class="bb-label">MORE</div>
@@ -88,13 +83,26 @@ html, body {
 .topbar-link:hover { color: #fff; border-color: rgba(255,255,255,0.5); }
 .topbar-link--twitch:hover { color: #9146ff; border-color: #9146ff; }
 
-/* 2×2 GRID */
-.grid {
-  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
-  gap: 4px; padding: 4px;
-  height: calc(100vh - 44px - 28px - 80px); /* topbar + ticker + bottombar */
-  background: #000;
-}
+/* DYNAMIC GRID WRAPPER */
+#grid-wrapper { background: #000; padding: 4px; position: relative; overflow: hidden; height: calc(100vh - 44px - 28px - 80px); /* topbar + ticker + bottombar */ }
+
+/* Base grid container */
+.gg { width: 100%; height: 100%; gap: 4px; }
+
+/* Layout variants */
+.gg-1 { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.gg-2 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.gg-3 { display: grid; grid-template-columns: 3fr 2fr; grid-template-rows: 1fr 1fr; }
+.gg-3 #g-0 { grid-row: 1 / 3; }
+.gg-4 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.gg-5 { display: flex; height: 100%; }
+.gg-left  { flex: 3; display: flex; flex-direction: column; gap: 4px; }
+.gg-right { flex: 2; display: flex; flex-direction: column; gap: 4px; margin-left: 4px; }
+.gg-6 { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+/* Compact slot — hide secondary content */
+.hcard.compact .hc-stat-wrap { display: none; }
+.hcard.compact .hc-foot { display: none; }
 
 /* HERO CARD */
 .hcard {
@@ -301,12 +309,15 @@ html, body {
   .ticker-inner span { font-size: 11px; margin-right: 36px; }
 
   /* Grid: single column, auto height, cards scroll */
-  .grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto;
+  #grid-wrapper {
     height: auto;
-    gap: 2px;
     padding: 2px;
+  }
+  .gg {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    height: auto;
   }
 
   /* Cards: auto inner rows, min height so they don't collapse */
@@ -366,9 +377,10 @@ function teamColor(abbrev, idx = 0) {
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────────────────────────────────────
-const SLOTS = ['slot-tl','slot-tr','slot-bl','slot-br'];
-let grid = [null, null, null, null]; // game_ids in each slot
-let bench = [];                      // game_ids in bottom bar
+let SLOTS = [];
+let grid = [];
+let bench = [];
+let currentLayoutMode = null;
 let gameCards = {};                  // game_id → card data
 let prevScores = {};                 // game_id → { away, home }
 let initialized = false;
@@ -728,12 +740,47 @@ function buildBenchCard(card, isGoal) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LAYOUT ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+function getLayoutMode(n) {
+  if (n >= 7) return '7plus';
+  return String(Math.max(1, n));
+}
+
+function getGridSlotCount(mode) {
+  return { '1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7plus':4 }[mode] || 4;
+}
+
+function buildGridHtml(mode) {
+  const c = (id, compact) =>
+    `<div id="g-${id}" class="hcard${compact ? ' compact' : ''}"></div>`;
+  switch (mode) {
+    case '1': return `<div class="gg gg-1">${c(0)}</div>`;
+    case '2': return `<div class="gg gg-2">${c(0)}${c(1)}</div>`;
+    case '3': return `<div class="gg gg-3">${c(0)}${c(1,1)}${c(2,1)}</div>`;
+    case '4': return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
+    case '5': return `<div class="gg gg-5"><div class="gg-left">${c(0)}${c(1)}</div><div class="gg-right">${c(2,1)}${c(3,1)}${c(4,1)}</div></div>`;
+    case '6': return `<div class="gg gg-6">${[0,1,2,3,4,5].map(i=>c(i,1)).join('')}</div>`;
+    default:  return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
+  }
+}
+
+function applyLayout(mode, newGrid, newBench) {
+  currentLayoutMode = mode;
+  const gridSize = getGridSlotCount(mode);
+  document.getElementById('grid-wrapper').innerHTML = buildGridHtml(mode);
+  SLOTS = Array.from({length: gridSize}, (_, i) => `g-${i}`);
+  grid = newGrid;
+  bench = newBench;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────────────────────────────────────
 function renderGrid() {
   grid.forEach((id, i) => {
     const el = document.getElementById(SLOTS[i]);
-    el.classList.remove('hcard--loading');
+    if (!el) return;
     el.innerHTML = id ? buildCardInner(gameCards[id]) : '';
   });
 }
@@ -787,12 +834,7 @@ function updateTicker(cards) {
 function showNoGames() {
   if (noGamesShown) return;
   noGamesShown = true;
-  SLOTS.forEach(id => {
-    const el = document.getElementById(id);
-    el.classList.remove('hcard--loading');
-    el.innerHTML = '';
-  });
-  document.getElementById('slot-tl').innerHTML = `
+  document.getElementById('grid-wrapper').innerHTML = `
     <div class="no-games">
       <div class="no-games-title">NO GAMES TODAY</div>
       <div class="no-games-sub">CHECK BACK TOMORROW</div>
@@ -822,14 +864,14 @@ function triggerWash(id, washData) {
 }
 
 function promoteGame(promoteId, washData) {
-  const demoteId = grid[3];
-  const brEl = document.getElementById('slot-br');
+  const demoteId = grid[SLOTS.length - 1];
+  const brEl = document.getElementById(SLOTS[SLOTS.length - 1]);
   const bbEl = document.getElementById(`bb-${promoteId}`);
   brEl.classList.add('exiting');
   if (bbEl) bbEl.classList.add('exiting-bb');
 
   setTimeout(() => {
-    grid[3] = promoteId;
+    grid[SLOTS.length - 1] = promoteId;
     bench = bench.filter(id => id !== promoteId);
     if (demoteId) bench.push(demoteId);
 
@@ -1011,18 +1053,19 @@ async function pollAndUpdate() {
 
   // Sort by excitement
   const sorted = [...cards].sort((a, b) => b.excitement - a.excitement);
-  const newTop4 = sorted.slice(0, 4).map(c => c.id);
-  const newBench = sorted.slice(4).map(c => c.id);
+  const layoutMode = getLayoutMode(cards.length);
+  const gridSize = getGridSlotCount(layoutMode);
+  const newTopN = sorted.slice(0, gridSize).map(c => c.id);
+  const newBench = sorted.slice(gridSize).map(c => c.id);
 
-  if (!initialized) {
-    // First render
-    grid = newTop4;
-    bench = newBench;
-    // Init previous scores
-    for (const card of cards) {
-      prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
+  if (!initialized || layoutMode !== currentLayoutMode) {
+    if (!initialized) {
+      // Init previous scores
+      for (const card of cards) {
+        prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
+      }
     }
-    SLOTS.forEach(id => document.getElementById(id).classList.remove('hcard--loading'));
+    applyLayout(layoutMode, newTopN, newBench);
     renderGrid();
     renderBench();
     updateTopBar(data);
@@ -1050,13 +1093,13 @@ async function pollAndUpdate() {
     }
   }
 
-  // Check if top-4 order changed
-  const gridChanged = JSON.stringify(newTop4) !== JSON.stringify(grid);
+  // Check if top-N order changed
+  const gridChanged = JSON.stringify(newTopN) !== JSON.stringify(grid);
   if (gridChanged && !goalIds.length) {
     // Re-sort without goal animation
-    grid = newTop4;
+    grid = newTopN;
     bench = newBench;
-    resortGrid(newTop4);
+    resortGrid(newTopN);
     setTimeout(() => renderBench(), 400);
   } else if (!goalIds.length) {
     // Just update card data in place
