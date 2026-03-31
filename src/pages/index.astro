@@ -1169,15 +1169,20 @@ document.addEventListener('visibilitychange', () => {
 const SSE_URL = 'https://push.hockeygamebot.com/events';
 const sseIndicator = document.getElementById('sse-indicator');
 
+let _sse = null;
 function connectSSE() {
-  const es = new EventSource(SSE_URL);
+  // Always close any existing connection first — EventSource also auto-reconnects
+  // natively, so without this we'd accumulate duplicate connections on each error.
+  if (_sse) { _sse.close(); _sse = null; }
 
-  es.onopen = () => {
+  _sse = new EventSource(SSE_URL);
+
+  _sse.onopen = () => {
     sseIndicator.classList.add('connected');
     sseIndicator.classList.remove('error');
   };
 
-  es.onmessage = (e) => {
+  _sse.onmessage = (e) => {
     let data;
     try { data = JSON.parse(e.data); } catch { return; }
     if (data.type === 'connected') {
@@ -1190,10 +1195,10 @@ function connectSSE() {
     }
   };
 
-  es.onerror = () => {
+  _sse.onerror = () => {
     sseIndicator.classList.remove('connected');
     sseIndicator.classList.add('error');
-    es.close();
+    if (_sse) { _sse.close(); _sse = null; }
     setTimeout(connectSSE, 10_000);
   };
 }
