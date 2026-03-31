@@ -217,6 +217,11 @@ html, body {
 .hc-last-label::before, .hc-last-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .hc-last { font-size: clamp(10px, 1.1vw, 12px); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hc-last strong { color: var(--text); }
+.hc-stars { display: flex; justify-content: space-around; padding: 4px 0 2px; }
+.hc-star { display: flex; flex-direction: column; align-items: center; gap: 1px; flex: 1; }
+.hc-star-num { font-size: 9px; color: var(--dim); letter-spacing: 0.05em; }
+.hc-star-name { font-size: clamp(9px, 1vw, 11px); font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%; text-align: center; }
+.hc-star-team { font-size: 8px; color: var(--dim); letter-spacing: 0.06em; }
 
 /* RECENT EVENTS FEED */
 .hc-recent { padding: 6px 20px 10px; display: flex; flex-direction: column; gap: 3px; position: relative; z-index: 2; }
@@ -706,6 +711,7 @@ function apiGameToCard(game) {
     awaySog: game.away_sog ?? null,
     xgHome: game.xg_home != null ? +parseFloat(game.xg_home).toFixed(1) : null,
     xgAway: game.xg_away != null ? +parseFloat(game.xg_away).toFixed(1) : null,
+    threeStars: Array.isArray(game.three_stars) ? game.three_stars : null,
     badges: buildBadgesFromGame(game),
   };
 }
@@ -895,7 +901,17 @@ function buildCardInner(card, washData) {
         <span class="hc-recent-desc">${e.description}</span>
         <span class="hc-recent-time">${e.time_ago}</span>
       </div>`).join('')}
-  </div>` : (card.lastEvent ? `<div class="hc-foot"><div class="hc-last-label"><span>LAST EVENT</span></div><div class="hc-last">${card.lastEvent}</div></div>` : '')}`;
+  </div>` : (card.isFinal && card.threeStars?.length ? `
+  <div class="hc-foot">
+    <div class="hc-last-label"><span>THREE STARS</span></div>
+    <div class="hc-stars">${card.threeStars.slice(0,3).map(s => `
+      <div class="hc-star">
+        <div class="hc-star-num">${'⭐'.repeat(s.star || 1)}</div>
+        <div class="hc-star-name">${s.player_last_name || s.player_name || ''}</div>
+        <div class="hc-star-team">${s.team_abbrev || ''}</div>
+      </div>`).join('')}
+    </div>
+  </div>` : (card.lastEvent && !card.isFinal ? `<div class="hc-foot"><div class="hc-last-label"><span>LAST EVENT</span></div><div class="hc-last">${card.lastEvent}</div></div>` : ''))}`;
 }
 
 function buildBenchCard(card, isGoal) {
@@ -1278,7 +1294,12 @@ function updateCardInPlace(slotIndex, card) {
       if (footEl) footEl.remove();
       el.innerHTML = buildCardInner(card);
     }
-  } else if (card.lastEvent) {
+  } else if (card.isFinal && card.threeStars?.length) {
+    // Final game: show three stars (static, no need to patch text)
+    if (!footEl || !footEl.querySelector('.hc-stars')) {
+      el.innerHTML = buildCardInner(card);
+    }
+  } else if (card.lastEvent && !card.isFinal) {
     if (footEl) {
       const lastEl = footEl.querySelector('.hc-last');
       if (lastEl) lastEl.textContent = card.lastEvent;
