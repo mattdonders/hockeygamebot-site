@@ -34,7 +34,7 @@
 </div>
 
 <div class="ticker-strip">
-  <div class="ticker-lbl">⚡ LIVE</div>
+  <div class="ticker-lbl" id="ticker-lbl">⚡ LIVE</div>
   <div class="ticker-content">
     <div class="ticker-inner" id="ticker-inner">
       <span>Loading game data…</span>
@@ -225,7 +225,8 @@ html, body {
 
 /* TICKER */
 .ticker-strip { height: 28px; background: #000; display: flex; align-items: center; overflow: hidden; border-top: 1px solid #1a1a1a; border-bottom: 1px solid #1a1a1a; }
-.ticker-lbl { flex-shrink: 0; height: 100%; background: #111; border-right: 2px solid var(--red); padding: 0 14px; display: flex; align-items: center; font-size: 9px; font-weight: 700; letter-spacing: 0.16em; color: var(--red); white-space: nowrap; }
+.ticker-lbl { flex-shrink: 0; height: 100%; background: #111; border-right: 2px solid var(--red); padding: 0 14px; display: flex; align-items: center; font-size: 9px; font-weight: 700; letter-spacing: 0.16em; color: var(--red); white-space: nowrap; transition: color 0.3s, border-color 0.3s; }
+.ticker-lbl.recap { color: var(--muted); border-right-color: #444; }
 .ticker-content { flex: 1; overflow: hidden; white-space: nowrap; }
 .ticker-inner { display: inline-block; animation: scroll 60s linear infinite; padding-left: 40%; }
 @keyframes scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
@@ -865,16 +866,49 @@ function updateTopBar(data) {
 // ── GOALS TICKER ─────────────────────────────────────────────────────────────
 let _lastGoalsTickerHtml = '';
 let _goalsCache = [];
+let _tickerMode = 'live'; // 'live' | 'recap'
+
+function _yesterdayDateStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
 
 async function fetchGoals() {
   try {
     const resp = await fetch(`${API_BASE}/v1/goals`, { cache: 'no-store' });
     if (!resp.ok) return;
     const data = await resp.json();
-    _goalsCache = data.goals || [];
-    renderGoalsTicker();
+    const todayGoals = data.goals || [];
+    if (todayGoals.length > 0) {
+      // Today has goals — switch/stay in live mode
+      _goalsCache = todayGoals;
+      _tickerMode = 'live';
+      renderGoalsTicker();
+    } else if (_tickerMode !== 'live') {
+      // Still pre-game and already showing recap — nothing to update
+    } else {
+      // No goals today yet — fetch yesterday for recap ticker
+      fetchYesterdayGoals();
+    }
   } catch (e) {
     // silently ignore — ticker just stays as-is
+  }
+}
+
+async function fetchYesterdayGoals() {
+  try {
+    const yesterday = _yesterdayDateStr();
+    const resp = await fetch(`${API_BASE}/v1/goals?date=${yesterday}`, { cache: 'no-store' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if ((data.goals || []).length > 0) {
+      _goalsCache = data.goals;
+      _tickerMode = 'recap';
+      renderGoalsTicker();
+    }
+  } catch (e) {
+    // silently ignore
   }
 }
 
@@ -907,6 +941,12 @@ function renderGoalsTicker() {
   _lastGoalsTickerHtml = html;
   // Double the content so the scroll loop is seamless
   document.getElementById('ticker-inner').innerHTML = [html, html].join('<span class="ti-sep">◆</span>');
+  // Update label
+  const lbl = document.getElementById('ticker-lbl');
+  if (lbl) {
+    lbl.textContent = _tickerMode === 'recap' ? '🔄 RECAP' : '⚡ LIVE';
+    lbl.classList.toggle('recap', _tickerMode === 'recap');
+  }
 }
 
 // Legacy fallback — called from pollAndUpdate when no goals yet
