@@ -1161,12 +1161,22 @@ async function pollAndUpdate() {
     gameCards[card.id] = card;
   }
 
-  // Sort by excitement
-  const sorted = [...cards].sort((a, b) => b.excitement - a.excitement);
+  // Sort by excitement — stable: use game id as tiebreaker so equal-score games never flip.
+  // Round to 1 decimal to prevent tiny float drift (pre-game hoursUntil changes each poll)
+  // from triggering spurious re-sorts.
+  const sorted = [...cards].sort((a, b) => {
+    const diff = Math.round(b.excitement * 10) - Math.round(a.excitement * 10);
+    return diff !== 0 ? diff : (a.id < b.id ? -1 : 1);
+  });
   const layoutMode = getLayoutMode(cards.length);
   const gridSize = getGridSlotCount(layoutMode);
   const newTopN = sorted.slice(0, gridSize).map(c => c.id);
   const newBench = sorted.slice(gridSize).map(c => c.id);
+
+  // Pre-game freeze: if nothing is live yet, never re-sort — all scheduled games
+  // have nearly identical excitement scores that drift each poll → constant reshuffling.
+  const anyLive = cards.some(c => !c.isScheduled && !c.isFinal);
+
 
   if (!initialized || layoutMode !== currentLayoutMode) {
     if (!initialized) {
@@ -1207,7 +1217,7 @@ async function pollAndUpdate() {
   // Check if top-N order changed
   const gridChanged = JSON.stringify(newTopN) !== JSON.stringify(grid);
   const goalFreezeActive = (Date.now() - lastGoalTime) < 45000;
-  if (gridChanged && !goalIds.length && !goalFreezeActive) {
+  if (gridChanged && !goalIds.length && !goalFreezeActive && anyLive) {
     // Re-sort without goal animation
     grid = newTopN;
     bench = newBench;
