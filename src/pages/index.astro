@@ -331,12 +331,22 @@ html, body {
 .modal-no-chart { color:#444; font-size:12px; text-align:center; padding:32px 0; }
 .modal-section-label { font-size:9px; font-weight:700; letter-spacing:0.18em; color:#444; margin-bottom:10px; }
 .modal-goals-section { margin-top:4px; }
-.modal-goal-row { display:flex; align-items:center; gap:12px; padding:7px 0; border-bottom:1px solid #141414; font-size:12px; }
-.modal-goal-team { font-weight:700; font-size:11px; letter-spacing:0.08em; min-width:36px; }
-.modal-goal-score { color:#f5f5f5; font-weight:600; flex:1; }
-.modal-goal-time { color:#555; font-size:11px; white-space:nowrap; }
-.modal-goal-strength { font-size:9px; font-weight:700; color:#ffca28; }
-.modal-no-goals { color:#444; font-size:12px; padding:16px 0; }
+.modal-no-goals { color:#444; font-size:12px; padding:12px 0; text-align:center; }
+/* 2-column goals grid */
+.modal-goals-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.modal-goals-col { display:flex; flex-direction:column; gap:4px; }
+.modal-goals-col-hdr { font-family:'Oswald',sans-serif; font-size:12px; font-weight:700; letter-spacing:0.12em; margin-bottom:4px; padding-bottom:6px; border-bottom:1px solid #1e1e1e; }
+.modal-goal-card { padding:7px 0; border-bottom:1px solid #111; }
+.modal-gc-top { display:flex; align-items:center; gap:7px; font-size:12px; }
+.modal-gc-abbr { font-weight:700; font-size:11px; letter-spacing:0.08em; min-width:28px; }
+.modal-gc-score { color:#f5f5f5; font-weight:600; flex:1; }
+.modal-gc-time { color:#555; font-size:11px; white-space:nowrap; }
+.modal-gc-scorer { font-size:11px; color:#888; margin-top:3px; padding-left:0; }
+.modal-gc-assists { color:#555; }
+.modal-strength { font-size:9px; font-weight:700; padding:1px 4px; border-radius:2px; letter-spacing:0.06em; }
+.modal-strength.pp { color:#ffca28; background:rgba(255,202,40,0.12); }
+.modal-strength.sh { color:#4dd; background:rgba(68,221,221,0.12); }
+.modal-strength.en { color:#f88; background:rgba(255,136,136,0.12); }
 /* Make grid cards clickable */
 .hcard { cursor:pointer; }
 .hcard:hover { border-color:#2a2a2a; }
@@ -467,7 +477,7 @@ function interpWp(points, t) {
 }
 
 function buildWpChart(points, goals, homeAbbr, awayAbbr, homeColor, awayColor, tMax) {
-  const svgW = 800; const svgH = 110; const padH = 12;
+  const svgW = 800; const svgH = 180; const padH = 16;
   const midY = svgH / 2;
   const tMin = 0;
   const pts = points.filter(p => p.t >= tMin && p.t <= tMax && p.wp != null);
@@ -1080,7 +1090,7 @@ function renderGoalsTicker() {
   const tickerEl = document.getElementById('ticker-inner');
   tickerEl.innerHTML = [html, html].join('<span class="ti-sep">◆</span>');
   // ~4s per item so each goal is readable; min 30s
-  tickerEl.style.animationDuration = `${Math.max(30, items.length * 5)}s`;
+  tickerEl.style.animationDuration = `${Math.max(36, items.length * 6)}s`;
   // Update label
   const lbl = document.getElementById('ticker-lbl');
   if (lbl) {
@@ -1554,7 +1564,7 @@ async function openModal(gameId) {
   const card = gameCards[gameId];
   if (!card) { content.innerHTML = '<div class="modal-loading">Game not found.</div>'; return; }
 
-  const points = (flow.points || []).filter(p => p.wp != null);
+  const points = (flow.points || []).filter(p => p.wp != null).sort((a, b) => a.t - b.t);
   const goals = (flow.goals || []).map(g => ({ ...g, isHome: g.is_home }));
   const tMax = points.length ? points[points.length - 1].t : 3600;
 
@@ -1584,17 +1594,40 @@ async function openModal(gameId) {
   function secToMs(s) {
     return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   }
+  function strengthBadge(s) {
+    if (s === 'pp') return `<span class="modal-strength pp">PP</span>`;
+    if (s === 'sh') return `<span class="modal-strength sh">SH</span>`;
+    if (s === 'en') return `<span class="modal-strength en">EN</span>`;
+    return '';
+  }
+  function buildGoalCard(g, color, teamAbbr) {
+    const assists = (g.assists || []).join(', ');
+    return `<div class="modal-goal-card">
+      <div class="modal-gc-top">
+        <span class="modal-gc-abbr" style="color:${color}">${teamAbbr}</span>
+        ${strengthBadge(g.strength)}
+        <span class="modal-gc-score">${(g.score||'').replace('-','–')}</span>
+        <span class="modal-gc-time">${goalPeriodStr(g.t)}</span>
+      </div>
+      ${g.scorer ? `<div class="modal-gc-scorer">🚨 ${g.scorer}${assists ? `<span class="modal-gc-assists"> (${assists})</span>` : ''}</div>` : ''}
+    </div>`;
+  }
+
+  const awayGoals = goals.filter(g => !g.isHome);
+  const homeGoals = goals.filter(g => g.isHome);
+
+  function buildGoalColumn(list, color, abbr, label) {
+    return `<div class="modal-goals-col">
+      <div class="modal-goals-col-hdr" style="color:${color}">${label}</div>
+      ${list.length ? list.map(g => buildGoalCard(g, color, abbr)).join('') : '<div class="modal-no-goals">—</div>'}
+    </div>`;
+  }
 
   const goalsHtml = goals.length
-    ? goals.map(g => {
-        const color = g.isHome ? card.homeColor : card.teamColor;
-        const teamAbbr = g.isHome ? card.home : card.away;
-        return `<div class="modal-goal-row">
-          <span class="modal-goal-team" style="color:${color}">${teamAbbr}</span>
-          <span class="modal-goal-score">${g.score.replace('-', '–')}</span>
-          <span class="modal-goal-time">${goalPeriodStr(g.t)}</span>
-        </div>`;
-      }).join('')
+    ? `<div class="modal-goals-grid">
+        ${buildGoalColumn(awayGoals, card.teamColor, card.away, card.away)}
+        ${buildGoalColumn(homeGoals, card.homeColor, card.home, card.home)}
+      </div>`
     : '<div class="modal-no-goals">No goals yet.</div>';
 
   content.innerHTML = `
