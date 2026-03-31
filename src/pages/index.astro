@@ -181,7 +181,7 @@ html, body {
 
 /* WIN PROBABILITY TEXT */
 .hc-wp-text { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 2px; }
-.hc-wp-away, .hc-wp-home { font-size: clamp(8px, 0.9vw, 11px); font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hc-wp-away, .hc-wp-home { font-size: clamp(12px, 1.4vw, 16px); font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hc-wp-mid { font-size: clamp(7px, 0.8vw, 9px); font-weight: 600; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; }
 /* STAT BARS (SOG / xG) */
 .hc-stat-wrap { display: flex; flex-direction: column; gap: 2px; width: 100%; }
@@ -210,6 +210,19 @@ html, body {
 .hc-last-label::before, .hc-last-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .hc-last { font-size: clamp(10px, 1.1vw, 12px); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hc-last strong { color: var(--text); }
+
+/* RECENT EVENTS FEED */
+.hc-recent { padding: 6px 20px 10px; display: flex; flex-direction: column; gap: 3px; position: relative; z-index: 2; }
+.hc-recent-label { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.hc-recent-label span { font-size: 7px; font-weight: 700; letter-spacing: 0.16em; color: var(--dim); text-transform: uppercase; white-space: nowrap; }
+.hc-recent-label::before, .hc-recent-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.hc-recent-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hc-recent-row:nth-child(2) { opacity: 1.0; }
+.hc-recent-row:nth-child(3) { opacity: 0.65; }
+.hc-recent-row:nth-child(4) { opacity: 0.35; }
+.hc-recent-icon { font-size: 9px; width: 14px; flex-shrink: 0; }
+.hc-recent-desc { font-size: clamp(9px, 1vw, 11px); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.hc-recent-time { font-size: 9px; color: var(--dim); white-space: nowrap; flex-shrink: 0; }
 
 /* TICKER */
 .ticker-strip { height: 28px; background: #000; display: flex; align-items: center; overflow: hidden; border-top: 1px solid #1a1a1a; border-bottom: 1px solid #1a1a1a; }
@@ -531,6 +544,7 @@ function apiGameToCard(game) {
     lastEvent: typeof game.last_event === 'string'
       ? game.last_event
       : (game.last_event?.description || ''),
+    recentEvents: Array.isArray(game.recent_events) ? game.recent_events : [],
     startTime: game.start_time,
     accentFrom: teamColor(away.abbrev, 0),
     accentTo: teamColor(away.abbrev, 1),
@@ -582,6 +596,15 @@ function periodLabel(period, isOT) {
   return ['', '1ST', '2ND', '3RD'][period] || `P${period}`;
 }
 
+function recentEventIcon(type) {
+  if (type === 'goal') return '⚡';
+  if (type === 'penalty') return '🟡';
+  if (type === 'stoppage') return '🔴';
+  if (type === 'shot-on-goal' || type === 'missed-shot') return '🏒';
+  if (type === 'hit') return '💥';
+  return '·';
+}
+
 function scoreClass(a, b) {
   if (a > b) return 'lead';
   if (a < b) return 'trail';
@@ -612,9 +635,9 @@ function buildWpTextHtml(card) {
   const homePct = Math.round(card.winProbability * 100);
   const awayPct = 100 - homePct;
   return `<div class="hc-wp-text">
-    <span class="hc-wp-away">${card.away} ${awayPct}%</span>
+    <span class="hc-wp-away" style="color:${card.teamColor}">${card.away} ${awayPct}%</span>
     <span class="hc-wp-mid">WIN PROB</span>
-    <span class="hc-wp-home">${homePct}% ${card.home}</span>
+    <span class="hc-wp-home" style="color:${card.homeColor}">${homePct}% ${card.home}</span>
   </div>`;
 }
 
@@ -705,7 +728,16 @@ function buildCardInner(card, washData) {
         <div class="hc-name">${card.homeCity}</div>
       </div>
     </div>
-    ${card.lastEvent ? `<div class="hc-foot"><div class="hc-last-label"><span>LAST EVENT</span></div><div class="hc-last">${card.lastEvent}</div></div>` : ''}`;
+    ${(card.recentEvents && card.recentEvents.length) ? `
+  <div class="hc-recent">
+    <div class="hc-recent-label"><span>RECENT EVENTS</span></div>
+    ${card.recentEvents.map(e => `
+      <div class="hc-recent-row">
+        <span class="hc-recent-icon">${recentEventIcon(e.type)}</span>
+        <span class="hc-recent-desc">${e.description}</span>
+        <span class="hc-recent-time">${e.time_ago}</span>
+      </div>`).join('')}
+  </div>` : (card.lastEvent ? `<div class="hc-foot"><div class="hc-last-label"><span>LAST EVENT</span></div><div class="hc-last">${card.lastEvent}</div></div>` : '')}`;
 }
 
 function buildBenchCard(card, isGoal) {
@@ -983,9 +1015,19 @@ function updateCardInPlace(slotIndex, card) {
     wpTextEl.outerHTML = newWpHtml;
   }
 
-  // Last event
+  // Footer (recent events or last event) — rebuild whenever content changes
   const footEl = el.querySelector('.hc-foot');
-  if (card.lastEvent) {
+  const recentEl = el.querySelector('.hc-recent');
+  const hasRecentEvents = card.recentEvents && card.recentEvents.length > 0;
+  if (hasRecentEvents) {
+    // Always rebuild footer with recent events
+    if (recentEl) {
+      recentEl.outerHTML = `<div class="hc-recent"><div class="hc-recent-label"><span>RECENT EVENTS</span></div>${card.recentEvents.map(e => `<div class="hc-recent-row"><span class="hc-recent-icon">${recentEventIcon(e.type)}</span><span class="hc-recent-desc">${e.description}</span><span class="hc-recent-time">${e.time_ago}</span></div>`).join('')}</div>`;
+    } else {
+      if (footEl) footEl.remove();
+      el.innerHTML = buildCardInner(card);
+    }
+  } else if (card.lastEvent) {
     if (footEl) {
       const lastEl = footEl.querySelector('.hc-last');
       if (lastEl) lastEl.textContent = card.lastEvent;
