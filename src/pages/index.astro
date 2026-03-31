@@ -399,6 +399,7 @@ let gameCards = {};                  // game_id → card data
 let prevScores = {};                 // game_id → { away, home }
 let initialized = false;
 let noGamesShown = false;
+let lastGoalTime = 0;  // epoch ms — suppresses re-sort for 45s after any goal
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 
@@ -503,11 +504,15 @@ function buildBadgesFromGame(game) {
   // Strength state badge (live games only)
   if (isLive) {
     const ss = game.strength_state;
-    if      (ss === 'PP')                       badges.push('pp:PP');
-    else if (ss === 'PK')                       badges.push('pk:PK');
-    else if (ss === '5V3')                      badges.push('adv:5v3');
-    else if (ss === '3V5')                      badges.push('pk:3v5');
-    else if (ss === 'EN_AWAY' || ss === 'EN_HOME') badges.push('en:EN');
+    const awayAbbr = game.away_team?.abbrev || '';
+    const homeAbbr = game.home_team?.abbrev || '';
+    // PP = home power play, PK = away power play (home-team-perspective encoding)
+    if      (ss === 'PP')  badges.push(`pp:PP ▶ ${homeAbbr}`);
+    else if (ss === 'PK')  badges.push(`pp:PP ▶ ${awayAbbr}`);
+    else if (ss === '5V3') badges.push(`adv:5v3 ▶ ${homeAbbr}`);
+    else if (ss === '3V5') badges.push(`pk:3v5 ▶ ${awayAbbr}`);
+    else if (ss === 'EN_AWAY') badges.push('en:EN');
+    else if (ss === 'EN_HOME') badges.push('en:EN');
   }
   return badges;
 }
@@ -559,25 +564,32 @@ function apiGameToCard(game) {
   };
 }
 
-function parseLastEventForWash(lastEvent, card) {
-  if (!lastEvent) return null;
-  // Format: "⚡ Lastname (N) — Assist1, Assist2"
-  const clean = lastEvent.replace(/[⚡\s]+/, '').trim();
-  const parts = clean.split(' — ');
-  const scorerRaw = parts[0] || clean;
-  const assists = parts[1] || '';
-  const numMatch = scorerRaw.match(/\((\d+)\)/);
-  const scorerName = scorerRaw.replace(/\s*\(\d+\).*/, '').replace(/\s*(PP|SH|EN)\s*/g, '').trim();
-  const num = numMatch ? `${numMatch[1]} on the season` : '';
-  const periodLabel = periodLabel(card.period, card.isOT);
-  const teamName = card.awayScore > card.homeScore ? card.away : card.home;
+function buildWashData(card, awayScored) {
+  // Use recentEvents to find most recent goal (more stable than lastEvent which can drift to Stoppage)
+  const goalEvent = (card.recentEvents || []).find(e => e.type === 'goal');
+  const teamName = awayScored ? card.away : card.home;
+  const bgColor = awayScored ? card.teamColor : card.homeColor;
+  const pLabel = periodLabel(card.period, card.isOT);
+
+  let scorer = 'GOAL', num = '', assists = '';
+  if (goalEvent) {
+    const desc = (goalEvent.description || '').replace(/^[⚡\s]+/, '').trim();
+    const parts = desc.split(' — ');
+    const scorerRaw = parts[0] || desc;
+    assists = parts[1] || '';
+    const numMatch = scorerRaw.match(/\((\d+)\)/);
+    scorer = scorerRaw.replace(/\s*\(\d+\).*/, '').replace(/\s*(PP|SH|EN)\s*/g, '').trim().toUpperCase() || 'GOAL';
+    num = numMatch ? `${numMatch[1]} on the season` : '';
+  }
+
   return {
     eyebrow: `⚡ Goal — ${teamName}`,
-    scorer: scorerName.toUpperCase(),
+    scorer,
     num,
     assists,
     score: `${card.away} ${card.awayScore} · ${card.home} ${card.homeScore}`,
-    ctx: `${periodLabel} · ${card.clock}`,
+    ctx: `${pLabel} · ${card.clock}`,
+    bgColor,
   };
 }
 
@@ -635,9 +647,9 @@ function buildWpTextHtml(card) {
   const homePct = Math.round(card.winProbability * 100);
   const awayPct = 100 - homePct;
   return `<div class="hc-wp-text">
-    <span class="hc-wp-away" style="color:${card.teamColor}">${card.away} ${awayPct}%</span>
+    <span class="hc-wp-away" style="color:${card.teamColor}">${awayPct}%</span>
     <span class="hc-wp-mid">WIN PROB</span>
-    <span class="hc-wp-home" style="color:${card.homeColor}">${homePct}% ${card.home}</span>
+    <span class="hc-wp-home" style="color:${card.homeColor}">${homePct}%</span>
   </div>`;
 }
 
@@ -687,7 +699,7 @@ function buildCardInner(card, washData) {
 
 
   const washHtml = washData ? `
-    <div class="goal-wash active" id="wash-${card.id}" style="background:rgba(${hexToRgb(card.teamColor)},0.96)">
+    <div class="goal-wash active" id="wash-${card.id}" style="background:rgba(${hexToRgb(washData.bgColor || card.teamColor)},0.96)">
       <div class="gwo-eyebrow">${washData.eyebrow}</div>
       <div class="gwo-scorer">${washData.scorer}</div>
       <div class="gwo-goal-num">${washData.num}</div>
@@ -1065,9 +1077,10 @@ function checkForGoals(cards) {
   for (const card of cards) {
     const prev = prevScores[card.id];
     if (prev) {
-      const scored = card.awayScore > prev.away || card.homeScore > prev.home;
-      if (scored && !card.isFinal) {
-        newGoals.push(card.id);
+      const awayScored = card.awayScore > prev.away;
+      const homeScored = card.homeScore > prev.home;
+      if ((awayScored || homeScored) && !card.isFinal) {
+        newGoals.push({ id: card.id, awayScored });
       }
     }
     prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
@@ -1126,9 +1139,9 @@ async function pollAndUpdate() {
   }
 
   // Process goals
-  for (const id of goalIds) {
+  for (const { id, awayScored } of goalIds) {
     const card = gameCards[id];
-    const washData = parseLastEventForWash(card.lastEvent, card);
+    const washData = buildWashData(card, awayScored);
     if (grid.includes(id)) {
       // Goal in featured game → wash animation
       triggerWash(id, washData);
@@ -1142,10 +1155,12 @@ async function pollAndUpdate() {
       }
     }
   }
+  if (goalIds.length) lastGoalTime = Date.now();
 
   // Check if top-N order changed
   const gridChanged = JSON.stringify(newTopN) !== JSON.stringify(grid);
-  if (gridChanged && !goalIds.length) {
+  const goalFreezeActive = (Date.now() - lastGoalTime) < 45000;
+  if (gridChanged && !goalIds.length && !goalFreezeActive) {
     // Re-sort without goal animation
     grid = newTopN;
     bench = newBench;
