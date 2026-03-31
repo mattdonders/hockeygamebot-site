@@ -48,6 +48,14 @@
   <div id="bb-container" style="display:flex;flex:1;gap:8px;justify-content:center;"></div>
 </div>
 
+<div id="game-modal" class="modal-overlay" style="display:none" aria-modal="true" role="dialog">
+  <div class="modal-backdrop" id="modal-backdrop"></div>
+  <div class="modal-panel">
+    <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    <div id="modal-content"><div class="modal-loading">Loading…</div></div>
+  </div>
+</div>
+
 </body>
 </html>
 
@@ -298,6 +306,41 @@ html, body {
 .dbg-grid td:nth-child(2) { color: var(--white); }
 .dbg-bench td:nth-child(2) { color: #555; }
 
+/* ── MODAL ─────────────────────────────────────────────── */
+.modal-overlay { position:fixed; inset:0; z-index:500; display:flex; align-items:flex-end; justify-content:center; }
+.modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.82); }
+.modal-panel { position:relative; z-index:1; background:#0d0d0d; border:1px solid #222; border-bottom:none; width:100%; max-width:860px; max-height:88vh; overflow-y:auto; border-radius:14px 14px 0 0; padding:28px 24px 40px; animation:slideUp 0.22s ease; }
+@keyframes slideUp { from{transform:translateY(60px);opacity:0} to{transform:translateY(0);opacity:1} }
+.modal-close { position:sticky; float:right; top:0; background:none; border:none; color:#555; font-size:20px; cursor:pointer; line-height:1; padding:0 4px; }
+.modal-close:hover { color:#fff; }
+.modal-loading { color:#555; font-size:13px; padding:40px 0; text-align:center; }
+.modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:8px; }
+.modal-team { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:90px; }
+.modal-team img { width:60px; height:60px; object-fit:contain; }
+.modal-abbr { font-family:'Oswald',sans-serif; font-size:22px; font-weight:700; }
+.modal-abbr.lead { color:#f5f5f5; } .modal-abbr.trail { color:#444; } .modal-abbr.tie { color:#f5f5f5; }
+.modal-city { font-size:10px; color:#555; text-transform:uppercase; letter-spacing:0.08em; }
+.modal-score-center { display:flex; flex-direction:column; align-items:center; gap:6px; flex:1; }
+.modal-scores { display:flex; align-items:center; gap:10px; }
+.modal-n { font-family:'Oswald',sans-serif; font-size:56px; font-weight:700; line-height:1; }
+.modal-n.lead { color:#f5f5f5; } .modal-n.trail { color:#333; } .modal-n.tie { color:#f5f5f5; }
+.modal-sep { font-family:'Oswald',sans-serif; font-size:28px; color:#2a2a2a; }
+.modal-period { font-size:11px; font-weight:700; letter-spacing:0.1em; color:#555; }
+.modal-chart-wrap { margin-bottom:24px; border:1px solid #1a1a1a; border-radius:6px; padding:12px; background:#0a0a0a; }
+.modal-chart-wrap svg { display:block; width:100%; height:auto; }
+.modal-no-chart { color:#444; font-size:12px; text-align:center; padding:32px 0; }
+.modal-section-label { font-size:9px; font-weight:700; letter-spacing:0.18em; color:#444; margin-bottom:10px; }
+.modal-goals-section { margin-top:4px; }
+.modal-goal-row { display:flex; align-items:center; gap:12px; padding:7px 0; border-bottom:1px solid #141414; font-size:12px; }
+.modal-goal-team { font-weight:700; font-size:11px; letter-spacing:0.08em; min-width:36px; }
+.modal-goal-score { color:#f5f5f5; font-weight:600; flex:1; }
+.modal-goal-time { color:#555; font-size:11px; white-space:nowrap; }
+.modal-goal-strength { font-size:9px; font-weight:700; color:#ffca28; }
+.modal-no-goals { color:#444; font-size:12px; padding:16px 0; }
+/* Make grid cards clickable */
+.hcard { cursor:pointer; }
+.hcard:hover { border-color:#2a2a2a; }
+
 /* NO GAMES STATE */
 .no-games {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -402,8 +445,90 @@ let prevScores = {};                 // game_id → { away, home }
 let initialized = false;
 let noGamesShown = false;
 let lastGoalTime = 0;  // epoch ms — suppresses re-sort for 45s after any goal
+let _yesterdayData = null; // cached once per session
+let _viewMode = 'today';   // 'today' | 'yesterday'
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WP CHART (for game modal)
+// ─────────────────────────────────────────────────────────────────────────────
+function interpWp(points, t) {
+  if (!points.length) return 0.5;
+  if (t <= points[0].t) return points[0].wp;
+  if (t >= points[points.length - 1].t) return points[points.length - 1].wp;
+  for (let i = 0; i < points.length - 1; i++) {
+    if (points[i].t <= t && t <= points[i + 1].t) {
+      const frac = (t - points[i].t) / (points[i + 1].t - points[i].t);
+      return points[i].wp + (points[i + 1].wp - points[i].wp) * frac;
+    }
+  }
+  return 0.5;
+}
+
+function buildWpChart(points, goals, homeAbbr, awayAbbr, homeColor, awayColor, tMax) {
+  const svgW = 800; const svgH = 110; const padH = 12;
+  const midY = svgH / 2;
+  const tMin = 0;
+  const pts = points.filter(p => p.t >= tMin && p.t <= tMax && p.wp != null);
+  if (!pts.length) return `<svg viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg"></svg>`;
+
+  function px(t) { return ((t - tMin) / (tMax - tMin)) * svgW; }
+  function py(wp) { return padH + (1 - wp) * (svgH - 2 * padH); }
+
+  const coords = pts.map(p => ({ x: px(p.t), y: py(p.wp) }));
+  const linePoints = coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+  const uid = Math.random().toString(36).slice(2, 8);
+
+  const areaPoints = [
+    `0,${py(pts[0].wp).toFixed(1)}`,
+    ...coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`),
+    `${px(tMax).toFixed(1)},${midY}`,
+    `0,${midY}`,
+  ].join(' ');
+
+  const periodLines = [1200, 2400, 3600].filter(t => t > tMin && t < tMax);
+  const periodBounds = [[0,Math.min(1200,tMax),'P1'],[1200,Math.min(2400,tMax),'P2'],[2400,Math.min(3600,tMax),'P3'],[3600,tMax,'OT']];
+  const periodZones = [];
+  for (const [start, end, label] of periodBounds) {
+    if (end > start && start < tMax) periodZones.push({ x: px((start + end) / 2), label });
+  }
+
+  function hexToRgba(hex, alpha) {
+    if (!hex || !hex.startsWith('#')) return `rgba(200,16,46,${alpha})`;
+    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  const visibleGoals = goals.filter(g => g.t >= tMin && g.t <= tMax);
+  const goalMarkersHtml = visibleGoals.map(g => {
+    const gx = px(g.t).toFixed(1);
+    const wp = interpWp(pts, g.t);
+    const gy = py(wp).toFixed(1);
+    const color = g.isHome ? homeColor : awayColor;
+    const labelY = g.isHome ? (parseFloat(gy) - 13).toFixed(1) : (parseFloat(gy) + 17).toFixed(1);
+    return `<line x1="${gx}" y1="0" x2="${gx}" y2="${svgH}" stroke="${color}" stroke-width="0.8" stroke-opacity="0.4" stroke-dasharray="2,2"/>
+      <circle cx="${gx}" cy="${gy}" r="3" fill="${color}" fill-opacity="0.9"/>
+      <text x="${gx}" y="${labelY}" text-anchor="middle" font-family="Oswald,sans-serif" font-size="8" font-weight="700" fill="${color}" fill-opacity="0.8" letter-spacing="0.05em">${g.isHome ? homeAbbr : awayAbbr}</text>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="overflow:visible">
+  <defs>
+    <clipPath id="cu-${uid}"><rect x="0" y="0" width="${svgW}" height="${midY}"/></clipPath>
+    <clipPath id="cl-${uid}"><rect x="0" y="${midY}" width="${svgW}" height="${svgH - midY}"/></clipPath>
+  </defs>
+  ${periodLines.map(t => `<line x1="${px(t).toFixed(1)}" y1="0" x2="${px(t).toFixed(1)}" y2="${svgH}" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="3,3"/>`).join('')}
+  <line x1="0" y1="${midY}" x2="${svgW}" y2="${midY}" stroke="rgba(255,255,255,0.12)" stroke-width="0.8" stroke-dasharray="4,4"/>
+  <polygon points="${areaPoints}" fill="${hexToRgba(homeColor,0.15)}" clip-path="url(#cu-${uid})"/>
+  <polygon points="${areaPoints}" fill="${hexToRgba(awayColor,0.15)}" clip-path="url(#cl-${uid})"/>
+  <polyline points="${linePoints}" fill="none" stroke="${homeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#cu-${uid})"/>
+  <polyline points="${linePoints}" fill="none" stroke="${awayColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#cl-${uid})"/>
+  ${goalMarkersHtml}
+  ${periodZones.map(z => `<text x="${z.x.toFixed(1)}" y="${(padH+8).toFixed(1)}" text-anchor="middle" font-family="Oswald,sans-serif" font-size="9" fill="rgba(255,255,255,0.18)" letter-spacing="0.08em">${z.label}</text>`).join('')}
+  <text x="4" y="${(padH+6).toFixed(1)}" font-family="Oswald,sans-serif" font-size="9" font-weight="700" fill="${hexToRgba(homeColor,0.7)}">${homeAbbr}</text>
+  <text x="4" y="${(svgH-padH+4).toFixed(1)}" font-family="Oswald,sans-serif" font-size="9" font-weight="700" fill="${hexToRgba(awayColor,0.7)}">${awayAbbr}</text>
+</svg>`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API
@@ -412,6 +537,15 @@ async function fetchGames() {
   const resp = await fetch(`${API_BASE}/v1/games/today`, { cache: 'no-store' });
   if (!resp.ok) throw new Error(`API ${resp.status}`);
   return resp.json();
+}
+
+async function fetchYesterdayData() {
+  const yesterday = _yesterdayDateStr(); // already exists in file
+  try {
+    const resp = await fetch(`${API_BASE}/v1/games/today?date=${yesterday}`, { cache: 'no-store' });
+    if (!resp.ok) return null;
+    return resp.json();
+  } catch { return null; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -776,7 +910,7 @@ function buildBenchCard(card, isGoal) {
   const scoreHtml = card.isScheduled ? '' :
     `<div class="bc-scores"><span class="bc-n${awayDim?' dim':''}">${card.awayScore}</span><span class="bc-dash">–</span><span class="bc-n${homeDim?' dim':''}">${card.homeScore}</span></div>`;
   return `
-    <div class="bc${isGoal ? ' bb-goal-flash' : ''}" id="bb-${card.id}">
+    <div class="bc${isGoal ? ' bb-goal-flash' : ''}" id="bb-${card.id}" data-game-id="${card.id}">
       <div class="bc-wpbar" style="${wpStyle}"></div>
       <div class="bc-inner">
         <div class="bc-team"><img class="bc-logo${awayDim?' dim':''}" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}"></div>
@@ -853,12 +987,13 @@ function renderBench() {
     bench.slice(0, 8).map(id => buildBenchCard(gameCards[id])).join('');
 }
 
-function updateTopBar(data) {
+function updateTopBar(data, mode = 'today') {
   const games = data.games || [];
-  const liveCount = games.filter(g => g.status === 'live').length;
+  const liveCount = mode === 'yesterday' ? 0 : games.filter(g => g.status === 'live').length;
   const total = games.length;
   const dateStr = data.date ? new Date(data.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'Tonight';
-  document.getElementById('topbar-date').textContent = `Live · ${dateStr}`;
+  const prefix = mode === 'yesterday' ? 'Yesterday' : 'Live';
+  document.getElementById('topbar-date').textContent = `${prefix} · ${dateStr}`;
   document.getElementById('live-count').textContent = `${liveCount} LIVE`;
   document.getElementById('total-games').textContent = `${total} GAMES`;
 }
@@ -1194,14 +1329,30 @@ async function pollAndUpdate() {
     return;
   }
 
-  const games = data.games || [];
-  if (!games.length) {
+  const todayGames = data.games || [];
+  if (!todayGames.length) {
     showNoGames();
     return;
   }
 
-  const cards = games.map(apiGameToCard);
-  const goalIds = checkForGoals(cards);
+  // Yesterday mode: show yesterday's results until 1hr before first game today
+  const firstStart = todayGames.reduce((min, g) => {
+    const t = g.start_time ? new Date(g.start_time).getTime() : Infinity;
+    return Math.min(min, t);
+  }, Infinity);
+  const showYesterday = isFinite(firstStart) && Date.now() < firstStart - 3_600_000;
+
+  let displayData = data;
+  if (showYesterday) {
+    if (!_yesterdayData) _yesterdayData = await fetchYesterdayData();
+    if (_yesterdayData?.games?.length) displayData = _yesterdayData;
+    _viewMode = 'yesterday';
+  } else {
+    _viewMode = 'today';
+  }
+
+  const cards = (displayData.games || []).map(apiGameToCard);
+  const goalIds = _viewMode === 'yesterday' ? [] : checkForGoals(cards);
 
   // Update game cards map
   for (const card of cards) {
@@ -1235,7 +1386,7 @@ async function pollAndUpdate() {
     applyLayout(layoutMode, newTopN, newBench);
     renderGrid();
     renderBench();
-    updateTopBar(data);
+    updateTopBar(displayData, _viewMode);
     updateTicker(cards);
     renderDebugPanel(sorted);
     initialized = true;
@@ -1279,7 +1430,7 @@ async function pollAndUpdate() {
     renderBench();
   }
 
-  updateTopBar(data);
+  updateTopBar(displayData, _viewMode);
   updateTicker(cards);
   renderDebugPanel(sorted);
 }
@@ -1373,6 +1524,128 @@ function connectSSE() {
 }
 
 connectSSE();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAME MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+function closeModal() {
+  document.getElementById('game-modal').style.display = 'none';
+  history.replaceState({}, '', location.pathname);
+  document.body.style.overflow = '';
+}
+
+async function openModal(gameId) {
+  const modal = document.getElementById('game-modal');
+  const content = document.getElementById('modal-content');
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  content.innerHTML = '<div class="modal-loading">Loading…</div>';
+  history.replaceState({ gameId }, '', `?game=${gameId}`);
+
+  let flow;
+  try {
+    const resp = await fetch(`${API_BASE}/v1/games/${gameId}/flow`, { cache: 'no-store' });
+    flow = await resp.json();
+  } catch {
+    content.innerHTML = '<div class="modal-loading">Failed to load game data.</div>';
+    return;
+  }
+
+  const card = gameCards[gameId];
+  if (!card) { content.innerHTML = '<div class="modal-loading">Game not found.</div>'; return; }
+
+  const points = (flow.points || []).filter(p => p.wp != null);
+  const goals = (flow.goals || []).map(g => ({ ...g, isHome: g.is_home }));
+  const tMax = points.length ? points[points.length - 1].t : 3600;
+
+  const sc = (a, b) => a > b ? 'lead' : a < b ? 'trail' : 'tie';
+  const ac = sc(card.awayScore, card.homeScore);
+  const hc = sc(card.homeScore, card.awayScore);
+
+  const periodStr = card.isFinal
+    ? (card.isOT ? 'FINAL · OT' : card.period > 4 ? 'FINAL · SO' : 'FINAL')
+    : card.inIntermission
+      ? `${periodLabel(card.period, card.isOT)} INT · ${card.clock}`
+      : `${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+
+  const logoUrl = abbr => `https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg`;
+  const logoImg = (abbr, dim) => `<img src="${logoUrl(abbr)}" width="60" height="60" style="object-fit:contain${dim ? ';opacity:0.3;filter:grayscale(0.5)' : ''}" onerror="this.style.display='none'">`;
+
+  const chartHtml = points.length >= 3
+    ? `<div class="modal-chart-wrap">${buildWpChart(points, goals, card.home, card.away, card.homeColor, card.teamColor, tMax)}</div>`
+    : `<div class="modal-chart-wrap"><div class="modal-no-chart">Win probability chart will appear once the game is underway.</div></div>`;
+
+  function goalPeriodStr(t) {
+    if (t <= 1200) return `P1 ${secToMs(t % 1200)}`;
+    if (t <= 2400) return `P2 ${secToMs(t % 1200)}`;
+    if (t <= 3600) return `P3 ${secToMs(t % 1200)}`;
+    return `OT ${secToMs(t % 1200)}`;
+  }
+  function secToMs(s) {
+    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  }
+
+  const goalsHtml = goals.length
+    ? goals.map(g => {
+        const color = g.isHome ? card.homeColor : card.teamColor;
+        const teamAbbr = g.isHome ? card.home : card.away;
+        return `<div class="modal-goal-row">
+          <span class="modal-goal-team" style="color:${color}">${teamAbbr}</span>
+          <span class="modal-goal-score">${g.score.replace('-', '–')}</span>
+          <span class="modal-goal-time">${goalPeriodStr(g.t)}</span>
+        </div>`;
+      }).join('')
+    : '<div class="modal-no-goals">No goals yet.</div>';
+
+  content.innerHTML = `
+    <div class="modal-header">
+      <div class="modal-team">
+        ${logoImg(card.away, ac === 'trail' && card.isFinal)}
+        <div class="modal-abbr ${ac}">${card.away}</div>
+        <div class="modal-city">${card.awayCity}</div>
+      </div>
+      <div class="modal-score-center">
+        <div class="modal-scores">
+          <span class="modal-n ${ac}">${card.awayScore}</span>
+          <span class="modal-sep">–</span>
+          <span class="modal-n ${hc}">${card.homeScore}</span>
+        </div>
+        <div class="modal-period">${periodStr}</div>
+      </div>
+      <div class="modal-team">
+        ${logoImg(card.home, hc === 'trail' && card.isFinal)}
+        <div class="modal-abbr ${hc}">${card.home}</div>
+        <div class="modal-city">${card.homeCity}</div>
+      </div>
+    </div>
+    ${chartHtml}
+    <div class="modal-goals-section">
+      <div class="modal-section-label">GOALS</div>
+      ${goalsHtml}
+    </div>`;
+}
+
+// Modal close handlers
+document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('modal-backdrop').addEventListener('click', closeModal);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// Card click → open modal
+// Use event delegation on the grid wrapper and bench container
+document.addEventListener('click', e => {
+  const card = e.target.closest('.hcard');
+  if (card) {
+    // Find game id from SLOTS array
+    const slotIdx = SLOTS.indexOf(card.id);
+    if (slotIdx !== -1 && grid[slotIdx]) openModal(grid[slotIdx]);
+    return;
+  }
+  const bc = e.target.closest('.bc');
+  if (bc) {
+    const gameId = bc.dataset.gameId;
+    if (gameId) openModal(gameId);
+  }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START
