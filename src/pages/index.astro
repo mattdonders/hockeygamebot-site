@@ -519,6 +519,7 @@ function apiGameToCard(game) {
     homeScore: home.score || 0,
     period,
     clock: game.time_remaining || '--:--',
+    clockAt: game.clock_at || null,
     pct: calcGamePct(period, game.time_remaining, inIntermission),
     excitement: calcExcitement(game),
     debugReason: DEBUG ? calcExcitementBreakdown(game).reason : '',
@@ -769,6 +770,7 @@ function buildGridHtml(mode) {
 }
 
 function applyLayout(mode, newGrid, newBench) {
+  clearCardClockTickers();
   currentLayoutMode = mode;
   const gridSize = getGridSlotCount(mode);
   document.getElementById('grid-wrapper').innerHTML = buildGridHtml(mode);
@@ -1014,6 +1016,49 @@ function flashBenchGoal(id) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LIVE CLOCK TICKER
+// ─────────────────────────────────────────────────────────────────────────────
+let _cardClockIntervals = {};
+
+function clearCardClockTickers() {
+  Object.values(_cardClockIntervals).forEach(clearInterval);
+  _cardClockIntervals = {};
+}
+
+function startCardClockTickers() {
+  clearCardClockTickers();
+  for (let i = 0; i < grid.length; i++) {
+    const id = grid[i];
+    if (!id) continue;
+    const card = gameCards[id];
+    if (!card || card.isFinal || card.isScheduled || card.inIntermission) continue;
+    if (!card.clockAt || !card.clock || card.clock === '--:--') continue;
+    const parts = card.clock.split(':');
+    if (parts.length !== 2) continue;
+    const [m, s] = parts.map(Number);
+    if (isNaN(m) || isNaN(s)) continue;
+
+    const slotId = SLOTS[i];
+    const clockAtMs = new Date(card.clockAt).getTime();
+    const startMs = (m * 60 + s) * 1000;
+    const period = card.period;
+    const isOT = card.isOT;
+
+    _cardClockIntervals[id] = setInterval(() => {
+      const el = document.getElementById(slotId);
+      if (!el) return;
+      const statusEl = el.querySelector('.hc-status');
+      if (!statusEl) return;
+      const remaining = Math.max(0, startMs - (Date.now() - clockAtMs));
+      const totalSec = Math.floor(remaining / 1000);
+      const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+      const ss = String(totalSec % 60).padStart(2, '0');
+      statusEl.innerHTML = `<div class="status-dot"></div> ${periodLabel(period, isOT)} · ${mm}:${ss}`;
+    }, 1000);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GOAL DETECTION
 // ─────────────────────────────────────────────────────────────────────────────
 function checkForGoals(cards) {
@@ -1119,6 +1164,7 @@ async function pollAndUpdate() {
   updateTopBar(data);
   updateTicker(cards);
   renderDebugPanel(sorted);
+  startCardClockTickers();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
