@@ -45,7 +45,6 @@
 <div id="grid-wrapper"></div>
 
 <div class="bottombar">
-  <div class="bb-label">MORE</div>
   <div id="bb-container" style="display:flex;flex:1;gap:8px;justify-content:center;"></div>
 </div>
 
@@ -233,8 +232,10 @@ html, body {
 .ticker-inner span { display: inline-block; font-size: 12px; color: #aaa; margin-right: 56px; }
 .ticker-inner span strong { color: #fff; }
 .ti-goal strong { color: var(--cyan); }
+.ti-goal em { font-style: normal; color: var(--yellow); font-size: 10px; font-weight: 700; vertical-align: middle; }
 .ti-penalty strong { color: var(--yellow); }
 .ti-final strong { color: var(--muted); }
+.ti-sep { color: #444; margin: 0 20px; font-size: 8px; }
 
 /* BOTTOM BAR */
 .bottombar { height: 96px; background: #0a0a0a; border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 16px; gap: 8px; overflow-x: auto; overflow-y: hidden; }
@@ -861,8 +862,55 @@ function updateTopBar(data) {
   document.getElementById('total-games').textContent = `${total} GAMES`;
 }
 
+// ── GOALS TICKER ─────────────────────────────────────────────────────────────
+let _lastGoalsTickerHtml = '';
+let _goalsCache = [];
+
+async function fetchGoals() {
+  try {
+    const resp = await fetch(`${API_BASE}/v1/goals`, { cache: 'no-store' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    _goalsCache = data.goals || [];
+    renderGoalsTicker();
+  } catch (e) {
+    // silently ignore — ticker just stays as-is
+  }
+}
+
+function renderGoalsTicker() {
+  const goals = _goalsCache;
+  if (!goals.length) {
+    // Fall back to scores if no goals yet
+    return;
+  }
+
+  // Most recent goals first — show up to 30 so the ticker has plenty of content
+  const items = goals.slice(0, 30).map(g => {
+    const scorer = g.scorer?.name ? g.scorer.name.split(' ').pop() : null; // last name only
+    const team = g.scoring_team?.abbrev || '?';
+    const away = g.away_team?.abbrev || '?';
+    const home = g.home_team?.abbrev || '?';
+    const score = `${away} ${g.away_score}–${g.home_score} ${home}`;
+    const period = g.period ? (g.period <= 3 ? `P${g.period}` : (g.period === 4 ? 'OT' : 'SO')) : '';
+    const time = g.time_in_period || '';
+    const strength = g.strength === 'pp' ? ' <em>PP</em>' : g.strength === 'sh' ? ' <em>SH</em>' : '';
+    const scorerPart = scorer ? `<strong>${scorer}</strong> (${team})${strength}` : `<strong>${team}</strong>${strength}`;
+    const context = [period, time].filter(Boolean).join(' ');
+    return `<span class="ti-goal">${scorerPart} &nbsp;·&nbsp; ${score}${context ? ` &nbsp;·&nbsp; ${context}` : ''}</span>`;
+  });
+
+  const html = items.join('<span class="ti-sep">◆</span>');
+  if (html === _lastGoalsTickerHtml) return;
+  _lastGoalsTickerHtml = html;
+  // Double the content so the scroll loop is seamless
+  document.getElementById('ticker-inner').innerHTML = [html, html].join('<span class="ti-sep">◆</span>');
+}
+
+// Legacy fallback — called from pollAndUpdate when no goals yet
 let _lastTickerHtml = '';
 function updateTicker(cards) {
+  if (_goalsCache.length) return; // goals ticker takes over once we have data
   if (!cards.length) return;
   const items = cards.map(c => {
     if (c.isFinal) {
@@ -876,7 +924,6 @@ function updateTicker(cards) {
     }
   });
   const html = items.join('');
-  // Only replace if scores/periods actually changed — avoids animation restart on every poll
   if (html === _lastTickerHtml) return;
   _lastTickerHtml = html;
   document.getElementById('ticker-inner').innerHTML = [html, html].join('');
@@ -1254,6 +1301,10 @@ function connectSSE() {
     if (data.type === 'goal' || data.type === 'period_end' || data.type === 'game_end') {
       pollAndUpdate();
     }
+    if (data.type === 'goal') {
+      // Refresh goals ticker ~3s after goal — give D1 time to have the new row
+      setTimeout(fetchGoals, 3000);
+    }
   };
 
   _sse.onerror = () => {
@@ -1270,5 +1321,8 @@ connectSSE();
 // START
 // ─────────────────────────────────────────────────────────────────────────────
 pollAndUpdate();
+fetchGoals();
 startPolling(POLL_INTERVAL);
+// Refresh goals ticker every 2 minutes independently of game poll
+setInterval(fetchGoals, 120_000);
 </script>
