@@ -119,16 +119,28 @@ html, body {
 .gg-right { flex: 1; display: flex; flex-direction: column; gap: 4px; margin-left: 4px; }
 .gg-left .hcard, .gg-right .hcard { flex: 1; min-height: 0; }
 .gg-6  { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
-.gg-10 { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr; }
-.gg-10 .hc-logo { width: 40px !important; height: 40px !important; }
-.gg-10 .hc-abbr { font-size: 18px !important; }
-.gg-10 .hc-name { display: none !important; }
-.gg-10 .hc-n { font-size: 38px !important; }
-.gg-10 .hc-sep { font-size: 20px !important; }
-.gg-10 .hc-score-center { min-width: 72px !important; gap: 4px !important; }
-.gg-10 .hc-sb-row { gap: 4px !important; }
-.gg-10 .hc-star-name { font-size: 8px !important; }
-.gg-10 .hc-status { font-size: 11px !important; }
+/* ── Recap grid layouts (no bench, all games shown) ── */
+.gg-8r  { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; }
+.gg-9r  { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+.gg-12r { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+.gg-15r { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+
+/* 10-game creative layout: 2×2 featured left + 2×3 compact right */
+.gg-10 { display: flex; height: 100%; gap: 4px; }
+.gg-10-left  { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-10-right { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+
+/* Right panel (2×3): no forced overrides — let clamp() sizing adapt naturally */
+
+/* 5-col compact overrides for gg-15r recap layout */
+.gg-15r .hc-logo { width: 60px !important; height: 60px !important; }
+.gg-15r .hc-abbr { font-size: 24px !important; }
+.gg-15r .hc-n    { font-size: 50px !important; }
+.gg-15r .hc-sep  { font-size: 27px !important; }
+.gg-15r .hc-score-center { min-width: 92px !important; gap: 4px !important; }
+.gg-15r .hc-sb-row { gap: 4px !important; }
+.gg-15r .hc-star-name { font-size: 10px !important; }
+.gg-15r .hc-status    { font-size: 13px !important; }
 
 /* Compact slot — truncate last event to single line, keep stat bars */
 .hcard.compact .hc-last { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -750,7 +762,16 @@ function calcGamePct(period, timeRemaining, inIntermission) {
 function calcExcitement(game) {
   const status = game.status;
   if (status === 'scheduled' || status === 'upcoming') { const hoursUntil = (new Date(game.start_time).getTime() - Date.now()) / 3600000; return -60 - hoursUntil; }
-  if (status === 'final') return -75;
+  if (status === 'final') {
+    const away = game.away_team?.score || 0;
+    const home = game.home_team?.score || 0;
+    const goalDiff = Math.abs(away - home);
+    const period = game.period || 3;
+    const wentOT = period >= 4;
+    const otBonus = wentOT ? 20 : 0;
+    const closeness = Math.max(0, 4 - goalDiff) * 5; // 1-goal=15, 2-goal=10, 3-goal=5, blowout=0
+    return -75 + otBonus + closeness;
+  }
   const period = game.period || 1;
   const away = game.away_team?.score || 0;
   const home = game.home_team?.score || 0;
@@ -770,7 +791,12 @@ function calcExcitementBreakdown(game) {
     const h = (new Date(game.start_time).getTime() - Date.now()) / 3600000;
     return { total: -60 - h, reason: `scheduled ${h.toFixed(1)}h away` };
   }
-  if (status === 'final') return { total: -75, reason: 'final' };
+  if (status === 'final') {
+    const fa = game.away_team?.score || 0, fh = game.home_team?.score || 0;
+    const fd = Math.abs(fa - fh), fp = game.period || 3;
+    const fotBonus = fp >= 4 ? 20 : 0, fcl = Math.max(0, 4 - fd) * 5;
+    return { total: -75 + fotBonus + fcl, reason: `final${fp>=4?' OT':''} diff=${fd}` };
+  }
   const period = game.period || 1;
   const away = game.away_team?.score || 0;
   const home = game.home_team?.score || 0;
@@ -1124,22 +1150,38 @@ function getLayoutMode(n) {
   return String(Math.max(1, n));
 }
 
+function getRecapLayoutMode(n) {
+  if (n <= 6) return String(Math.max(1, n));
+  if (n <= 8)  return '8r';   // 4×2
+  if (n <= 9)  return '9r';   // 3×3
+  if (n <= 10) return '10';   // 5×2
+  if (n <= 12) return '12r';  // 4×3
+  return '15r';               // 5×3 (13–15)
+}
+
 function getGridSlotCount(mode) {
-  return { '1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7plus':4,'10':10 }[mode] || 4;
+  return { '1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7plus':4,'10':10,
+           '8r':8,'9r':9,'12r':12,'15r':15 }[mode] || 4;
 }
 
 function buildGridHtml(mode) {
   const c = (id, compact) =>
     `<div id="g-${id}" class="hcard${compact ? ' compact' : ''}"></div>`;
+  const row = (n, compact) => Array.from({length:n},(_,i)=>c(i,compact)).join('');
+  const seq = (n, start, compact) => Array.from({length:n},(_,i)=>c(start+i,compact)).join('');
   switch (mode) {
-    case '1': return `<div class="gg gg-1">${c(0)}</div>`;
-    case '2': return `<div class="gg gg-2">${c(0)}${c(1)}</div>`;
-    case '3': return `<div class="gg gg-3">${c(0)}${c(1,1)}${c(2,1)}</div>`;
-    case '4': return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
-    case '5': return `<div class="gg gg-5"><div class="gg-left">${c(0)}${c(1)}</div><div class="gg-right">${c(2,1)}${c(3,1)}${c(4,1)}</div></div>`;
-    case '6': return `<div class="gg gg-6">${[0,1,2,3,4,5].map(i=>c(i,1)).join('')}</div>`;
-    case '10': return `<div class="gg gg-10">${[0,1,2,3,4,5,6,7,8,9].map(i=>c(i,1)).join('')}</div>`;
-    default:  return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
+    case '1':  return `<div class="gg gg-1">${c(0)}</div>`;
+    case '2':  return `<div class="gg gg-2">${c(0)}${c(1)}</div>`;
+    case '3':  return `<div class="gg gg-3">${c(0)}${c(1,1)}${c(2,1)}</div>`;
+    case '4':  return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
+    case '5':  return `<div class="gg gg-5"><div class="gg-left">${c(0)}${c(1)}</div><div class="gg-right">${c(2,1)}${c(3,1)}${c(4,1)}</div></div>`;
+    case '6':  return `<div class="gg gg-6">${row(6,1)}</div>`;
+    case '10': return `<div class="gg gg-10"><div class="gg-10-left">${seq(4,0,0)}</div><div class="gg-10-right">${seq(6,4,1)}</div></div>`;
+    case '8r': return `<div class="gg gg-8r">${row(8,1)}</div>`;
+    case '9r': return `<div class="gg gg-9r">${row(9,1)}</div>`;
+    case '12r':return `<div class="gg gg-12r">${row(12,1)}</div>`;
+    case '15r':return `<div class="gg gg-15r">${row(15,1)}</div>`;
+    default:   return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
   }
 }
 
@@ -1196,6 +1238,22 @@ function updateTopBar(data, mode = 'today') {
 let _lastGoalsTickerHtml = '';
 let _goalsCache = [];
 let _tickerMode = 'live'; // 'live' | 'recap'
+let _recapMode  = false;
+
+function enterRecapMode() {
+  if (_recapMode) return;
+  _recapMode = true;
+  _tickerMode = 'recap';
+  startPolling(60_000);
+  document.body.classList.add('recap-mode');
+}
+
+function exitRecapMode() {
+  if (!_recapMode) return;
+  _recapMode = false;
+  startPolling(POLL_INTERVAL);
+  document.body.classList.remove('recap-mode');
+}
 
 function _yesterdayDateStr() {
   const d = new Date();
@@ -1565,14 +1623,17 @@ async function pollAndUpdate() {
     const diff = Math.round(b.excitement * 10) - Math.round(a.excitement * 10);
     return diff !== 0 ? diff : (a.id < b.id ? -1 : 1);
   });
-  const layoutMode = getLayoutMode(cards.length);
+
+  // Recap mode: all today's games are final → no bench, slow poll, ticker=recap
+  const anyLive = cards.some(c => !c.isScheduled && !c.isFinal);
+  const allFinal = _viewMode === 'today' && cards.length > 0 && cards.every(c => c.isFinal);
+  if (allFinal) enterRecapMode();
+  else if (_recapMode && !allFinal) exitRecapMode();
+
+  const layoutMode = _recapMode ? getRecapLayoutMode(cards.length) : getLayoutMode(cards.length);
   const gridSize = getGridSlotCount(layoutMode);
   const newTopN = sorted.slice(0, gridSize).map(c => c.id);
-  const newBench = sorted.slice(gridSize).map(c => c.id);
-
-  // Pre-game freeze: if nothing is live yet, never re-sort — all scheduled games
-  // have nearly identical excitement scores that drift each poll → constant reshuffling.
-  const anyLive = cards.some(c => !c.isScheduled && !c.isFinal);
+  const newBench = _recapMode ? [] : sorted.slice(gridSize).map(c => c.id);
 
 
   if (!initialized || layoutMode !== currentLayoutMode) {
@@ -1674,7 +1735,7 @@ document.addEventListener('visibilitychange', () => {
     hiddenAt = null;
     if (wasHiddenMs > STALE_THRESHOLD_MS) showCatchupPill();
     pollAndUpdate(); // immediate refresh
-    startPolling(POLL_INTERVAL); // resume normal cadence
+    startPolling(_recapMode ? 60_000 : POLL_INTERVAL); // resume normal cadence
   }
 });
 
