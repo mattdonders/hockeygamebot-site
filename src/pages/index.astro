@@ -39,7 +39,20 @@
     <span class="topbar-divider"></span>
     <nav class="topbar-nav">
       <a href="/teams/" class="topbar-link">TEAMS</a>
-      <a href="https://twitch.tv/hockeygamebot" target="_blank" rel="noopener" class="topbar-link topbar-link--twitch">▶ TWITCH</a>
+      <div class="stream-btn-wrap">
+        <button id="stream-btn" class="topbar-link topbar-link--stream" aria-haspopup="true">
+          <span id="stream-dot" class="stream-dot"></span>
+          <span id="stream-btn-label">▶ STREAM</span>
+        </button>
+        <div id="stream-popup" class="stream-popup" hidden>
+          <a href="https://twitch.tv/hockeygamebot" target="_blank" rel="noopener" class="stream-popup-link">
+            <span class="stream-popup-icon" style="color:#9146ff">▶</span> Twitch
+          </a>
+          <a href="https://youtube.com/channel/UCZUxvx3_JZeC8SqGiQZ9akw/live" target="_blank" rel="noopener" class="stream-popup-link">
+            <span class="stream-popup-icon" style="color:#ff0000">▶</span> YouTube
+          </a>
+        </div>
+      </div>
     </nav>
   </div>
 </div>
@@ -101,6 +114,17 @@ html, body {
 .topbar-link { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); text-decoration: none; padding: 4px 10px; border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; transition: color 0.15s, border-color 0.15s; }
 .topbar-link:hover { color: #fff; border-color: rgba(255,255,255,0.5); }
 .topbar-link--twitch:hover { color: #9146ff; border-color: #9146ff; }
+.stream-btn-wrap { position: relative; }
+.topbar-link--stream { display: flex; align-items: center; gap: 6px; cursor: pointer; background: none; font-family: inherit; }
+.topbar-link--stream:hover { color: #fff; border-color: rgba(255,255,255,0.5); }
+.stream-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.2); flex-shrink: 0; transition: background 0.3s; }
+.stream-dot.is-live { background: #ff3b30; box-shadow: 0 0 6px #ff3b30; animation: pulse-dot 1.8s ease-in-out infinite; }
+@keyframes pulse-dot { 0%,100% { opacity:1; } 50% { opacity:0.45; } }
+.stream-popup { position: absolute; top: calc(100% + 6px); right: 0; background: #1a1a1a; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 140px; z-index: 200; }
+.stream-popup[hidden] { display: none; }
+.stream-popup-link { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: rgba(255,255,255,0.8); text-decoration: none; transition: background 0.15s, color 0.15s; }
+.stream-popup-link:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.stream-popup-icon { font-size: 10px; }
 
 /* DYNAMIC GRID WRAPPER */
 #grid-wrapper { flex: 1; background: #000; padding: 4px; position: relative; overflow: hidden; min-height: 0; }
@@ -1635,6 +1659,11 @@ async function pollAndUpdate() {
   // Recap mode: all today's games are final, OR showing yesterday → no bench, slow poll, ticker=recap
   const anyLive = cards.some(c => !c.isScheduled && !c.isFinal);
   const allFinal = cards.length > 0 && (_viewMode === 'yesterday' || (_viewMode === 'today' && cards.every(c => c.isFinal)));
+  // Stream button live state
+  const streamDot = document.getElementById('stream-dot');
+  const streamLabel = document.getElementById('stream-btn-label');
+  if (streamDot) streamDot.classList.toggle('is-live', anyLive);
+  if (streamLabel) streamLabel.textContent = anyLive ? '🔴 LIVE' : '▶ STREAM';
   if (allFinal) enterRecapMode();
   else if (_recapMode && !allFinal) exitRecapMode();
 
@@ -2006,4 +2035,16 @@ fetchGoals();
 startPolling(POLL_INTERVAL);
 // Refresh goals ticker every 2 minutes independently of game poll
 setInterval(fetchGoals, 300_000); // 5min fallback — SSE handles real-time goal updates
+
+// Stream popup toggle
+(function() {
+  const btn = document.getElementById('stream-btn');
+  const popup = document.getElementById('stream-popup');
+  if (!btn || !popup) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    popup.hidden = !popup.hidden;
+  });
+  document.addEventListener('click', () => { popup.hidden = true; });
+})();
 </script>
