@@ -262,7 +262,11 @@ html, body {
 .hc-status.intermission .status-dot { background: var(--yellow); }
 .hc-status.intermission .status-dot::after { display: none; }
 @keyframes ringPulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.9); opacity: 0; } }
-.hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.hc-share { background: none; border: none; cursor: pointer; color: var(--dim); padding: 2px 4px; font-size: 13px; line-height: 1; opacity: 0.5; transition: opacity 0.15s; flex-shrink: 0; }
+.hc-share:hover { opacity: 1; }
+.hc-share-toast { position: absolute; top: 6px; right: 8px; background: rgba(255,255,255,0.12); color: #fff; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 10; }
+.hc-share-toast.show { opacity: 1; }
 .badge { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 10px; border: 1px solid; display: inline-flex; align-items: center; line-height: 1; }
 .badge.pp   { color: var(--yellow); border-color: rgba(255,202,40,0.35); background: rgba(255,202,40,0.07); }
 .badge.pk   { color: var(--red);    border-color: rgba(255,61,61,0.4);   background: rgba(255,61,61,0.08);  }
@@ -571,6 +575,12 @@ html, body {
   .hc-foot { padding: 4px 16px 10px; }
   .hc-head { padding: 8px 16px 0; }
   .gwo-scorer { font-size: clamp(28px, 8vw, 44px); }
+
+  /* Recent events: smaller on mobile */
+  .hc-recent { gap: 3px; padding: 4px 16px 8px; }
+  .hc-recent-icon { font-size: 10px; width: 13px; }
+  .hc-recent-desc { font-size: 11px; }
+  .hc-recent-time { font-size: 9px; }
 
   /* Bottom bar: horizontal scroll on mobile */
   .bottombar { height: 80px; padding: 0 10px; gap: 6px; }
@@ -1220,8 +1230,12 @@ function buildCardInner(card, washData) {
     <div class="hc-accent" style="${buildAccentStyle(card)}"></div>
     <div class="hc-head">
       <div class="hc-status ${statusClass}">${statusHtml}</div>
-      <div class="hc-badges">${buildBadgesHtml(card.badges)}</div>
+      <div class="hc-badges">
+        ${buildBadgesHtml(card.badges)}
+        <button class="hc-share" data-id="${card.id}" title="Share" aria-label="Share game">⬆</button>
+      </div>
     </div>
+    <div class="hc-share-toast" id="toast-${card.id}">Copied!</div>
     <div class="hc-body">
       <div class="hc-team">
         <img class="hc-logo ${card.isFinal&&ac==='trail'?'dim':''}" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}">
@@ -1897,6 +1911,32 @@ function showCatchupPill() {
   setTimeout(() => pill.classList.remove('show'), 1500);
 }
 
+function shareCard(card) {
+  const away = card.away, home = card.home;
+  const as = card.awayScore ?? 0, hs = card.homeScore ?? 0;
+  const status = card.isFinal ? 'Final' : card.isScheduled ? card.statusText : card.statusText;
+  const wp = card.winProbability != null
+    ? `\nWin Prob: ${away} ${Math.round((1-card.winProbability)*100)}% · ${home} ${Math.round(card.winProbability*100)}%`
+    : '';
+  const xg = (card.xgAway != null && card.xgHome != null)
+    ? `\nxG: ${away} ${card.xgAway.toFixed(1)} · ${home} ${card.xgHome.toFixed(1)}`
+    : '';
+  const sog = (card.awaySog != null && card.homeSog != null)
+    ? `\nSOG: ${away} ${card.awaySog} · ${home} ${card.homeSog}`
+    : '';
+  const text = `${away} ${as} · ${hs} ${home} — ${status}${wp}${xg}${sog}`;
+  const url = 'https://hockeygamebot.com';
+
+  if (navigator.share) {
+    navigator.share({ title: `${away} vs ${home}`, text, url }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
+      const toast = document.getElementById(`toast-${card.id}`);
+      if (toast) { toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1800); }
+    }).catch(() => {});
+  }
+}
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     hiddenAt = Date.now();
@@ -2147,6 +2187,16 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 // Card click → open modal
 // Use event delegation on the grid wrapper and bench container
 document.addEventListener('click', e => {
+  // Share button
+  const shareBtn = e.target.closest('.hc-share');
+  if (shareBtn) {
+    e.stopPropagation();
+    const id = shareBtn.dataset.id;
+    const card = gameCards[id];
+    if (card) shareCard(card);
+    return;
+  }
+
   const card = e.target.closest('.hcard');
   if (card) {
     // Find game id from SLOTS array
