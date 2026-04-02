@@ -23,6 +23,7 @@
   <meta name="twitter:description" content="Live NHL scores and game cards with real-time win probability, xG flow charts, play-by-play, and advanced analytics. Every game, every night.">
   <meta name="twitter:image" content="https://s3.us-west-000.backblazeb2.com/hockeygamebot-media/hockeygamebot/static/og_image.png">
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
 </head>
 <body>
 
@@ -73,7 +74,10 @@
 <div id="game-modal" class="modal-overlay" style="display:none" aria-modal="true" role="dialog">
   <div class="modal-backdrop" id="modal-backdrop"></div>
   <div class="modal-panel">
-    <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    <div class="modal-actions">
+      <button class="modal-share" id="modal-share" aria-label="Share"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg></button>
+      <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    </div>
     <div id="modal-content"><div class="modal-loading">Loading…</div></div>
   </div>
 </div>
@@ -263,10 +267,6 @@ html, body {
 .hc-status.intermission .status-dot::after { display: none; }
 @keyframes ringPulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.9); opacity: 0; } }
 .hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
-.hc-share { background: none; border: none; cursor: pointer; color: var(--dim); padding: 2px 4px; font-size: 13px; line-height: 1; opacity: 0.5; transition: opacity 0.15s; flex-shrink: 0; }
-.hc-share:hover { opacity: 1; }
-.hc-share-toast { position: absolute; top: 6px; right: 8px; background: rgba(255,255,255,0.12); color: #fff; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 10; }
-.hc-share-toast.show { opacity: 1; }
 .badge { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 10px; border: 1px solid; display: inline-flex; align-items: center; line-height: 1; }
 .badge.pp   { color: var(--yellow); border-color: rgba(255,202,40,0.35); background: rgba(255,202,40,0.07); }
 .badge.pk   { color: var(--red);    border-color: rgba(255,61,61,0.4);   background: rgba(255,61,61,0.08);  }
@@ -408,8 +408,12 @@ html, body {
 .modal-panel::-webkit-scrollbar-track { background:transparent; }
 .modal-panel::-webkit-scrollbar-thumb { background:#2a2a2a; border-radius:2px; }
 @keyframes slideUp { from{transform:translateY(60px);opacity:0} to{transform:translateY(0);opacity:1} }
-.modal-close { position:sticky; float:right; top:0; background:none; border:none; color:#555; font-size:20px; cursor:pointer; line-height:1; padding:0 4px; }
+.modal-actions { position:absolute; top:16px; right:16px; display:flex; align-items:center; gap:4px; z-index:10; }
+.modal-close { background:none; border:none; color:#555; font-size:20px; cursor:pointer; line-height:1; padding:0 4px; }
 .modal-close:hover { color:#fff; }
+.modal-share { background:none; border:none; color:#555; font-size:16px; cursor:pointer; line-height:1; padding:0 4px; transition:color 0.15s; }
+.modal-share:hover { color:#fff; }
+.modal-share.capturing { color:#4fc3f7; pointer-events:none; }
 .modal-loading { color:#555; font-size:13px; padding:40px 0; text-align:center; }
 .modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:8px; }
 .modal-team { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:90px; }
@@ -1232,10 +1236,8 @@ function buildCardInner(card, washData) {
       <div class="hc-status ${statusClass}">${statusHtml}</div>
       <div class="hc-badges">
         ${buildBadgesHtml(card.badges)}
-        <button class="hc-share" data-id="${card.id}" title="Share" aria-label="Share game">⬆</button>
       </div>
     </div>
-    <div class="hc-share-toast" id="toast-${card.id}">Copied!</div>
     <div class="hc-body">
       <div class="hc-team">
         <img class="hc-logo ${card.isFinal&&ac==='trail'?'dim':''}" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}">
@@ -1911,31 +1913,6 @@ function showCatchupPill() {
   setTimeout(() => pill.classList.remove('show'), 1500);
 }
 
-function shareCard(card) {
-  const away = card.away, home = card.home;
-  const as = card.awayScore ?? 0, hs = card.homeScore ?? 0;
-  const status = card.isFinal ? 'Final' : card.isScheduled ? card.statusText : card.statusText;
-  const wp = card.winProbability != null
-    ? `\nWin Prob: ${away} ${Math.round((1-card.winProbability)*100)}% · ${home} ${Math.round(card.winProbability*100)}%`
-    : '';
-  const xg = (card.xgAway != null && card.xgHome != null)
-    ? `\nxG: ${away} ${card.xgAway.toFixed(1)} · ${home} ${card.xgHome.toFixed(1)}`
-    : '';
-  const sog = (card.awaySog != null && card.homeSog != null)
-    ? `\nSOG: ${away} ${card.awaySog} · ${home} ${card.homeSog}`
-    : '';
-  const text = `${away} ${as} · ${hs} ${home} — ${status}${wp}${xg}${sog}`;
-  const url = 'https://hockeygamebot.com';
-
-  if (navigator.share) {
-    navigator.share({ title: `${away} vs ${home}`, text, url }).catch(() => {});
-  } else {
-    navigator.clipboard.writeText(`${text}\n${url}`).then(() => {
-      const toast = document.getElementById(`toast-${card.id}`);
-      if (toast) { toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 1800); }
-    }).catch(() => {});
-  }
-}
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
@@ -2005,6 +1982,83 @@ function closeModal() {
   document.body.style.overflow = '';
 }
 
+async function inlineImages(el) {
+  const imgs = Array.from(el.querySelectorAll('img[src]'));
+  await Promise.all(imgs.map(async img => {
+    try {
+      const resp = await fetch(img.src);
+      const blob = await resp.blob();
+      await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => { img.src = reader.result; resolve(); };
+        reader.readAsDataURL(blob);
+      });
+    } catch(e) { /* leave src as-is on failure */ }
+  }));
+}
+
+async function shareModal() {
+  if (typeof html2canvas === 'undefined') return;
+  const btn = document.getElementById('modal-share');
+  btn.classList.add('capturing');
+  btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 16"/></svg>';
+
+  try {
+    const panel = document.querySelector('.modal-panel');
+
+    // Clone into a fixed 860px offscreen container so output is always wide
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:860px;z-index:-1;';
+    const clone = panel.cloneNode(true);
+    clone.style.cssText = 'width:860px;max-width:860px;max-height:none;overflow:visible;border-radius:14px;animation:none;';
+    // Hide interactive chrome in the clone
+    clone.querySelectorAll('.modal-actions').forEach(el => el.style.display = 'none');
+    // Inject branding — top right, absolute so it overlays the header area
+    const brand = document.createElement('div');
+    brand.style.cssText = 'position:absolute;top:14px;right:24px;font-size:11px;font-weight:700;letter-spacing:0.1em;color:rgba(255,255,255,0.35);pointer-events:none;';
+    brand.textContent = 'hockeygamebot.com';
+    clone.appendChild(brand);
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    // Inline all images as data URLs to bypass CORS (NHL CDN SVGs fail with useCORS)
+    await inlineImages(clone);
+
+    // Wait a frame for layout
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const canvas = await html2canvas(clone, {
+      backgroundColor: '#0d0d0d',
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      width: 860,
+      windowWidth: 860,
+    });
+
+    document.body.removeChild(wrapper);
+
+    canvas.toBlob(async blob => {
+      const file = new File([blob], 'game.png', { type: 'image/png' });
+      const isMobile = navigator.maxTouchPoints > 0 && window.matchMedia('(pointer: coarse)').matches;
+      if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] }).catch(() => {});
+      } else {
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = 'game-card.png';
+        a.click();
+      }
+    }, 'image/png');
+  } catch(e) {
+    console.error('shareModal:', e);
+  } finally {
+    btn.classList.remove('capturing');
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
+  }
+}
+
 async function openModal(gameId) {
   const modal = document.getElementById('game-modal');
   const content = document.getElementById('modal-content');
@@ -2047,18 +2101,38 @@ async function openModal(gameId) {
   const logoImg = (abbr, dim) => `<img src="${logoUrl(abbr)}" width="60" height="60" style="object-fit:contain${dim ? ';opacity:0.3;filter:grayscale(0.5)' : ''}" onerror="this.style.display='none'">`;
 
   const xgEvents = eventsData?.events || [];
+  const xgEvents5v5 = xgEvents.filter(ev => ev.payload?.situationCode === '1551');
+
+  // Compute totals from events (more accurate than card values which are all-situations)
+  function calcXgTotals(evs) {
+    let home = 0, away = 0;
+    for (const ev of evs) {
+      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'MISSED_SHOT') continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const isHome = ev.event_team_id != null && ev.event_team_id === ev.home_team_id;
+      if (isHome) home += xg; else away += xg;
+    }
+    return { home: home.toFixed(1), away: away.toFixed(1) };
+  }
+  const totalsAll = calcXgTotals(xgEvents);
+  const totals5v5 = calcXgTotals(xgEvents5v5);
+
   const wpInner = points.length >= 3
     ? buildWpChart(points, goals, card.home, card.away, card.homeColor, card.teamColor, tMax)
     : `<div class="modal-no-chart">Win probability chart will appear once the game is underway.</div>`;
-  const xgInner = buildXgFlowChart(xgEvents, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
+  const xgInner5v5 = buildXgFlowChart(xgEvents5v5, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
+  const xgInnerAll = buildXgFlowChart(xgEvents, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
 
   const chartHtml = `<div class="modal-chart-wrap" id="mc-${gameId}">
     <div class="modal-tabs">
       <button class="modal-tab-btn active" data-tab="wp">Win %</button>
-      <button class="modal-tab-btn" data-tab="xg">xG Flow</button>
+      <button class="modal-tab-btn" data-tab="xg5v5">5V5 xG</button>
+      <button class="modal-tab-btn" data-tab="xgall">All xG</button>
     </div>
     <div class="modal-tab-panel active" data-panel="wp">${wpInner}</div>
-    <div class="modal-tab-panel" data-panel="xg">${xgInner}</div>
+    <div class="modal-tab-panel" data-panel="xg5v5">${xgInner5v5}</div>
+    <div class="modal-tab-panel" data-panel="xgall">${xgInnerAll}</div>
   </div>`;
 
   function goalPeriodStr(t) {
@@ -2102,8 +2176,13 @@ async function openModal(gameId) {
   const awayWpPct = homeWpPct != null ? 100 - homeWpPct : null;
   const awayReadable = ensureReadable(card.teamColor);
   const homeReadable = ensureReadable(card.homeColor);
-  const awayXgHtml = card.xgAway != null ? `<div class="modal-xg" style="color:${awayReadable}">${card.xgAway} <span class="modal-xg-lbl">xG</span></div>` : '';
-  const homeXgHtml = card.xgHome != null ? `<div class="modal-xg" style="color:${homeReadable}">${card.xgHome} <span class="modal-xg-lbl">xG</span></div>` : '';
+  // Default header xG to 5v5 if we have event data, else fall back to card all-situations
+  const hasXgEvents = totals5v5.home > 0 || totals5v5.away > 0;
+  const initAwayXg = hasXgEvents ? totals5v5.away : card.xgAway;
+  const initHomeXg = hasXgEvents ? totals5v5.home : card.xgHome;
+  const initLbl = hasXgEvents ? 'xG 5V5' : 'xG';
+  const awayXgHtml = initAwayXg != null ? `<div class="modal-xg" id="modal-xg-away-${gameId}" style="color:${awayReadable}">${initAwayXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
+  const homeXgHtml = initHomeXg != null ? `<div class="modal-xg" id="modal-xg-home-${gameId}" style="color:${homeReadable}">${initHomeXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
   const statsStripHtml = homeWpPct != null ? `
     <div class="modal-wp-lbl">WIN PROBABILITY</div>
     <div class="modal-wp-strip">
@@ -2174,6 +2253,19 @@ async function openModal(gameId) {
       btn.addEventListener('click', () => {
         chartWrap.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
         chartWrap.querySelectorAll('.modal-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === btn.dataset.tab));
+        // Sync header xG numbers with active xG tab
+        const awayEl = document.getElementById(`modal-xg-away-${gameId}`);
+        const homeEl = document.getElementById(`modal-xg-home-${gameId}`);
+        if (awayEl && homeEl) {
+          if (btn.dataset.tab === 'xg5v5') {
+            awayEl.innerHTML = `${totals5v5.away} <span class="modal-xg-lbl">xG 5V5</span>`;
+            homeEl.innerHTML = `${totals5v5.home} <span class="modal-xg-lbl">xG 5V5</span>`;
+          } else if (btn.dataset.tab === 'xgall') {
+            awayEl.innerHTML = `${totalsAll.away} <span class="modal-xg-lbl">xG</span>`;
+            homeEl.innerHTML = `${totalsAll.home} <span class="modal-xg-lbl">xG</span>`;
+          }
+          // WIN% tab: leave xG header unchanged
+        }
       });
     });
   }
@@ -2181,21 +2273,13 @@ async function openModal(gameId) {
 
 // Modal close handlers
 document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('modal-share').addEventListener('click', shareModal);
 document.getElementById('modal-backdrop').addEventListener('click', closeModal);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 // Card click → open modal
 // Use event delegation on the grid wrapper and bench container
 document.addEventListener('click', e => {
-  // Share button
-  const shareBtn = e.target.closest('.hc-share');
-  if (shareBtn) {
-    e.stopPropagation();
-    const id = shareBtn.dataset.id;
-    const card = gameCards[id];
-    if (card) shareCard(card);
-    return;
-  }
 
   const card = e.target.closest('.hcard');
   if (card) {

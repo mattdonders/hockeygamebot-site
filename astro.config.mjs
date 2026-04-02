@@ -3,4 +3,9 @@ import { defineConfig } from 'astro/config';
 export default defineConfig({
   output: 'static',
   site: 'https://hockeygamebot.com',
+  vite: {
+    server: {
+      allowedHosts: ['cygnus'],
+    },
+  },
 });
