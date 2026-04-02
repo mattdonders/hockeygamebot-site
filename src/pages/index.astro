@@ -1260,15 +1260,7 @@ function buildCardInner(card, washData) {
         <div class="hc-name">${card.homeCity}</div>
       </div>
     </div>
-    ${(card.recentEvents && card.recentEvents.length) ? `
-  <div class="hc-recent">
-    <div class="hc-recent-label"><span>RECENT EVENTS</span></div>
-    ${card.recentEvents.map(e => `
-      <div class="hc-recent-row">
-        <span class="hc-recent-icon">${recentEventIcon(e.type)}</span>
-        <span class="hc-recent-desc">${e.description}${recentEventStamp(e)}</span>
-      </div>`).join('')}
-  </div>` : (card.isFinal && card.threeStars?.length ? `
+    ${(card.isFinal && card.threeStars?.length) ? `
   <div class="hc-foot">
     <div class="hc-last-label"><span>THREE STARS</span></div>
     <div class="hc-stars">${card.threeStars.slice(0,3).map(s => `
@@ -1277,7 +1269,15 @@ function buildCardInner(card, washData) {
         <div class="hc-star-name">${s.player_last_name || s.player_name || ''}${s.team_abbrev ? ` (${s.team_abbrev})` : ''}</div>
       </div>`).join('')}
     </div>
-  </div>` : (card.lastEvent && !card.isFinal ? `<div class="hc-foot"><div class="hc-last-label"><span>LAST EVENT</span></div><div class="hc-last">${card.lastEvent}</div></div>` : ''))}`;
+  </div>` : (card.recentEvents && card.recentEvents.length) ? `
+  <div class="hc-recent">
+    <div class="hc-recent-label"><span>RECENT EVENTS</span></div>
+    ${card.recentEvents.map(e => `
+      <div class="hc-recent-row">
+        <span class="hc-recent-icon">${recentEventIcon(e.type)}</span>
+        <span class="hc-recent-desc">${e.description}${recentEventStamp(e)}</span>
+      </div>`).join('')}
+  </div>` : (card.lastEvent && !card.isFinal ? `<div class="hc-foot"><div class="hc-last-label"><span>LAST EVENT</span></div><div class="hc-last">${card.lastEvent}</div></div>` : '')}`
 }
 
 function buildBenchCard(card, isGoal) {
@@ -1694,17 +1694,18 @@ function updateCardInPlace(slotIndex, card) {
   const footEl = el.querySelector('.hc-foot');
   const recentEl = el.querySelector('.hc-recent');
   const hasRecentEvents = card.recentEvents && card.recentEvents.length > 0;
-  if (hasRecentEvents) {
-    // Always rebuild footer with recent events
+  if (card.isFinal && card.threeStars?.length) {
+    // Final game: three stars take priority over recent events
+    if (!footEl || !footEl.querySelector('.hc-stars')) {
+      if (recentEl) recentEl.remove();
+      el.innerHTML = buildCardInner(card);
+    }
+  } else if (hasRecentEvents) {
+    // Live game: show recent events
     if (recentEl) {
       recentEl.outerHTML = `<div class="hc-recent"><div class="hc-recent-label"><span>RECENT EVENTS</span></div>${card.recentEvents.map(e => `<div class="hc-recent-row"><span class="hc-recent-icon">${recentEventIcon(e.type)}</span><span class="hc-recent-desc">${e.description}${recentEventStamp(e)}</span></div>`).join('')}</div>`;
     } else {
       if (footEl) footEl.remove();
-      el.innerHTML = buildCardInner(card);
-    }
-  } else if (card.isFinal && card.threeStars?.length) {
-    // Final game: show three stars (static, no need to patch text)
-    if (!footEl || !footEl.querySelector('.hc-stars')) {
       el.innerHTML = buildCardInner(card);
     }
   } else if (card.lastEvent && !card.isFinal) {
