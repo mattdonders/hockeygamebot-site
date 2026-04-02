@@ -415,7 +415,7 @@ html, body {
 .modal-share:hover { color:#fff; }
 .modal-share.capturing { color:#4fc3f7; pointer-events:none; }
 .modal-loading { color:#555; font-size:13px; padding:40px 0; text-align:center; }
-.modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:8px; }
+.modal-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:24px; gap:8px; }
 .modal-team { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:90px; }
 .modal-team img { width:60px; height:60px; object-fit:contain; }
 .modal-abbr { font-family:'Oswald',sans-serif; font-size:22px; font-weight:700; }
@@ -1942,16 +1942,16 @@ function connectSSE() {
   _sse = new EventSource(SSE_URL);
 
   _sse.onopen = () => {
-    sseIndicator.classList.add('connected');
-    sseIndicator.classList.remove('error');
+    sseIndicator?.classList.add('connected');
+    sseIndicator?.classList.remove('error');
   };
 
   _sse.onmessage = (e) => {
     let data;
     try { data = JSON.parse(e.data); } catch { return; }
     if (data.type === 'connected') {
-      sseIndicator.classList.add('connected');
-      sseIndicator.classList.remove('error');
+      sseIndicator?.classList.add('connected');
+      sseIndicator?.classList.remove('error');
       return;
     }
     if (data.type === 'goal' || data.type === 'period_end' || data.type === 'game_end') {
@@ -1964,8 +1964,8 @@ function connectSSE() {
   };
 
   _sse.onerror = () => {
-    sseIndicator.classList.remove('connected');
-    sseIndicator.classList.add('error');
+    sseIndicator?.classList.remove('connected');
+    sseIndicator?.classList.add('error');
     if (_sse) { _sse.close(); _sse = null; }
     setTimeout(connectSSE, 10_000);
   };
@@ -1983,6 +1983,45 @@ function closeModal() {
 }
 
 
+// Convert SVG <img> elements to letterboxed PNG data URLs.
+// html2canvas v1 ignores object-fit:contain, so we manually center the SVG
+// within the display bounding box and produce a same-size PNG.
+async function svgImgsToPng(container) {
+  const imgs = Array.from(container.querySelectorAll('img[src]'));
+  await Promise.all(imgs.map(img => new Promise(resolve => {
+    const src = img.src;
+    // @2x for retina — display dims from HTML attributes
+    const dw = (parseInt(img.getAttribute('width')) || 60) * 2;
+    const dh = (parseInt(img.getAttribute('height')) || 60) * 2;
+    const tmp = new Image();
+    tmp.onload = () => {
+      const nw = tmp.naturalWidth || dw;
+      const nh = tmp.naturalHeight || dh;
+      // Letterbox: fit SVG within display box maintaining aspect ratio
+      const svgRatio = nw / nh;
+      const boxRatio = dw / dh;
+      let sw, sh, sx, sy;
+      if (svgRatio > boxRatio) {
+        sw = dw; sh = Math.round(dw / svgRatio);
+        sx = 0; sy = Math.round((dh - sh) / 2);
+      } else {
+        sh = dh; sw = Math.round(dh * svgRatio);
+        sx = Math.round((dw - sw) / 2); sy = 0;
+      }
+      const c = document.createElement('canvas');
+      c.width = dw; c.height = dh;
+      c.getContext('2d').drawImage(tmp, sx, sy, sw, sh);
+      try {
+        img.src = c.toDataURL('image/png');
+        img.style.objectFit = 'none'; // already letterboxed in the PNG
+      } catch(e) { console.warn('[share] canvas draw failed:', src, e); }
+      resolve();
+    };
+    tmp.onerror = resolve;
+    tmp.src = src;
+  })));
+}
+
 async function shareModal() {
   if (typeof html2canvas === 'undefined') return;
   const btn = document.getElementById('modal-share');
@@ -1999,6 +2038,8 @@ async function shareModal() {
     clone.style.cssText = 'width:860px;max-width:860px;max-height:none;overflow:visible;border-radius:14px;animation:none;';
     // Hide interactive chrome in the clone
     clone.querySelectorAll('.modal-actions').forEach(el => el.style.display = 'none');
+    // Remove onerror hide handlers so failed loads stay visible for debugging
+    clone.querySelectorAll('img[onerror]').forEach(img => img.removeAttribute('onerror'));
     // Inject branding — top right, absolute so it overlays the header area
     const brand = document.createElement('div');
     brand.style.cssText = 'position:absolute;top:14px;right:24px;font-size:11px;font-weight:700;letter-spacing:0.1em;color:rgba(255,255,255,0.35);pointer-events:none;';
@@ -2006,6 +2047,9 @@ async function shareModal() {
     clone.appendChild(brand);
     wrapper.appendChild(clone);
     document.body.appendChild(wrapper);
+
+    // Convert SVG imgs → PNG data URLs (html2canvas can't render SVG img tags)
+    await svgImgsToPng(clone);
 
     // Wait a frame for layout
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
