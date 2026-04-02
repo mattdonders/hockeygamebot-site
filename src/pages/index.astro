@@ -82,6 +82,27 @@
   </div>
 </div>
 
+<!-- Goal video popup -->
+<div id="gvp" class="gvp-overlay" hidden aria-modal="true" role="dialog">
+  <div class="gvp-backdrop" id="gvp-backdrop"></div>
+  <div class="gvp-panel">
+    <button class="gvp-close" id="gvp-close" aria-label="Close">✕</button>
+    <!-- Tab toggle — hidden when only one source available -->
+    <div class="gvp-tabs" id="gvp-tabs" hidden>
+      <button class="gvp-tab active" data-gvp-tab="edge">EDGE</button>
+      <button class="gvp-tab" data-gvp-tab="highlight">HIGHLIGHT</button>
+    </div>
+    <div class="gvp-media">
+      <video id="gvp-video" controls autoplay playsinline></video>
+      <iframe id="gvp-iframe" allowfullscreen allow="autoplay; encrypted-media" hidden></iframe>
+    </div>
+    <div class="gvp-info">
+      <div class="gvp-scorer" id="gvp-scorer"></div>
+      <div class="gvp-wp" id="gvp-wp"></div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
 
@@ -476,6 +497,36 @@ html, body {
 .modal-strength.pp { color:#ffca28; background:rgba(255,202,40,0.12); }
 .modal-strength.sh { color:#4dd; background:rgba(68,221,221,0.12); }
 .modal-strength.en { color:#f88; background:rgba(255,136,136,0.12); }
+/* WP delta badge on goal row */
+.modal-gc-wp-delta { font-size:10px; font-weight:700; padding:2px 5px; border-radius:2px; white-space:nowrap; }
+.modal-gc-wp-delta.pos { color:#4caf50; background:rgba(76,175,80,0.15); }
+.modal-gc-wp-delta.neg { color:#ef5350; background:rgba(239,83,80,0.15); }
+/* Play button on goal row */
+.modal-gc-play { background:rgba(255,255,255,0.07); border:none; border-radius:50%; color:#999; cursor:pointer; font-size:8px; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; padding:0; flex-shrink:0; transition:background 0.15s,color 0.15s; }
+.modal-gc-play:hover { background:rgba(255,255,255,0.16); color:#fff; }
+/* Goal video popup */
+.gvp-overlay { position:fixed; inset:0; z-index:600; display:flex; align-items:center; justify-content:center; }
+.gvp-overlay[hidden] { display:none; }
+.gvp-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.88); }
+.gvp-panel { position:relative; z-index:1; background:#111; border:1px solid #222; border-radius:12px; max-width:640px; width:calc(100% - 32px); overflow:hidden; box-shadow:0 24px 80px rgba(0,0,0,0.7); }
+.gvp-close { position:absolute; top:10px; right:12px; background:rgba(0,0,0,0.55); border:none; color:#aaa; cursor:pointer; font-size:14px; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; z-index:10; transition:color 0.15s,background 0.15s; }
+.gvp-close:hover { color:#fff; background:rgba(0,0,0,0.8); }
+.gvp-tabs { display:flex; gap:6px; padding:12px 44px 10px 14px; }
+.gvp-tabs[hidden] { display:none; }
+.gvp-tab { background:none; border:1px solid #1e1e1e; border-radius:16px; color:#444; cursor:pointer; font-family:'Oswald',sans-serif; font-size:10px; font-weight:700; letter-spacing:0.1em; padding:4px 14px; text-transform:uppercase; transition:color 0.15s,border-color 0.15s; }
+.gvp-tab.active { border-color:#333; color:#bbb; }
+.gvp-media { position:relative; background:#000; }
+#gvp-video { width:100%; display:block; max-height:360px; }
+#gvp-video[hidden] { display:none; }
+#gvp-iframe { width:100%; height:360px; border:none; display:block; }
+#gvp-iframe[hidden] { display:none; }
+.gvp-info { padding:12px 16px 16px; }
+.gvp-scorer { font-size:13px; color:#e0e0e0; font-weight:500; margin-bottom:5px; }
+.gvp-wp { font-size:12px; color:#666; }
+.gvp-wp strong { color:#bbb; }
+.gvp-wp-delta { font-weight:700; padding:1px 6px; border-radius:3px; margin-left:4px; }
+.gvp-wp-delta.pos { color:#4caf50; background:rgba(76,175,80,0.15); }
+.gvp-wp-delta.neg { color:#ef5350; background:rgba(239,83,80,0.15); }
 /* Make grid cards clickable */
 .hcard { cursor:pointer; }
 .hcard:hover { border-color:#2a2a2a; }
@@ -2118,6 +2169,21 @@ async function openModal(gameId) {
     points[points.length - 1] = { ...points[points.length - 1], wp: finalWp };
   }
   const goals = (flow.goals || []).map(g => ({ ...g, isHome: g.is_home }));
+
+  // Compute WP delta for each goal (scoring team's perspective)
+  for (const g of goals) {
+    const before = points.filter(p => p.t < g.t);
+    const after  = points.filter(p => p.t >= g.t);
+    const wpB = before.length ? before[before.length - 1].wp : null;
+    const wpA = after.length  ? after[0].wp : null;
+    if (wpB != null && wpA != null) {
+      const rawDelta = wpA - wpB; // positive = better for home
+      g.wpDelta      = g.isHome ? rawDelta : -rawDelta; // flip for away scorer
+      g.scoringWpB   = (g.isHome ? wpB : 1 - wpB) * 100;
+      g.scoringWpA   = (g.isHome ? wpA : 1 - wpA) * 100;
+    }
+  }
+
   const tMax = points.length ? points[points.length - 1].t : 3600;
 
   const sc = (a, b) => a > b ? 'lead' : a < b ? 'trail' : 'tie';
@@ -2188,12 +2254,37 @@ async function openModal(gameId) {
     const scorerLine = g.scorer
       ? `🚨 ${g.scorer}${assists ? `<span class="modal-gc-assists"> · ${assists}</span>` : ''}`
       : '';
+
+    // WP delta badge
+    let wpBadge = '';
+    if (g.wpDelta != null) {
+      const sign = g.wpDelta >= 0 ? '+' : '';
+      const cls  = g.wpDelta >= 0 ? 'pos' : 'neg';
+      wpBadge = `<span class="modal-gc-wp-delta ${cls}">${sign}${(g.wpDelta * 100).toFixed(1)}%</span>`;
+    }
+
+    // Play button — show when either EDGE video or NHL highlight clip is available
+    const playBtn = (g.goal_video_url || g.highlight_clip_id)
+      ? `<button class="modal-gc-play"
+           data-url="${g.goal_video_url || ''}"
+           data-clip-id="${g.highlight_clip_id || ''}"
+           data-scorer="${(g.scorer || '').replace(/"/g, '&quot;')}"
+           data-assists="${assists.replace(/"/g, '&quot;')}"
+           data-team="${teamAbbr}"
+           data-wp-b="${g.scoringWpB != null ? g.scoringWpB.toFixed(1) : ''}"
+           data-wp-a="${g.scoringWpA != null ? g.scoringWpA.toFixed(1) : ''}"
+           data-wp-delta="${g.wpDelta != null ? (g.wpDelta * 100).toFixed(1) : ''}"
+           aria-label="Watch goal replay">▶</button>`
+      : '';
+
     return `<div class="modal-goal-card">
       <div class="modal-gc-top">
         <span class="modal-gc-abbr" style="color:${color}">${teamAbbr}</span>
         ${strengthBadge(g.strength)}
         <span class="modal-gc-score">${(g.score||'').replace('-','–')}</span>
         <span class="modal-gc-time">${goalPeriodStr(g.t)}</span>
+        ${wpBadge}
+        ${playBtn}
       </div>
       ${scorerLine ? `<div class="modal-gc-scorer">${scorerLine}</div>` : ''}
     </div>`;
@@ -2312,7 +2403,105 @@ async function openModal(gameId) {
 document.getElementById('modal-close').addEventListener('click', closeModal);
 document.getElementById('modal-share').addEventListener('click', shareModal);
 document.getElementById('modal-backdrop').addEventListener('click', closeModal);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeGvp(); } });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GOAL VIDEO POPUP
+// ─────────────────────────────────────────────────────────────────────────────
+const gvp       = document.getElementById('gvp');
+const gvpVideo  = document.getElementById('gvp-video');
+const gvpIframe = document.getElementById('gvp-iframe');
+const gvpTabs   = document.getElementById('gvp-tabs');
+const gvpScorer = document.getElementById('gvp-scorer');
+const gvpWp     = document.getElementById('gvp-wp');
+
+const BRIGHTCOVE_PLAYER = 'https://players.brightcove.net/6415718365001/EXtG1xJ7H_default/index.html';
+
+function gvpShowTab(tab) {
+  gvpTabs.querySelectorAll('.gvp-tab').forEach(b => b.classList.toggle('active', b.dataset.gvpTab === tab));
+  if (tab === 'edge') {
+    gvpVideo.hidden = false;
+    gvpIframe.hidden = true;
+    gvpIframe.src = '';
+    gvpVideo.play().catch(() => {});
+  } else {
+    gvpVideo.pause();
+    gvpVideo.hidden = true;
+    gvpIframe.hidden = false;
+    gvpIframe.src = `${BRIGHTCOVE_PLAYER}?videoId=${gvpIframe.dataset.clipId}&autoplay=true`;
+  }
+}
+
+function closeGvp() {
+  if (gvp.hidden) return;
+  gvp.hidden = true;
+  gvpVideo.pause();
+  gvpVideo.src = '';
+  gvpIframe.src = '';
+  gvpIframe.dataset.clipId = '';
+}
+
+document.getElementById('gvp-close').addEventListener('click', closeGvp);
+document.getElementById('gvp-backdrop').addEventListener('click', closeGvp);
+gvpTabs.addEventListener('click', e => {
+  const tab = e.target.closest('.gvp-tab');
+  if (tab) gvpShowTab(tab.dataset.gvpTab);
+});
+
+// Delegate clicks on play buttons (rendered dynamically inside modal)
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.modal-gc-play');
+  if (!btn) return;
+  e.stopPropagation(); // don't bubble to hcard click handler
+
+  const scorer  = btn.dataset.scorer;
+  const assists = btn.dataset.assists;
+  const team    = btn.dataset.team;
+  const wpB     = btn.dataset.wpB;
+  const wpA     = btn.dataset.wpA;
+  const delta   = btn.dataset.wpDelta;
+  const clipId  = btn.dataset.clipId;
+
+  // Scorer line
+  gvpScorer.textContent = scorer
+    ? (assists ? `${scorer} · ${assists}` : scorer)
+    : 'Goal';
+
+  // WP line
+  if (wpB && wpA && delta) {
+    const d = parseFloat(delta);
+    const sign = d >= 0 ? '+' : '';
+    const cls  = d >= 0 ? 'pos' : 'neg';
+    gvpWp.innerHTML = `${team} win probability: <strong>${wpB}%</strong> → <strong>${wpA}%</strong><span class="gvp-wp-delta ${cls}">${sign}${delta}%</span>`;
+  } else {
+    gvpWp.innerHTML = '';
+  }
+
+  const hasEdge = !!btn.dataset.url;
+  const hasClip = !!clipId;
+  const hasBoth = hasEdge && hasClip;
+
+  // Show tabs only when both sources exist
+  gvpTabs.hidden = !hasBoth;
+  gvpIframe.dataset.clipId = clipId || '';
+
+  if (hasEdge) {
+    // EDGE available — default to it
+    gvpVideo.src = btn.dataset.url;
+    gvpVideo.hidden = false;
+    gvpIframe.hidden = true;
+    gvpIframe.src = '';
+    if (hasBoth) gvpTabs.querySelectorAll('.gvp-tab').forEach(b => b.classList.toggle('active', b.dataset.gvpTab === 'edge'));
+  } else {
+    // Highlight clip only — go straight to iframe
+    gvpVideo.src = '';
+    gvpVideo.hidden = true;
+    gvpIframe.src = `${BRIGHTCOVE_PLAYER}?videoId=${clipId}&autoplay=true`;
+    gvpIframe.hidden = false;
+  }
+
+  gvp.hidden = false;
+});
 
 // Card click → open modal
 // Use event delegation on the grid wrapper and bench container
