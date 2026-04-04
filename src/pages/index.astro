@@ -788,6 +788,7 @@ function buildWpChart(points, goals, homeAbbr, awayAbbr, homeColor, awayColor, t
     <clipPath id="cl-${uid}"><rect x="0" y="${midY}" width="${svgW}" height="${svgH - midY}"/></clipPath>
   </defs>
   ${periodLines.map(t => `<line x1="${px(t).toFixed(1)}" y1="0" x2="${px(t).toFixed(1)}" y2="${svgH}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5" stroke-dasharray="4,3"/>`).join('')}
+  ${[{wp:0.75,label:'75%'},{wp:0.25,label:'75%'}].map(r => { const ry = py(r.wp).toFixed(1); return `<line x1="0" y1="${ry}" x2="${svgW}" y2="${ry}" stroke="rgba(255,255,255,0.07)" stroke-width="0.6"/><text x="${svgW - 3}" y="${(parseFloat(ry) + 7).toFixed(1)}" text-anchor="end" font-family="Oswald,sans-serif" font-size="7" fill="rgba(255,255,255,0.18)">${r.label}</text>`; }).join('')}
   <line x1="0" y1="${midY}" x2="${svgW}" y2="${midY}" stroke="rgba(255,255,255,0.15)" stroke-width="0.8" stroke-dasharray="4,4"/>
   <polygon points="${areaPoints}" fill="${hexToRgba(homeColor,0.15)}" clip-path="url(#cu-${uid})"/>
   <polygon points="${areaPoints}" fill="${hexToRgba(awayColor,0.15)}" clip-path="url(#cl-${uid})"/>
@@ -2096,7 +2097,7 @@ async function shareModal() {
     // Hide interactive chrome in the clone
     clone.querySelectorAll('.modal-actions').forEach(el => el.style.display = 'none');
     // Swap to two-column goals layout for share card
-    clone.querySelectorAll('.modal-goals-list').forEach(el => el.hidden = true);
+    clone.querySelectorAll('.modal-goals-list').forEach(el => { el.hidden = true; el.style.display = 'none'; });
     clone.querySelectorAll('.modal-goals-grid').forEach(el => { el.hidden = false; el.style.display = 'grid'; });
     // Remove onerror hide handlers so failed loads stay visible for debugging
     clone.querySelectorAll('img[onerror]').forEach(img => img.removeAttribute('onerror'));
@@ -2171,6 +2172,8 @@ async function openModal(gameId) {
   if (!card) { content.innerHTML = '<div class="modal-loading">Game not found.</div>'; return; }
 
   const points = (flow.points || []).filter(p => p.wp != null).sort((a, b) => a.t - b.t);
+  // Anchor line to game start at home-team advantage baseline if first data point comes in late
+  if (points.length && points[0].t > 0) points.unshift({ t: 0, wp: 0.5513 });
   // For final games, force the last WP point to the definitive outcome (1.0 home win / 0.0 away win)
   if (card.isFinal && points.length) {
     const finalWp = card.homeScore > card.awayScore ? 1.0 : 0.0;
