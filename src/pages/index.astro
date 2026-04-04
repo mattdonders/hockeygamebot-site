@@ -773,8 +773,8 @@ function buildWpChart(points, goals, homeAbbr, awayAbbr, homeColor, awayColor, t
 
   const visibleGoals = goals.filter(g => g.t >= tMin && g.t <= tMax);
   const goalMarkersHtml = visibleGoals.map(g => {
-    const gx = px(g.t).toFixed(1);
-    const wp = interpWp(pts, g.t - 1); // pre-goal WP so dot sits at top of the drop
+    const gx = px(g.wpAfterT != null ? g.wpAfterT : g.t).toFixed(1); // step at first post-goal WP point
+    const wp = g.wpAfter != null ? g.wpAfter : interpWp(pts, g.t + 10); // post-goal WP level
     const gy = py(wp).toFixed(1);
     const color = g.isHome ? homeColor : awayColor;
     const labelY = g.isHome ? (parseFloat(gy) - 13).toFixed(1) : (parseFloat(gy) + 17).toFixed(1);
@@ -2184,14 +2184,17 @@ async function openModal(gameId) {
   // Compute WP delta for each goal (scoring team's perspective)
   for (const g of goals) {
     const before = points.filter(p => p.t < g.t);
-    const after  = points.filter(p => p.t >= g.t);
+    const after  = points.filter(p => p.t > g.t);  // skip WP at goal timestamp (pre-goal state)
     const wpB = before.length ? before[before.length - 1].wp : null;
-    const wpA = after.length  ? after[0].wp : null;
+    // Fallback to last available point for the most-recent goal (no later WP point yet)
+    const wpA = after.length ? after[0].wp : (points.length ? points[points.length - 1].wp : null);
     if (wpB != null && wpA != null) {
       const rawDelta = wpA - wpB; // positive = better for home
       g.wpDelta      = g.isHome ? rawDelta : -rawDelta; // flip for away scorer
       g.scoringWpB   = (g.isHome ? wpB : 1 - wpB) * 100;
       g.scoringWpA   = (g.isHome ? wpA : 1 - wpA) * 100;
+      g.wpAfter      = wpA; // home WP after goal — used to place dot at post-goal level
+      g.wpAfterT     = after.length ? after[0].t : null; // time of first post-goal WP point (where line actually steps)
     }
   }
 
