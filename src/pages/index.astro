@@ -772,15 +772,24 @@ function buildWpChart(points, goals, homeAbbr, awayAbbr, homeColor, awayColor, t
   }
 
   const visibleGoals = goals.filter(g => g.t >= tMin && g.t <= tMax);
-  const goalMarkersHtml = visibleGoals.map(g => {
-    // Use first post-goal WP timestamp for X if it's close (normal ~4s poll gap);
-    // fall back to goal time if the gap is large (recent goal, sparse data)
+  // Pre-compute dot X positions so we can detect label collisions below
+  const goalDotXs = visibleGoals.map(g => {
     const dotT = (g.wpAfterT != null && (g.wpAfterT - g.t) <= 30) ? g.wpAfterT : g.t;
-    const gx = px(dotT).toFixed(1);
+    return px(dotT);
+  });
+  const goalMarkersHtml = visibleGoals.map((g, idx) => {
+    const gx = goalDotXs[idx].toFixed(1);
     const wp = g.wpAfter != null ? g.wpAfter : interpWp(pts, g.t + 10); // post-goal WP level
     const gy = py(wp).toFixed(1);
     const color = g.isHome ? homeColor : awayColor;
-    const labelY = g.isHome ? (parseFloat(gy) - 13).toFixed(1) : (parseFloat(gy) + 17).toFixed(1);
+    // Count prior same-side dots within 30 SVG px — each one bumps the label 13px further out
+    // so that rapid same-team goals (e.g. two in the first minute of a period) don't overlap
+    const stackCount = visibleGoals.slice(0, idx).filter(
+      (prev, pi) => prev.isHome === g.isHome && Math.abs(goalDotXs[pi] - goalDotXs[idx]) < 30
+    ).length;
+    const baseLabelOffset = g.isHome ? -13 : 17;
+    const stackDir = g.isHome ? -1 : 1;
+    const labelY = (parseFloat(gy) + baseLabelOffset + stackDir * stackCount * 13).toFixed(1);
     return `<circle cx="${gx}" cy="${gy}" r="3.5" fill="${color}" fill-opacity="0.95"/>
       <text x="${gx}" y="${labelY}" text-anchor="middle" font-family="Oswald,sans-serif" font-size="10" font-weight="700" fill="${color}" fill-opacity="0.9" letter-spacing="0.05em">${g.isHome ? homeAbbr : awayAbbr}</text>`;
   }).join('');
