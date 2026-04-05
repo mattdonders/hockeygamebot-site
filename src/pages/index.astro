@@ -2210,7 +2210,14 @@ async function openModal(gameId) {
     }
   }
 
-  const tMax = points.length ? points[points.length - 1].t : 3600;
+  // tMax: for live games, stretch to at least the end of the current period so a
+  // single early goal doesn't collapse the chart to a tiny sliver.
+  const lastPointT = points.length ? points[points.length - 1].t : 0;
+  const periodEndT = card.isFinal ? 0 : (() => {
+    const p = card.period || 1;
+    return p <= 3 ? p * 1200 : 3600 + (p - 3) * 300;
+  })();
+  const tMax = Math.max(lastPointT, periodEndT) || 3600;
 
   const sc = (a, b) => a > b ? 'lead' : a < b ? 'trail' : 'tie';
   const ac = sc(card.awayScore, card.homeScore);
@@ -2243,7 +2250,7 @@ async function openModal(gameId) {
   const totalsAll = calcXgTotals(xgEvents);
   const totals5v5 = calcXgTotals(xgEvents5v5);
 
-  const wpInner = points.length >= 3
+  const wpInner = points.length >= 2
     ? buildWpChart(points, goals, card.home, card.away, card.homeColor, card.teamColor, tMax)
     : `<div class="modal-no-chart">Win probability chart will appear once the game is underway.</div>`;
   const xgInner5v5 = buildXgFlowChart(xgEvents5v5, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
