@@ -2,7 +2,9 @@
 // HockeyGameBot — /teams page — static bot directory
 
 // Fetch playoff-clinched teams from NHL standings at build time.
-// clinchIndicator is non-null for any team that has clinched a playoff spot.
+// NHL clinchIndicator values: "x" = clinched spot, "y" = clinched division,
+// "z" = Presidents' Trophy, "e" = ELIMINATED, "p" = still possible (not clinched).
+// We only badge teams that have actually clinched ("x", "y", "z").
 // TODO: If the NHL API structure changes, update the field path below.
 let playoffTeams: Set<string> = new Set();
 try {
@@ -10,7 +12,8 @@ try {
   if (res.ok) {
     const data = await res.json();
     for (const team of data.standings ?? []) {
-      if (team.clinchIndicator) {
+      const ind = team.clinchIndicator;
+      if (ind === 'x' || ind === 'y' || ind === 'z') {
         playoffTeams.add(team.teamAbbrev?.default ?? '');
       }
     }
@@ -51,7 +54,7 @@ const teams = [
   { abbr: 'TOR', name: 'Toronto Maple Leafs' },
   { abbr: 'UTA', name: 'Utah Hockey Club' },
   { abbr: 'VAN', name: 'Vancouver Canucks' },
-  { abbr: 'VGK', name: 'Vegas Golden Knights' },
+  { abbr: 'VGK', name: 'Vegas Golden Knights', xHandle: 'VGKGameBot_' },
   { abbr: 'WSH', name: 'Washington Capitals' },
   { abbr: 'WPG', name: 'Winnipeg Jets' },
 ];
@@ -112,7 +115,7 @@ const teams = [
     <div class="teams-inner">
       <div class="teams-grid">
         {teams.map((team) => {
-          const xHandle = `${team.abbr}GameBot`;
+          const xHandle = team.xHandle ?? `${team.abbr}GameBot`;
           const xUrl = `https://x.com/${xHandle}`;
           const bskyHandle = `${team.abbr.toLowerCase()}.hockeygamebot.com`;
           const bskyUrl = `https://bsky.app/profile/${bskyHandle}`;
@@ -120,7 +123,6 @@ const teams = [
           const inPlayoffs = playoffTeams.has(team.abbr);
           return (
             <div class={`team-card${inPlayoffs ? ' team-card--playoff' : ''}`}>
-              {inPlayoffs && <span class="playoff-badge">PLAYOFFS</span>}
               <div class="team-card-top">
                 <img
                   src={logoUrl}
@@ -148,6 +150,7 @@ const teams = [
                   <span class="link-label">@{bskyHandle}</span>
                 </a>
               </div>
+              {inPlayoffs && <div class="playoff-badge-row"><span class="playoff-badge">PLAYOFFS</span></div>}
             </div>
           );
         })}
@@ -320,26 +323,26 @@ html, body {
   flex-direction: column;
   gap: 14px;
   transition: border-color 0.15s;
-  position: relative;
 }
 .team-card:hover {
   border-color: #333;
 }
 
 /* ── PLAYOFF BADGE ──────────────────────────────────────────────── */
+.playoff-badge-row {
+  display: flex;
+  padding-top: 2px;
+  border-top: 1px solid var(--border);
+}
 .playoff-badge {
-  position: absolute;
-  top: 10px;
-  right: 10px;
   background: var(--red);
   color: #fff;
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.12em;
-  padding: 2px 6px;
+  letter-spacing: 0.14em;
+  padding: 3px 7px;
   border-radius: 3px;
   line-height: 1.5;
-  pointer-events: none;
   user-select: none;
 }
 
