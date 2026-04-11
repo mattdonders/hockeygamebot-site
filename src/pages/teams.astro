@@ -1,6 +1,26 @@
 ---
 // HockeyGameBot — /teams page — static bot directory
 
+// Fetch playoff-clinched teams from NHL standings at build time.
+// clinchIndicator is non-null for any team that has clinched a playoff spot.
+// TODO: If the NHL API structure changes, update the field path below.
+let playoffTeams: Set<string> = new Set();
+try {
+  const res = await fetch('https://api-web.nhle.com/v1/standings/now');
+  if (res.ok) {
+    const data = await res.json();
+    for (const team of data.standings ?? []) {
+      if (team.clinchIndicator) {
+        playoffTeams.add(team.teamAbbrev?.default ?? '');
+      }
+    }
+  }
+} catch (e) {
+  // Build-time fetch failed — badges will be hidden rather than wrong.
+  // TODO: If this keeps failing, hardcode the current playoff teams here.
+  console.warn('[teams] Failed to fetch NHL standings for playoff badges:', e);
+}
+
 const teams = [
   { abbr: 'ANA', name: 'Anaheim Ducks' },
   { abbr: 'BOS', name: 'Boston Bruins' },
@@ -97,8 +117,10 @@ const teams = [
           const bskyHandle = `${team.abbr.toLowerCase()}.hockeygamebot.com`;
           const bskyUrl = `https://bsky.app/profile/${bskyHandle}`;
           const logoUrl = `https://assets.nhle.com/logos/nhl/svg/${team.abbr}_light.svg`;
+          const inPlayoffs = playoffTeams.has(team.abbr);
           return (
-            <div class="team-card">
+            <div class={`team-card${inPlayoffs ? ' team-card--playoff' : ''}`}>
+              {inPlayoffs && <span class="playoff-badge">PLAYOFFS</span>}
               <div class="team-card-top">
                 <img
                   src={logoUrl}
@@ -123,7 +145,7 @@ const teams = [
                   <svg class="link-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/>
                   </svg>
-                  <span class="link-label">{team.abbr.toLowerCase()}.hgb</span>
+                  <span class="link-label">@{bskyHandle}</span>
                 </a>
               </div>
             </div>
@@ -298,9 +320,27 @@ html, body {
   flex-direction: column;
   gap: 14px;
   transition: border-color 0.15s;
+  position: relative;
 }
 .team-card:hover {
   border-color: #333;
+}
+
+/* ── PLAYOFF BADGE ──────────────────────────────────────────────── */
+.playoff-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--red);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  line-height: 1.5;
+  pointer-events: none;
+  user-select: none;
 }
 
 .team-card-top {
