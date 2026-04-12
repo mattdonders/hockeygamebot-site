@@ -189,10 +189,11 @@ const statusClass = isPlayoff ? 'badge--playoffs' : isEliminated ? 'badge--elimi
     try {
       const res = await fetch(`${API}/v1/games/today`);
       if (!res.ok) throw new Error('API error');
-      const games = await res.json();
+      const data = await res.json();
+      const games = data.games ?? [];
 
       const game = games.find(g =>
-        g.awayTeam?.abbrev === abbr || g.homeTeam?.abbrev === abbr
+        g.away_team?.abbrev === abbr || g.home_team?.abbrev === abbr
       );
 
       if (!game) {
@@ -200,25 +201,25 @@ const statusClass = isPlayoff ? 'badge--playoffs' : isEliminated ? 'badge--elimi
         return;
       }
 
-      const away = game.awayTeam;
-      const home = game.homeTeam;
-      const state = game.gameState ?? '';
-      const isLive = state === 'LIVE' || state === 'CRIT';
-      const isFinal = state === 'OFF' || state === 'FINAL';
+      const away = game.away_team;
+      const home = game.home_team;
+      const status = game.status ?? 'upcoming';  // 'upcoming' | 'live' | 'final'
+      const isLive  = status === 'live';
+      const isFinal = status === 'final';
 
       const awayLogo = `https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_light.svg`;
       const homeLogo = `https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_light.svg`;
 
       let statusHtml = '';
       if (isLive) {
-        const period = game.periodDescriptor?.number ?? '';
+        const period = game.period ?? '';
         const periodLabel = period === 4 ? 'OT' : period === 5 ? 'SO' : `P${period}`;
-        const clock = game.clock?.timeRemaining ?? '';
+        const clock = game.time_remaining ?? '';
         statusHtml = `<span class="game-live">● LIVE ${periodLabel}${clock ? ' ' + clock : ''}</span>`;
       } else if (isFinal) {
         statusHtml = `<span class="game-final">FINAL</span>`;
       } else {
-        const startUtc = game.startTimeUTC;
+        const startUtc = game.start_time;
         const time = startUtc
           ? new Date(startUtc).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
           : '';
