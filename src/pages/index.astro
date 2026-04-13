@@ -1835,10 +1835,14 @@ connectSSE();
 // ─────────────────────────────────────────────────────────────────────────────
 // GAME MODAL
 // ─────────────────────────────────────────────────────────────────────────────
-function closeModal() {
+function _hideModal() {
   document.getElementById('game-modal').style.display = 'none';
-  history.replaceState({}, '', location.pathname);
   document.body.style.overflow = '';
+}
+
+function closeModal() {
+  _hideModal();
+  if (location.search) history.replaceState({}, '', location.pathname);
 }
 
 
@@ -1948,13 +1952,13 @@ async function shareModal() {
   }
 }
 
-async function openModal(gameId) {
+async function openModal(gameId, { push = true } = {}) {
   const modal = document.getElementById('game-modal');
   const content = document.getElementById('modal-content');
   modal.style.display = 'flex';
   document.body.style.overflow = 'hidden';
   content.innerHTML = '<div class="modal-loading">Loading…</div>';
-  history.replaceState({ gameId }, '', `?game=${gameId}`);
+  if (push) history.pushState({ gameId }, '', `?game=${gameId}`);
 
   let flow, eventsData;
   try {
@@ -2279,6 +2283,15 @@ document.getElementById('modal-share').addEventListener('click', shareModal);
 document.getElementById('modal-backdrop').addEventListener('click', closeModal);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeGvp(); } });
 
+// Back/forward button support — popstate fires when history changes via browser nav
+window.addEventListener('popstate', e => {
+  if (e.state && e.state.gameId) {
+    openModal(e.state.gameId, { push: false }); // forward → reopen, don't push again
+  } else {
+    _hideModal(); // back → close without touching history (already moved)
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GOAL VIDEO POPUP
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2401,6 +2414,11 @@ document.addEventListener('click', e => {
 window.openModal = openModal;
 pollAndUpdate();
 fetchGoals();
+
+// Auto-open modal if ?game=<id> is in the URL (e.g. deep link from Reddit).
+// Do NOT push state — URL is already correct. Fall back silently if game not found.
+const _autoGameId = new URLSearchParams(location.search).get('game');
+if (_autoGameId) openModal(_autoGameId, { push: false });
 startPolling(POLL_INTERVAL);
 // Refresh goals ticker every 2 minutes independently of game poll
 setInterval(fetchGoals, 300_000); // 5min fallback — SSE handles real-time goal updates
