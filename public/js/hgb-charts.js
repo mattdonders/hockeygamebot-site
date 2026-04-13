@@ -25,6 +25,17 @@ function teamColor(abbrev, idx = 0) {
   return (TEAM_COLORS[abbrev] || ['#555','#333'])[idx];
 }
 
+// Pick the best display color for a team on a dark background.
+// Teams with near-black primaries (L < 15%: PIT #000, WSH/FLA/WPG #041E42, LAK #111, SEA #001628)
+// are better represented by their secondary color (PIT gold, WSH red, etc.).
+function pickTeamColor(abbrev) {
+  const primary = teamColor(abbrev, 0);
+  if (!primary.startsWith('#')) return primary;
+  const r = parseInt(primary.slice(1,3),16)/255, g = parseInt(primary.slice(3,5),16)/255, b = parseInt(primary.slice(5,7),16)/255;
+  const l = (Math.max(r,g,b) + Math.min(r,g,b)) / 2;
+  return l < 0.15 ? teamColor(abbrev, 1) : primary;
+}
+
 // Boost colors that are too dark to read on a dark background (L < 52% → clamp to 52%)
 function ensureReadable(hex, minL = 52) {
   if (!hex || !hex.startsWith('#')) return hex;
