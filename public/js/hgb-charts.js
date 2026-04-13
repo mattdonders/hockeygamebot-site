@@ -121,10 +121,11 @@ function buildWpChart(points, goals, homeAbbr, awayAbbr, homeColor, awayColor, t
   const linePoints = coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
   const uid = Math.random().toString(36).slice(2, 8);
 
+  const lastCoord = coords[coords.length - 1];
   const areaPoints = [
     `0,${py(pts[0].wp).toFixed(1)}`,
     ...coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`),
-    `${px(tMax).toFixed(1)},${midY}`,
+    `${lastCoord.x.toFixed(1)},${midY}`,
     `0,${midY}`,
   ].join(' ');
 
