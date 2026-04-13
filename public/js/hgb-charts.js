@@ -162,7 +162,7 @@ function buildWpChart(points, goals, homeAbbr, awayAbbr, homeColor, awayColor, t
     <clipPath id="cl-${uid}"><rect x="0" y="${midY}" width="${svgW}" height="${svgH - midY}"/></clipPath>
   </defs>
   ${periodLines.map(t => `<line x1="${px(t).toFixed(1)}" y1="0" x2="${px(t).toFixed(1)}" y2="${svgH}" stroke="rgba(255,255,255,0.22)" stroke-width="1.5" stroke-dasharray="4,3"/>`).join('')}
-  ${[{wp:0.75,label:'75%'},{wp:0.25,label:'25%'}].map(r => { const ry = py(r.wp).toFixed(1); return `<line x1="0" y1="${ry}" x2="${svgW}" y2="${ry}" stroke="rgba(255,255,255,0.07)" stroke-width="0.6"/><text x="${svgW - 3}" y="${(parseFloat(ry) + 7).toFixed(1)}" text-anchor="end" font-family="Oswald,sans-serif" font-size="7" fill="rgba(255,255,255,0.18)">${r.label}</text>`; }).join('')}
+  ${[{wp:0.75,label:'75%'},{wp:0.25,label:'75%'}].map(r => { const ry = py(r.wp).toFixed(1); return `<line x1="0" y1="${ry}" x2="${svgW}" y2="${ry}" stroke="rgba(255,255,255,0.07)" stroke-width="0.6"/><text x="${svgW - 3}" y="${(parseFloat(ry) + 7).toFixed(1)}" text-anchor="end" font-family="Oswald,sans-serif" font-size="7" fill="rgba(255,255,255,0.18)">${r.label}</text>`; }).join('')}
   <line x1="0" y1="${midY}" x2="${svgW}" y2="${midY}" stroke="rgba(255,255,255,0.15)" stroke-width="0.8" stroke-dasharray="4,4"/>
   <polygon points="${areaPoints}" fill="${hexToRgba(homeColor,0.15)}" clip-path="url(#cu-${uid})"/>
   <polygon points="${areaPoints}" fill="${hexToRgba(awayColor,0.15)}" clip-path="url(#cl-${uid})"/>
