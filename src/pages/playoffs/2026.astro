@@ -151,6 +151,8 @@ const westSeries = SERIES.filter(s => s.conf === 'West');
   --hgb-font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* CSS rules with display:* override the default [hidden]{display:none}. Force it back. */
+[hidden] { display: none !important; }
 html { -webkit-font-smoothing: antialiased; }
 body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb-font-body); min-height: 100vh; font-size: 14px; line-height: 1.4; }
 
@@ -227,9 +229,11 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .hgb-card__seg--small .hgb-card__seg-val { display: none; }
 
 /* footer */
-.hgb-card__foot { display: flex; align-items: baseline; gap: 8px; padding-top: 12px; border-top: 1px solid var(--hgb-border); }
-.hgb-card__foot-label { font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.12em; text-transform: uppercase; }
-.hgb-card__foot-val { font: 500 14px/1 var(--hgb-font-display); color: var(--hgb-text); letter-spacing: 0.02em; }
+.hgb-card__foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--hgb-border); }
+.hgb-card__foot-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hgb-card__foot-col--right { text-align: right; align-items: flex-end; }
+.hgb-card__foot-label { font: 500 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; }
+.hgb-card__foot-val { font: 500 13px/1 var(--hgb-font-display); color: var(--hgb-text); letter-spacing: 0.02em; white-space: nowrap; }
 .hgb-card__foot-val strong { color: var(--hgb-team-a); }
 
 /* TBD */
@@ -517,10 +521,16 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
               </div>
 
               <footer class="hgb-card__foot">
-                <span class="hgb-card__foot-label">Most Likely</span>
-                <span class="hgb-card__foot-val">
-                  <strong>{ml?.label.split(' in ')[0]}</strong> in {ml?.label.split(' in ')[1]} · {ml?.v}%
-                </span>
+                <div class="hgb-card__foot-col">
+                  <span class="hgb-card__foot-label">Next Game</span>
+                  <span class="hgb-card__foot-val" data-next-game>TBD</span>
+                </div>
+                <div class="hgb-card__foot-col hgb-card__foot-col--right">
+                  <span class="hgb-card__foot-label">Most Likely</span>
+                  <span class="hgb-card__foot-val">
+                    <strong>{ml?.label.split(' in ')[0]}</strong> in {ml?.label.split(' in ')[1]} · {ml?.v}%
+                  </span>
+                </div>
               </footer>
             </button>
           );
@@ -950,64 +960,93 @@ window.addEventListener('popstate', (e) => {
 let openSeriesId: string | null = null;
 
 /**
- * Single NHL API call to /v1/playoff-series/carousel/{season} populates BOTH
- * the series state (played games + winner per game) AND the next-game start
- * time. Replaces the previous 13-date serial fetch loop.
+ * Series state (played games + who won them) via /v1/playoff-series/carousel/{season}.
+ * Game times via /v1/score/{date} fanned out in parallel (carousel doesn't carry
+ * startTimeUTC before the series starts).
  */
 async function loadSeriesData() {
+  // ── 1. Carousel: per-game winners + current wins count ─────────────────────
   try {
     const res = await fetch('https://api-web.nhle.com/v1/playoff-series/carousel/20252026');
-    if (!res.ok) return;
-    const data = await res.json();
-    const round1 = data.rounds?.find((r: any) => r.roundNumber === 1);
-    if (!round1) return;
+    if (res.ok) {
+      const data = await res.json();
+      const round1 = data.rounds?.find((r: any) => r.roundNumber === 1);
+      for (const ser of (round1?.series ?? [])) {
+        // NHL API field names: topSeed / bottomSeed (NOT topSeedTeam)
+        const topAbbr = ser.topSeed?.abbrev, botAbbr = ser.bottomSeed?.abbrev;
+        const topW = ser.topSeed?.wins ?? 0, botW = ser.bottomSeed?.wins ?? 0;
+        if (!topAbbr || !botAbbr) continue;
 
-    for (const ser of round1.series ?? []) {
-      const topAbbr = ser.topSeedTeam?.abbrev, botAbbr = ser.bottomSeedTeam?.abbrev;
-      const topW = ser.topSeedTeam?.wins ?? 0, botW = ser.bottomSeedTeam?.wins ?? 0;
-      if (!topAbbr || !botAbbr) continue;
+        const s = SERIES.find((x: any) =>
+          (x.a.abbr === topAbbr || x.a.abbr === botAbbr) &&
+          (x.b.abbr === topAbbr || x.b.abbr === botAbbr)
+        );
+        if (!s) continue;
 
-      const s = SERIES.find((x: any) =>
-        (x.a.abbr === topAbbr || x.a.abbr === botAbbr) &&
-        (x.b.abbr === topAbbr || x.b.abbr === botAbbr)
-      );
-      if (!s) continue;
-
-      // Played games — prefer per-game winner from the carousel, fall back to
-      // top-wins-first ordering when the API doesn't supply per-game outcomes.
-      const played = topW + botW;
-      for (let i = 0; i < played; i++) {
-        const g = ser.games?.[i];
-        const winId = g?.gameOutcome?.winningTeamId;
-        if (winId) {
-          s.games[i] = g.homeTeam?.id === winId ? g.homeTeam?.abbrev : g.awayTeam?.abbrev;
-        } else {
-          s.games[i] = i < topW ? topAbbr : botAbbr;
+        const played = topW + botW;
+        for (let i = 0; i < played; i++) {
+          const g = ser.games?.[i];
+          const winId = g?.gameOutcome?.winningTeamId;
+          if (winId) {
+            s.games[i] = g.homeTeam?.id === winId ? g.homeTeam?.abbrev : g.awayTeam?.abbrev;
+          } else {
+            s.games[i] = i < topW ? topAbbr : botAbbr;
+          }
         }
       }
-
-      // Next game — first game in the series whose state is still future/scheduled.
-      const nextGame = (ser.games ?? []).find((g: any) =>
-        g?.startTimeUTC &&
-        g.gameState !== 'FINAL' && g.gameState !== 'OFF'
-      );
-      if (nextGame?.startTimeUTC) s._nextGameUTC = nextGame.startTimeUTC;
     }
+  } catch (_) { /* continue to game times anyway */ }
 
-    // Refresh NEXT field if a modal is currently open
-    if (openSeriesId) {
-      const s = SERIES.find((x: any) => x.id === openSeriesId);
-      const nextDiv = document.getElementById('hgb-tracker-next');
-      if (s && nextDiv && s._nextGameUTC) {
-        const state = seriesState(s);
-        const dt = new Date(s._nextGameUTC);
-        const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
-        const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
-        nextDiv.hidden = false;
-        setField('next-game', `Game ${state.played + 1} · ${mon}, ${time} ET`);
+  // ── 2. Game times: parallel /v1/score/{date} fetches ───────────────────────
+  const dates = [
+    '2026-04-18','2026-04-19','2026-04-20','2026-04-21','2026-04-22',
+    '2026-04-23','2026-04-24','2026-04-25','2026-04-26','2026-04-27',
+    '2026-04-28','2026-04-29','2026-04-30',
+  ];
+  await Promise.all(dates.map(async (date) => {
+    try {
+      const res = await fetch(`https://api-web.nhle.com/v1/score/${date}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const game of (data.games ?? [])) {
+        if (game.gameType !== 3) continue;
+        if (game.gameState === 'FINAL' || game.gameState === 'OFF') continue;
+        const away = game.awayTeam?.abbrev, home = game.homeTeam?.abbrev;
+        if (!away || !home || !game.startTimeUTC) continue;
+        const s = SERIES.find((x: any) =>
+          (x.a.abbr === away || x.a.abbr === home) &&
+          (x.b.abbr === away || x.b.abbr === home)
+        );
+        // Earliest future game wins — don't overwrite with a later date
+        if (s && !s._nextGameUTC) s._nextGameUTC = game.startTimeUTC;
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }));
+
+  // ── 3. Re-render any cards that now have next-game data + refresh open modal
+  for (const s of SERIES) {
+    if ((s as any).tbd) continue;
+    const card = document.querySelector<HTMLElement>(`.hgb-card[data-id="${s.id}"]`);
+    if (card) updateCardNextGame(card, s);
+  }
+  if (openSeriesId) openModal(openSeriesId);
+}
+
+function formatNextGame(iso: string, gameNum: number): string {
+  const dt = new Date(iso);
+  const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
+  const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+  return `Game ${gameNum} · ${mon}, ${time} ET`;
+}
+
+/** Update just the `Next Game` footer-left field on a card, in-place. */
+function updateCardNextGame(card: HTMLElement, s: any) {
+  const nextEl = card.querySelector<HTMLElement>('[data-next-game]');
+  if (!nextEl) return;
+  if (s._nextGameUTC && !s.is_complete) {
+    const state = seriesState(s);
+    nextEl.textContent = formatNextGame(s._nextGameUTC, state.played + 1);
+  }
 }
 
 /**
@@ -1123,10 +1162,23 @@ function rebuildCard(card: HTMLElement, s: any) {
   if (pctEls[0]) pctEls[0].innerHTML = `${pctA}<small>%</small>`;
   if (pctEls[1]) pctEls[1].innerHTML = `${pctB}<small>%</small>`;
 
-  // Update footer line (Most Likely OR Series Winner)
-  if (s.is_complete && s.winner && s.winner_in) {
-    foot.innerHTML = `<span class="hgb-card__foot-label">Series Winner</span>
-      <span class="hgb-card__foot-val"><strong>${s.winner}</strong> in ${s.winner_in}</span>`;
+  // Rebuild two-column footer: left = Next Game, right = Most Likely (or Winner)
+  let nextHtml: string;
+  if (s.is_complete) {
+    nextHtml = `<span class="hgb-card__foot-label">Result</span>
+                <span class="hgb-card__foot-val">${s.winner} in ${s.winner_in}</span>`;
+  } else {
+    const nextTxt = (s._nextGameUTC)
+      ? formatNextGame(s._nextGameUTC, seriesState(s).played + 1)
+      : 'TBD';
+    nextHtml = `<span class="hgb-card__foot-label">Next Game</span>
+                <span class="hgb-card__foot-val" data-next-game>${nextTxt}</span>`;
+  }
+
+  let rightHtml: string;
+  if (s.is_complete) {
+    rightHtml = `<span class="hgb-card__foot-label">Series Winner</span>
+                 <span class="hgb-card__foot-val"><strong>${s.winner}</strong></span>`;
   } else {
     const all = [
       ...s.a.dist.map((v: number, i: number) => ({ label:`${s.a.abbr} in ${i+4}`, v })),
@@ -1134,9 +1186,14 @@ function rebuildCard(card: HTMLElement, s: any) {
     ];
     const ml = all.reduce((best: any, x: any) => x.v > best.v ? x : best);
     const [team, num] = ml.label.split(' in ');
-    foot.innerHTML = `<span class="hgb-card__foot-label">Most Likely</span>
-      <span class="hgb-card__foot-val"><strong>${team}</strong> in ${num} · ${ml.v}%</span>`;
+    rightHtml = `<span class="hgb-card__foot-label">Most Likely</span>
+                 <span class="hgb-card__foot-val"><strong>${team}</strong> in ${num} · ${ml.v}%</span>`;
   }
+
+  foot.innerHTML = `
+    <div class="hgb-card__foot-col">${nextHtml}</div>
+    <div class="hgb-card__foot-col hgb-card__foot-col--right">${rightHtml}</div>
+  `;
 }
 
 loadSeriesData();
