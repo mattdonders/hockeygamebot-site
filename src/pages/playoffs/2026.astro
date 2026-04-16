@@ -764,20 +764,23 @@ function openModal(id: string) {
     matchupScore.hidden = true;
   }
 
-  // tracker
-  if (state.hasStarted) {
-    tracker.hidden = false;
-    trackerGrid.innerHTML = renderTracker(s);
-    const nextDiv = document.getElementById('hgb-tracker-next')!;
-    nextDiv.hidden = !s.nextGame;
-    setField('next-game', s.nextGame || '');
-    setField('advance-a', String(4 - state.wA));
-    setField('advance-b', String(4 - state.wB));
-    setField('advance-label-a', `${s.a.abbr} to advance`);
-    setField('advance-label-b', `${s.b.abbr} to advance`);
+  // tracker — always show (pre-series shows Game 1 time + 4 wins needed)
+  tracker.hidden = false;
+  trackerGrid.innerHTML = renderTracker(s);
+  const nextDiv = document.getElementById('hgb-tracker-next')!;
+  if (s._nextGameUTC) {
+    const dt = new Date(s._nextGameUTC);
+    const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
+    const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+    nextDiv.hidden = false;
+    setField('next-game', `Game ${state.played + 1} · ${mon}, ${time} ET`);
   } else {
-    tracker.hidden = true;
+    nextDiv.hidden = true;
   }
+  setField('advance-a', String(4 - state.wA));
+  setField('advance-b', String(4 - state.wB));
+  setField('advance-label-a', `${s.a.abbr} to advance`);
+  setField('advance-label-b', `${s.b.abbr} to advance`);
 
   // WP
   setField('wp-label', state.hasStarted ? 'Series Win Probability · Current' : 'Series Win Probability');
@@ -855,11 +858,13 @@ function openModal(id: string) {
   // scroll to top of sheet
   modal.querySelector('.hgb-modal__sheet')!.scrollTop = 0;
 
+  openSeriesId = id;
   // deep-link
   history.pushState({ series: id }, '', `?series=${id}`);
 }
 
 function closeModal() {
+  openSeriesId = null;
   modal.classList.remove('is-open', 'is-animating');
   history.pushState({}, '', location.pathname);
 }
@@ -902,29 +907,50 @@ window.addEventListener('popstate', (e) => {
 });
 
 // ── Live updates ──────────────────────────────────────────────────────────────
+
+// Track the currently-open series id so we can refresh NEXT after async load
+let openSeriesId: string | null = null;
+
 async function loadGameTimes() {
-  const dates = ['2026-04-18', '2026-04-19', '2026-04-20', '2026-04-21'];
+  // Fetch first 2 weeks of playoff dates; /v1/score/{date} returns FUT+LIVE+FINAL games
+  const dates = [
+    '2026-04-18','2026-04-19','2026-04-20','2026-04-21','2026-04-22',
+    '2026-04-23','2026-04-24','2026-04-25','2026-04-26','2026-04-27',
+    '2026-04-28','2026-04-29','2026-04-30',
+  ];
   for (const date of dates) {
     try {
-      const res = await fetch(`https://api-web.nhle.com/v1/schedule/${date}`);
+      const res = await fetch(`https://api-web.nhle.com/v1/score/${date}`);
       if (!res.ok) continue;
       const data = await res.json();
-      const games: any[] = data.gameWeek?.[0]?.games ?? [];
+      const games: any[] = data.games ?? [];
       for (const game of games) {
         if (game.gameType !== 3) continue;
+        // Only use future/scheduled games as the "next" game
+        if (game.gameState === 'FINAL' || game.gameState === 'OFF') continue;
         const away = game.awayTeam?.abbrev, home = game.homeTeam?.abbrev;
         if (!away || !home || !game.startTimeUTC) continue;
         const s = SERIES.find((x: any) =>
           (x.a.abbr === away || x.a.abbr === home) &&
           (x.b.abbr === away || x.b.abbr === home)
         );
-        if (!s || s.nextGame) continue;
-        const dt = new Date(game.startTimeUTC);
-        const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
-        const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
-        s.nextGame = `Game 1 · ${mon}, ${time} ET`;
+        // Store raw UTC — formatted at modal open so game number is always correct
+        if (s && !s._nextGameUTC) s._nextGameUTC = game.startTimeUTC;
       }
     } catch (_) {}
+  }
+  // Refresh NEXT field if a modal is currently open
+  if (openSeriesId) {
+    const s = SERIES.find((x: any) => x.id === openSeriesId);
+    const nextDiv = document.getElementById('hgb-tracker-next');
+    if (s && nextDiv && s._nextGameUTC) {
+      const state = seriesState(s);
+      const dt = new Date(s._nextGameUTC);
+      const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
+      const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+      nextDiv.hidden = false;
+      setField('next-game', `Game ${state.played + 1} · ${mon}, ${time} ET`);
+    }
   }
 }
 
