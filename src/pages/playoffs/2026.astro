@@ -18,7 +18,12 @@ const SERIES = [
     games: [null,null,null,null,null,null,null] as (string|null)[],
     a: { abbr:'CAR', name:'Carolina Hurricanes', color:'#CC0000',
          seed:'Metro · 1', seedFull:'Metropolitan · 1st', dist:[8,16,16,18] },
-    b: { abbr:'OTT', name:'Ottawa Senators',     color:'#E31837',
+    // OTT override: honey gold (#C2912C) instead of official red (#E31837).
+    // Rationale: CAR is also red (#CC0000). Both primaries are indistinguishable on
+    // the distribution chart + score numerals. Gold is a valid Sens identity
+    // (used on third jerseys + the Spartan mark) and preserves team character
+    // while giving real visual separation.
+    b: { abbr:'OTT', name:'Ottawa Senators',     color:'#C2912C',
          seed:'Atl · WC2', seedFull:'Atlantic · Wild Card 2', dist:[5,9,15,13] },
   },
   {
@@ -75,7 +80,11 @@ const SERIES = [
     games: [null,null,null,null,null,null,null] as (string|null)[],
     a: { abbr:'EDM', name:'Edmonton Oilers',  color:'#FF4C00',
          seed:'Pac · 2', seedFull:'Pacific · 2nd', dist:[] as number[] },
-    b: { abbr:'ANA', name:'Anaheim Ducks',    color:'#F47A38',
+    // ANA override: gold (#FCD116) instead of official orange (#F47A38).
+    // Same rationale as OTT — EDM is also orange (#FF4C00) and the two primaries
+    // are indistinguishable. Gold is a valid Ducks color (Victory Green-era retro,
+    // current tertiary).
+    b: { abbr:'ANA', name:'Anaheim Ducks',    color:'#FCD116',
          seed:'Pac · 3', seedFull:'Pacific · 3rd', dist:[] as number[] },
   },
 ];
@@ -370,11 +379,9 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .hgb-tel { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--hgb-border); background: linear-gradient(180deg, transparent, rgba(0,0,0,0.25)); }
 .hgb-tel__cell { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--hgb-border); position: relative; }
 .hgb-tel__cell:last-child { border-right: none; }
-.hgb-tel__cell::before { content: ''; position: absolute; top: 16px; left: 22px; width: 4px; height: 4px; background: var(--hgb-text-4); border-radius: 50%; }
-.hgb-tel__label { font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.14em; text-transform: uppercase; padding-left: 12px; }
-.hgb-tel__val { padding-left: 12px; }
+.hgb-tel__label { font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.14em; text-transform: uppercase; }
 .hgb-tel__big { font: 500 24px/1 var(--hgb-font-display); color: var(--hgb-text); font-variant-numeric: tabular-nums; }
-.hgb-tel__unit { font: 400 11px/1 var(--hgb-font-body); color: var(--hgb-text-3); }
+.hgb-tel__unit { font: 400 11px/1 var(--hgb-font-body); color: var(--hgb-text-3); margin-left: 4px; }
 
 /* modal entry animations */
 .hgb-modal.is-open .hgb-util,
@@ -451,7 +458,7 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
   </div>
   <div class="page-head__meta">
     <small>Round 1 · Monte Carlo, 10,000 sims each</small>
-    <strong>Blended model</strong>
+    <strong id="page-meta-strong">Blended model</strong>
   </div>
 </div>
 
@@ -643,15 +650,15 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
       </div>
       <div class="hgb-tel__cell">
         <span class="hgb-tel__label" data-field="tel-2-label">Sweep Odds</span>
-        <div class="hgb-tel__val"><span class="hgb-tel__big" data-field="tel-2-val"></span><span class="hgb-tel__unit">%</span></div>
+        <div class="hgb-tel__val"><span class="hgb-tel__big" data-field="tel-2-val"></span><span class="hgb-tel__unit" data-field="tel-2-unit">%</span></div>
       </div>
       <div class="hgb-tel__cell">
-        <span class="hgb-tel__label">Goes Seven</span>
-        <div class="hgb-tel__val"><span class="hgb-tel__big" data-field="goes-seven"></span><span class="hgb-tel__unit">%</span></div>
+        <span class="hgb-tel__label" data-field="tel-3-label">Goes Seven</span>
+        <div class="hgb-tel__val"><span class="hgb-tel__big" data-field="goes-seven"></span><span class="hgb-tel__unit" data-field="tel-3-unit">%</span></div>
       </div>
       <div class="hgb-tel__cell">
         <span class="hgb-tel__label" data-field="tel-4-label">Expected Length</span>
-        <div class="hgb-tel__val"><span class="hgb-tel__big" data-field="exp-length"></span><span class="hgb-tel__unit">games</span></div>
+        <div class="hgb-tel__val"><span class="hgb-tel__big" data-field="exp-length"></span><span class="hgb-tel__unit" data-field="tel-4-unit">games</span></div>
       </div>
     </div>
   </section>
@@ -782,10 +789,17 @@ function openModal(id: string) {
   setField('advance-label-a', `${s.a.abbr} to advance`);
   setField('advance-label-b', `${s.b.abbr} to advance`);
 
-  // WP
-  setField('wp-label', state.hasStarted ? 'Series Win Probability · Current' : 'Series Win Probability');
-  setField('wp-a', String(winA));
-  setField('wp-b', String(winB));
+  // WP — when the series is decided, show 100/0 and label it as final
+  const isComplete = !!s.is_complete;
+  if (isComplete && s.winner) {
+    setField('wp-label', 'Series Result');
+    if (s.winner === s.a.abbr) { setField('wp-a', '100'); setField('wp-b', '0'); }
+    else                        { setField('wp-a', '0');   setField('wp-b', '100'); }
+  } else {
+    setField('wp-label', state.hasStarted ? 'Series Win Probability · Current' : 'Series Win Probability');
+    setField('wp-a', String(winA));
+    setField('wp-b', String(winB));
+  }
 
   // distribution chart — auto-scale
   const scale = Math.max(20, ...s.a.dist, ...s.b.dist);
@@ -827,23 +841,42 @@ function openModal(id: string) {
     </div>`;
   }
 
-  // telemetry
-  setField('most-likely', `${mlTeam.abbr} in ${max.game}`);
-  if (!state.hasStarted) {
-    setField('tel-2-label', 'Sweep Odds');
-    setField('tel-2-val', String(s.a.dist[0] + s.b.dist[0]));
+  // telemetry — complete series shows final facts, not probabilities
+  if (isComplete && s.winner && s.winner_in) {
+    setField('most-likely', `${s.winner} in ${s.winner_in}`);
+    setField('tel-2-label', 'Final');
+    const finalScoreA = s.games.filter((g: any) => g === s.a.abbr).length;
+    const finalScoreB = s.games.filter((g: any) => g === s.b.abbr).length;
+    setField('tel-2-val', `${Math.max(finalScoreA, finalScoreB)}–${Math.min(finalScoreA, finalScoreB)}`);
+    setField('tel-2-unit', '');     // score has no unit
+    setField('tel-3-label', 'Went Seven');
+    setField('goes-seven', s.winner_in === 7 ? 'Yes' : 'No');
+    setField('tel-3-unit', '');
+    setField('tel-4-label', 'Series Length');
+    setField('exp-length', `${s.winner_in}`);
+    setField('tel-4-unit', 'games');
   } else {
-    const leaderTeam = state.leader === 'a' ? s.a : s.b;
-    setField('tel-2-label', `${leaderTeam.abbr} Sweep`);
-    setField('tel-2-val', String(leaderTeam.dist[0]));
+    setField('most-likely', `${mlTeam.abbr} in ${max.game}`);
+    if (!state.hasStarted) {
+      setField('tel-2-label', 'Sweep Odds');
+      setField('tel-2-val', String(s.a.dist[0] + s.b.dist[0]));
+    } else {
+      const leaderTeam = state.leader === 'a' ? s.a : s.b;
+      setField('tel-2-label', `${leaderTeam.abbr} Sweep`);
+      setField('tel-2-val', String(leaderTeam.dist[0]));
+    }
+    setField('tel-2-unit', '%');
+    setField('tel-3-label', 'Goes Seven');
+    setField('goes-seven', String(s.a.dist[3] + s.b.dist[3]));
+    setField('tel-3-unit', '%');
+    const total = winA + winB;
+    const expLen = total > 0
+      ? ([4,5,6,7].reduce((sum: number, g: number, i: number) => sum + g * (s.a.dist[i] + s.b.dist[i]), 0) / total).toFixed(1)
+      : '—';
+    setField('exp-length', expLen);
+    setField('tel-4-label', state.hasStarted ? 'Exp. Remaining' : 'Expected Length');
+    setField('tel-4-unit', 'games');
   }
-  setField('goes-seven', String(s.a.dist[3] + s.b.dist[3]));
-  const total = winA + winB;
-  const expLen = total > 0
-    ? ([4,5,6,7].reduce((sum: number, g: number, i: number) => sum + g * (s.a.dist[i] + s.b.dist[i]), 0) / total).toFixed(1)
-    : '—';
-  setField('exp-length', expLen);
-  setField('tel-4-label', state.hasStarted ? 'Exp. Remaining' : 'Expected Length');
 
   // animate — re-trigger if already open
   // Insert bars AFTER removing is-open so transitions fire from height:0 on new elements
@@ -857,6 +890,11 @@ function openModal(id: string) {
 
   // scroll to top of sheet
   modal.querySelector('.hgb-modal__sheet')!.scrollTop = 0;
+
+  // Move focus into the modal so keyboard + screen-reader users land in context.
+  // Use the close button — first actionable control, and tabbing from here
+  // enters the focus trap cleanly.
+  modal.querySelector<HTMLElement>('.hgb-modal__close')?.focus();
 
   openSeriesId = id;
   // deep-link
@@ -911,86 +949,198 @@ window.addEventListener('popstate', (e) => {
 // Track the currently-open series id so we can refresh NEXT after async load
 let openSeriesId: string | null = null;
 
-async function loadGameTimes() {
-  // Fetch first 2 weeks of playoff dates; /v1/score/{date} returns FUT+LIVE+FINAL games
-  const dates = [
-    '2026-04-18','2026-04-19','2026-04-20','2026-04-21','2026-04-22',
-    '2026-04-23','2026-04-24','2026-04-25','2026-04-26','2026-04-27',
-    '2026-04-28','2026-04-29','2026-04-30',
-  ];
-  for (const date of dates) {
-    try {
-      const res = await fetch(`https://api-web.nhle.com/v1/score/${date}`);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const games: any[] = data.games ?? [];
-      for (const game of games) {
-        if (game.gameType !== 3) continue;
-        // Only use future/scheduled games as the "next" game
-        if (game.gameState === 'FINAL' || game.gameState === 'OFF') continue;
-        const away = game.awayTeam?.abbrev, home = game.homeTeam?.abbrev;
-        if (!away || !home || !game.startTimeUTC) continue;
-        const s = SERIES.find((x: any) =>
-          (x.a.abbr === away || x.a.abbr === home) &&
-          (x.b.abbr === away || x.b.abbr === home)
-        );
-        // Store raw UTC — formatted at modal open so game number is always correct
-        if (s && !s._nextGameUTC) s._nextGameUTC = game.startTimeUTC;
-      }
-    } catch (_) {}
-  }
-  // Refresh NEXT field if a modal is currently open
-  if (openSeriesId) {
-    const s = SERIES.find((x: any) => x.id === openSeriesId);
-    const nextDiv = document.getElementById('hgb-tracker-next');
-    if (s && nextDiv && s._nextGameUTC) {
-      const state = seriesState(s);
-      const dt = new Date(s._nextGameUTC);
-      const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
-      const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
-      nextDiv.hidden = false;
-      setField('next-game', `Game ${state.played + 1} · ${mon}, ${time} ET`);
-    }
-  }
-}
-
-async function loadSeriesStatus() {
+/**
+ * Single NHL API call to /v1/playoff-series/carousel/{season} populates BOTH
+ * the series state (played games + winner per game) AND the next-game start
+ * time. Replaces the previous 13-date serial fetch loop.
+ */
+async function loadSeriesData() {
   try {
     const res = await fetch('https://api-web.nhle.com/v1/playoff-series/carousel/20252026');
     if (!res.ok) return;
     const data = await res.json();
     const round1 = data.rounds?.find((r: any) => r.roundNumber === 1);
     if (!round1) return;
-    for (const ser of round1.series) {
+
+    for (const ser of round1.series ?? []) {
       const topAbbr = ser.topSeedTeam?.abbrev, botAbbr = ser.bottomSeedTeam?.abbrev;
       const topW = ser.topSeedTeam?.wins ?? 0, botW = ser.bottomSeedTeam?.wins ?? 0;
       if (!topAbbr || !botAbbr) continue;
+
       const s = SERIES.find((x: any) =>
         (x.a.abbr === topAbbr || x.a.abbr === botAbbr) &&
         (x.b.abbr === topAbbr || x.b.abbr === botAbbr)
       );
       if (!s) continue;
-      // Update games array in place so modal gets fresh data
+
+      // Played games — prefer per-game winner from the carousel, fall back to
+      // top-wins-first ordering when the API doesn't supply per-game outcomes.
       const played = topW + botW;
-      if (played > 0) {
-        // Reconstruct games array (we only know win counts, not per-game winners)
-        const topGames = Array(topW).fill(topAbbr);
-        const botGames = Array(botW).fill(botAbbr);
-        // Interleave — approximate; actual order comes from API if available
-        for (let i = 0; i < played; i++) {
-          s.games[i] = ser.games?.[i]?.gameOutcome?.winningTeamId
-            ? (ser.games[i].homeTeam?.id === ser.games[i].gameOutcome?.winningTeamId
-              ? ser.games[i].homeTeam?.abbrev
-              : ser.games[i].awayTeam?.abbrev)
-            : (i < topW ? topAbbr : botAbbr);
+      for (let i = 0; i < played; i++) {
+        const g = ser.games?.[i];
+        const winId = g?.gameOutcome?.winningTeamId;
+        if (winId) {
+          s.games[i] = g.homeTeam?.id === winId ? g.homeTeam?.abbrev : g.awayTeam?.abbrev;
+        } else {
+          s.games[i] = i < topW ? topAbbr : botAbbr;
         }
+      }
+
+      // Next game — first game in the series whose state is still future/scheduled.
+      const nextGame = (ser.games ?? []).find((g: any) =>
+        g?.startTimeUTC &&
+        g.gameState !== 'FINAL' && g.gameState !== 'OFF'
+      );
+      if (nextGame?.startTimeUTC) s._nextGameUTC = nextGame.startTimeUTC;
+    }
+
+    // Refresh NEXT field if a modal is currently open
+    if (openSeriesId) {
+      const s = SERIES.find((x: any) => x.id === openSeriesId);
+      const nextDiv = document.getElementById('hgb-tracker-next');
+      if (s && nextDiv && s._nextGameUTC) {
+        const state = seriesState(s);
+        const dt = new Date(s._nextGameUTC);
+        const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
+        const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+        nextDiv.hidden = false;
+        setField('next-game', `Game ${state.played + 1} · ${mon}, ${time} ET`);
       }
     }
   } catch (_) {}
 }
 
-loadGameTimes();
-loadSeriesStatus();
+/**
+ * Fetch blended model predictions from hgb-api and overlay onto SERIES.
+ *
+ * Updates win probability distributions (dist_a, dist_b) and per-game winners
+ * (games[]) for every series in the payload. Morning cron (4am ET) + GAME_END
+ * piggyback both write to this endpoint, so this fetch is the source of truth
+ * for the WP numbers shown in the modal.
+ *
+ * Fails silently — if hgb-api is unreachable or returns an error, the site
+ * falls back to the hardcoded `SERIES` array and loads normally.
+ */
+async function loadModelData() {
+  try {
+    const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    for (const snap of (data.series ?? [])) {
+      // series_id format is `hs-ls` lowercased (Elo-based ordering). Our SERIES
+      // array ids follow the same convention — map directly.
+      const s = SERIES.find((x: any) => x.id === snap.series_id);
+      if (!s) continue;
+
+      // The snapshot's team_a is whichever side the model treats as higher
+      // seed (by Elo). Map dist_a/dist_b to SERIES a/b by matching abbrevs.
+      if (snap.team_a === s.a.abbr) {
+        s.a.dist = snap.dist_a;
+        s.b.dist = snap.dist_b;
+      } else if (snap.team_a === s.b.abbr) {
+        s.a.dist = snap.dist_b;
+        s.b.dist = snap.dist_a;
+      }
+
+      // Per-game winners come from the snapshot (morning cron reads them from
+      // the NHL carousel too, so this is authoritative and always in sync).
+      if (Array.isArray(snap.games)) s.games = snap.games;
+
+      // Completion state — the modal's complete branch uses these
+      s.is_complete = !!snap.is_complete;
+      s.winner = snap.winner ?? null;
+      s.winner_in = snap.winner_in ?? null;
+    }
+
+    // Staleness indicator in page header
+    if (data.latest_update) {
+      const dt = new Date(data.latest_update);
+      const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+      const date = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
+      const strong = document.getElementById('page-meta-strong');
+      if (strong) strong.textContent = `Updated ${date} · ${time} ET`;
+    }
+
+    // Rebuild any already-rendered card bars to reflect the new distribution.
+    for (const s of SERIES) {
+      if ((s as any).tbd) continue;
+      const card = document.querySelector<HTMLElement>(`.hgb-card[data-id="${s.id}"]`);
+      if (card) rebuildCard(card, s);
+    }
+
+    // If the user has a modal open, refresh its contents in place.
+    if (openSeriesId) openModal(openSeriesId);
+  } catch (_) { /* fall back to hardcoded data */ }
+}
+
+/**
+ * Re-render the distribution bar + foot line of a card with fresh dist data.
+ * Keeps the card in the DOM (so the click handler survives) rather than
+ * re-rendering the grid.
+ */
+function rebuildCard(card: HTMLElement, s: any) {
+  const bar = card.querySelector<HTMLElement>('.hgb-card__bar');
+  const foot = card.querySelector<HTMLElement>('.hgb-card__foot');
+  if (!bar || !foot || !s.a.dist?.length || !s.b.dist?.length) return;
+
+  const mixHex = (hex: string, target: string, amount: number): string => {
+    if (!hex.startsWith('#') || hex.length < 7) return hex;
+    const p = (h: string, o: number) => parseInt(h.slice(o, o + 2), 16);
+    const r1 = p(hex,1), g1 = p(hex,3), b1 = p(hex,5);
+    const r2 = p(target,1), g2 = p(target,3), b2 = p(target,5);
+    const t = amount / 100;
+    const r = Math.round(r1+(r2-r1)*t), g = Math.round(g1+(g2-g1)*t), b = Math.round(b1+(b2-b1)*t);
+    return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+  };
+
+  const [a4,a5,a6,a7] = s.a.dist;
+  const [b4,b5,b6,b7] = s.b.dist;
+  const hc = s.a.color, lc = s.b.color;
+  const raw = [
+    { w:a4, c:mixHex(hc,'#000000',32), label:`${s.a.abbr} in 4`, boundary:false },
+    { w:a5, c:mixHex(hc,'#000000',18), label:`${s.a.abbr} in 5`, boundary:false },
+    { w:a6, c:hc,                       label:`${s.a.abbr} in 6`, boundary:false },
+    { w:a7, c:mixHex(hc,'#ffffff',14), label:`${s.a.abbr} in 7`, boundary:false },
+    { w:b7, c:mixHex(lc,'#ffffff',14), label:`${s.b.abbr} in 7`, boundary:true  },
+    { w:b6, c:lc,                       label:`${s.b.abbr} in 6`, boundary:false },
+    { w:b5, c:mixHex(lc,'#000000',18), label:`${s.b.abbr} in 5`, boundary:false },
+    { w:b4, c:mixHex(lc,'#000000',32), label:`${s.b.abbr} in 4`, boundary:false },
+  ];
+  const segs = raw.filter(sg => sg.w > 0);
+  bar.innerHTML = segs.map(seg => {
+    const isSmall = seg.w <= 6;
+    return `<span class="hgb-card__seg${isSmall ? ' hgb-card__seg--small' : ''}"
+                  style="--c: ${seg.c}; --w: ${seg.w}"
+                  ${seg.boundary ? 'data-boundary="true"' : ''}
+                  title="${seg.label} · ${seg.w}%"><span class="hgb-card__seg-val">${seg.w}</span></span>`;
+  }).join('');
+
+  // Update win% numerals
+  const pctA = s.a.dist.reduce((t: number, v: number) => t + v, 0);
+  const pctB = s.b.dist.reduce((t: number, v: number) => t + v, 0);
+  const pctEls = card.querySelectorAll<HTMLElement>('.hgb-card__pct');
+  if (pctEls[0]) pctEls[0].innerHTML = `${pctA}<small>%</small>`;
+  if (pctEls[1]) pctEls[1].innerHTML = `${pctB}<small>%</small>`;
+
+  // Update footer line (Most Likely OR Series Winner)
+  if (s.is_complete && s.winner && s.winner_in) {
+    foot.innerHTML = `<span class="hgb-card__foot-label">Series Winner</span>
+      <span class="hgb-card__foot-val"><strong>${s.winner}</strong> in ${s.winner_in}</span>`;
+  } else {
+    const all = [
+      ...s.a.dist.map((v: number, i: number) => ({ label:`${s.a.abbr} in ${i+4}`, v })),
+      ...s.b.dist.map((v: number, i: number) => ({ label:`${s.b.abbr} in ${i+4}`, v })),
+    ];
+    const ml = all.reduce((best: any, x: any) => x.v > best.v ? x : best);
+    const [team, num] = ml.label.split(' in ');
+    foot.innerHTML = `<span class="hgb-card__foot-label">Most Likely</span>
+      <span class="hgb-card__foot-val"><strong>${team}</strong> in ${num} · ${ml.v}%</span>`;
+  }
+}
+
+loadSeriesData();
+loadModelData();
 </script>
 
 </body>
