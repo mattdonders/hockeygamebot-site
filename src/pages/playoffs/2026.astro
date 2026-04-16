@@ -196,6 +196,12 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .hgb-card:hover { transform: translateY(-2px); border-color: var(--hgb-border-bright); box-shadow: 0 12px 32px -12px rgba(0,0,0,0.5); }
 .hgb-card:focus-visible { outline: 2px solid rgba(232,0,45,0.6); outline-offset: 2px; }
 
+/* Pre-overlay state: cards render server-side with placeholder distributions.
+   We dim them until loadModelData() replaces with authoritative data from
+   hgb-api, so users don't see numbers change under them on refresh. */
+.series-grid:not(.is-loaded) .hgb-card { opacity: 0.55; transition: opacity 380ms ease; }
+.series-grid.is-loaded .hgb-card { opacity: 1; transition: opacity 380ms ease; }
+
 /* meta strip */
 .hgb-card__meta { display: flex; align-items: center; gap: 10px; font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 14px; }
 .hgb-mini-badge { padding: 3px 7px; border: 1px solid var(--hgb-border-strong); border-radius: 2px; color: var(--hgb-text-3); background: rgba(255,255,255,0.02); }
@@ -959,94 +965,11 @@ window.addEventListener('popstate', (e) => {
 // Track the currently-open series id so we can refresh NEXT after async load
 let openSeriesId: string | null = null;
 
-/**
- * Series state (played games + who won them) via /v1/playoff-series/carousel/{season}.
- * Game times via /v1/score/{date} fanned out in parallel (carousel doesn't carry
- * startTimeUTC before the series starts).
- */
-async function loadSeriesData() {
-  // ── 1. Carousel: per-game winners + current wins count ─────────────────────
-  try {
-    const res = await fetch('https://api-web.nhle.com/v1/playoff-series/carousel/20252026');
-    if (res.ok) {
-      const data = await res.json();
-      const round1 = data.rounds?.find((r: any) => r.roundNumber === 1);
-      for (const ser of (round1?.series ?? [])) {
-        // NHL API field names: topSeed / bottomSeed (NOT topSeedTeam)
-        const topAbbr = ser.topSeed?.abbrev, botAbbr = ser.bottomSeed?.abbrev;
-        const topW = ser.topSeed?.wins ?? 0, botW = ser.bottomSeed?.wins ?? 0;
-        if (!topAbbr || !botAbbr) continue;
-
-        const s = SERIES.find((x: any) =>
-          (x.a.abbr === topAbbr || x.a.abbr === botAbbr) &&
-          (x.b.abbr === topAbbr || x.b.abbr === botAbbr)
-        );
-        if (!s) continue;
-
-        const played = topW + botW;
-        for (let i = 0; i < played; i++) {
-          const g = ser.games?.[i];
-          const winId = g?.gameOutcome?.winningTeamId;
-          if (winId) {
-            s.games[i] = g.homeTeam?.id === winId ? g.homeTeam?.abbrev : g.awayTeam?.abbrev;
-          } else {
-            s.games[i] = i < topW ? topAbbr : botAbbr;
-          }
-        }
-      }
-    }
-  } catch (_) { /* continue to game times anyway */ }
-
-  // ── 2. Game times: parallel /v1/score/{date} fetches ───────────────────────
-  const dates = [
-    '2026-04-18','2026-04-19','2026-04-20','2026-04-21','2026-04-22',
-    '2026-04-23','2026-04-24','2026-04-25','2026-04-26','2026-04-27',
-    '2026-04-28','2026-04-29','2026-04-30',
-  ];
-  await Promise.all(dates.map(async (date) => {
-    try {
-      const res = await fetch(`https://api-web.nhle.com/v1/score/${date}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      for (const game of (data.games ?? [])) {
-        if (game.gameType !== 3) continue;
-        if (game.gameState === 'FINAL' || game.gameState === 'OFF') continue;
-        const away = game.awayTeam?.abbrev, home = game.homeTeam?.abbrev;
-        if (!away || !home || !game.startTimeUTC) continue;
-        const s = SERIES.find((x: any) =>
-          (x.a.abbr === away || x.a.abbr === home) &&
-          (x.b.abbr === away || x.b.abbr === home)
-        );
-        // Earliest future game wins — don't overwrite with a later date
-        if (s && !s._nextGameUTC) s._nextGameUTC = game.startTimeUTC;
-      }
-    } catch (_) {}
-  }));
-
-  // ── 3. Re-render any cards that now have next-game data + refresh open modal
-  for (const s of SERIES) {
-    if ((s as any).tbd) continue;
-    const card = document.querySelector<HTMLElement>(`.hgb-card[data-id="${s.id}"]`);
-    if (card) updateCardNextGame(card, s);
-  }
-  if (openSeriesId) openModal(openSeriesId);
-}
-
 function formatNextGame(iso: string, gameNum: number): string {
   const dt = new Date(iso);
   const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
   const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
   return `Game ${gameNum} · ${mon}, ${time} ET`;
-}
-
-/** Update just the `Next Game` footer-left field on a card, in-place. */
-function updateCardNextGame(card: HTMLElement, s: any) {
-  const nextEl = card.querySelector<HTMLElement>('[data-next-game]');
-  if (!nextEl) return;
-  if (s._nextGameUTC && !s.is_complete) {
-    const state = seriesState(s);
-    nextEl.textContent = formatNextGame(s._nextGameUTC, state.played + 1);
-  }
 }
 
 /**
@@ -1066,14 +989,19 @@ async function loadModelData() {
     if (!res.ok) return;
     const data = await res.json();
 
+    // Match by series_id first, then fall back to team pair — round 2+ matchups
+    // may have different ids than what we hardcoded but the same two teams.
     for (const snap of (data.series ?? [])) {
-      // series_id format is `hs-ls` lowercased (Elo-based ordering). Our SERIES
-      // array ids follow the same convention — map directly.
-      const s = SERIES.find((x: any) => x.id === snap.series_id);
+      let s = SERIES.find((x: any) => x.id === snap.series_id);
+      if (!s) {
+        s = SERIES.find((x: any) =>
+          (x.a.abbr === snap.team_a && x.b.abbr === snap.team_b) ||
+          (x.a.abbr === snap.team_b && x.b.abbr === snap.team_a)
+        );
+      }
       if (!s) continue;
 
-      // The snapshot's team_a is whichever side the model treats as higher
-      // seed (by Elo). Map dist_a/dist_b to SERIES a/b by matching abbrevs.
+      // Map API's team_a / team_b to our a / b by abbrev (API orders by Elo).
       if (snap.team_a === s.a.abbr) {
         s.a.dist = snap.dist_a;
         s.b.dist = snap.dist_b;
@@ -1082,14 +1010,11 @@ async function loadModelData() {
         s.b.dist = snap.dist_a;
       }
 
-      // Per-game winners come from the snapshot (morning cron reads them from
-      // the NHL carousel too, so this is authoritative and always in sync).
       if (Array.isArray(snap.games)) s.games = snap.games;
-
-      // Completion state — the modal's complete branch uses these
       s.is_complete = !!snap.is_complete;
       s.winner = snap.winner ?? null;
       s.winner_in = snap.winner_in ?? null;
+      if (snap.next_game_utc) s._nextGameUTC = snap.next_game_utc;
     }
 
     // Staleness indicator in page header
@@ -1101,16 +1026,19 @@ async function loadModelData() {
       if (strong) strong.textContent = `Updated ${date} · ${time} ET`;
     }
 
-    // Rebuild any already-rendered card bars to reflect the new distribution.
     for (const s of SERIES) {
       if ((s as any).tbd) continue;
       const card = document.querySelector<HTMLElement>(`.hgb-card[data-id="${s.id}"]`);
       if (card) rebuildCard(card, s);
     }
 
-    // If the user has a modal open, refresh its contents in place.
     if (openSeriesId) openModal(openSeriesId);
   } catch (_) { /* fall back to hardcoded data */ }
+  finally {
+    // Reveal cards whether the fetch succeeded or not — users shouldn't stare
+    // at a permanently-dimmed grid if hgb-api is briefly unreachable.
+    document.querySelectorAll('.series-grid').forEach(g => g.classList.add('is-loaded'));
+  }
 }
 
 /**
@@ -1196,7 +1124,9 @@ function rebuildCard(card: HTMLElement, s: any) {
   `;
 }
 
-loadSeriesData();
+// hgb-api is the single source of truth for state, predictions, and next-game
+// times. NHL's API is fetched server-side by the morning cron (no CORS header
+// from hockeygamebot.com, so browser fetches are blocked).
 loadModelData();
 </script>
 
