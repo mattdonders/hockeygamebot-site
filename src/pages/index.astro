@@ -59,13 +59,9 @@ try {
 <div id="catchup-pill">CATCHING UP TO LIVE…</div>
 
 <div class="topbar">
-  <div class="brand">HGB</div>
-  <div class="brand-sub" id="topbar-date">Live Tonight</div>
+  <a href="/" class="brand" aria-label="HockeyGameBot home">HGB</a>
+  <span class="topbar-status" id="topbar-status">— live · — tonight</span>
   <div class="topbar-right">
-    <span class="topbar-live" id="live-count">– LIVE</span>
-    <span id="total-games">– GAMES</span>
-    <span id="wall-clock">--:--:--</span>
-    <span class="topbar-divider"></span>
     <nav class="topbar-nav">
       <div class="stream-btn-wrap">
         <button id="stream-btn" class="topbar-link topbar-link--stream" aria-haspopup="true">
@@ -176,14 +172,15 @@ html, body {
   height: 44px; background: var(--red); display: flex; align-items: center;
   padding: 0 24px; gap: 16px;
 }
-.brand { font-family: 'Oswald', sans-serif; font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0.1em; }
-.brand-sub { font-size: 11px; color: rgba(255,255,255,0.65); letter-spacing: 0.14em; }
+.brand { font-family: 'Oswald', sans-serif; font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0.1em; text-decoration: none; }
+.brand:hover { color: rgba(255,255,255,0.85); }
+.topbar-status { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.55); font-weight: 500; }
+.topbar-status strong { color: #fff; font-weight: 700; }
+.topbar-status .live-indicator { color: #ff3b30; font-weight: 700; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 20px; font-size: 12px; color: rgba(255,255,255,0.75); }
-.topbar-live { color: #fff; font-weight: 700; letter-spacing: 0.06em; }
 #sse-indicator { font-size: 14px; opacity: 0.3; transition: opacity 0.4s, filter 0.4s; }
 #sse-indicator.connected { opacity: 1; filter: drop-shadow(0 0 4px #00e676); }
 #sse-indicator.error { opacity: 0.6; filter: drop-shadow(0 0 4px #ff3d3d); }
-.topbar-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.2); }
 .topbar-nav { display: flex; align-items: center; gap: 6px; }
 .topbar-link { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); text-decoration: none; padding: 5px 10px; border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; transition: color 0.15s, border-color 0.15s; display: inline-flex; align-items: center; line-height: 1; }
 .topbar-link:hover { color: #fff; border-color: rgba(255,255,255,0.5); }
@@ -699,13 +696,12 @@ html, body {
 @media (max-width: 640px) {
   html, body { height: auto; overflow-x: hidden; overflow-y: auto; }
 
-  /* Topbar: single row, hide date + nav */
-  .topbar { height: 48px; padding: 0 16px; gap: 10px; }
-  .brand-sub { display: none; }
+  /* Topbar: single row, hide the status line (nav is the priority on mobile) */
+  .topbar { height: 48px; padding: 0 14px; gap: 10px; }
+  .topbar-status { display: none; }
   .topbar-right { gap: 10px; font-size: 11px; }
-  .topbar-divider { display: none; }
   .topbar-nav { display: flex; }
-  #total-games { display: none; }
+  .support-label { display: none; }
 
   /* Ticker stays compact */
   .ticker-strip { height: 26px; }
@@ -1374,11 +1370,14 @@ function updateTopBar(data, mode = 'today') {
   const games = data.games || [];
   const liveCount = mode === 'yesterday' ? 0 : games.filter(g => g.status === 'live').length;
   const total = games.length;
-  const dateStr = data.date ? new Date(data.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : 'Tonight';
-  const prefix = mode === 'yesterday' ? 'Yesterday' : 'Live';
-  document.getElementById('topbar-date').textContent = `${prefix} · ${dateStr}`;
-  document.getElementById('live-count').textContent = `${liveCount} LIVE`;
-  document.getElementById('total-games').textContent = `${total} GAMES`;
+  const el = document.getElementById('topbar-status');
+  if (!el) return;
+  // "3 live · 8 tonight" — live count is accented red via CSS when > 0
+  const liveHtml = liveCount > 0
+    ? `<span class="live-indicator">${liveCount} live</span>`
+    : `<strong>${total === 0 ? '0' : '0'} live</strong>`;
+  const tonightLabel = mode === 'yesterday' ? 'yesterday' : 'tonight';
+  el.innerHTML = `${liveHtml} <span style="opacity:.5">·</span> <strong>${total}</strong> ${tonightLabel}`;
 }
 
 // ── GOALS TICKER ─────────────────────────────────────────────────────────────
@@ -1854,15 +1853,10 @@ async function pollAndUpdate() {
 // ─────────────────────────────────────────────────────────────────────────────
 // WALL CLOCK
 // ─────────────────────────────────────────────────────────────────────────────
-function updateClock() {
-  const now = new Date();
-  const h = String(now.getHours()).padStart(2,'0');
-  const m = String(now.getMinutes()).padStart(2,'0');
-  const s = String(now.getSeconds()).padStart(2,'0');
-  document.getElementById('wall-clock').textContent = `${h}:${m}:${s}`;
-}
-setInterval(updateClock, 1000);
-updateClock();
+// Wall clock removed from topbar — users have one in their OS, and the
+// second-by-second tick added DOM churn for zero value. Kept this
+// commented-out block intentionally as a gravestone in case we want it
+// back in a different form (e.g. "next game in 3h 12m").
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TAB VISIBILITY — throttle when hidden, catchup indicator on return
