@@ -10,88 +10,84 @@ function mixHex(hex: string, target: string, amount: number): string {
   return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }
 
-// ── data ──────────────────────────────────────────────────────────────────────
-const SERIES = [
-  // ── East ──────────────────────────────────────────────────────────────────
-  {
-    id: 'car-ott', conf: 'East', miniBadge: 'East · M1 vs WC2',
-    games: [null,null,null,null,null,null,null] as (string|null)[],
-    a: { abbr:'CAR', name:'Carolina Hurricanes', color:'#CC0000',
-         seed:'Metro · 1', seedFull:'Metropolitan · 1st', dist:[8,16,16,18] },
-    // OTT override: honey gold (#C2912C) instead of official red (#E31837).
-    // Rationale: CAR is also red (#CC0000). Both primaries are indistinguishable on
-    // the distribution chart + score numerals. Gold is a valid Sens identity
-    // (used on third jerseys + the Spartan mark) and preserves team character
-    // while giving real visual separation.
-    b: { abbr:'OTT', name:'Ottawa Senators',     color:'#C2912C',
-         seed:'Atl · WC2', seedFull:'Atlantic · Wild Card 2', dist:[5,9,15,13] },
-  },
-  {
-    id: 'buf-bos', conf: 'East', miniBadge: 'East · A1 vs WC1',
-    games: [null,null,null,null,null,null,null] as (string|null)[],
-    a: { abbr:'BUF', name:'Buffalo Sabres', color:'#003087',
-         seed:'Atl · 1', seedFull:'Atlantic · 1st', dist:[10,19,18,18] },
-    b: { abbr:'BOS', name:'Boston Bruins',  color:'#FCB514',
-         seed:'Atl · WC1', seedFull:'Atlantic · Wild Card 1', dist:[4,8,12,12] },
-  },
-  {
-    id: 'tbl-mtl', conf: 'East', miniBadge: 'East · A2 vs A3',
-    games: [null,null,null,null,null,null,null] as (string|null)[],
-    a: { abbr:'TBL', name:'Tampa Bay Lightning',   color:'#0038A8',
-         seed:'Atl · 2', seedFull:'Atlantic · 2nd', dist:[11,20,18,18] },
-    b: { abbr:'MTL', name:'Montréal Canadiens',    color:'#AF1E2D',
-         seed:'Atl · 3', seedFull:'Atlantic · 3rd', dist:[4,7,12,11] },
-  },
-  {
-    id: 'pit-phi', conf: 'East', miniBadge: 'East · M2 vs M3',
-    games: [null,null,null,null,null,null,null] as (string|null)[],
-    a: { abbr:'PIT', name:'Pittsburgh Penguins',   color:'#FCB514',
-         seed:'Met · 2', seedFull:'Metropolitan · 2nd', dist:[6,13,14,16] },
-    b: { abbr:'PHI', name:'Philadelphia Flyers',   color:'#F74902',
-         seed:'Met · 3', seedFull:'Metropolitan · 3rd', dist:[7,12,17,14] },
-  },
-  // ── West ──────────────────────────────────────────────────────────────────
-  {
-    id: 'dal-min', conf: 'West', miniBadge: 'West · C2 vs C3',
-    games: [null,null,null,null,null,null,null] as (string|null)[],
-    a: { abbr:'DAL', name:'Dallas Stars',    color:'#006847',
-         seed:'Cen · 2', seedFull:'Central · 2nd', dist:[7,14,15,17] },
-    b: { abbr:'MIN', name:'Minnesota Wild',  color:'#A6192E',
-         seed:'Cen · 3', seedFull:'Central · 3rd', dist:[6,11,16,14] },
-  },
-  {
-    id: 'vgk-uta', conf: 'West', miniBadge: 'West · P1 vs WC1',
-    games: [null,null,null,null,null,null,null] as (string|null)[],
-    a: { abbr:'VGK', name:'Vegas Golden Knights', color:'#B4975A',
-         seed:'Pac · 1', seedFull:'Pacific · 1st', dist:[8,16,16,17] },
-    b: { abbr:'UTA', name:'Utah Hockey Club',     color:'#69B3E7',
-         seed:'Pac · WC1', seedFull:'Pacific · Wild Card 1', dist:[5,9,15,13] },
-  },
-  {
-    id: 'col-lak', conf: 'West', miniBadge: 'West · C1 vs WC2', tbd: true,
-    games: [null,null,null,null,null,null,null] as (string|null)[],
-    a: { abbr:'COL', name:'Colorado Avalanche',  color:'#6F263D',
-         seed:'Cen · 1', seedFull:'Central · 1st', dist:[] as number[] },
-    b: { abbr:'LAK', name:'Los Angeles Kings',   color:'#A2AAAD',
-         seed:'Pac · WC2', seedFull:'Pacific · Wild Card 2', dist:[] as number[] },
-  },
-  {
-    id: 'edm-ana', conf: 'West', miniBadge: 'West · P2 vs P3', tbd: true,
-    games: [null,null,null,null,null,null,null] as (string|null)[],
-    a: { abbr:'EDM', name:'Edmonton Oilers',  color:'#FF4C00',
-         seed:'Pac · 2', seedFull:'Pacific · 2nd', dist:[] as number[] },
-    // ANA override: gold (#FCD116) instead of official orange (#F47A38).
-    // Same rationale as OTT — EDM is also orange (#FF4C00) and the two primaries
-    // are indistinguishable. Gold is a valid Ducks color (Victory Green-era retro,
-    // current tertiary).
-    b: { abbr:'ANA', name:'Anaheim Ducks',    color:'#FCD116',
-         seed:'Pac · 3', seedFull:'Pacific · 3rd', dist:[] as number[] },
-  },
-];
+// Static team metadata. Colors & seed labels are hardcoded because they don't
+// live in the API payload (intentionally — the cron shouldn't care about UI).
+// OTT & ANA use gold overrides instead of their primaries because CAR/OTT and
+// EDM/ANA share near-identical reds/oranges and need visual separation on the
+// distribution bars.
+const TEAM_META: Record<string, { name: string; color: string; conf: string; seed: string; seedFull: string }> = {
+  CAR: { name: 'Carolina Hurricanes',    color: '#CC0000', conf: 'East', seed: 'Metro · 1',  seedFull: 'Metropolitan · 1st' },
+  OTT: { name: 'Ottawa Senators',        color: '#C2912C', conf: 'East', seed: 'Atl · WC2',  seedFull: 'Atlantic · Wild Card 2' },
+  BUF: { name: 'Buffalo Sabres',         color: '#003087', conf: 'East', seed: 'Atl · 1',    seedFull: 'Atlantic · 1st' },
+  BOS: { name: 'Boston Bruins',          color: '#FCB514', conf: 'East', seed: 'Atl · WC1',  seedFull: 'Atlantic · Wild Card 1' },
+  TBL: { name: 'Tampa Bay Lightning',    color: '#0038A8', conf: 'East', seed: 'Atl · 2',    seedFull: 'Atlantic · 2nd' },
+  MTL: { name: 'Montréal Canadiens',     color: '#AF1E2D', conf: 'East', seed: 'Atl · 3',    seedFull: 'Atlantic · 3rd' },
+  PIT: { name: 'Pittsburgh Penguins',    color: '#FCB514', conf: 'East', seed: 'Met · 2',    seedFull: 'Metropolitan · 2nd' },
+  PHI: { name: 'Philadelphia Flyers',    color: '#F74902', conf: 'East', seed: 'Met · 3',    seedFull: 'Metropolitan · 3rd' },
+  DAL: { name: 'Dallas Stars',           color: '#006847', conf: 'West', seed: 'Cen · 2',    seedFull: 'Central · 2nd' },
+  MIN: { name: 'Minnesota Wild',         color: '#A6192E', conf: 'West', seed: 'Cen · 3',    seedFull: 'Central · 3rd' },
+  VGK: { name: 'Vegas Golden Knights',   color: '#B4975A', conf: 'West', seed: 'Pac · 1',    seedFull: 'Pacific · 1st' },
+  UTA: { name: 'Utah Hockey Club',       color: '#69B3E7', conf: 'West', seed: 'Pac · WC1',  seedFull: 'Pacific · Wild Card 1' },
+  COL: { name: 'Colorado Avalanche',     color: '#6F263D', conf: 'West', seed: 'Cen · 1',    seedFull: 'Central · 1st' },
+  LAK: { name: 'Los Angeles Kings',      color: '#A2AAAD', conf: 'West', seed: 'Pac · WC2',  seedFull: 'Pacific · Wild Card 2' },
+  EDM: { name: 'Edmonton Oilers',        color: '#FF4C00', conf: 'West', seed: 'Pac · 2',    seedFull: 'Pacific · 2nd' },
+  ANA: { name: 'Anaheim Ducks',          color: '#FCD116', conf: 'West', seed: 'Pac · 3',    seedFull: 'Pacific · 3rd' },
+};
+
+// ── BUILD-TIME FETCH: hgb-api is the source of truth for everything dynamic ──
+// distributions, win %, per-game winners, next-game times, staleness. No
+// hardcoded placeholder numbers — the page renders with real data on first
+// paint or a skeleton state if the API is unreachable at build time.
+type ApiSeries = {
+  series_id: string; round: number; season: string;
+  team_a: string; team_b: string;
+  win_pct_a: number; win_pct_b: number;
+  dist_a: number[]; dist_b: number[];
+  games: (string | null)[];
+  is_complete: boolean; winner: string | null; winner_in: number | null;
+  next_game_utc: string | null;
+  updated_at: string;
+};
+
+let apiSeries: ApiSeries[] = [];
+let latestUpdate: string | null = null;
+try {
+  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
+  if (res.ok) {
+    const data = await res.json();
+    apiSeries = data.series ?? [];
+    latestUpdate = data.latest_update ?? null;
+  }
+} catch (_) {
+  // If hgb-api is unreachable at build time, the page still renders. Client-side
+  // loadModelData() will fill in later.
+}
+
+// Derive a UI-ready SERIES array. Team metadata comes from TEAM_META; dynamic
+// state from the API payload. Series_id pattern is `hs-ls` lowercased (Elo order).
+const SERIES = apiSeries.map(s => {
+  const a = TEAM_META[s.team_a] ?? null;
+  const b = TEAM_META[s.team_b] ?? null;
+  if (!a || !b) return null;
+  return {
+    id: s.series_id,
+    conf: a.conf,
+    miniBadge: `${a.conf === 'East' ? 'East' : 'West'} · ${a.seed.split(' · ')[1] ?? a.seed} vs ${b.seed.split(' · ')[1] ?? b.seed}`,
+    games: s.games,
+    is_complete: s.is_complete,
+    winner: s.winner,
+    winner_in: s.winner_in,
+    nextGameUTC: s.next_game_utc,
+    a: { abbr: s.team_a, name: a.name, color: a.color, seed: a.seed, seedFull: a.seedFull,
+         dist: s.dist_a, winPct: s.win_pct_a },
+    b: { abbr: s.team_b, name: b.name, color: b.color, seed: b.seed, seedFull: b.seedFull,
+         dist: s.dist_b, winPct: s.win_pct_b },
+  };
+}).filter((x): x is NonNullable<typeof x> => x !== null);
 
 // ── card helpers (server-side) ────────────────────────────────────────────────
 function buildCardSegs(s: typeof SERIES[0]) {
-  if ((s as any).tbd || !s.a.dist.length) return [];
+  if (!s.a.dist.length) return [];
   const [a4,a5,a6,a7] = s.a.dist;
   const [b4,b5,b6,b7] = s.b.dist;
   const hc = s.a.color, lc = s.b.color;
@@ -110,15 +106,13 @@ function buildCardSegs(s: typeof SERIES[0]) {
 }
 
 function mostLikely(s: typeof SERIES[0]) {
-  if ((s as any).tbd || !s.a.dist.length) return null;
+  if (!s.a.dist.length) return null;
   const all = [
-    ...s.a.dist.map((v,i) => ({ label:`${s.a.abbr} in ${i+4}`, v })),
-    ...s.b.dist.map((v,i) => ({ label:`${s.b.abbr} in ${i+4}`, v })),
+    ...s.a.dist.map((v: number, i: number) => ({ label:`${s.a.abbr} in ${i+4}`, v })),
+    ...s.b.dist.map((v: number, i: number) => ({ label:`${s.b.abbr} in ${i+4}`, v })),
   ];
   return all.reduce((best, x) => x.v > best.v ? x : best);
 }
-
-function winPct(dist: number[]) { return dist.reduce((s,v) => s+v, 0); }
 
 const eastSeries = SERIES.filter(s => s.conf === 'East');
 const westSeries = SERIES.filter(s => s.conf === 'West');
@@ -196,11 +190,9 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .hgb-card:hover { transform: translateY(-2px); border-color: var(--hgb-border-bright); box-shadow: 0 12px 32px -12px rgba(0,0,0,0.5); }
 .hgb-card:focus-visible { outline: 2px solid rgba(232,0,45,0.6); outline-offset: 2px; }
 
-/* Pre-overlay state: cards render server-side with placeholder distributions.
-   We dim them until loadModelData() replaces with authoritative data from
-   hgb-api, so users don't see numbers change under them on refresh. */
-.series-grid:not(.is-loaded) .hgb-card { opacity: 0.55; transition: opacity 380ms ease; }
-.series-grid.is-loaded .hgb-card { opacity: 1; transition: opacity 380ms ease; }
+/* Cards render server-side with real data from hgb-api (build-time fetch) —
+   no placeholder numbers, no fade-in needed. A client-side loadModelData()
+   still runs to pick up cron updates that happened after the last build. */
 
 /* meta strip */
 .hgb-card__meta { display: flex; align-items: center; gap: 10px; font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 14px; }
@@ -468,20 +460,25 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
   </div>
   <div class="page-head__meta">
     <small>Round 1 · Monte Carlo, 10,000 sims each</small>
-    <strong id="page-meta-strong">Blended model</strong>
+    <strong id="page-meta-strong">{latestUpdate ? `Updated ${new Date(latestUpdate).toISOString().slice(0,10)}` : 'Blended model'}</strong>
   </div>
 </div>
 
 <div class="content">
+  {SERIES.length === 0 && (
+    <div class="section-label" style="color: var(--hgb-text-3)">
+      Predictions loading — please refresh in a moment.
+    </div>
+  )}
   {([['East', eastSeries], ['West', westSeries]] as const).map(([label, series]) => (
     <div class="conf-block">
       <div class="section-label">{label}ern Conference · Round 1</div>
       <div class="series-grid">
-        {series.filter(s => !(s as any).tbd).map(s => {
+        {series.map(s => {
           const segs = buildCardSegs(s);
           const ml = mostLikely(s);
-          const pctA = winPct(s.a.dist);
-          const pctB = winPct(s.b.dist);
+          const pctA = s.a.winPct;
+          const pctB = s.b.winPct;
           return (
             <button
               class="hgb-card"
@@ -529,7 +526,7 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
               <footer class="hgb-card__foot">
                 <div class="hgb-card__foot-col">
                   <span class="hgb-card__foot-label">Next Game</span>
-                  <span class="hgb-card__foot-val" data-next-game>TBD</span>
+                  <span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span>
                 </div>
                 <div class="hgb-card__foot-col hgb-card__foot-col--right">
                   <span class="hgb-card__foot-label">Most Likely</span>
@@ -543,18 +540,6 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
         })}
       </div>
 
-      {series.some(s => (s as any).tbd) && (
-        <div class="pending-strip">
-          {series.filter(s => (s as any).tbd).map(s => (
-            <div class="series-tbd">
-              <span class="series-tbd-teams">{s.a.abbr}</span>
-              <span class="series-tbd-sep">vs</span>
-              <span class="series-tbd-teams">{s.b.abbr}</span>
-              <span class="series-tbd-label">Prediction Pending</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   ))}
 </div>
@@ -791,12 +776,10 @@ function openModal(id: string) {
   tracker.hidden = false;
   trackerGrid.innerHTML = renderTracker(s);
   const nextDiv = document.getElementById('hgb-tracker-next')!;
-  if (s._nextGameUTC) {
-    const dt = new Date(s._nextGameUTC);
-    const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
-    const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+  const nextIso = s.nextGameUTC ?? s._nextGameUTC;  // server-side OR client-overlay
+  if (nextIso) {
     nextDiv.hidden = false;
-    setField('next-game', `Game ${state.played + 1} · ${mon}, ${time} ET`);
+    setField('next-game', formatNextGame(nextIso, state.played + 1));
   } else {
     nextDiv.hidden = true;
   }
@@ -965,11 +948,35 @@ window.addEventListener('popstate', (e) => {
 // Track the currently-open series id so we can refresh NEXT after async load
 let openSeriesId: string | null = null;
 
+// Format the next-game line in the browser's local time zone. Detect the tz
+// abbreviation (e.g. "MST", "EDT") and append it so users in different zones
+// still know what they're looking at.
 function formatNextGame(iso: string, gameNum: number): string {
   const dt = new Date(iso);
-  const mon = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
-  const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
-  return `Game ${gameNum} · ${mon}, ${time} ET`;
+  const mon = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const time = dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  // timeZoneName: short → returns things like "EDT", "PST", "MST"
+  const tzPart = dt.toLocaleTimeString(undefined, { timeZoneName: 'short' }).split(' ').pop() || '';
+  return `Game ${gameNum} · ${mon}, ${time} ${tzPart}`;
+}
+
+// Server-side render of the card footer can't know the browser's TZ, so we
+// bake the ISO string into data-iso and let the client hydrate on load.
+function hydrateLocalNextGame() {
+  document.querySelectorAll<HTMLElement>('[data-iso]').forEach(el => {
+    const iso = el.getAttribute('data-iso');
+    if (!iso) return;
+    // Guess game number from played-so-far on the parent card. We can't read
+    // SERIES server-side on the client, so use the simplest thing: the parent
+    // card's data-id → series state → played count + 1.
+    const card = el.closest<HTMLElement>('.hgb-card');
+    if (!card) return;
+    const id = card.dataset.id;
+    const s = SERIES.find((x: any) => x.id === id);
+    if (!s) return;
+    const state = seriesState(s);
+    el.textContent = formatNextGame(iso, state.played + 1);
+  });
 }
 
 /**
@@ -1015,6 +1022,11 @@ async function loadModelData() {
       s.winner = snap.winner ?? null;
       s.winner_in = snap.winner_in ?? null;
       if (snap.next_game_utc) s._nextGameUTC = snap.next_game_utc;
+      if (Number.isFinite(snap.win_pct_a) && Number.isFinite(snap.win_pct_b)) {
+        // Map to SERIES a/b same way as dist
+        if (snap.team_a === s.a.abbr) { s.a.winPct = snap.win_pct_a; s.b.winPct = snap.win_pct_b; }
+        else                           { s.a.winPct = snap.win_pct_b; s.b.winPct = snap.win_pct_a; }
+      }
     }
 
     // Staleness indicator in page header
@@ -1033,12 +1045,7 @@ async function loadModelData() {
     }
 
     if (openSeriesId) openModal(openSeriesId);
-  } catch (_) { /* fall back to hardcoded data */ }
-  finally {
-    // Reveal cards whether the fetch succeeded or not — users shouldn't stare
-    // at a permanently-dimmed grid if hgb-api is briefly unreachable.
-    document.querySelectorAll('.series-grid').forEach(g => g.classList.add('is-loaded'));
-  }
+  } catch (_) { /* server-side render already showed API data (or a skeleton) */ }
 }
 
 /**
@@ -1083,9 +1090,9 @@ function rebuildCard(card: HTMLElement, s: any) {
                   title="${seg.label} · ${seg.w}%"><span class="hgb-card__seg-val">${seg.w}</span></span>`;
   }).join('');
 
-  // Update win% numerals
-  const pctA = s.a.dist.reduce((t: number, v: number) => t + v, 0);
-  const pctB = s.b.dist.reduce((t: number, v: number) => t + v, 0);
+  // Update win% numerals — use authoritative winPct from API (matches card output)
+  const pctA = Number.isFinite(s.a.winPct) ? s.a.winPct : s.a.dist.reduce((t: number, v: number) => t + v, 0);
+  const pctB = Number.isFinite(s.b.winPct) ? s.b.winPct : s.b.dist.reduce((t: number, v: number) => t + v, 0);
   const pctEls = card.querySelectorAll<HTMLElement>('.hgb-card__pct');
   if (pctEls[0]) pctEls[0].innerHTML = `${pctA}<small>%</small>`;
   if (pctEls[1]) pctEls[1].innerHTML = `${pctB}<small>%</small>`;
@@ -1096,9 +1103,8 @@ function rebuildCard(card: HTMLElement, s: any) {
     nextHtml = `<span class="hgb-card__foot-label">Result</span>
                 <span class="hgb-card__foot-val">${s.winner} in ${s.winner_in}</span>`;
   } else {
-    const nextTxt = (s._nextGameUTC)
-      ? formatNextGame(s._nextGameUTC, seriesState(s).played + 1)
-      : 'TBD';
+    const iso = s.nextGameUTC ?? s._nextGameUTC;
+    const nextTxt = iso ? formatNextGame(iso, seriesState(s).played + 1) : 'TBD';
     nextHtml = `<span class="hgb-card__foot-label">Next Game</span>
                 <span class="hgb-card__foot-val" data-next-game>${nextTxt}</span>`;
   }
@@ -1124,9 +1130,12 @@ function rebuildCard(card: HTMLElement, s: any) {
   `;
 }
 
-// hgb-api is the single source of truth for state, predictions, and next-game
-// times. NHL's API is fetched server-side by the morning cron (no CORS header
-// from hockeygamebot.com, so browser fetches are blocked).
+// Server-side Astro rendered the card footers with UTC ISO strings in data-iso
+// attributes. Convert to the browser's local time zone on load.
+hydrateLocalNextGame();
+
+// Optional refresh: if cron ran after the last CF Pages build, loadModelData
+// overlays fresh numbers. Otherwise it's a no-op (same data).
 loadModelData();
 </script>
 
