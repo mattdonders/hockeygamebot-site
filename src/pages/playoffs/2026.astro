@@ -122,8 +122,28 @@ const westSeries = SERIES.filter(s => s.conf === 'West');
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>2026 Stanley Cup Playoffs — Round 1 Predictions · HockeyGameBot</title>
-  <meta name="description" content="Model predictions for every 2026 Stanley Cup Playoffs first-round series.">
+  <title>2026 Stanley Cup Playoff Predictions · HockeyGameBot</title>
+  <meta name="description" content="Model predictions for every 2026 Stanley Cup Playoffs series — win probability, game-length distribution, and live series tracker. 10,000 Monte Carlo sims, updated daily.">
+  <link rel="canonical" href="https://hockeygamebot.com/playoffs/2026">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HockeyGameBot">
+  <meta property="og:title" content="2026 Stanley Cup Playoff Predictions · HockeyGameBot">
+  <meta property="og:description" content="Win probability and game-length distribution for every first-round matchup. Blended Elo + xGF · 10,000 sims · updated daily.">
+  <meta property="og:url" content="https://hockeygamebot.com/playoffs/2026">
+  <meta property="og:image" content="https://hockeygamebot.com/og/playoffs.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="2026 Stanley Cup Playoff Predictions — HockeyGameBot">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@hockeygamebot">
+  <meta name="twitter:title" content="2026 Stanley Cup Playoff Predictions · HockeyGameBot">
+  <meta name="twitter:description" content="Win probability and game-length distribution for every first-round matchup. Blended Elo + xGF · 10,000 sims · updated daily.">
+  <meta name="twitter:image" content="https://hockeygamebot.com/og/playoffs.png">
+
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="/favicon-180x180.png">
@@ -274,6 +294,9 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .hgb-badge { display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid var(--hgb-border-strong); border-radius: 2px; font: 600 9px/1 var(--hgb-font-mono); color: var(--hgb-text-2); letter-spacing: 0.18em; text-transform: uppercase; background: rgba(255,255,255,0.02); }
 .hgb-modal__close { width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--hgb-border-strong); background: transparent; color: var(--hgb-text-2); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 150ms ease; }
 .hgb-modal__close:hover { color: var(--hgb-text); border-color: var(--hgb-border-bright); background: var(--hgb-surface-2); }
+.hgb-modal__share { width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--hgb-border-strong); background: transparent; color: var(--hgb-text-2); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 150ms ease; }
+.hgb-modal__share:hover { color: #E8002D; border-color: rgba(232,0,45,0.4); background: rgba(232,0,45,0.08); }
+.hgb-modal__share.is-copied { color: #4ade80; border-color: rgba(74,222,128,0.4); background: rgba(74,222,128,0.08); }
 
 /* matchup header */
 .hgb-matchup { position: relative; z-index: 2; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 28px; padding: 18px 28px 28px; }
@@ -577,6 +600,9 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
       </div>
       <div class="hgb-util__group">
         <span class="hgb-mono" data-field="round-label"></span>
+        <button class="hgb-modal__share" id="hgb-share-btn" aria-label="Share this series prediction" title="Share">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </button>
         <button class="hgb-modal__close" data-hgb-close aria-label="Close modal">
           <svg viewBox="0 0 14 14" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3L11 11M11 3L3 11"/></svg>
         </button>
@@ -948,6 +974,40 @@ function trapFocus(e: KeyboardEvent) {
     if (document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
 }
+
+// ── Share button — native share on mobile, Twitter intent on desktop ─────────
+const shareBtn = document.getElementById('hgb-share-btn') as HTMLButtonElement | null;
+shareBtn?.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (!openSeriesId) return;
+  const s = SERIES.find((x: any) => x.id === openSeriesId);
+  if (!s) return;
+
+  const url = `https://hockeygamebot.com/playoffs/2026?series=${openSeriesId}`;
+  const wpA = Number.isFinite(s.a.winPct) ? s.a.winPct : s.a.dist.reduce((t: number, v: number) => t + v, 0);
+  const wpB = Number.isFinite(s.b.winPct) ? s.b.winPct : s.b.dist.reduce((t: number, v: number) => t + v, 0);
+  const text = `${s.a.abbr} ${wpA}% vs ${s.b.abbr} ${wpB}% — HockeyGameBot's prediction for ${s.a.abbr}/${s.b.abbr}.`;
+
+  // Prefer native share on mobile / supporting browsers
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: `${s.a.abbr} vs ${s.b.abbr} — HockeyGameBot`, text, url });
+      return;
+    } catch (_) { /* user cancelled — fall through to copy */ }
+  }
+
+  // Desktop fallback: open Twitter intent in a popup. Falls back to
+  // clipboard copy if popup blocked.
+  const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+  const w = window.open(intent, '_blank', 'width=550,height=420,noopener');
+  if (!w) {
+    try {
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      shareBtn.classList.add('is-copied');
+      setTimeout(() => shareBtn.classList.remove('is-copied'), 1800);
+    } catch (_) {}
+  }
+});
 
 // ── Wire up ───────────────────────────────────────────────────────────────────
 document.querySelectorAll<HTMLElement>('.hgb-card').forEach(card => {
