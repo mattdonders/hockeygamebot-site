@@ -1,5 +1,30 @@
 ---
 // HockeyGameBot live scoreboard — wired to hgb-api /v1/games/today
+
+// ── Playoff banner: fetch current-round predictions at build time so the
+// strip right under the topbar can surface the next playoff game + its WP.
+// Fails silently — if hgb-api is unreachable, no banner renders.
+type PlayoffSnap = {
+  series_id: string;
+  team_a: string; team_b: string;
+  win_pct_a: number; win_pct_b: number;
+  next_game_utc: string | null;
+  is_complete: boolean;
+};
+let playoffNext: { snap: PlayoffSnap; gameDateISO: string } | null = null;
+let playoffActive = false;
+try {
+  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
+  if (res.ok) {
+    const data = await res.json();
+    const active: PlayoffSnap[] = (data.series ?? []).filter((s: PlayoffSnap) => !s.is_complete);
+    playoffActive = active.length > 0;
+    // Earliest upcoming game across all active series
+    const withTime = active.filter(s => s.next_game_utc);
+    withTime.sort((a, b) => a.next_game_utc! < b.next_game_utc! ? -1 : 1);
+    if (withTime[0]) playoffNext = { snap: withTime[0], gameDateISO: withTime[0].next_game_utc! };
+  }
+} catch (_) { /* no banner */ }
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -65,6 +90,22 @@
     </nav>
   </div>
 </div>
+
+{playoffActive && (
+  <a class="playoff-strip" href="/playoffs/2026" aria-label="Open 2026 playoff predictions">
+    <span class="playoff-strip__tag">★ 2026 Playoffs · Round 1</span>
+    {playoffNext ? (
+      <span class="playoff-strip__mid" data-iso={playoffNext.gameDateISO}>
+        Next: <strong>{playoffNext.snap.team_a}</strong> vs <strong>{playoffNext.snap.team_b}</strong>
+        <span class="playoff-strip__time" data-iso={playoffNext.gameDateISO}>—</span>
+        · {playoffNext.snap.team_a} {playoffNext.snap.win_pct_a}%
+      </span>
+    ) : (
+      <span class="playoff-strip__mid">Predictions updated daily</span>
+    )}
+    <span class="playoff-strip__cta">Full bracket →</span>
+  </a>
+)}
 
 <div class="ticker-strip">
   <div class="ticker-lbl" id="ticker-lbl">⚡ LIVE</div>
@@ -365,6 +406,55 @@ html, body {
 .hc-recent-time { font-size: 11px; color: var(--dim); white-space: nowrap; flex-shrink: 0; margin-left: 6px; }
 
 /* TICKER */
+/* Playoff banner: thin strip above the ticker when playoffs are active.
+   Build-time fetch populates playoffNext; client-side formatNextGame converts
+   the ISO datetime into the browser's local time zone on load. */
+.playoff-strip {
+  display: flex; align-items: center; gap: 14px;
+  padding: 7px 20px;
+  background: linear-gradient(90deg, rgba(232,0,45,0.16), rgba(232,0,45,0.04) 60%, transparent);
+  border-top: 1px solid rgba(232,0,45,0.3);
+  border-bottom: 1px solid rgba(232,0,45,0.12);
+  color: rgba(255,255,255,0.85);
+  text-decoration: none;
+  font: 500 11px/1 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background 160ms ease;
+}
+.playoff-strip:hover { background: linear-gradient(90deg, rgba(232,0,45,0.22), rgba(232,0,45,0.06) 60%, transparent); }
+.playoff-strip__tag {
+  color: #E8002D;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  flex-shrink: 0;
+}
+.playoff-strip__mid {
+  flex: 1;
+  color: rgba(255,255,255,0.7);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.playoff-strip__mid strong { color: rgba(255,255,255,0.92); font-weight: 600; }
+.playoff-strip__time { margin: 0 4px; color: rgba(255,255,255,0.55); }
+.playoff-strip__cta {
+  color: rgba(255,255,255,0.72);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+.playoff-strip:hover .playoff-strip__cta { color: #E8002D; }
+@media (max-width: 700px) {
+  .playoff-strip { padding: 7px 14px; gap: 10px; font-size: 10px; }
+  .playoff-strip__tag { font-size: 9px; }
+  /* hide the mid-line on narrow phones — tag + CTA are the essentials */
+  .playoff-strip__mid { display: none; }
+}
+
 .ticker-strip { height: 28px; background: #000; display: flex; align-items: center; overflow: hidden; border-top: 1px solid #1a1a1a; border-bottom: 1px solid #1a1a1a; }
 .ticker-lbl { flex-shrink: 0; height: 100%; background: #111; border-right: 2px solid var(--red); padding: 0 14px; display: flex; align-items: center; font-size: 9px; font-weight: 700; letter-spacing: 0.16em; color: var(--red); white-space: nowrap; transition: color 0.3s, border-color 0.3s; }
 .ticker-lbl.recap { color: var(--muted); border-right-color: #444; }
@@ -671,6 +761,20 @@ html, body {
 </style>
 
 <script>
+// Playoff banner: hydrate the next-game datetime into browser-local time.
+// Server-side rendered the ISO string into data-iso on .playoff-strip__time.
+(function hydratePlayoffStrip() {
+  const el = document.querySelector('.playoff-strip__time');
+  if (!el) return;
+  const iso = el.getAttribute('data-iso');
+  if (!iso) return;
+  const dt = new Date(iso);
+  const mon = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const time = dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const tz = (dt.toLocaleTimeString(undefined, { timeZoneName: 'short' }).split(' ').pop()) || '';
+  el.textContent = `${mon} ${time} ${tz}`;
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
