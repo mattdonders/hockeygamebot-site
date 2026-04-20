@@ -2257,15 +2257,19 @@ async function openModal(gameId, { push = true } = {}) {
   const awayWpPct = homeWpPct != null ? 100 - homeWpPct : null;
   const awayReadable = ensureReadable(card.teamColor);
   const homeReadable = ensureReadable(card.homeColor);
-  // Default header xG to 5v5 if we have event data, else fall back to card all-situations
-  const hasXgEvents = totals5v5.home > 0 || totals5v5.away > 0;
-  const initAwayXg = hasXgEvents ? totals5v5.away : card.xgAway;
-  const initHomeXg = hasXgEvents ? totals5v5.home : card.xgHome;
-  const initLbl = hasXgEvents ? 'xG 5V5' : 'xG';
-  const allAwayXg = card.xgAway != null ? parseFloat(card.xgAway).toFixed(1) : null;
-  const allHomeXg = card.xgHome != null ? parseFloat(card.xgHome).toFixed(1) : null;
-  const awayXgHtml = initAwayXg != null ? `<div class="modal-xg" id="modal-xg-away-${gameId}" data-xg-all="${allAwayXg ?? ''}" style="color:${awayReadable}">${initAwayXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
-  const homeXgHtml = initHomeXg != null ? `<div class="modal-xg" id="modal-xg-home-${gameId}" data-xg-all="${allHomeXg ?? ''}" style="color:${homeReadable}">${initHomeXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
+  // Default header xG to 5v5 if we have event data, else fall back to the
+  // event-based all-situations sum. NEVER fall through to card.xgAway /
+  // card.xgHome — those are written by a different code path (game_state
+  // table) with a different model, so they can disagree with the per-event
+  // xG sum badly enough to invert (e.g. ALL 0.4 < 5v5 0.6 for TBL in the
+  // MTL@TBL G1, 2026-04-19). Both tabs now use calcXgTotals() for a
+  // consistent source. See TODO: investigate game_state xG writer drift.
+  const hasXgEvents = totals5v5.home > 0 || totals5v5.away > 0 || totalsAll.home > 0 || totalsAll.away > 0;
+  const initAwayXg = (totals5v5.home > 0 || totals5v5.away > 0) ? totals5v5.away : totalsAll.away;
+  const initHomeXg = (totals5v5.home > 0 || totals5v5.away > 0) ? totals5v5.home : totalsAll.home;
+  const initLbl = (totals5v5.home > 0 || totals5v5.away > 0) ? 'xG 5V5' : 'xG';
+  const awayXgHtml = hasXgEvents ? `<div class="modal-xg" id="modal-xg-away-${gameId}" style="color:${awayReadable}">${initAwayXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
+  const homeXgHtml = hasXgEvents ? `<div class="modal-xg" id="modal-xg-home-${gameId}" style="color:${homeReadable}">${initHomeXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
   const statsStripHtml = homeWpPct != null ? `
     <div class="modal-wp-lbl">WIN PROBABILITY</div>
     <div class="modal-wp-strip">
@@ -2369,10 +2373,12 @@ async function openModal(gameId, { push = true } = {}) {
             awayEl.innerHTML = `${totals5v5.away} <span class="modal-xg-lbl">xG 5V5</span>`;
             homeEl.innerHTML = `${totals5v5.home} <span class="modal-xg-lbl">xG 5V5</span>`;
           } else if (btn.dataset.tab === 'xgall') {
-            const awayAll = awayEl.dataset.xgAll || totalsAll.away;
-            const homeAll = homeEl.dataset.xgAll || totalsAll.home;
-            awayEl.innerHTML = `${awayAll} <span class="modal-xg-lbl">xG</span>`;
-            homeEl.innerHTML = `${homeAll} <span class="modal-xg-lbl">xG</span>`;
+            // Always use calcXgTotals(allEvents) — same function / model as
+            // the 5v5 tab, just unfiltered by situationCode. Previously fell
+            // back to game_state's card.xgAway/card.xgHome which use a
+            // different writer and can invert vs 5v5.
+            awayEl.innerHTML = `${totalsAll.away} <span class="modal-xg-lbl">xG</span>`;
+            homeEl.innerHTML = `${totalsAll.home} <span class="modal-xg-lbl">xG</span>`;
           }
           // WIN% tab: leave xG header unchanged
         }
