@@ -1,11 +1,13 @@
 ---
 // PercentileTile — analytics percentile cell for the stats site.
 // Background color encodes the percentile (the tile IS the visualization).
-// Gradient stops match _GRADIENT_STOPS[mode] in generate_player_grid_card.py
-// exactly, so site tiles agree visually with Python card exports.
 //
-// Dark piecewise:  0–50: poor(232,0,45)→neutral(58,58,66)  50–100: neutral→elite(0,192,120)
-// Light piecewise: 0–50: poor(232,0,45)→neutral(207,206,198) 50–100: neutral→elite(0,168,107)
+// 5-segment piecewise (2024-04 site revision): stretches the green zone so
+// outlier players (97-100th) feel rare vs. merely-good (75-90th).
+// Dark-mode tiles add a glow at 97th+ to signal "legendary" status.
+//
+// TODO: Update _GRADIENT_STOPS in generate_player_grid_card.py to match these
+// stops; the Python card currently uses the old 2-stop table and will drift.
 
 interface Props {
   label: string;
@@ -19,24 +21,37 @@ interface Props {
 
 const { label, rawVal, pct, mode = 'dark' } = Astro.props;
 
-// Gradient stops keyed by mode — source: _GRADIENT_STOPS in generate_player_grid_card.py
+// 6-stop table. Breakpoints: 0 | 50 | 75 | 90 | 97 | 100
+// Light stops are cream-calibrated (desaturated ~20%) so greens sit well on #efeee8.
 const STOPS = {
-  dark:  { poor: [232, 0, 45], neutral: [58, 58, 66],   elite: [0, 192, 120] },
-  light: { poor: [232, 0, 45], neutral: [207, 206, 198], elite: [0, 168, 107] },
+  dark: {
+    poor:      [232,   0,  45],   // 0th   — brand red
+    neutral:   [ 58,  58,  66],   // 50th  — dark panel gray
+    muted:     [  0, 110,  82],   // 75th  — muted teal-green
+    mid:       [  0, 158, 100],   // 90th  — medium green
+    elite:     [  0, 192, 120],   // 97th  — bright green
+    legendary: [  0, 215, 135],   // 100th — rare/celebratory
+  },
+  light: {
+    poor:      [232,   0,  45],
+    neutral:   [207, 206, 198],   // 50th  — warm gray (matches cream)
+    muted:     [ 42, 140,  96],   // 75th  — desaturated teal
+    mid:       [ 22, 152,  97],   // 90th  — muted mid-green
+    elite:     [  8, 160, 100],   // 97th  — muted bright green
+    legendary: [  3, 172, 108],   // 100th — cream-compatible celebratory
+  },
 } as const;
 
-function tileColors(p: number, m: 'dark' | 'light'): { bg: string; text: string } {
+function tileColors(p: number, m: 'dark' | 'light'): { bg: string; text: string; glow: boolean } {
   const clamped = Math.max(0, Math.min(100, p));
-  const { poor, neutral, elite } = STOPS[m];
+  const s = STOPS[m];
 
   let a: readonly number[], b: readonly number[], t: number;
-  if (clamped <= 50) {
-    t = clamped / 50;
-    a = poor; b = neutral;
-  } else {
-    t = (clamped - 50) / 50;
-    a = neutral; b = elite;
-  }
+  if      (clamped <=  50) { a = s.poor;    b = s.neutral;   t = clamped / 50; }
+  else if (clamped <=  75) { a = s.neutral; b = s.muted;     t = (clamped -  50) / 25; }
+  else if (clamped <=  90) { a = s.muted;   b = s.mid;       t = (clamped -  75) / 15; }
+  else if (clamped <=  97) { a = s.mid;     b = s.elite;     t = (clamped -  90) /  7; }
+  else                      { a = s.elite;  b = s.legendary; t = (clamped -  97) /  3; }
 
   const r  = Math.round(a[0] + (b[0] - a[0]) * t);
   const g  = Math.round(a[1] + (b[1] - a[1]) * t);
@@ -47,13 +62,17 @@ function tileColors(p: number, m: 'dark' | 'light'): { bg: string; text: string 
   const text = lum > 150 ? '#0d0d14' : '#efeee8';
   const bg = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${bl.toString(16).padStart(2, '0')}`;
 
-  return { bg, text };
+  return { bg, text, glow: clamped >= 97 };
 }
 
-const { bg, text } = tileColors(pct, mode);
+const { bg, text, glow } = tileColors(pct, mode);
+// Glow: bg hex + ~35% opacity suffix (0x59). Dark mode only — cream bg makes glow muddy.
+const tileStyle = (glow && mode === 'dark')
+  ? `background:${bg}; color:${text}; box-shadow: 0 0 16px ${bg}59;`
+  : `background:${bg}; color:${text};`;
 const pctLabel = `${Math.round(pct)}`;
 ---
-<div class="ptile" style={`background:${bg}; color:${text};`}>
+<div class="ptile" style={tileStyle}>
   <span class="ptile-label">{label}</span>
   <span class="ptile-val">{rawVal}</span>
   <span class="ptile-pct">{pctLabel}</span>
