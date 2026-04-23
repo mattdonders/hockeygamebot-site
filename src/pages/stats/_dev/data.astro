@@ -1,0 +1,118 @@
+---
+import { loadMeta, loadPlayers, loadLeaderboard } from '../../../lib/stats-loader';
+
+const meta = loadMeta();
+const players = loadPlayers();
+const gsBoard = loadLeaderboard('game_score');
+
+const featuredSlugs = [
+  { expected: 'connor-mcdavid-8478402', id: 8478402 },
+  { expected: 'jack-hughes-8481559',    id: 8481559 },
+  { expected: 'cale-makar-8480069',     id: 8480069 },
+];
+
+const sample = players.slice(0, 5);
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SS-1 Dev — Data Verification</title>
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Courier New', monospace; background: #0d0d14; color: #efeee8; padding: 2rem; font-size: 13px; line-height: 1.5; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    h2 { color: #E8002D; font-size: 1rem; margin: 1.75rem 0 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; }
+    p { margin-bottom: 0.75rem; color: rgba(239,238,232,0.7); }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+    th, td { border: 1px solid rgba(255,255,255,0.12); padding: 0.35rem 0.75rem; text-align: left; white-space: nowrap; }
+    th { background: rgba(255,255,255,0.06); color: rgba(239,238,232,0.55); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .ok      { color: #00A86B; }
+    .warn    { color: #FCB514; }
+    .pending { color: rgba(239,238,232,0.35); }
+    .dod-list { list-style: none; padding: 0; margin-bottom: 1.5rem; }
+    .dod-list li { padding: 0.2rem 0; }
+    .dod-list li::before { content: '✓ '; color: #00A86B; }
+    .dod-list li.fail::before { content: '✗ '; color: #E8002D; }
+  </style>
+</head>
+<body>
+
+<h1>SS-1 Data Verification</h1>
+<p>Dev page — not linked. Delete in a later layer.</p>
+
+<h2>Definition of Done</h2>
+<ul class="dod-list">
+  <li class={meta.player_count >= 350 ? '' : 'fail'}>players.json ≥350 rows — got {meta.player_count}</li>
+  {featuredSlugs.map(({ expected, id }) => {
+    const p = players.find(x => x.player_id === id);
+    const ok = p?.slug === expected;
+    return <li class={ok ? '' : 'fail'}>{expected} — {ok ? 'slug matches' : `slug mismatch: ${p?.slug ?? 'NOT FOUND'}`}</li>;
+  })}
+  <li>Loader functions typed + importable — page loaded successfully</li>
+</ul>
+
+<h2>_meta.json</h2>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>season</td><td>{meta.season}</td></tr>
+  <tr><td>generated_at</td><td>{meta.generated_at}</td></tr>
+  <tr><td>player_count</td><td class="ok">{meta.player_count}</td></tr>
+  <tr><td>source_sha256</td><td>{meta.source_sha256.slice(0, 16)}…</td></tr>
+  <tr><td>pending_fields</td><td class="pending">{meta.pending_fields.join(', ')}</td></tr>
+</table>
+
+<h2>players.json — first 5 rows (slug sanity check)</h2>
+<p>Total: <span class="ok">{players.length}</span> rows</p>
+<table>
+  <tr><th>player_id</th><th>slug</th><th>first_name</th><th>last_name</th><th>pos</th><th>team</th><th>gp</th><th>gs_pct</th></tr>
+  {sample.map(p => (
+    <tr>
+      <td>{p.player_id}</td>
+      <td>{p.slug}</td>
+      <td>{p.first_name}</td>
+      <td>{p.last_name}</td>
+      <td>{p.pos}</td>
+      <td>{p.team_abbrev}</td>
+      <td>{p.gp}</td>
+      <td>{p.gs_pct}</td>
+    </tr>
+  ))}
+</table>
+
+<h2>Featured players — slug verification</h2>
+<table>
+  <tr><th>Expected slug</th><th>Actual slug</th><th>Match?</th><th>gs_pct</th></tr>
+  {featuredSlugs.map(({ expected, id }) => {
+    const p = players.find(x => x.player_id === id);
+    const match = p?.slug === expected;
+    return (
+      <tr>
+        <td>{expected}</td>
+        <td>{p?.slug ?? '—'}</td>
+        <td class={match ? 'ok' : 'warn'}>{match ? '✓' : '✗'}</td>
+        <td>{p?.gs_pct ?? '—'}</td>
+      </tr>
+    );
+  })}
+</table>
+
+<h2>leaderboards.json — game_score top 5</h2>
+<table>
+  <tr><th>#</th><th>slug</th><th>display_name</th><th>team</th><th>gp</th><th>value</th><th>pct</th></tr>
+  {gsBoard.slice(0, 5).map((e, i) => (
+    <tr>
+      <td>{i + 1}</td>
+      <td>{e.slug}</td>
+      <td>{e.display_name}</td>
+      <td>{e.team_abbrev}</td>
+      <td>{e.gp}</td>
+      <td>{e.value}</td>
+      <td>{e.pct}</td>
+    </tr>
+  ))}
+</table>
+
+</body>
+</html>
