@@ -1,6 +1,15 @@
 ---
 import '../../styles/stats-tokens.css';
 import PageHeader from '../../components/stats/PageHeader.astro';
+import SectionEyebrow from '../../components/stats/SectionEyebrow.astro';
+import PlayerHero from '../../components/stats/PlayerHero.astro';
+import LeaderboardRow from '../../components/stats/LeaderboardRow.astro';
+import { loadLeaderboard, loadPlayerOfTheWeek } from '../../lib/stats-loader';
+import { pickTeamColor } from '../../lib/team-colors';
+
+const potw = loadPlayerOfTheWeek();
+const skaterLeaders = loadLeaderboard('game_score').slice(0, 5);
+const xgLeaders = loadLeaderboard('xg').slice(0, 5);
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -21,53 +30,138 @@ import PageHeader from '../../components/stats/PageHeader.astro';
   <meta name="color-scheme" content="light dark">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HGB Stats — Coming Soon</title>
+  <title>HGB Stats — HockeyGameBot</title>
   <style is:global>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    html, body {
-      min-height: 100vh;
-      -webkit-font-smoothing: antialiased;
-    }
-
+    html, body { min-height: 100vh; -webkit-font-smoothing: antialiased; }
     body {
       background: var(--site-bg);
       color: var(--site-white);
-      font-family: var(--font-site-display);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      font-family: var(--font-site-body, 'Space Grotesk', sans-serif);
     }
 
-    .wordmark {
-      font-size: 3rem;
-      font-weight: 700;
-      letter-spacing: 0.18em;
+    /* ── Page shell ─────────────────────────────────────────────────── */
+    .stats-main {
+      max-width: 740px;
+      margin: 0 auto;
+      padding: 0 20px 64px;
+    }
+
+    /* ── Hero ────────────────────────────────────────────────────────── */
+    .stats-hero {
+      padding: 48px 0 40px;
+      border-bottom: 1px solid var(--site-border);
+    }
+    .stats-hero-headline {
+      font-family: var(--font-card-display, 'Barlow Condensed', sans-serif);
+      font-size: clamp(38px, 7vw, 58px);
+      font-weight: 800;
       text-transform: uppercase;
-      line-height: 1;
+      letter-spacing: 0.01em;
+      line-height: 1.05;
+      margin-top: 12px;
+      color: var(--site-white);
+    }
+    .stats-hero-sub {
+      margin-top: 14px;
+      font-size: 15px;
+      font-weight: 400;
+      color: var(--site-muted);
+      line-height: 1.55;
+      max-width: 420px;
     }
 
-    .accent {
-      width: 100%;
-      height: 3px;
-      background: var(--hgb-red);
-      margin-top: 0.5rem;
+    /* ── Sections ────────────────────────────────────────────────────── */
+    .stats-section {
+      padding: 36px 0;
+      border-bottom: 1px solid var(--site-border);
     }
+    .stats-section:last-child { border-bottom: none; }
+    .section-body { margin-top: 16px; }
 
-    .coming-soon {
-      font-size: 0.85rem;
+    /* ── Leaderboard chrome ──────────────────────────────────────────── */
+    .leaders-list {
+      border: 1px solid var(--site-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    /* Strip the default bottom border from each row — container handles it */
+    .leaders-list :global(.lr) { border-bottom-color: var(--site-border); }
+    .leaders-list :global(.lr:last-child) { border-bottom: none; }
+
+    .view-all {
+      display: block;
+      margin-top: 10px;
+      font-size: 11px;
       font-weight: 600;
-      letter-spacing: 0.22em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--site-muted);
-      margin-top: 1.25rem;
-      font-family: var(--font-site-body);
+      text-decoration: none;
+      text-align: right;
+      transition: color 0.12s;
     }
+    .view-all:hover { color: var(--site-white); }
 
-    footer {
-      position: fixed;
-      bottom: 1rem;
+    /* ── Methodology card ────────────────────────────────────────────── */
+    .method-card {
+      background: var(--site-card);
+      border: 1px solid var(--site-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .method-item {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--site-border);
+    }
+    .method-label {
+      font-family: var(--font-card-display, 'Barlow Condensed', sans-serif);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--site-white);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .coming-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--site-muted);
+      background: var(--site-border);
+      border: 1px solid var(--site-border2, #252525);
+      padding: 2px 6px;
+      border-radius: var(--radius-pill);
+    }
+    .method-desc {
+      font-size: 13px;
+      color: var(--site-muted);
+      line-height: 1.55;
+    }
+    .method-link {
+      display: block;
+      padding: 12px 20px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--site-muted);
+      text-decoration: none;
+      text-align: right;
+      transition: color 0.12s;
+    }
+    .method-link:hover { color: var(--site-white); }
+
+    /* ── Footer ──────────────────────────────────────────────────────── */
+    .stats-footer {
+      text-align: center;
+      padding: 20px 0;
       font-size: 0.7rem;
       letter-spacing: 0.1em;
       color: var(--site-muted);
@@ -77,11 +171,107 @@ import PageHeader from '../../components/stats/PageHeader.astro';
 </head>
 <body>
   <PageHeader activePage="stats" />
-  <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
-    <h1 class="wordmark">HOCKEYGAMEBOT STATS</h1>
-    <div class="accent"></div>
-    <p class="coming-soon">Coming Soon</p>
-  </div>
-  <footer>SS-2b &middot; rewrite branch &middot; 2026-04-22</footer>
+
+  <main class="stats-main">
+
+    <!-- HERO -->
+    <section class="stats-hero">
+      <SectionEyebrow label="STATS" />
+      <h1 class="stats-hero-headline">
+        Every skater.<br>
+        Every shift.<br>
+        Measured.
+      </h1>
+      <p class="stats-hero-sub">Plain-English advanced hockey stats. Updated nightly after every game.</p>
+    </section>
+
+    <!-- SEASON LEADER -->
+    <!-- TODO: When hgb-bot scripts/export_stats_data.py writes _meta.player_of_the_week
+         (7-day rolling, min 3 GP, min 40 min TOI), read it in loadPlayerOfTheWeek() and
+         switch this eyebrow label to "PLAYER OF THE WEEK". -->
+    <section class="stats-section">
+      <SectionEyebrow label="SEASON LEADER · HGBSCORE V2" />
+      <div class="section-body">
+        <PlayerHero
+          firstName={potw.first_name}
+          lastName={potw.last_name}
+          displayName={potw.display_name}
+          teamAbbrev={potw.team_abbrev}
+          pos={potw.pos}
+          teamColor={pickTeamColor(potw.team_abbrev)}
+        />
+      </div>
+    </section>
+
+    <!-- CURRENT LEADERS: SKATERS (HGBScore V2) -->
+    <section class="stats-section">
+      <SectionEyebrow label="CURRENT LEADERS · SKATERS" />
+      <div class="section-body">
+        <div class="leaders-list">
+          {skaterLeaders.map((entry, i) => (
+            <LeaderboardRow
+              rank={i + 1}
+              displayName={entry.display_name}
+              teamAbbrev={entry.team_abbrev}
+              pos={entry.pos}
+              value={entry.value.toFixed(2)}
+              pct={entry.pct}
+              href={`/stats/player/${entry.slug}`}
+            />
+          ))}
+        </div>
+        <a href="/stats/leaderboards" class="view-all">View full leaderboard →</a>
+      </div>
+    </section>
+
+    <!-- CURRENT LEADERS: EXPECTED GOALS -->
+    <!-- SS-FUTURE: Replace with CURRENT LEADERS · GOALIES once GSAx data lands in
+         export pipeline (hgb-bot scripts/export_stats_data.py → leaderboards.json).
+         Swap: metric 'xg' → 'gsax', update SectionEyebrow label, everything else stays. -->
+    <section class="stats-section">
+      <SectionEyebrow label="CURRENT LEADERS · EXPECTED GOALS" />
+      <div class="section-body">
+        <div class="leaders-list">
+          {xgLeaders.map((entry, i) => (
+            <LeaderboardRow
+              rank={i + 1}
+              displayName={entry.display_name}
+              teamAbbrev={entry.team_abbrev}
+              pos={entry.pos}
+              value={entry.value.toFixed(2)}
+              pct={entry.pct}
+              href={`/stats/player/${entry.slug}`}
+            />
+          ))}
+        </div>
+        <a href="/stats/leaderboards" class="view-all">View full leaderboard →</a>
+      </div>
+    </section>
+
+    <!-- HOW WE MEASURE -->
+    <section class="stats-section">
+      <SectionEyebrow label="HOW WE MEASURE" />
+      <div class="section-body">
+        <div class="method-card">
+          <div class="method-item">
+            <span class="method-label">HGBScore V2</span>
+            <span class="method-desc">A per-game single number blending goals, assists, shots, xG, and two-way play — scaled so 1.0 is a solid game.</span>
+          </div>
+          <div class="method-item">
+            <span class="method-label">Expected Goals (xG)</span>
+            <span class="method-desc">Probability that a shot scores, based on location, angle, and game context — a better signal than raw shot count alone.</span>
+          </div>
+          <div class="method-item">
+            <span class="method-label">RAPM <span class="coming-badge">coming</span></span>
+            <span class="method-desc">Regularized adjusted plus-minus — isolates a player's true on-ice impact, controlling for teammates and opponents.</span>
+          </div>
+          <a href="/stats/methodology" class="method-link">Read the full methodology →</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="stats-footer">SS-3 &middot; rewrite branch &middot; 2026-04-23</footer>
 </body>
 </html>
