@@ -96,3 +96,17 @@ export function loadLeaderboard(
 export function loadMeta(): MetaData {
   return metaData as unknown as MetaData;
 }
+
+// TODO: Once hgb-bot scripts/export_stats_data.py writes _meta.player_of_the_week
+// (7-day rolling window, min 3 GP, min 40 min TOI), read it from _meta directly here
+// and expose the "PLAYER OF THE WEEK" label. Until then, falls back to season-avg top
+// avg_gs_display with a min 20 GP threshold — labeled "SEASON LEADER" on the site.
+export function loadPlayerOfTheWeek(): PlayerSummary {
+  const players = loadPlayers();
+  const eligible = players.filter(p => p.gp >= 20);
+  eligible.sort((a, b) => {
+    if (b.avg_gs_display !== a.avg_gs_display) return b.avg_gs_display - a.avg_gs_display;
+    return (b.gp * b.toi_avg_sec) - (a.gp * a.toi_avg_sec);
+  });
+  return eligible[0] ?? players[0];
+}
