@@ -28,6 +28,20 @@
 - [ ] Review hockeygamebot.com site for improvements
 - [ ] Review ig.hockeygamebot.com subdomain
 
+## Stats Site Sprint (SS-*)
+
+- [x] **SS-0**: `/stats` route, data pipeline (`players.json`, `leaderboards.json`, `methodology.json`, `_meta.json`), `stats-loader.ts`
+- [x] **SS-1**: Design token system (`stats-tokens.css`), dual light/dark mode, anti-FOUC
+- [x] **SS-2a/b**: 7 components (PageHeader, SectionEyebrow, PercentileTile, PlayerHero, LeaderboardRow, DualStatBar, GameRow), mode toggle + localStorage persistence
+- [x] **SS-3**: `/stats` landing page — hero, Season Leader (PlayerHero + PercentileTile 2×2), side-by-side skater/xG leaderboards, methodology teaser. `team-colors.ts`, `loadPlayerOfTheWeek()`. PercentileTile: 5-segment gradient, fixed text colors per mode, 97th+ glow.
+- [ ] **SS-4**: Player page `/stats/player/{slug}`
+- [ ] **SS-5**: Full leaderboards page `/stats/leaderboards` (F/D toggle, all metrics)
+- [ ] **SS-6**: Methodology page `/stats/methodology`
+- [ ] **SS-7**: Mobile polish pass
+- [ ] **SS-8**: Merge stats into main site nav
+- [ ] **Export script**: Add `player_of_the_week` to `_meta.json` in `hgb-bot scripts/export_stats_data.py` (7-day rolling, min 3 GP/40min TOI) — site already reads it, fallback to season avg until then
+- [ ] **Goalie metrics**: Add GSAx to leaderboards when export pipeline has it — xG section in `/stats` has a comment marking the swap point
+
 ## Completed
 
 - [x] `/playoffs/2026` modal: color overrides for red/red (OTT→gold #C2912C) and orange/orange (ANA→gold #FCD116) matchups
