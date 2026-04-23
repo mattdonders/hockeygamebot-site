@@ -186,6 +186,14 @@ export function loadTopForwardsXG60(n = 25): LeaderboardSectionEntry[] {
   return toSectionEntries(sorted, p => p.rates_per_60.ixg, p => p.percentiles_vs_pos.ixg);
 }
 
+export function loadTopForwardsShots60(n = 20): LeaderboardSectionEntry[] {
+  const sorted = loadPlayers()
+    .filter(p => p.pos_group === 'F' && p.gp >= 20)
+    .sort((a, b) => b.rates_per_60.shots - a.rates_per_60.shots)
+    .slice(0, n);
+  return toSectionEntries(sorted, p => p.rates_per_60.shots, p => p.percentiles_vs_pos.shots);
+}
+
 export function loadTopGoals60(n = 10): LeaderboardSectionEntry[] {
   const sorted = loadPlayers()
     .filter(p => p.gp >= 10)
