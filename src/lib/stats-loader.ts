@@ -2,6 +2,7 @@ import playersData from '../data/stats/players.json';
 import leaderboardsData from '../data/stats/leaderboards.json';
 import methodologyData from '../data/stats/methodology.json';
 import metaData from '../data/stats/_meta.json';
+import playerGamesData from '../data/stats/player_games.json';
 
 export type RatesPer60 = {
   goals: number;
@@ -62,6 +63,17 @@ export type LeaderboardEntry = {
   pct: number;
 };
 
+export type GameLogEntry = {
+  game_date: string;
+  opp_abbrev: string;
+  is_home: boolean;
+  goals: number;
+  assists: number;
+  gs_display: number;
+  team_score: number;
+  opp_score: number;
+};
+
 export type MetaData = {
   season: string;
   generated_at: string;
@@ -95,6 +107,11 @@ export function loadLeaderboard(
 
 export function loadMeta(): MetaData {
   return metaData as unknown as MetaData;
+}
+
+export function loadPlayerGames(playerId: number): GameLogEntry[] {
+  const map = playerGamesData as unknown as Record<string, GameLogEntry[]>;
+  return map[String(playerId)] ?? [];
 }
 
 // TODO: Once hgb-bot scripts/export_stats_data.py writes _meta.player_of_the_week

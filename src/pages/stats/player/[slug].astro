@@ -1,0 +1,815 @@
+---
+import '../../../styles/stats-tokens.css';
+import PageHeader from '../../../components/stats/PageHeader.astro';
+import SectionEyebrow from '../../../components/stats/SectionEyebrow.astro';
+import PercentileTile from '../../../components/stats/PercentileTile.astro';
+import LeaderboardRow from '../../../components/stats/LeaderboardRow.astro';
+import { loadPlayers, loadPlayerGames, type GameLogEntry, type PlayerSummary } from '../../../lib/stats-loader';
+import { pickTeamColor } from '../../../lib/team-colors';
+
+export async function getStaticPaths() {
+  const players = loadPlayers();
+
+  // Pre-compute rank within each position group (by avg_gs_centered desc)
+  const forwards = [...players].filter(p => p.pos_group === 'F').sort((a, b) => b.avg_gs_centered - a.avg_gs_centered);
+  const defense  = [...players].filter(p => p.pos_group === 'D').sort((a, b) => b.avg_gs_centered - a.avg_gs_centered);
+  const rankMap = new Map<number, { rank: number; total: number }>();
+  forwards.forEach((p, i) => rankMap.set(p.player_id, { rank: i + 1, total: forwards.length }));
+  defense.forEach( (p, i) => rankMap.set(p.player_id, { rank: i + 1, total: defense.length  }));
+
+  return players.map(player => {
+    const playerGames = loadPlayerGames(player.player_id);
+    const rankInfo = rankMap.get(player.player_id) ?? { rank: 0, total: 0 };
+
+    const peers = players
+      .filter(p => p.player_id !== player.player_id && p.pos_group === player.pos_group)
+      .filter(p => Math.abs(p.avg_gs_display - player.avg_gs_display) <= 0.25)
+      .sort((a, b) => Math.abs(a.avg_gs_display - player.avg_gs_display) - Math.abs(b.avg_gs_display - player.avg_gs_display))
+      .slice(0, 5)
+      .map(p => ({
+        player_id: p.player_id, slug: p.slug, display_name: p.display_name,
+        team_abbrev: p.team_abbrev, pos: p.pos, gp: p.gp,
+        avg_gs_display: p.avg_gs_display, gs_pct: p.gs_pct,
+      }));
+
+    return { params: { slug: player.slug }, props: { player, playerGames, rankInfo, peers } };
+  });
+}
+
+interface Props {
+  player: PlayerSummary;
+  playerGames: GameLogEntry[];
+  rankInfo: { rank: number; total: number };
+  peers: Array<{
+    player_id: number; slug: string; display_name: string;
+    team_abbrev: string; pos: string; gp: number;
+    avg_gs_display: number; gs_pct: number;
+  }>;
+}
+
+const { player, playerGames, rankInfo, peers } = Astro.props;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function fmtToi(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function fmtDate(d: string): string {
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const parts = d.split('-');
+  return `${months[parseInt(parts[1]) - 1]} ${parseInt(parts[2])}`;
+}
+
+// ── Derived values ────────────────────────────────────────────────────────────
+const teamColor = pickTeamColor(player.team_abbrev);
+const posLabel = player.pos_group === 'F' ? 'FORWARD' : 'DEFENSE';
+const posPlural = player.pos_group === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
+const pts = player.goals + player.assists;
+const avgGs = player.avg_gs_display;
+const gsSign = avgGs >= 0 ? '+' : '';
+const isNeg = avgGs < 0;
+
+// ── Peer percentile bar ───────────────────────────────────────────────────────
+const pct = player.gs_pct; // 0–100 vs position peers
+const markerPct = Math.max(0, Math.min(pct, 100));
+const labelW = 22;
+const labelLeft = Math.max(0, Math.min(pct - labelW / 2, 100 - labelW));
+
+// ── Timeline SVG (built at build time) ───────────────────────────────────────
+const TL_W = 840, TL_H = 90, MID = TL_H / 2;
+const n = playerGames.length;
+const vals = playerGames.map(g => g.gs_display);
+const maxAbs = Math.max(...vals.map(v => Math.abs(v)), 0.1);
+const barW = Math.max(4, Math.min(10, n > 0 ? TL_W / n - 1 : 10));
+const gap  = Math.max(1, n > 0 ? TL_W / n - barW : 1);
+
+function rollingAvg5(i: number): number {
+  const start = Math.max(0, i - 4);
+  const slice = vals.slice(start, i + 1);
+  return slice.reduce((s, v) => s + v, 0) / slice.length;
+}
+
+const avgPoints = playerGames.map((_, i) => {
+  const avg = rollingAvg5(i);
+  const cx = (i * (barW + gap) + barW / 2).toFixed(2);
+  const cy = (MID - (avg / maxAbs * MID)).toFixed(2);
+  return `${cx},${cy}`;
+}).join(' ');
+
+const firstGame = playerGames[0];
+const lastGame  = playerGames[playerGames.length - 1];
+
+// ── Game log (last 15, newest first) ─────────────────────────────────────────
+const recentGames = [...playerGames].reverse().slice(0, 15);
+
+// ── Season totals ─────────────────────────────────────────────────────────────
+const totalGoals   = playerGames.reduce((s, g) => s + g.goals, 0);
+const totalAssists = playerGames.reduce((s, g) => s + g.assists, 0);
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script is:inline>
+    (function() {
+      try {
+        var saved = localStorage.getItem('hgb-mode');
+        var system = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.mode = saved || system;
+      } catch (_) {
+        document.documentElement.dataset.mode = 'dark';
+      }
+    })();
+  </script>
+  <meta name="color-scheme" content="light dark">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{player.first_name} {player.last_name} — HGB Stats</title>
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { min-height: 100vh; -webkit-font-smoothing: antialiased; }
+    body {
+      background: var(--site-bg);
+      color: var(--site-white);
+      font-family: var(--font-site-body, 'Space Grotesk', sans-serif);
+    }
+
+    /* ── Shell ──────────────────────────────────────────────────────── */
+    .player-main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── Breadcrumb ─────────────────────────────────────────────────── */
+    .p-breadcrumb {
+      padding: 20px 0 12px;
+    }
+    .p-breadcrumb a {
+      font-family: var(--font-card-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--site-muted);
+      text-decoration: none;
+      transition: color 0.12s;
+    }
+    .p-breadcrumb a:hover { color: var(--site-white); }
+
+    /* ── Hero card ──────────────────────────────────────────────────── */
+    .p-hero {
+      background: var(--card-bg);
+      border: 1px solid var(--card-rule);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      /* Team color left accent bar set via inline style */
+      border-left-width: 4px;
+      border-left-style: solid;
+    }
+    [data-mode="light"] .p-hero {
+      background: #ffffff;
+      border-color: var(--site-border);
+      border-left-color: inherit; /* preserve team color */
+    }
+
+    .p-hero-top {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 20px;
+      padding: 20px 20px 16px 20px;
+      border-bottom: 1px solid var(--card-rule);
+    }
+    [data-mode="light"] .p-hero-top { border-bottom-color: var(--site-border); }
+
+    /* Identity (left side) */
+    .p-hero-identity {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .p-hero-logo {
+      width: 56px;
+      height: 56px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+    .p-hero-badges {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .p-badge {
+      font-family: var(--font-card-display);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--card-muted);
+      background: var(--card-panel-bg);
+      border: 1px solid var(--card-rule);
+      padding: 2px 7px;
+      border-radius: var(--radius-pill);
+    }
+    [data-mode="light"] .p-badge {
+      color: var(--card-muted);
+      background: var(--card-panel-bg);
+      border-color: var(--card-rule);
+    }
+    .p-hero-name {
+      font-family: var(--font-card-display);
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.01em;
+      line-height: 1;
+      color: var(--card-text);
+    }
+    .p-first {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      display: block;
+      margin-bottom: 2px;
+      color: var(--card-muted);
+    }
+    .p-last {
+      font-size: clamp(28px, 4vw, 42px);
+      display: block;
+    }
+
+    /* GS chip (right side) */
+    .p-gs-chip {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      background: #2dd48e;
+      color: #0d0d14;
+      min-width: 140px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .p-gs-chip.chip-neg { background: #ff5577; }
+    [data-mode="light"] .p-gs-chip          { background: #00a86b; color: #0d0d14; }
+    [data-mode="light"] .p-gs-chip.chip-neg { background: #e8002d; color: #ffffff; }
+    .p-chip-val {
+      font-family: var(--font-card-display);
+      font-size: 38px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .p-chip-label {
+      font-family: var(--font-card-display);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-top: 4px;
+      opacity: 0.75;
+    }
+
+    /* Tiles (bottom of hero) */
+    .p-tiles-wrap {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      padding: 12px;
+    }
+    @media (max-width: 560px) {
+      .p-tiles-wrap { grid-template-columns: repeat(2, 1fr); }
+    }
+    .p-tiles-dark  { display: grid; }
+    .p-tiles-light { display: none; }
+    [data-mode="light"] .p-tiles-dark  { display: none; }
+    [data-mode="light"] .p-tiles-light { display: grid; }
+
+    /* ── Season strip ───────────────────────────────────────────────── */
+    .p-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 4px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--site-border);
+    }
+    .p-strip-item {
+      font-family: var(--font-card-display);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--site-white);
+      white-space: nowrap;
+    }
+    .p-strip-dot {
+      color: var(--site-muted);
+      font-size: 14px;
+      padding: 0 4px;
+    }
+    .p-strip-gs { color: #2dd48e; }
+    [data-mode="light"] .p-strip-gs { color: #00874e; }
+    .p-strip-gs.strip-neg { color: #ff5577; }
+    [data-mode="light"] .p-strip-gs.strip-neg { color: #e8002d; }
+    .p-strip-rank { color: var(--site-muted); }
+
+    /* ── Section wrapper ────────────────────────────────────────────── */
+    .p-section {
+      padding: 28px 0;
+      border-bottom: 1px solid var(--site-border);
+    }
+    .p-section:last-of-type { border-bottom: none; }
+    .p-section-body { margin-top: 14px; }
+
+    /* ── Peer percentile bar ────────────────────────────────────────── */
+    .peer-panel {
+      background: var(--card-panel-bg);
+      border: 1px solid var(--card-rule);
+      border-radius: var(--radius-md);
+      padding: 18px 22px 44px;
+    }
+    [data-mode="light"] .peer-panel {
+      background: var(--card-panel-bg);
+      border-color: var(--site-border);
+    }
+    .peer-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 24px;
+    }
+    .peer-title {
+      font-family: var(--font-card-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--card-muted);
+    }
+    .peer-rank-label {
+      font-family: var(--font-card-display);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--card-text);
+    }
+    .peer-track-wrap {
+      position: relative;
+    }
+    .peer-track {
+      position: relative;
+      height: 32px;
+      background: var(--card-rule);
+      border-radius: var(--radius-sm);
+    }
+    .peer-tick {
+      position: absolute;
+      top: -20px;
+      bottom: -4px;
+      width: 1px;
+      background: var(--card-rule);
+    }
+    .peer-tick span {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--font-card-display);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--card-muted);
+      white-space: nowrap;
+    }
+    .peer-marker {
+      position: absolute;
+      top: -8px;
+      bottom: -8px;
+      transform: translateX(-50%);
+    }
+    .peer-marker-dot {
+      width: 14px;
+      height: 48px;
+      border-radius: var(--radius-sm);
+      background: #2dd48e;
+      box-shadow: 0 0 0 3px var(--card-bg);
+    }
+    [data-mode="light"] .peer-marker-dot { background: #00a86b; box-shadow: 0 0 0 3px #ffffff; }
+    .peer-marker-dot.dot-neg { background: #ff5577; }
+    [data-mode="light"] .peer-marker-dot.dot-neg { background: #e8002d; }
+    .peer-pct-label {
+      position: absolute;
+      top: 44px;
+      text-align: center;
+      font-family: var(--font-card-display);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--card-text);
+      white-space: nowrap;
+    }
+
+    /* ── Timeline ───────────────────────────────────────────────────── */
+    .tl-wrap {
+      background: var(--card-panel-bg);
+      border: 1px solid var(--card-rule);
+      border-radius: var(--radius-md);
+      padding: 16px;
+    }
+    [data-mode="light"] .tl-wrap { border-color: var(--site-border); }
+    .tl-svg {
+      width: 100%;
+      height: 90px;
+      display: block;
+      overflow: visible;
+    }
+    .tl-zero { stroke: var(--card-rule); stroke-width: 1; }
+    .tl-pos  { fill: #2dd48e; }
+    .tl-neg  { fill: #ff5577; }
+    [data-mode="light"] .tl-pos { fill: #00874e; }
+    [data-mode="light"] .tl-neg { fill: #e8002d; }
+    .tl-avg  {
+      stroke: rgba(255,255,255,0.5);
+      stroke-width: 1.5;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+    [data-mode="light"] .tl-avg { stroke: rgba(13,13,20,0.35); }
+    .tl-dates {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-family: var(--font-card-display);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--card-muted);
+    }
+
+    /* Tooltip */
+    .tl-tooltip {
+      position: fixed;
+      display: none;
+      padding: 5px 9px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-rule);
+      border-radius: var(--radius-md);
+      font-family: var(--font-card-display);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--card-text);
+      pointer-events: none;
+      z-index: 9999;
+      white-space: nowrap;
+    }
+    [data-mode="light"] .tl-tooltip {
+      background: #ffffff;
+      border-color: var(--site-border);
+      color: var(--card-text);
+    }
+
+    /* ── Game log ───────────────────────────────────────────────────── */
+    .gl-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .gl-table th {
+      font-family: var(--font-card-display);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--site-muted);
+      padding: 0 10px 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--site-border);
+    }
+    .gl-table th:not(:first-child) { text-align: right; }
+    .gl-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--site-border);
+      font-family: var(--font-card-display);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--site-white);
+    }
+    .gl-table td:not(:first-child) { text-align: right; }
+    .gl-table tr:last-child td { border-bottom: none; }
+    .gl-table tr:hover td { background: var(--card-panel-bg); }
+    .gl-opp  { color: var(--site-muted); }
+    .gl-win  { color: #2dd48e; }
+    .gl-loss { color: #ff5577; }
+    [data-mode="light"] .gl-win  { color: #00874e; }
+    [data-mode="light"] .gl-loss { color: #e8002d; }
+    .gl-pos  { color: #2dd48e; font-size: 14px; }
+    .gl-neg  { color: #ff5577; font-size: 14px; }
+    [data-mode="light"] .gl-pos { color: #00874e; }
+    [data-mode="light"] .gl-neg { color: #e8002d; }
+
+    .gl-view-all {
+      display: block;
+      margin-top: 10px;
+      font-family: var(--font-card-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--site-muted);
+      text-decoration: none;
+      text-align: right;
+      transition: color 0.12s;
+    }
+    .gl-view-all:hover { color: var(--site-white); }
+
+    /* ── Peers section ──────────────────────────────────────────────── */
+    .peers-list {
+      background: var(--site-card);
+      border: 1px solid var(--site-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    [data-mode="light"] .peers-list { background: var(--site-card); }
+    .peers-list :global(a.lr:hover)   { background: var(--card-panel-bg); }
+    .peers-list :global(.lr:last-child) { border-bottom: none; }
+
+    /* ── Methodology footer ─────────────────────────────────────────── */
+    .p-method {
+      padding: 20px 0 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .p-method-text {
+      font-size: 12px;
+      color: var(--site-muted);
+      line-height: 1.5;
+    }
+    .p-method-link {
+      font-family: var(--font-card-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--site-muted);
+      text-decoration: none;
+      transition: color 0.12s;
+    }
+    .p-method-link:hover { color: var(--site-white); }
+
+    /* ── Site footer ────────────────────────────────────────────────── */
+    .stats-footer {
+      text-align: center;
+      padding: 20px 0;
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      color: var(--site-muted);
+      font-family: var(--font-mono);
+    }
+  </style>
+</head>
+<body>
+  <PageHeader activePage="stats" />
+
+  <main class="player-main">
+
+    <!-- BREADCRUMB -->
+    <nav class="p-breadcrumb">
+      <a href="/stats">← STATS</a>
+    </nav>
+
+    <!-- HERO CARD -->
+    <div class="p-hero" style={`border-left-color: ${teamColor}`}>
+
+      <!-- Top row: identity + GS chip -->
+      <div class="p-hero-top">
+        <div class="p-hero-identity">
+          <img
+            class="p-hero-logo"
+            src={`https://assets.nhle.com/logos/nhl/svg/${player.team_abbrev}_light.svg`}
+            alt={player.team_abbrev}
+            width="56"
+            height="56"
+          />
+          <div>
+            <div class="p-hero-badges">
+              <span class="p-badge">{player.pos}</span>
+              <span class="p-badge">{player.team_abbrev}</span>
+            </div>
+            <div class="p-hero-name">
+              <span class="p-first">{player.first_name}</span>
+              <span class="p-last">{player.last_name}</span>
+            </div>
+          </div>
+        </div>
+        <div class={`p-gs-chip${isNeg ? ' chip-neg' : ''}`}>
+          <div class="p-chip-val">{gsSign}{avgGs.toFixed(2)}</div>
+          <div class="p-chip-label">AVG HGB GAME SCORE</div>
+        </div>
+      </div>
+
+      <!-- Percentile tiles — dual-rendered for FOUC-free mode switch -->
+      <div class="p-tiles-wrap p-tiles-dark">
+        <PercentileTile label="HGBScore V2" rawVal={`${gsSign}${avgGs.toFixed(2)}`}      pct={player.percentiles_vs_pos.game_score} mode="dark" />
+        <PercentileTile label="Goals / 60"  rawVal={player.rates_per_60.goals.toFixed(2)} pct={player.percentiles_vs_pos.goals}      mode="dark" />
+        <PercentileTile label="xG / 60"     rawVal={player.rates_per_60.ixg.toFixed(2)}   pct={player.percentiles_vs_pos.ixg}        mode="dark" />
+        <PercentileTile label="A1 / 60"     rawVal={player.rates_per_60.a1.toFixed(2)}    pct={player.percentiles_vs_pos.a1}         mode="dark" />
+      </div>
+      <div class="p-tiles-wrap p-tiles-light">
+        <PercentileTile label="HGBScore V2" rawVal={`${gsSign}${avgGs.toFixed(2)}`}      pct={player.percentiles_vs_pos.game_score} mode="light" />
+        <PercentileTile label="Goals / 60"  rawVal={player.rates_per_60.goals.toFixed(2)} pct={player.percentiles_vs_pos.goals}      mode="light" />
+        <PercentileTile label="xG / 60"     rawVal={player.rates_per_60.ixg.toFixed(2)}   pct={player.percentiles_vs_pos.ixg}        mode="light" />
+        <PercentileTile label="A1 / 60"     rawVal={player.rates_per_60.a1.toFixed(2)}    pct={player.percentiles_vs_pos.a1}         mode="light" />
+      </div>
+    </div>
+
+    <!-- SEASON STRIP -->
+    <div class="p-strip">
+      <span class="p-strip-item">{player.gp} GP</span>
+      <span class="p-strip-dot">·</span>
+      <span class="p-strip-item">{fmtToi(player.toi_avg_sec)} TOI/g</span>
+      <span class="p-strip-dot">·</span>
+      <span class="p-strip-item">{totalGoals} G</span>
+      <span class="p-strip-dot">·</span>
+      <span class="p-strip-item">{totalAssists} A</span>
+      <span class="p-strip-dot">·</span>
+      <span class="p-strip-item">{totalGoals + totalAssists} PTS</span>
+      <span class="p-strip-dot">·</span>
+      <span class={`p-strip-item p-strip-gs${isNeg ? ' strip-neg' : ''}`}>{gsSign}{avgGs.toFixed(2)} HGBScore V2</span>
+      <span class="p-strip-dot">·</span>
+      <span class="p-strip-rank">#{rankInfo.rank} of {rankInfo.total} {posPlural.toLowerCase()}</span>
+    </div>
+
+    <!-- PEER PERCENTILE BAR -->
+    <section class="p-section">
+      <SectionEyebrow label={`VS ${posPlural} THIS SEASON`} color="muted" />
+      <div class="p-section-body">
+        <div class="peer-panel">
+          <div class="peer-head">
+            <span class="peer-title">POSITION PEERS · 20+ GP</span>
+            <span class="peer-rank-label">#{rankInfo.rank} OF {rankInfo.total}</span>
+          </div>
+          <div class="peer-track-wrap">
+            <div class="peer-tick" style="left: 10%"><span>P10</span></div>
+            <div class="peer-tick" style="left: 50%"><span>P50</span></div>
+            <div class="peer-tick" style="left: 90%"><span>P90</span></div>
+            <div class="peer-track">
+              <div class="peer-marker" style={`left: ${markerPct.toFixed(1)}%`}>
+                <div class={`peer-marker-dot${isNeg ? ' dot-neg' : ''}`}></div>
+              </div>
+            </div>
+            <div class="peer-pct-label" style={`left: ${labelLeft.toFixed(1)}%; width: ${labelW}%`}>
+              {Math.round(pct)}TH PERCENTILE
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TIMELINE -->
+    <section class="p-section">
+      <SectionEyebrow label="GAME-BY-GAME TIMELINE" color="muted" />
+      <div class="p-section-body">
+        <div class="tl-wrap">
+          <svg
+            class="tl-svg"
+            viewBox={`0 0 ${TL_W} ${TL_H}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <line x1="0" y1={MID} x2={TL_W} y2={MID} class="tl-zero" />
+            {playerGames.map((g, i) => {
+              const h = Math.max(Math.abs(g.gs_display) / maxAbs * MID, 1);
+              const x = i * (barW + gap);
+              const y = g.gs_display >= 0 ? MID - h : MID;
+              return (
+                <rect
+                  class={g.gs_display >= 0 ? 'tl-bar tl-pos' : 'tl-bar tl-neg'}
+                  x={x.toFixed(2)}
+                  y={y.toFixed(2)}
+                  width={barW.toFixed(2)}
+                  height={h.toFixed(2)}
+                  rx="1"
+                  data-date={g.game_date}
+                  data-gs={g.gs_display.toFixed(2)}
+                  data-opp={g.opp_abbrev}
+                  data-home={g.is_home ? '1' : '0'}
+                />
+              );
+            })}
+            {avgPoints && <polyline points={avgPoints} class="tl-avg" fill="none" />}
+          </svg>
+          <div class="tl-dates">
+            {firstGame && <span>{fmtDate(firstGame.game_date)} · {playerGames.length} GAMES</span>}
+            {lastGame  && <span>{fmtDate(lastGame.game_date)}</span>}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GAME LOG -->
+    <section class="p-section">
+      <SectionEyebrow label="RECENT GAMES" color="muted" />
+      <div class="p-section-body">
+        <table class="gl-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Opp</th>
+              <th>Result</th>
+              <th>G</th>
+              <th>A</th>
+              <th>HGBScore</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recentGames.map(g => {
+              const result = g.team_score > g.opp_score ? 'W' : g.team_score < g.opp_score ? 'L' : 'T';
+              const vs = g.is_home ? 'vs' : '@';
+              const gsSign2 = g.gs_display >= 0 ? '+' : '';
+              return (
+                <tr>
+                  <td>{fmtDate(g.game_date)}</td>
+                  <td class="gl-opp">{vs} {g.opp_abbrev}</td>
+                  <td class={result === 'W' ? 'gl-win' : result === 'L' ? 'gl-loss' : ''}>{result} {g.team_score}–{g.opp_score}</td>
+                  <td>{g.goals}</td>
+                  <td>{g.assists}</td>
+                  <td class={g.gs_display >= 0 ? 'gl-pos' : 'gl-neg'}>{gsSign2}{g.gs_display.toFixed(2)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <a href="#" class="gl-view-all">VIEW FULL SEASON LOG →</a>
+      </div>
+    </section>
+
+    <!-- SIMILAR PLAYERS -->
+    {peers.length > 0 && (
+      <section class="p-section">
+        <SectionEyebrow label={`SIMILAR ${posPlural} THIS SEASON`} color="muted" />
+        <div class="p-section-body">
+          <div class="peers-list">
+            {peers.map((peer, i) => (
+              <LeaderboardRow
+                rank={i + 1}
+                displayName={peer.display_name}
+                teamAbbrev={peer.team_abbrev}
+                pos={peer.pos}
+                value={`${peer.avg_gs_display >= 0 ? '+' : ''}${peer.avg_gs_display.toFixed(2)}`}
+                pct={peer.gs_pct}
+                href={`/stats/player/${peer.slug}`}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+    )}
+
+    <!-- METHODOLOGY -->
+    <div class="p-method">
+      <span class="p-method-text">
+        HGBScore V2 combines individual shot quality, on-ice xG, finishing skill, and penalties drawn/taken — all rate-adjusted per 60 minutes. Percentiles are vs {posPlural.toLowerCase()} with 20+ GP.
+      </span>
+      <a href="/stats" class="p-method-link">HOW WE MEASURE →</a>
+    </div>
+
+  </main>
+
+  <footer class="stats-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026</footer>
+
+  <!-- Timeline tooltip -->
+  <div class="tl-tooltip" id="tl-tip"></div>
+
+  <script>
+    const tip = document.getElementById('tl-tip')!;
+    document.querySelectorAll<SVGRectElement>('.tl-bar').forEach(bar => {
+      bar.addEventListener('mousemove', (e: MouseEvent) => {
+        const d = bar.dataset;
+        const gs = parseFloat(d.gs ?? '0');
+        const vs = d.home === '1' ? 'vs' : '@';
+        tip.textContent = `${d.date} · ${vs} ${d.opp} · ${gs >= 0 ? '+' : ''}${gs.toFixed(2)}`;
+        tip.style.display = 'block';
+        tip.style.left = `${e.clientX + 12}px`;
+        tip.style.top  = `${e.clientY - 32}px`;
+      });
+      bar.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    });
+    document.addEventListener('scroll', () => { tip.style.display = 'none'; });
+  </script>
+
+</body>
+</html>
