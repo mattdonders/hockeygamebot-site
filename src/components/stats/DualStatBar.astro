@@ -1,0 +1,93 @@
+---
+// DualStatBar — dual-team paired-value bar.
+// Renders one metric with a left value, centred label, right value, and a
+// proportional fill bar below. Matches the .lh-stat pattern in the Claude
+// Design website UI kit (shots on goal / xG / tilt sidebar in the live hero).
+// NOT a percentile fill bar — use PercentileTile for that.
+
+interface Props {
+  label: string;
+  leftVal: string;
+  rightVal: string;
+  /** Left team's share of the stat, 0–100. Bar fills left=leftColor, right=dim. */
+  leftPct: number;
+  /** Hex color for the left team's fill. Defaults to site-white. */
+  leftColor?: string;
+  /** Hex color for the right team's fill. Defaults to site-dim. */
+  rightColor?: string;
+  /** When true, lower leftVal is shown as "winning" (e.g. GA). */
+  invertWinner?: boolean;
+}
+
+const {
+  label,
+  leftVal,
+  rightVal,
+  leftPct,
+  leftColor  = '#f5f5f5',
+  rightColor = '#2e2e2e',
+  invertWinner = false,
+} = Astro.props;
+
+const leftNum  = parseFloat(leftVal)  || 0;
+const rightNum = parseFloat(rightVal) || 0;
+const leftWins  = invertWinner ? leftNum  <= rightNum : leftNum  >= rightNum;
+const rightWins = invertWinner ? rightNum <= leftNum  : rightNum >= leftNum;
+---
+<div class="dsb">
+  <span class={`dsb-val dsb-val--left ${leftWins ? 'dsb-val--leader' : 'dsb-val--dim'}`}>
+    {leftVal}
+  </span>
+  <span class="dsb-label">{label}</span>
+  <span class={`dsb-val dsb-val--right ${rightWins ? 'dsb-val--leader' : 'dsb-val--dim'}`}>
+    {rightVal}
+  </span>
+  <div class="dsb-bar">
+    <div class="dsb-bar-fill" style={`width:${Math.min(100, Math.max(0, leftPct))}%; background:${leftColor};`}></div>
+    <div class="dsb-bar-fill" style={`width:${Math.min(100, Math.max(0, 100 - leftPct))}%; background:${rightColor};`}></div>
+  </div>
+</div>
+
+<style>
+  .dsb {
+    display: grid;
+    grid-template-columns: 44px 1fr 44px;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 0 10px;
+    font-family: var(--font-site-body, sans-serif);
+  }
+
+  .dsb-val {
+    font-family: var(--font-site-display, sans-serif);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    font-size: 18px;
+    line-height: 1;
+  }
+  .dsb-val--left  { text-align: left; }
+  .dsb-val--right { text-align: right; }
+  .dsb-val--leader { color: var(--site-white, #f5f5f5); }
+  .dsb-val--dim    { color: var(--site-muted, #555); }
+
+  .dsb-label {
+    text-align: center;
+    color: var(--site-text, #999);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .dsb-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    height: 5px;
+    background: #151515;
+    border-radius: var(--radius-sm, 2px);
+    overflow: hidden;
+    margin-top: 8px;
+  }
+
+  .dsb-bar-fill { transition: width 0.3s ease; }
+</style>
