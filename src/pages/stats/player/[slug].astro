@@ -35,6 +35,14 @@ export async function getStaticPaths() {
       player_id: p.player_id, slug: p.slug, display_name: p.display_name,
       team_abbrev: p.team_abbrev, pos: p.pos, gp: p.gp,
       avg_gs_display: p.avg_gs_display, gs_pct: p.gs_pct,
+      pcts: [
+        p.gs_pct,
+        p.percentiles_vs_pos.ixg,
+        p.percentiles_vs_pos.shots,
+        p.percentiles_vs_pos.finishing,
+        p.percentiles_vs_pos.pen_diff,
+        p.percentiles_vs_pos.ev_defence,
+      ],
     }));
 
     return { params: { slug: player.slug }, props: { player, playerGames, rankInfo, peers } };
@@ -49,6 +57,7 @@ interface Props {
     player_id: number; slug: string; display_name: string;
     team_abbrev: string; pos: string; gp: number;
     avg_gs_display: number; gs_pct: number;
+    pcts: number[];
   }>;
 }
 
@@ -85,34 +94,64 @@ const isNeg      = avgGs < 0;
 // Peer bar
 const pct        = player.gs_pct;
 const markerPct  = Math.max(0, Math.min(pct, 100));
-const labelW     = 22;
-const labelLeft  = Math.max(0, Math.min(pct - labelW / 2, 100 - labelW));
-
-const TL_W = 840, TL_H = 130, MID = TL_H / 2;
-const n    = playerGames.length;
-const vals = playerGames.map(g => g.gs_display);
-const maxAbs = Math.max(...vals.map(v => Math.abs(v)), 0.1);
-// Enforce a minimum 2px gap in viewBox coords so bars never visually merge
-const slot = n > 0 ? TL_W / n : TL_W;
-const barW = Math.max(3, Math.min(10, slot - 2));
-const gap  = slot - barW;
-
-function rollingAvg5(i: number): number {
-  const start = Math.max(0, i - 4);
-  const slice = vals.slice(start, i + 1);
-  return slice.reduce((s, v) => s + v, 0) / slice.length;
+// ── Radar helpers ─────────────────────────────────────────────────────────────
+function radarPt(axisIdx: number, pctVal: number, maxR = 118): [number, number] {
+  const angle = axisIdx * (Math.PI / 3);
+  const r = Math.min(Math.max(pctVal, 0), 100) / 100 * maxR;
+  return [+(Math.sin(angle) * r).toFixed(1), +(-Math.cos(angle) * r).toFixed(1)];
+}
+function radarPts(pctVals: number[], maxR = 118): string {
+  return pctVals.map((p, i) => { const [x, y] = radarPt(i, p, maxR); return `${x},${y}`; }).join(' ');
 }
 
-const avgPoints = playerGames.map((_, i) => {
-  const avg = rollingAvg5(i);
-  const cx = (i * (barW + gap) + barW / 2).toFixed(2);
-  const cy = (MID - (avg / maxAbs * MID)).toFixed(2);
-  return `${cx},${cy}`;
-}).join(' ');
+// ── Calendar heatmap ──────────────────────────────────────────────────────────
+const MONTH_NAMES = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+function heatLevel(gs: number, avg: number): string {
+  const hi  = Math.max(avg * 1.8, 2.0);
+  const mid = Math.max(avg * 1.0, 1.0);
+  const lo  = Math.max(avg * 0.4, 0.4);
+  if (gs >= hi)   return 'l4';
+  if (gs >= mid)  return 'l3';
+  if (gs >= lo)   return 'l2';
+  if (gs >= 0)    return 'l1';
+  if (gs >= -0.5) return 'n1';
+  return 'n2';
+}
+type HeatGame = { gs: number; win: boolean; level: string };
+type HeatMonth = { label: string; games: HeatGame[] };
+const calMonths: HeatMonth[] = [];
+const seenMonths = new Map<string, HeatGame[]>();
+for (const g of playerGames) {
+  const key = g.game_date.slice(0, 7);
+  const mIdx = parseInt(g.game_date.slice(5, 7)) - 1;
+  if (!seenMonths.has(key)) {
+    const arr: HeatGame[] = [];
+    seenMonths.set(key, arr);
+    calMonths.push({ label: MONTH_NAMES[mIdx], games: arr });
+  }
+  seenMonths.get(key)!.push({ gs: g.gs_display, win: g.team_score > g.opp_score, level: heatLevel(g.gs_display, avgGs) });
+}
+const calCols = Math.max(...calMonths.map(m => m.games.length), 1);
 
-const firstGame   = playerGames[0];
-const lastGame    = playerGames[playerGames.length - 1];
-const recentGames = [...playerGames].reverse().slice(0, 15);
+// ── Radar data ────────────────────────────────────────────────────────────────
+const playerPcts = [
+  player.gs_pct,
+  player.percentiles_vs_pos.ixg,
+  player.percentiles_vs_pos.shots,
+  player.percentiles_vs_pos.finishing,
+  player.percentiles_vs_pos.pen_diff,
+  player.percentiles_vs_pos.ev_defence,
+];
+const playerRadarPts   = radarPts(playerPcts);
+const playerRadarNodes = playerPcts.map((p, i) => radarPt(i, p));
+const rings     = [25, 50, 75, 100].map(r => radarPts([r,r,r,r,r,r]));
+const axisEnds  = [0,1,2,3,4,5].map(i => radarPt(i, 100));
+const peerColors = peers.map(p => pickTeamColor(p.team_abbrev));
+
+// ── Recent games ──────────────────────────────────────────────────────────────
+const recentGames  = [...playerGames].reverse().slice(0, 15);
+const recentBestI  = recentGames.reduce((bi, g, i) => g.gs_display > recentGames[bi].gs_display ? i : bi, 0);
+const recentWorstI = recentGames.reduce((wi, g, i) => g.gs_display < recentGames[wi].gs_display ? i : wi, 0);
 const totalGoals   = playerGames.reduce((s, g) => s + g.goals, 0);
 const totalAssists = playerGames.reduce((s, g) => s + g.assists, 0);
 
@@ -638,6 +677,222 @@ function rankStr(n: number): string {
       color: var(--site-muted);
       font-family: var(--font-mono);
     }
+
+    /* ══ Component A: Upgraded percentile bar ════════════════════════ */
+    .pct-b {
+      background: var(--card-panel-bg);
+      border: 1px solid var(--card-rule);
+      border-radius: var(--radius-md);
+      padding: 18px 22px 22px;
+    }
+    [data-mode="light"] .pct-b { border-color: var(--site-border); }
+    .pct-b-hdr { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+    .pct-b-eyebrow {
+      font-family: var(--font-card-display); font-weight:700;
+      font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--card-muted);
+    }
+    .pct-b-rank {
+      font-family: var(--font-card-display); font-weight:700;
+      font-size:22px; color:#00e676; letter-spacing:.01em;
+    }
+    .pct-b-rank.pct-neg { color:#ff5577; }
+    [data-mode="light"] .pct-b-rank { color:#00874e; }
+    [data-mode="light"] .pct-b-rank.pct-neg { color:#e8002d; }
+    .pct-b-rank .tot { color:var(--card-muted); font-family:var(--font-mono); font-weight:400; font-size:13px; margin-left:4px; }
+    .pct-b-track {
+      position:relative; height:14px;
+      background:#0e0e0e; border:1px solid #1a1a1a; border-radius:2px; overflow:visible;
+    }
+    [data-mode="light"] .pct-b-track { background:var(--card-rule); border-color:var(--site-border); }
+    .pct-b-fill {
+      position:absolute; left:0; top:0; bottom:0;
+      background: linear-gradient(90deg, rgba(0,192,120,0) 0%, rgba(0,192,120,.45) 70%, #00c078 100%);
+      border-radius:2px;
+    }
+    .pct-b-fill.pct-neg {
+      background: linear-gradient(90deg, rgba(255,85,119,0) 0%, rgba(255,85,119,.45) 70%, #ff5577 100%);
+    }
+    [data-mode="light"] .pct-b-fill { background: linear-gradient(90deg, rgba(0,135,78,0) 0%, rgba(0,135,78,.5) 70%, #00874e 100%); }
+    [data-mode="light"] .pct-b-fill.pct-neg { background: linear-gradient(90deg, rgba(232,0,45,0) 0%, rgba(232,0,45,.5) 70%, #e8002d 100%); }
+    .pct-b-marks { position:absolute; inset:0; display:flex; }
+    .pct-b-marks span { flex:1; border-right:1px solid rgba(255,255,255,.03); }
+    [data-mode="light"] .pct-b-marks span { border-right-color: rgba(13,13,20,.06); }
+    .pct-b-you {
+      position:absolute; top:-4px; bottom:-4px; width:3px;
+      transform:translateX(-50%);
+      background:#00c078; box-shadow:0 0 10px rgba(0,192,120,.8);
+      z-index:2; border-radius:1px;
+    }
+    .pct-b-you.pct-neg { background:#ff5577; box-shadow:0 0 10px rgba(255,85,119,.8); }
+    [data-mode="light"] .pct-b-you { background:#00874e; box-shadow:none; }
+    [data-mode="light"] .pct-b-you.pct-neg { background:#e8002d; box-shadow:none; }
+    .pct-b-ticks {
+      display:flex; justify-content:space-between;
+      font-family:var(--font-mono); font-size:9.5px; color:var(--card-muted);
+      letter-spacing:.08em; margin-top:7px;
+    }
+    .pct-b-you-label { color:#00e676; font-weight:700; }
+    [data-mode="light"] .pct-b-you-label { color:#00874e; }
+
+    /* ══ Component B: Radar overlay ══════════════════════════════════ */
+    .radar-card {
+      background: var(--card-panel-bg);
+      border: 1px solid var(--card-rule);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    [data-mode="light"] .radar-card { border-color: var(--site-border); }
+    .radar-hdr {
+      padding: 12px 18px;
+      display:flex; justify-content:space-between; align-items:baseline;
+      border-bottom: 1px solid var(--card-rule);
+    }
+    [data-mode="light"] .radar-hdr { border-bottom-color: var(--site-border); }
+    .radar-eyebrow {
+      font-family:var(--font-card-display); font-weight:700;
+      font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--card-muted);
+    }
+    .radar-legend {
+      display:flex; gap:12px;
+      font-family:var(--font-mono); font-size:10px; color:var(--card-muted); align-items:center;
+    }
+    .radar-legend .sw { display:inline-block; width:10px; height:3px; margin-right:5px; vertical-align:2px; border-radius:1px; }
+    .radar-grid { display:grid; grid-template-columns: 280px 1fr; }
+    @media (max-width:640px) { .radar-grid { grid-template-columns:1fr; } }
+    .radar-wrap { padding:14px; }
+    .radar-wrap svg { width:100%; height:auto; display:block; }
+    .radar-list { border-left: 1px solid var(--card-rule); padding:14px 18px; }
+    [data-mode="light"] .radar-list { border-left-color: var(--site-border); }
+    .radar-row {
+      display:grid; grid-template-columns: 22px 16px 1fr 64px 10px;
+      gap:10px; align-items:center;
+      padding:8px 0; border-bottom: 1px solid var(--card-rule);
+    }
+    [data-mode="light"] .radar-row { border-bottom-color: var(--site-border); }
+    .radar-row:last-of-type { border-bottom:none; }
+    .radar-dot-n { font-family:var(--font-mono); color:var(--card-muted); font-size:11px; }
+    .radar-puck { width:14px; height:14px; border-radius:50%; border:2px solid; flex-shrink:0; }
+    .radar-nm {
+      font-family:var(--font-card-display); font-weight:600;
+      color:var(--card-text); letter-spacing:.015em; font-size:13px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .radar-nm .rt { color:var(--card-muted); font-family:var(--font-mono); font-size:10.5px; margin-left:6px; font-weight:400; }
+    .radar-v {
+      font-family:var(--font-card-display); font-variant-numeric:tabular-nums;
+      color:var(--card-text); font-weight:700; text-align:right; font-size:14px; letter-spacing:.02em;
+    }
+    .radar-dot-pct { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .radar-caption { margin-top:12px; font-size:12px; color:var(--card-muted); line-height:1.55; }
+
+    /* ══ Component C: Calendar heatmap ═══════════════════════════════ */
+    .hm-card {
+      background: var(--card-panel-bg);
+      border: 1px solid var(--card-rule);
+      border-radius: var(--radius-md);
+      padding: 18px 20px 20px;
+    }
+    [data-mode="light"] .hm-card { border-color: var(--site-border); }
+    .hm-hdr { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px; }
+    .hm-eyebrow {
+      font-family:var(--font-card-display); font-weight:700;
+      font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--card-muted);
+    }
+    .hm-hint { font-family:var(--font-mono); font-size:10px; color:var(--card-muted); }
+    .hm-cal { display:grid; grid-template-columns: 28px repeat(var(--hm-cols), 1fr); gap:3px; align-items:center; }
+    .hm-row { display:contents; }
+    .hm-label { font-family:var(--font-mono); font-size:9px; color:var(--card-muted); letter-spacing:.1em; text-transform:uppercase; text-align:right; padding-right:5px; }
+    .hm-cell { aspect-ratio:1; border-radius:2px; background:#0e0e0e; border:1px solid #161616; position:relative; cursor:default; transition:opacity .1s; }
+    .hm-cell:hover { opacity:.8; }
+    .hm-cell.l1 { background:#143822; border-color:#1b5232; }
+    .hm-cell.l2 { background:#1e5e33; border-color:#268046; }
+    .hm-cell.l3 { background:#2aa15a; border-color:#3dc16f; }
+    .hm-cell.l4 { background:#00e676; border-color:#00e676; box-shadow:0 0 6px rgba(0,230,118,.35); }
+    .hm-cell.n1 { background:#3a1220; border-color:#551a2c; }
+    .hm-cell.n2 { background:#801930; border-color:var(--hgb-red); }
+    [data-mode="light"] .hm-cell    { background:rgba(13,13,20,.05); border-color:var(--site-border); }
+    [data-mode="light"] .hm-cell.l1 { background:#d4f0df; border-color:#b8e4c7; }
+    [data-mode="light"] .hm-cell.l2 { background:#a8d8be; border-color:#85c7a0; }
+    [data-mode="light"] .hm-cell.l3 { background:#5bb585; border-color:#3e9e6c; }
+    [data-mode="light"] .hm-cell.l4 { background:#00874e; border-color:#00874e; box-shadow:none; }
+    [data-mode="light"] .hm-cell.n1 { background:#fce4e4; border-color:#f5b8b8; }
+    [data-mode="light"] .hm-cell.n2 { background:#f5b8b8; border-color:var(--hgb-red); }
+    .hm-cell.win::after  { content:""; position:absolute; left:2px; right:2px; bottom:2px; height:1.5px; background:rgba(255,255,255,.3); }
+    .hm-cell.loss::after { content:""; position:absolute; right:2px; top:2px; bottom:2px; width:1.5px; background:rgba(255,255,255,.2); }
+    [data-mode="light"] .hm-cell.win::after  { background:rgba(0,0,0,.2); }
+    [data-mode="light"] .hm-cell.loss::after { background:rgba(0,0,0,.15); }
+    .hm-legend { display:flex; justify-content:space-between; align-items:center; margin-top:16px; flex-wrap:wrap; gap:10px; }
+    .hm-scale { display:flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:10px; color:var(--card-muted); letter-spacing:.06em; }
+    .hm-scale .sw { width:11px; height:11px; border-radius:2px; flex-shrink:0; }
+    .hm-summary { display:flex; gap:20px; }
+    .hm-stat { display:flex; flex-direction:column; }
+    .hm-stat .k { font-family:var(--font-mono); font-size:9.5px; color:var(--card-muted); letter-spacing:.1em; text-transform:uppercase; }
+    .hm-stat .v { font-family:var(--font-card-display); font-weight:700; font-size:18px; color:var(--card-text); letter-spacing:.01em; font-variant-numeric:tabular-nums; }
+    .hm-stat .v.good { color:#00e676; }
+    [data-mode="light"] .hm-stat .v.good { color:#00874e; }
+
+    /* ══ Component D: Inline spark recent games ════════════════════════ */
+    .sg-card { background:var(--site-card); border:1px solid var(--site-border); border-radius:var(--radius-md); overflow:hidden; }
+    .sg-hdr { padding:12px 20px 10px; display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid var(--site-border); }
+    .sg-eyebrow { font-family:var(--font-card-display); font-weight:700; font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--site-muted); }
+    .sg-sub { font-family:var(--font-mono); font-size:10px; color:var(--site-muted); letter-spacing:.06em; }
+    .sg-colh {
+      display:grid; grid-template-columns: 72px 72px 72px 1fr 56px 80px;
+      gap:12px; padding:8px 20px;
+      font-family:var(--font-mono); font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--site-muted);
+      border-bottom:1px solid var(--site-border);
+    }
+    .sg-row {
+      display:grid; grid-template-columns: 72px 72px 72px 1fr 56px 80px;
+      gap:12px; padding:9px 20px; align-items:center;
+      border-bottom:1px solid var(--site-border);
+      position:relative; font-size:13px; transition:background .1s;
+    }
+    .sg-row:last-of-type { border-bottom:none; }
+    .sg-row:hover { background:rgba(255,255,255,.03); }
+    [data-mode="light"] .sg-row:hover { background:rgba(13,13,20,.03); }
+    .sg-row.sg-best  { background: linear-gradient(90deg, rgba(0,192,120,.07), transparent 35%); }
+    .sg-row.sg-worst { background: linear-gradient(90deg, rgba(232,0,45,.08), transparent 35%); }
+    .sg-row::before { content:""; position:absolute; left:0; top:4px; bottom:4px; width:2px; background:transparent; }
+    .sg-row.sg-best::before  { background:#00c078; }
+    .sg-row.sg-worst::before { background:var(--hgb-red); }
+    .sg-date { font-family:var(--font-mono); color:var(--site-muted); font-size:11px; letter-spacing:.06em; }
+    .sg-opp  { font-family:var(--font-card-display); font-weight:600; color:var(--site-white); font-size:13px; letter-spacing:.02em; white-space:nowrap; }
+    .sg-res  { font-family:var(--font-card-display); font-weight:700; font-size:12px; letter-spacing:.04em; }
+    .sg-res-w { color:#00c078; }
+    .sg-res-l { color:var(--hgb-red); }
+    [data-mode="light"] .sg-res-w { color:#00874e; }
+    .sg-spark { display:flex; align-items:center; gap:3px; height:22px; }
+    .sg-seg {
+      height:16px; border-radius:1px; display:flex; align-items:center; justify-content:flex-start;
+      font-family:var(--font-mono); font-size:9.5px; color:rgba(0,0,0,.6); font-weight:700;
+      padding:0 4px; letter-spacing:0; min-width:1px;
+    }
+    .sg-g { background:#00c078; }
+    .sg-a { background:#7ee2a8; }
+    [data-mode="light"] .sg-g { background:#00874e; color:rgba(255,255,255,.8); }
+    [data-mode="light"] .sg-a { background:#5db88a; color:rgba(255,255,255,.8); }
+    .sg-empty { background:#151515; height:2px; flex:1; min-width:20px; border-radius:1px; }
+    [data-mode="light"] .sg-empty { background:var(--site-border); }
+    .sg-pts { font-family:var(--font-card-display); font-variant-numeric:tabular-nums; color:var(--site-white); font-weight:700; font-size:14px; text-align:right; letter-spacing:.02em; }
+    .sg-hgb { font-family:var(--font-card-display); font-variant-numeric:tabular-nums; font-weight:700; font-size:15px; text-align:right; letter-spacing:.02em; }
+    .sg-pos { color:#00c078; }
+    .sg-neg { color:var(--hgb-red); }
+    [data-mode="light"] .sg-pos { color:#00874e; }
+    .sg-callout {
+      position:absolute; top:7px; right:24px;
+      font-family:var(--font-card-display); font-weight:700; font-size:9px;
+      letter-spacing:.18em; padding:1px 5px; border-radius:2px; text-transform:uppercase;
+    }
+    .sg-callout-b { color:#00c078; border:1px solid rgba(0,192,120,.3); background:rgba(0,192,120,.06); }
+    .sg-callout-w { color:var(--hgb-red); border:1px solid rgba(232,0,45,.35); background:rgba(232,0,45,.06); }
+    .sg-foot {
+      display:flex; justify-content:space-between; padding:12px 20px;
+      border-top:1px solid var(--site-border);
+      font-family:var(--font-card-display); font-weight:700; font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--site-muted);
+    }
+    .sg-foot a { color:var(--hgb-red); text-decoration:none; }
+    .sg-foot a:hover { opacity:.7; }
   </style>
 </head>
 <body>
@@ -706,135 +961,223 @@ function rankStr(n: number): string {
       <span class="p-strip-rank">#{rankInfo.rank} of {rankInfo.total} {posPlural.toLowerCase()}</span>
     </div>
 
-    <!-- PEER PERCENTILE BAR -->
+    <!-- COMPONENT A: Upgraded percentile bar with gradient + glow -->
     <section class="p-section">
       <SectionEyebrow label={`VS ${posPlural} THIS SEASON`} color="muted" />
       <div class="p-section-body">
-        <div class="peer-panel">
-          <div class="peer-head">
-            <span class="peer-title">POSITION PEERS · 20+ GP</span>
-            <span class="peer-rank-label">#{rankInfo.rank} OF {rankInfo.total}</span>
+        <div class="pct-b">
+          <div class="pct-b-hdr">
+            <span class="pct-b-eyebrow">position peers · min 20 GP</span>
+            <span class={`pct-b-rank${isNeg ? ' pct-neg' : ''}`}>
+              #{rankInfo.rank}<span class="tot"> / {rankInfo.total}</span>
+            </span>
           </div>
-          <!-- Tick labels row (above the track) -->
-          <div class="peer-tick-row">
-            <span class="peer-tick-lbl" style="left: 10%">P10</span>
-            <span class="peer-tick-lbl" style="left: 50%">P50</span>
-            <span class="peer-tick-lbl" style="left: 90%">P90</span>
+          <div class="pct-b-track">
+            <div class={`pct-b-fill${isNeg ? ' pct-neg' : ''}`} style={`width:${markerPct.toFixed(1)}%`}></div>
+            <div class="pct-b-marks">{Array.from({length:10}).map(() => <span></span>)}</div>
+            <div class={`pct-b-you${isNeg ? ' pct-neg' : ''}`} style={`left:${markerPct.toFixed(1)}%`}></div>
           </div>
-          <!-- Track + label below -->
-          <div class="peer-track-wrap">
-            <div class="peer-track">
-              <div class="peer-fill" style={`width: ${markerPct.toFixed(1)}%`}></div>
-              <div class="peer-tick-line" style="left: 10%"></div>
-              <div class="peer-tick-line" style="left: 50%"></div>
-              <div class="peer-tick-line" style="left: 90%"></div>
-              <div class="peer-marker" style={`left: ${markerPct.toFixed(1)}%`}>
-                <div class={`peer-marker-inner${isNeg ? ' dot-neg' : ''}`}></div>
-              </div>
-            </div>
-            <div class="peer-pct-label" style={`left: ${labelLeft.toFixed(1)}%; width: ${labelW}%`}>
-              {ordinalSuffix(pct)} PERCENTILE
-            </div>
+          <div class="pct-b-ticks">
+            <span>P10</span><span>P25</span><span>P50</span><span>P75</span><span>P90</span>
+            <span class={pct >= 99 ? 'pct-b-you-label' : ''}>
+              {pct >= 99 ? 'YOU · ' : ''}{ordinalSuffix(pct)} PCT
+            </span>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- SIMILAR PLAYERS (above timeline — groups all comparison content) -->
+    <!-- COMPONENT B: Radar overlay — shows shape, not just rank -->
     {peers.length > 0 && (
       <section class="p-section">
         <SectionEyebrow label={`SIMILAR ${posPlural} THIS SEASON`} color="muted" />
         <div class="p-section-body">
-          <div class="peers-list">
-            {peers.map((peer, i) => {
-              const tc = pickTeamColor(peer.team_abbrev);
-              const isTop = i === 0;
-              const sign = peer.avg_gs_display >= 0 ? '+' : '';
-              return (
-                <a
-                  class={`lb-row${isTop ? ' lb-row--top' : ''}`}
-                  href={`/stats/player/${peer.slug}`}
-                  style={`border-left-color:${tc};${isTop ? `--row-tint:${hexToRgba(tc, 0.08)};` : ''}`}
-                >
-                  <span class="lb-rank">{rankStr(i + 1)}</span>
-                  <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${peer.team_abbrev}_light.svg`} alt={peer.team_abbrev} width="26" height="26" loading="lazy" />
-                  <div class="lb-info">
-                    <span class="lb-name">{peer.display_name}</span>
-                    <span class="lb-meta">{peer.pos} · {peer.team_abbrev} · {peer.gp} GP</span>
+          <div class="radar-card">
+            <div class="radar-hdr">
+              <span class="radar-eyebrow">6-axis comparison · vector distance</span>
+              <span class="radar-legend">
+                <span><span class="sw" style={`background:${teamColor}`}></span>You</span>
+                {peers.slice(0, 3).map((peer, pi) => (
+                  <span>
+                    <span class="sw" style={`background:${peerColors[pi]}`}></span>
+                    {peer.display_name.split(' ')[0][0]}. {peer.display_name.split(' ').slice(1).join(' ')}
+                  </span>
+                ))}
+              </span>
+            </div>
+            <div class="radar-grid">
+              <div class="radar-wrap">
+                <svg viewBox="-160 -160 320 320">
+                  <!-- rings -->
+                  <g fill="none" stroke="#1a1a1a" stroke-width="1">
+                    {rings.map(r => <polygon points={r}/>)}
+                  </g>
+                  <!-- axis lines -->
+                  <g stroke="#1a1a1a" stroke-width="1">
+                    {axisEnds.map(([x, y]) => <line x1="0" y1="0" x2={x} y2={y}/>)}
+                  </g>
+                  <!-- axis labels -->
+                  <g font-family="Oswald, sans-serif" font-size="9.5" fill="#777" font-weight="700" letter-spacing="1.4">
+                    <text x="0" y="-134" text-anchor="middle">HGBSCORE</text>
+                    <text x="124" y="-66" text-anchor="start">xG/60</text>
+                    <text x="124" y="74" text-anchor="start">SHOTS</text>
+                    <text x="0" y="148" text-anchor="middle">FINISHING</text>
+                    <text x="-124" y="74" text-anchor="end">PEN DRAWN</text>
+                    <text x="-124" y="-66" text-anchor="end">DEFENSE</text>
+                  </g>
+                  <!-- peer polygons behind -->
+                  {peers.slice(0, 3).map((peer, pi) => (
+                    <polygon
+                      points={radarPts(peer.pcts)}
+                      fill={hexToRgba(peerColors[pi], 0.12)}
+                      stroke={peerColors[pi]}
+                      stroke-width="1.4"
+                      stroke-dasharray={pi > 0 ? "4 3" : undefined}
+                    />
+                  ))}
+                  <!-- current player on top -->
+                  <polygon
+                    points={playerRadarPts}
+                    fill={hexToRgba(teamColor, 0.22)}
+                    stroke={teamColor}
+                    stroke-width="2.2"
+                  />
+                  {playerRadarNodes.map(([x, y]) => (
+                    <circle cx={x} cy={y} r="3.5" fill={teamColor}/>
+                  ))}
+                </svg>
+              </div>
+              <div class="radar-list">
+                <!-- Current player row -->
+                <div class="radar-row">
+                  <span class="radar-dot-n">—</span>
+                  <span class="radar-puck" style={`border-color:${teamColor}; background:${teamColor};`}></span>
+                  <span class="radar-nm">{player.display_name} <span class="rt">{player.team_abbrev} · {player.gp} GP</span></span>
+                  <span class="radar-v">{gsSign}{avgGs.toFixed(2)}</span>
+                  <span class="radar-dot-pct" style={`background:${dotColor(pct)}`}></span>
+                </div>
+                {peers.map((peer, pi) => (
+                  <div class="radar-row">
+                    <span class="radar-dot-n">0{pi + 1}</span>
+                    <span class="radar-puck" style={`border-color:${peerColors[pi]}; border-style:${pi > 0 ? 'dashed' : 'solid'};`}></span>
+                    <span class="radar-nm">
+                      <a href={`/stats/player/${peer.slug}`} style="color:inherit;text-decoration:none">{peer.display_name}</a>
+                      {' '}<span class="rt">{peer.team_abbrev} · {peer.gp} GP</span>
+                    </span>
+                    <span class="radar-v">{peer.avg_gs_display >= 0 ? '+' : ''}{peer.avg_gs_display.toFixed(2)}</span>
+                    <span class="radar-dot-pct" style={`background:${dotColor(peer.gs_pct)}`}></span>
                   </div>
-                  <span class="lb-val">{sign}{peer.avg_gs_display.toFixed(2)}</span>
-                  <span class="lb-dot" style={`background:${dotColor(peer.gs_pct)}`} title={`${Math.round(peer.gs_pct)}th pct`}></span>
-                </a>
-              );
-            })}
+                ))}
+                <p class="radar-caption">Shape matters more than rank — the radar shows <em>why</em> these players are similar, not just that they are.</p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
     )}
 
-    <!-- TIMELINE -->
+    <!-- COMPONENT C: Calendar heatmap — answers "when did he go cold?" -->
     <section class="p-section">
-      <SectionEyebrow label="GAME-BY-GAME TIMELINE" color="muted" />
+      <SectionEyebrow label="GAME-BY-GAME INTENSITY" color="muted" />
       <div class="p-section-body">
-        <div class="tl-wrap">
-          <svg class="tl-svg" viewBox={`0 0 ${TL_W} ${TL_H}`} preserveAspectRatio="none" aria-hidden="true">
-            <line x1="0" y1={MID} x2={TL_W} y2={MID} class="tl-zero" />
-            {playerGames.map((g, i) => {
-              const h = Math.max(Math.abs(g.gs_display) / maxAbs * MID, 1);
-              const x = i * (barW + gap);
-              const y = g.gs_display >= 0 ? MID - h : MID;
-              return (
-                <rect
-                  class={g.gs_display >= 0 ? 'tl-bar tl-pos' : 'tl-bar tl-neg'}
-                  x={x.toFixed(2)} y={y.toFixed(2)}
-                  width={barW.toFixed(2)} height={h.toFixed(2)}
-                  rx="1"
-                  data-date={g.game_date}
-                  data-gs={g.gs_display.toFixed(2)}
-                  data-opp={g.opp_abbrev}
-                  data-home={g.is_home ? '1' : '0'}
-                />
-              );
-            })}
-            {avgPoints && <polyline points={avgPoints} class="tl-avg" fill="none" />}
-          </svg>
-          <div class="tl-dates">
-            {firstGame && <span>{fmtDate(firstGame.game_date)} · {playerGames.length} GAMES</span>}
-            {lastGame  && <span>{fmtDate(lastGame.game_date)}</span>}
+        <div class="hm-card">
+          <div class="hm-hdr">
+            <span class="hm-eyebrow">Season heatmap · HGBScore intensity</span>
+            <span class="hm-hint">{playerGames.length} games · hover for detail</span>
+          </div>
+          <div class="hm-cal" style={`--hm-cols:${calCols}`}>
+            {calMonths.map(month => (
+              <div class="hm-row">
+                <span class="hm-label">{month.label}</span>
+                {month.games.map(g => (
+                  <span
+                    class={`hm-cell ${g.level} ${g.win ? 'win' : 'loss'}`}
+                    title={`${g.gs >= 0 ? '+' : ''}${g.gs.toFixed(2)} · ${g.win ? 'W' : 'L'}`}
+                  ></span>
+                ))}
+                {Array.from({length: calCols - month.games.length}).map(() => (
+                  <span class="hm-cell l0"></span>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div class="hm-legend">
+            <div class="hm-scale">
+              <span>LOW</span>
+              <span class="sw" style="background:#0e0e0e; border:1px solid #1a1a1a;"></span>
+              <span class="sw" style="background:#143822;"></span>
+              <span class="sw" style="background:#1e5e33;"></span>
+              <span class="sw" style="background:#2aa15a;"></span>
+              <span class="sw" style="background:#00e676;"></span>
+              <span>ELITE</span>
+              <span style="margin-left:10px;">·</span>
+              <span class="sw" style="background:#801930; margin-left:6px;"></span>
+              <span>BELOW AVG</span>
+            </div>
+            <div class="hm-summary">
+              <div class="hm-stat">
+                <span class="k">SEASON AVG</span>
+                <span class={`v${!isNeg ? ' good' : ''}`}>{gsSign}{avgGs.toFixed(2)}</span>
+              </div>
+              <div class="hm-stat">
+                <span class="k">TOTAL G</span>
+                <span class="v">{totalGoals}</span>
+              </div>
+              <div class="hm-stat">
+                <span class="k">TOTAL A</span>
+                <span class="v">{totalAssists}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- GAME LOG -->
+    <!-- COMPONENT D: Inline spark games — goals/assists bars per row -->
     <section class="p-section">
       <SectionEyebrow label="RECENT GAMES" color="muted" />
       <div class="p-section-body">
-        <table class="gl-table">
-          <thead>
-            <tr>
-              <th>Date</th><th class="gl-th-opp">Opp</th><th>Result</th><th>G</th><th>A</th><th>HGBScore</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recentGames.map(g => {
-              const result = g.team_score > g.opp_score ? 'W' : g.team_score < g.opp_score ? 'L' : 'T';
-              const vs = g.is_home ? 'vs' : '@';
-              const gsSign2 = g.gs_display >= 0 ? '+' : '';
-              return (
-                <tr>
-                  <td>{fmtDate(g.game_date)}</td>
-                  <td class="gl-opp">{vs} {g.opp_abbrev}</td>
-                  <td class={result === 'W' ? 'gl-win' : result === 'L' ? 'gl-loss' : ''}>{result} {g.team_score}–{g.opp_score}</td>
-                  <td>{g.goals}</td>
-                  <td>{g.assists}</td>
-                  <td class={g.gs_display >= 0 ? 'gl-pos' : 'gl-neg'}>{gsSign2}{g.gs_display.toFixed(2)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <a href="#" class="gl-view-all">VIEW FULL SEASON LOG →</a>
+        <div class="sg-card">
+          <div class="sg-hdr">
+            <span class="sg-eyebrow">Last {recentGames.length} games · full season log →</span>
+            <span class="sg-sub">avg HGB {gsSign}{avgGs.toFixed(2)} · {fmtToi(player.toi_avg_sec)} TOI/g</span>
+          </div>
+          <div class="sg-colh">
+            <span>Date</span><span>Opp</span><span>Result</span>
+            <span style="padding-left:4px">Performance</span>
+            <span style="text-align:right">Pts</span><span style="text-align:right">HGBScore</span>
+          </div>
+          {recentGames.map((g, i) => {
+            const isBest  = i === recentBestI;
+            const isWorst = i === recentWorstI;
+            const result  = g.team_score > g.opp_score ? 'W' : g.team_score < g.opp_score ? 'L' : 'T';
+            const vs      = g.is_home ? 'vs' : '@';
+            const pts     = g.goals + g.assists;
+            const s2      = g.gs_display >= 0 ? '+' : '';
+            const goalW   = Math.min(g.goals * 14, 40);
+            const assistW = Math.min(g.assists * 11, 33);
+            return (
+              <div class={`sg-row${isBest ? ' sg-best' : isWorst ? ' sg-worst' : ''}`}>
+                <span class="sg-date">{fmtDate(g.game_date)}</span>
+                <span class="sg-opp">{vs} {g.opp_abbrev}</span>
+                <span class={`sg-res sg-res-${result.toLowerCase()}`}>{result} {g.team_score}–{g.opp_score}</span>
+                <div class="sg-spark">
+                  {g.goals > 0 && <span class="sg-seg sg-g" style={`width:${goalW}%`}>{g.goals}G</span>}
+                  {g.assists > 0 && <span class="sg-seg sg-a" style={`width:${assistW}%`}>{g.assists}A</span>}
+                  <span class="sg-empty"></span>
+                </div>
+                <span class="sg-pts">{pts}</span>
+                <span class={`sg-hgb sg-${g.gs_display >= 0 ? 'pos' : 'neg'}`}>{s2}{g.gs_display.toFixed(2)}</span>
+                {isBest  && <span class="sg-callout sg-callout-b">★ SEASON HIGH</span>}
+                {isWorst && <span class="sg-callout sg-callout-w">QUIETEST</span>}
+              </div>
+            );
+          })}
+          <div class="sg-foot">
+            <span>{recentGames.length} OF {playerGames.length} GAMES</span>
+            <a href="#">VIEW FULL SEASON LOG →</a>
+          </div>
+        </div>
       </div>
     </section>
 
