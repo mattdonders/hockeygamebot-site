@@ -1,0 +1,386 @@
+---
+import '../../styles/stats-tokens.css';
+import PageHeader from '../../components/stats/PageHeader.astro';
+import SectionEyebrow from '../../components/stats/SectionEyebrow.astro';
+import {
+  loadTopForwardsHGBScore,
+  loadTopDefensemenHGBScore,
+  loadTopForwardsXG60,
+  loadTopGoals60,
+} from '../../lib/stats-loader';
+
+const fwdHGB  = loadTopForwardsHGBScore(25);
+const defHGB  = loadTopDefensemenHGBScore(25);
+const fwdXG   = loadTopForwardsXG60(25);
+const goals60 = loadTopGoals60(10);
+
+function fmtToi(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function dotColor(pct: number): string {
+  return pct >= 90 ? '#00c078' : pct >= 70 ? '#60a5fa' : pct >= 40 ? '#8a8a82' : '#e8002d';
+}
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Anti-FOUC: sets html[data-mode] before CSS renders — zero flash. -->
+  <script is:inline>
+    (function() {
+      try {
+        var saved = localStorage.getItem('hgb-mode');
+        var system = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.mode = saved || system;
+      } catch (_) { document.documentElement.dataset.mode = 'dark'; }
+    })();
+  </script>
+  <meta name="color-scheme" content="light dark">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Leaderboards — HGB Stats</title>
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { min-height: 100vh; -webkit-font-smoothing: antialiased; }
+    body {
+      background: var(--site-bg);
+      color: var(--site-white);
+      font-family: var(--font-site-body, 'Space Grotesk', sans-serif);
+    }
+
+    /* ── Shell ──────────────────────────────────────────────────────── */
+    .lb-main { max-width: 1120px; margin: 0 auto; padding: 0 24px 64px; }
+
+    /* ── Breadcrumb ─────────────────────────────────────────────────── */
+    .lb-crumb { padding: 20px 0 14px; }
+    .lb-crumb a {
+      font-family: var(--font-card-display);
+      font-size: 13px; font-weight: 700;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--site-muted); text-decoration: none;
+      transition: color 0.12s;
+    }
+    .lb-crumb a:hover { color: var(--site-white); }
+
+    /* ── Hero ───────────────────────────────────────────────────────── */
+    .lb-hero { padding: 20px 0 16px; border-bottom: 1px solid var(--site-border); }
+    .lb-headline {
+      font-family: var(--font-card-display);
+      font-size: clamp(28px, 3.5vw, 38px);
+      font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.01em; line-height: 1.05;
+      margin-top: 10px; color: var(--site-white);
+    }
+    .lb-sub {
+      margin-top: 10px; font-size: 13px; font-weight: 400;
+      color: var(--site-muted); line-height: 1.55; max-width: 520px;
+    }
+
+    /* ── Sections ───────────────────────────────────────────────────── */
+    .lb-section { padding: 28px 0; border-bottom: 1px solid var(--site-border); }
+    .lb-blurb {
+      margin-top: 6px; margin-bottom: 14px;
+      font-size: 13px; color: var(--site-muted); line-height: 1.55; max-width: 640px;
+    }
+
+    /* ── Table card ─────────────────────────────────────────────────── */
+    .lb-card {
+      background: #141414;
+      border: 1px solid var(--site-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    [data-mode="light"] .lb-card { background: var(--site-card); }
+
+    /* ── Table ──────────────────────────────────────────────────────── */
+    .lb-table { width: 100%; border-collapse: collapse; }
+    .lb-table th {
+      font-family: var(--font-card-display);
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--site-muted);
+      padding: 10px 14px 8px;
+      text-align: right;
+      border-bottom: 1px solid var(--site-border);
+      white-space: nowrap;
+    }
+    .lb-table th.th-l { text-align: left; }
+    .lb-table td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--site-border);
+      font-family: var(--font-card-display);
+      font-size: 13px; font-weight: 600;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--site-white);
+      text-align: right; white-space: nowrap;
+    }
+    .lb-table tr:last-child td { border-bottom: none; }
+    .lb-table tr[data-href] { cursor: pointer; }
+    .lb-table tr[data-href]:hover td { background: #1e1e1e; }
+    [data-mode="light"] .lb-table tr[data-href]:hover td { background: var(--site-dim); }
+
+    /* ── Column styles ──────────────────────────────────────────────── */
+    .td-rank {
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--site-muted); text-align: right; width: 36px;
+    }
+    .td-pos { width: 44px; text-align: left; }
+    .lb-pos-badge {
+      display: inline-block; background: var(--site-border);
+      padding: 1px 5px; border-radius: var(--radius-sm);
+      font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    }
+    .td-name { text-align: left; }
+    .lb-name-link {
+      font-family: var(--font-site-body); font-size: 14px;
+      font-weight: 600; color: var(--site-white);
+      text-decoration: none; letter-spacing: 0; text-transform: none;
+    }
+    .td-team { color: var(--site-muted); font-size: 12px; width: 52px; }
+    .td-gp   { color: var(--site-muted); width: 44px; }
+    .td-toi  { font-variant-numeric: tabular-nums; width: 68px; }
+    .td-val  {
+      font-family: var(--font-site-display); font-size: 16px;
+      font-weight: 700; font-variant-numeric: tabular-nums; width: 88px;
+    }
+    .td-dot  { width: 28px; text-align: center; }
+    .lb-dot  {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: var(--radius-pill);
+    }
+
+    /* ── View-all link ──────────────────────────────────────────────── */
+    .lb-view-all {
+      display: block; margin-top: 8px;
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--site-muted); text-decoration: none;
+      text-align: right; transition: color 0.12s;
+    }
+    .lb-view-all:hover { color: var(--site-white); }
+
+    /* ── Goalie placeholder ─────────────────────────────────────────── */
+    .lb-coming-text {
+      margin-top: 10px; font-size: 13px;
+      color: var(--site-muted); line-height: 1.55;
+    }
+
+    /* ── Methodology ────────────────────────────────────────────────── */
+    .lb-method {
+      padding: 28px 0;
+      display: flex; align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap; gap: 10px;
+    }
+    .lb-method-text { font-size: 13px; color: var(--site-muted); line-height: 1.55; flex: 1; }
+    .lb-method-link {
+      font-family: var(--font-card-display);
+      font-size: 12px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--site-muted); text-decoration: none;
+      transition: color 0.12s; white-space: nowrap;
+    }
+    .lb-method-link:hover { color: var(--site-white); }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
+    .lb-footer {
+      text-align: center; padding: 20px 0;
+      font-size: 0.7rem; letter-spacing: 0.1em;
+      color: var(--site-muted); font-family: var(--font-mono);
+    }
+  </style>
+</head>
+<body>
+  <PageHeader activePage="stats" />
+
+  <main class="lb-main">
+
+    <!-- BREADCRUMB -->
+    <nav class="lb-crumb"><a href="/stats">← STATS</a></nav>
+
+    <!-- HERO -->
+    <section class="lb-hero">
+      <SectionEyebrow label="LEADERBOARDS" />
+      <h1 class="lb-headline">Who's driving play this season.</h1>
+      <p class="lb-sub">Four angles on the best skaters in the NHL — by HGBScore, finishing, and pure scoring rate.</p>
+    </section>
+
+    <!-- 4a: Top 25 Forwards · HGBScore V2 -->
+    <section class="lb-section">
+      <SectionEyebrow label="TOP 25 FORWARDS · HGBSCORE V2" />
+      <p class="lb-blurb">Per-game blend of goals, assists, xG, and two-way play — rate-adjusted per 60 minutes.</p>
+      <div class="lb-card">
+        <table class="lb-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th class="th-l">POS</th>
+              <th class="th-l">NAME</th>
+              <th>TEAM</th>
+              <th>GP</th>
+              <th>TOI/G</th>
+              <th>HGBSCORE</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {fwdHGB.map((p, i) => (
+              <tr data-href={`/stats/player/${p.slug}`}>
+                <td class="td-rank">{i + 1}</td>
+                <td class="td-pos"><span class="lb-pos-badge">{p.pos}</span></td>
+                <td class="td-name"><a class="lb-name-link" href={`/stats/player/${p.slug}`}>{p.display_name}</a></td>
+                <td class="td-team">{p.team_abbrev}</td>
+                <td class="td-gp">{p.gp}</td>
+                <td class="td-toi">{fmtToi(p.toi_avg_sec)}</td>
+                <td class="td-val">{p.value.toFixed(2)}</td>
+                <td class="td-dot"><span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <a href="/stats/leaderboards/all" class="lb-view-all">VIEW FULL LEADERBOARD →</a>
+    </section>
+
+    <!-- 4b: Top 25 Defensemen · HGBScore V2 -->
+    <section class="lb-section">
+      <SectionEyebrow label="TOP 25 DEFENSEMEN · HGBSCORE V2" />
+      <p class="lb-blurb">Defensemen typically score lower than forwards on HGBScore because volume matters — an elite defenseman drives play without racking up goals.</p>
+      <div class="lb-card">
+        <table class="lb-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th class="th-l">POS</th>
+              <th class="th-l">NAME</th>
+              <th>TEAM</th>
+              <th>GP</th>
+              <th>TOI/G</th>
+              <th>HGBSCORE</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {defHGB.map((p, i) => (
+              <tr data-href={`/stats/player/${p.slug}`}>
+                <td class="td-rank">{i + 1}</td>
+                <td class="td-pos"><span class="lb-pos-badge">{p.pos}</span></td>
+                <td class="td-name"><a class="lb-name-link" href={`/stats/player/${p.slug}`}>{p.display_name}</a></td>
+                <td class="td-team">{p.team_abbrev}</td>
+                <td class="td-gp">{p.gp}</td>
+                <td class="td-toi">{fmtToi(p.toi_avg_sec)}</td>
+                <td class="td-val">{p.value.toFixed(2)}</td>
+                <td class="td-dot"><span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <a href="/stats/leaderboards/all" class="lb-view-all">VIEW FULL LEADERBOARD →</a>
+    </section>
+
+    <!-- 4c: Top 25 Forwards · xG/60 -->
+    <section class="lb-section">
+      <SectionEyebrow label="TOP 25 FORWARDS · XG / 60" />
+      <p class="lb-blurb">Expected goals per 60 minutes. Surfaces finishers who generate high-quality chances — not just volume shooters.</p>
+      <div class="lb-card">
+        <table class="lb-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th class="th-l">POS</th>
+              <th class="th-l">NAME</th>
+              <th>TEAM</th>
+              <th>GP</th>
+              <th>TOI/G</th>
+              <th>XG / 60</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {fwdXG.map((p, i) => (
+              <tr data-href={`/stats/player/${p.slug}`}>
+                <td class="td-rank">{i + 1}</td>
+                <td class="td-pos"><span class="lb-pos-badge">{p.pos}</span></td>
+                <td class="td-name"><a class="lb-name-link" href={`/stats/player/${p.slug}`}>{p.display_name}</a></td>
+                <td class="td-team">{p.team_abbrev}</td>
+                <td class="td-gp">{p.gp}</td>
+                <td class="td-toi">{fmtToi(p.toi_avg_sec)}</td>
+                <td class="td-val">{p.value.toFixed(2)}</td>
+                <td class="td-dot"><span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <a href="/stats/leaderboards/all" class="lb-view-all">VIEW FULL LEADERBOARD →</a>
+    </section>
+
+    <!-- 4d: Top 10 · Goals/60 -->
+    <section class="lb-section">
+      <SectionEyebrow label="TOP 10 · GOALS / 60" />
+      <p class="lb-blurb">Goals per 60 minutes, regardless of position or ice time. The rawest scoring-rate leaderboard — partial seasons welcome.</p>
+      <div class="lb-card">
+        <table class="lb-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th class="th-l">POS</th>
+              <th class="th-l">NAME</th>
+              <th>TEAM</th>
+              <th>GP</th>
+              <th>TOI/G</th>
+              <th>G / 60</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {goals60.map((p, i) => (
+              <tr data-href={`/stats/player/${p.slug}`}>
+                <td class="td-rank">{i + 1}</td>
+                <td class="td-pos"><span class="lb-pos-badge">{p.pos}</span></td>
+                <td class="td-name"><a class="lb-name-link" href={`/stats/player/${p.slug}`}>{p.display_name}</a></td>
+                <td class="td-team">{p.team_abbrev}</td>
+                <td class="td-gp">{p.gp}</td>
+                <td class="td-toi">{fmtToi(p.toi_avg_sec)}</td>
+                <td class="td-val">{p.value.toFixed(2)}</td>
+                <td class="td-dot"><span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <a href="/stats/leaderboards/all" class="lb-view-all">VIEW FULL LEADERBOARD →</a>
+    </section>
+
+    <!-- GOALIE PLACEHOLDER -->
+    <section class="lb-section">
+      <SectionEyebrow label="GOALIE METRICS · COMING SOON" color="muted" />
+      <p class="lb-coming-text">GSAx and save-percentile leaderboards pending — goalie pipeline is in development.</p>
+    </section>
+
+    <!-- METHODOLOGY -->
+    <div class="lb-method">
+      <SectionEyebrow label="HOW WE MEASURE" color="muted" />
+      <span class="lb-method-text">
+        HGBScore V2 combines individual shot quality, on-ice xG, finishing skill, and penalties drawn/taken — all rate-adjusted per 60 minutes. Percentiles vs position peers with 20+ GP.
+      </span>
+      <a href="/stats/methodology" class="lb-method-link">READ THE FULL METHODOLOGY →</a>
+    </div>
+
+  </main>
+
+  <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026</footer>
+
+  <script>
+    document.querySelectorAll<HTMLTableRowElement>('tr[data-href]').forEach(tr => {
+      tr.addEventListener('click', () => {
+        window.location.href = tr.dataset.href!;
+      });
+    });
+  </script>
+
+</body>
+</html>

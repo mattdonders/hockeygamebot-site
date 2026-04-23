@@ -127,3 +127,69 @@ export function loadPlayerOfTheWeek(): PlayerSummary {
   });
   return eligible[0] ?? players[0];
 }
+
+// ── SS-5 Leaderboard hub ─────────────────────────────────────────────────────
+
+export type LeaderboardSectionEntry = {
+  player_id: number;
+  slug: string;
+  display_name: string;
+  team_abbrev: string;
+  pos: string;
+  pos_group: 'F' | 'D';
+  gp: number;
+  toi_avg_sec: number;
+  value: number;
+  pct: number;
+};
+
+function toSectionEntries(
+  sorted: PlayerSummary[],
+  getValue: (p: PlayerSummary) => number,
+  getPct: (p: PlayerSummary) => number,
+): LeaderboardSectionEntry[] {
+  return sorted.map(p => ({
+    player_id: p.player_id,
+    slug: p.slug,
+    display_name: p.display_name,
+    team_abbrev: p.team_abbrev,
+    pos: p.pos,
+    pos_group: p.pos_group,
+    gp: p.gp,
+    toi_avg_sec: p.toi_avg_sec,
+    value: getValue(p),
+    pct: getPct(p),
+  }));
+}
+
+export function loadTopForwardsHGBScore(n = 25): LeaderboardSectionEntry[] {
+  const sorted = loadPlayers()
+    .filter(p => p.pos_group === 'F' && p.gp >= 20)
+    .sort((a, b) => b.avg_gs_display - a.avg_gs_display)
+    .slice(0, n);
+  return toSectionEntries(sorted, p => p.avg_gs_display, p => p.gs_pct);
+}
+
+export function loadTopDefensemenHGBScore(n = 25): LeaderboardSectionEntry[] {
+  const sorted = loadPlayers()
+    .filter(p => p.pos_group === 'D' && p.gp >= 20)
+    .sort((a, b) => b.avg_gs_display - a.avg_gs_display)
+    .slice(0, n);
+  return toSectionEntries(sorted, p => p.avg_gs_display, p => p.gs_pct);
+}
+
+export function loadTopForwardsXG60(n = 25): LeaderboardSectionEntry[] {
+  const sorted = loadPlayers()
+    .filter(p => p.pos_group === 'F' && p.gp >= 20)
+    .sort((a, b) => b.rates_per_60.ixg - a.rates_per_60.ixg)
+    .slice(0, n);
+  return toSectionEntries(sorted, p => p.rates_per_60.ixg, p => p.percentiles_vs_pos.ixg);
+}
+
+export function loadTopGoals60(n = 10): LeaderboardSectionEntry[] {
+  const sorted = loadPlayers()
+    .filter(p => p.gp >= 10)
+    .sort((a, b) => b.rates_per_60.goals - a.rates_per_60.goals)
+    .slice(0, n);
+  return toSectionEntries(sorted, p => p.rates_per_60.goals, p => p.percentiles_vs_pos.goals);
+}
