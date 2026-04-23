@@ -1,12 +1,11 @@
 ---
 // PercentileTile — analytics percentile cell for the stats site.
 // Background color encodes the percentile (the tile IS the visualization).
-// Gradient matches _GRADIENT_STOPS["dark"] in generate_player_grid_card.py
+// Gradient stops match _GRADIENT_STOPS[mode] in generate_player_grid_card.py
 // exactly, so site tiles agree visually with Python card exports.
 //
-// Piecewise interpolation:
-//   0–50:   poor(232,0,45)    → neutral(58,58,66)
-//   50–100: neutral(58,58,66) → elite(0,192,120)
+// Dark piecewise:  0–50: poor(232,0,45)→neutral(58,58,66)  50–100: neutral→elite(0,192,120)
+// Light piecewise: 0–50: poor(232,0,45)→neutral(207,206,198) 50–100: neutral→elite(0,168,107)
 
 interface Props {
   label: string;
@@ -14,15 +13,21 @@ interface Props {
   rawVal: string;
   /** Percentile 0–100. Drives background + text color. */
   pct: number;
+  /** Selects gradient stop set. Must match page data-mode. Defaults "dark". */
+  mode?: 'dark' | 'light';
 }
 
-const { label, rawVal, pct } = Astro.props;
+const { label, rawVal, pct, mode = 'dark' } = Astro.props;
 
-function tileColors(p: number): { bg: string; text: string } {
+// Gradient stops keyed by mode — source: _GRADIENT_STOPS in generate_player_grid_card.py
+const STOPS = {
+  dark:  { poor: [232, 0, 45], neutral: [58, 58, 66],   elite: [0, 192, 120] },
+  light: { poor: [232, 0, 45], neutral: [207, 206, 198], elite: [0, 168, 107] },
+} as const;
+
+function tileColors(p: number, m: 'dark' | 'light'): { bg: string; text: string } {
   const clamped = Math.max(0, Math.min(100, p));
-  const poor    = [232,   0,  45] as const;
-  const neutral = [ 58,  58,  66] as const;
-  const elite   = [  0, 192, 120] as const;
+  const { poor, neutral, elite } = STOPS[m];
 
   let a: readonly number[], b: readonly number[], t: number;
   if (clamped <= 50) {
@@ -37,7 +42,7 @@ function tileColors(p: number): { bg: string; text: string } {
   const g  = Math.round(a[1] + (b[1] - a[1]) * t);
   const bl = Math.round(a[2] + (b[2] - a[2]) * t);
 
-  // Rec. 709 luminance — matches Python card _gradient_color()
+  // Rec. 709 approximate luminance — matches Python card _gradient_color()
   const lum = 0.2126 * r + 0.7152 * g + 0.0722 * bl;
   const text = lum > 150 ? '#0d0d14' : '#efeee8';
   const bg = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${bl.toString(16).padStart(2, '0')}`;
@@ -45,7 +50,7 @@ function tileColors(p: number): { bg: string; text: string } {
   return { bg, text };
 }
 
-const { bg, text } = tileColors(pct);
+const { bg, text } = tileColors(pct, mode);
 const pctLabel = `${Math.round(pct)}`;
 ---
 <div class="ptile" style={`background:${bg}; color:${text};`}>
@@ -63,7 +68,6 @@ const pctLabel = `${Math.round(pct)}`;
     border-radius: var(--radius-sm, 2px);
     min-height: 88px;
     font-family: var(--font-card-display, 'Barlow Condensed', sans-serif);
-    position: relative;
   }
 
   .ptile-label {
