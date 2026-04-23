@@ -1,0 +1,383 @@
+---
+import '../../../styles/stats-tokens.css';
+import PageHeader      from '../../../components/stats/PageHeader.astro';
+import SectionEyebrow  from '../../../components/stats/SectionEyebrow.astro';
+import DualStatBar      from '../../../components/stats/DualStatBar.astro';
+import PercentileTile   from '../../../components/stats/PercentileTile.astro';
+import PlayerHero       from '../../../components/stats/PlayerHero.astro';
+import LeaderboardRow   from '../../../components/stats/LeaderboardRow.astro';
+import GameRow          from '../../../components/stats/GameRow.astro';
+
+// ── Sample data (identical to components.astro) ───────────────────────────
+const sampleTiles = [
+  { label: 'EV OFFENCE',   rawVal: '3.18',  pct: 99.2 },
+  { label: 'EV DEFENCE',   rawVal: '2.04',  pct: 58.4 },
+  { label: 'FINISHING',    rawVal: '+0.64', pct: 88.6 },
+  { label: 'GOALS',        rawVal: '1.84',  pct: 98.1 },
+  { label: '1ST ASSISTS',  rawVal: '3.12',  pct: 96.8 },
+  { label: 'SHOTS',        rawVal: '9.40',  pct: 99.5 },
+  { label: 'PENALTY DIFF', rawVal: '+0.45', pct: 92.3 },
+  { label: 'ixG',          rawVal: '1.20',  pct: 97.7 },
+  { label: 'GAME SCORE',   rawVal: '+2.85', pct: 99.8 },
+];
+
+const sampleLeaderboard = [
+  { rank: 1, displayName: 'C. McDavid',  teamAbbrev: 'EDM', pos: 'C', value: '+2.85', pct: 99.8 },
+  { rank: 2, displayName: 'C. Makar',    teamAbbrev: 'COL', pos: 'D', value: '+2.41', pct: 99.6 },
+  { rank: 3, displayName: 'J. Hughes',   teamAbbrev: 'NJD', pos: 'C', value: '+2.18', pct: 97.5 },
+  { rank: 4, displayName: 'N. Kucherov', teamAbbrev: 'TBL', pos: 'R', value: '+2.06', pct: 96.9 },
+  { rank: 5, displayName: 'D. Pastrnak', teamAbbrev: 'BOS', pos: 'R', value: '+1.94', pct: 95.3 },
+];
+
+const sampleGames = [
+  { homeTeam: 'BOS', awayTeam: 'BUF', homeScore: 3, awayScore: 2,
+    state: 'live' as const, stateLabel: 'P2 · 08:41',
+    homeSOG: 24, awaySOG: 19, homeXG: 3.42, awayXG: 2.18 },
+  { homeTeam: 'COL', awayTeam: 'DAL', homeScore: 4, awayScore: 1,
+    state: 'final' as const, stateLabel: 'FINAL',
+    homeSOG: 31, awaySOG: 22, homeXG: 4.11, awayXG: 1.87 },
+  { homeTeam: 'EDM', awayTeam: 'LAK', homeScore: 0, awayScore: 0,
+    state: 'fut' as const, stateLabel: '7:00 PM MT' },
+];
+
+const scalePercentiles = [0, 10, 25, 50, 75, 90, 99];
+
+// ── Option B: inline gradient with light-palette neutral ──────────────────
+// Source: _PALETTES["light"] _GRADIENT_STOPS["light"] in generate_player_grid_card.py
+// Neutral changed from (58,58,66) [charcoal] to (207,206,198) [warm cream gray].
+// Poor and elite stops are palette-independent — same as dark mode.
+function lightTileColors(p: number): { bg: string; text: string } {
+  const clamped  = Math.max(0, Math.min(100, p));
+  const poor     = [232,   0,  45] as const;   // brand red — same as dark
+  const neutral  = [207, 206, 198] as const;   // _GRADIENT_STOPS["light"] neutral
+  const elite    = [  0, 168, 107] as const;   // _GRADIENT_STOPS["light"] elite (slightly less punchy)
+
+  let a: readonly number[], b: readonly number[], t: number;
+  if (clamped <= 50) {
+    t = clamped / 50;
+    a = poor; b = neutral;
+  } else {
+    t = (clamped - 50) / 50;
+    a = neutral; b = elite;
+  }
+
+  const r  = Math.round(a[0] + (b[0] - a[0]) * t);
+  const g  = Math.round(a[1] + (b[1] - a[1]) * t);
+  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  const text = lum > 140 ? '#0d0d14' : '#ffffff';
+  const bg   = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${bl.toString(16).padStart(2,'0')}`;
+  return { bg, text };
+}
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SS-2a Light Variant — HGB Stats Components</title>
+</head>
+<body>
+
+<PageHeader activePage="stats" />
+
+<main class="light-mode">
+
+  <!-- Info banner -->
+  <div class="lm-banner">
+    Light-mode preview — dark remains the default for the site. This page exists
+    for side-by-side comparison only and is deletable in SS-8 cleanup.
+    <a href="/stats/dev/components" class="lm-back">← View dark variant</a>
+  </div>
+
+  <!-- ═══ SectionEyebrow ════════════════════════════════════════════ -->
+  <section class="g-section">
+    <div class="g-label">SectionEyebrow</div>
+    <div class="g-row g-row--gap">
+      <SectionEyebrow label="★ First Round · 2026 Playoffs" color="red" />
+      <SectionEyebrow label="● Live Now · 3 games" color="cyan" />
+      <SectionEyebrow label="Top Performers" color="muted" />
+    </div>
+  </section>
+
+  <!-- ═══ PercentileTile — Option A ════════════════════════════════ -->
+  <section class="g-section">
+    <div class="g-label">
+      PercentileTile — Option A: component as-is (charcoal neutral)
+    </div>
+    <div class="g-note">
+      Uses existing &lt;PercentileTile&gt; unchanged. Neutral stop (58,58,66) baked into
+      the component's build-time TypeScript — CSS override has no effect. Mid-band
+      tiles read as dark on cream.
+    </div>
+    <div class="g-tile-grid">
+      {sampleTiles.map(t => (
+        <PercentileTile label={t.label} rawVal={t.rawVal} pct={t.pct} />
+      ))}
+    </div>
+    <div class="g-tile-grid g-tile-grid--scale">
+      {scalePercentiles.map(p => (
+        <PercentileTile label="SCALE" rawVal={`${p}th`} pct={p} />
+      ))}
+    </div>
+  </section>
+
+  <!-- ═══ PercentileTile — Option B ════════════════════════════════ -->
+  <section class="g-section">
+    <div class="g-label">
+      PercentileTile — Option B: inline computation with cream neutral (207,206,198)
+    </div>
+    <div class="g-note">
+      Same gradient logic, same poor/elite stops. Neutral swapped to
+      (207,206,198) from _GRADIENT_STOPS["light"]. Elite dimmed to (0,168,107)
+      per light palette. No component touched — colors computed in this page's
+      frontmatter.
+    </div>
+    <div class="g-tile-grid">
+      {sampleTiles.map(t => {
+        const { bg, text } = lightTileColors(t.pct);
+        return (
+          <div class="lt-tile" style={`background:${bg}; color:${text};`}>
+            <span class="lt-label">{t.label}</span>
+            <span class="lt-val">{t.rawVal}</span>
+            <span class="lt-pct">{Math.round(t.pct)}<sup>th</sup></span>
+          </div>
+        );
+      })}
+    </div>
+    <div class="g-tile-grid g-tile-grid--scale">
+      {scalePercentiles.map(p => {
+        const { bg, text } = lightTileColors(p);
+        return (
+          <div class="lt-tile" style={`background:${bg}; color:${text};`}>
+            <span class="lt-label">SCALE</span>
+            <span class="lt-val">{`${p}th`}</span>
+            <span class="lt-pct">{p}<sup>th</sup></span>
+          </div>
+        );
+      })}
+    </div>
+  </section>
+
+  <!-- ═══ PlayerHero ════════════════════════════════════════════════ -->
+  <section class="g-section">
+    <div class="g-label">PlayerHero</div>
+    <div class="g-col">
+      <PlayerHero firstName="Connor" lastName="McDavid" displayName="C. McDavid"
+                  teamAbbrev="EDM" pos="C" teamColor="#FF4C00" />
+      <PlayerHero firstName="Cale"   lastName="Makar"   displayName="C. Makar"
+                  teamAbbrev="COL" pos="D" teamColor="#6F263D" />
+    </div>
+  </section>
+
+  <!-- ═══ DualStatBar ═══════════════════════════════════════════════ -->
+  <section class="g-section">
+    <div class="g-label">DualStatBar</div>
+    <div class="g-stat-group">
+      <DualStatBar label="Shots on Goal"       leftVal="24"   rightVal="19"   leftPct={56} leftColor="#FCB514" rightColor="#002855" />
+      <DualStatBar label="Expected Goals (xG)" leftVal="3.42" rightVal="2.18" leftPct={61} leftColor="#00e5ff" rightColor="#1a4050" />
+      <DualStatBar label="Goals Against"       leftVal="1.8"  rightVal="2.4"  leftPct={43} invertWinner />
+    </div>
+  </section>
+
+  <!-- ═══ LeaderboardRow ════════════════════════════════════════════ -->
+  <section class="g-section">
+    <div class="g-label">LeaderboardRow</div>
+    <div class="g-leaderboard">
+      <div class="g-lb-head">
+        <span class="g-lb-rk">#</span>
+        <span>PLAYER</span>
+        <span>TEAM</span>
+        <span style="text-align:right">AVG GS</span>
+        <span></span>
+      </div>
+      {sampleLeaderboard.map(r => (
+        <LeaderboardRow rank={r.rank} displayName={r.displayName}
+                        teamAbbrev={r.teamAbbrev} pos={r.pos}
+                        value={r.value} pct={r.pct} />
+      ))}
+    </div>
+  </section>
+
+  <!-- ═══ GameRow ═══════════════════════════════════════════════════ -->
+  <section class="g-section">
+    <div class="g-label">GameRow</div>
+    <div class="g-game-grid">
+      {sampleGames.map(g => (
+        <GameRow {...g} />
+      ))}
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>
+
+<style is:global>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: #efeee8;
+    font-family: var(--font-site-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Light-mode scoped token overrides ──────────────────────────────
+     Source: _PALETTES["light"] in generate_player_grid_card.py.
+     Scoped to .light-mode — does NOT affect PageHeader (outside this element).
+     Note: --grad-neutral override has no effect on PercentileTile (whose
+     gradient is computed at build time in TypeScript) — see Option A vs B above.
+  */
+  .light-mode {
+    --card-bg:         #efeee8;
+    --card-text:       #0d0d14;
+    --card-muted:      #6a6a62;
+    --card-rule:       rgba(13,13,20,0.14);
+    --card-brand:      #e8002d;
+    --card-brand-rule: #e8002d;
+    --card-panel-bg:   rgba(13,13,20,0.04);
+    --grad-neutral:    207, 206, 198; /* cream-compatible neutral (CSS-inert on tiles) */
+    --site-bg:         #efeee8;
+    --site-card:       #e4e3dd;
+    --site-border:     rgba(13,13,20,0.12);
+    --site-border2:    rgba(13,13,20,0.18);
+    --site-muted:      rgba(13,13,20,0.45);
+    --site-text:       rgba(13,13,20,0.65);
+    --site-white:      #0d0d14;
+
+    background: #efeee8;
+    color: #0d0d14;
+    min-height: 100vh;
+  }
+
+  /* ── Info banner ──────────────────────────────────────────────────── */
+  .lm-banner {
+    background: rgba(13,13,20,0.05);
+    border: 1px solid rgba(13,13,20,0.12);
+    border-radius: var(--radius-md, 3px);
+    padding: 12px 16px;
+    margin-bottom: 36px;
+    font-size: 12px;
+    color: rgba(13,13,20,0.6);
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .lm-back {
+    color: rgba(13,13,20,0.5);
+    text-decoration: none;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    flex: none;
+  }
+  .lm-back:hover { color: #0d0d14; }
+
+  /* ── Option B inline tiles ──────────────────────────────────────── */
+  .lt-tile {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 10px 12px 8px;
+    border-radius: var(--radius-sm, 2px);
+    min-height: 88px;
+    font-family: var(--font-card-display, 'Barlow Condensed', sans-serif);
+  }
+  .lt-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    opacity: 0.75;
+    line-height: 1;
+  }
+  .lt-val {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lt-pct {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    opacity: 0.65;
+    text-align: right;
+    line-height: 1;
+  }
+  .lt-pct sup { font-size: 7px; }
+
+  /* ── Gallery layout (same as dark gallery) ───────────────────────── */
+  .gallery, .light-mode {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 36px 20px 120px;
+  }
+
+  .g-section  { margin-bottom: 52px; }
+  .g-label    { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--hgb-red); margin-bottom: 8px; }
+  .g-note     { font-size: 12px; color: rgba(13,13,20,0.5); margin-bottom: 12px; line-height: 1.5; }
+  .g-row      { display: flex; align-items: center; }
+  .g-row--gap { gap: 28px; }
+  .g-col      { display: flex; flex-direction: column; gap: 10px; }
+
+  .g-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .g-tile-grid--scale { grid-template-columns: repeat(7, 1fr); margin-top: 8px; }
+
+  .g-stat-group {
+    background: var(--site-card, #e4e3dd);
+    border: 1px solid var(--site-border, rgba(13,13,20,0.12));
+    border-radius: var(--radius-md, 3px);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 480px;
+  }
+
+  .g-leaderboard {
+    border: 1px solid var(--site-border, rgba(13,13,20,0.12));
+    border-radius: var(--radius-md, 3px);
+    overflow: hidden;
+  }
+  .g-lb-head {
+    display: grid;
+    grid-template-columns: 32px 1fr auto auto 14px;
+    gap: 0 12px;
+    padding: 7px 14px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--site-muted, rgba(13,13,20,0.45));
+    border-bottom: 1px solid var(--site-border, rgba(13,13,20,0.12));
+  }
+  .g-lb-rk { text-align: right; }
+
+  .g-game-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+
+  @media (max-width: 768px) {
+    .g-tile-grid { grid-template-columns: repeat(3, 1fr); }
+    .g-tile-grid--scale { grid-template-columns: repeat(4, 1fr); }
+    .g-game-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 1024px) {
+    .g-game-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
