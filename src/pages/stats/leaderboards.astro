@@ -24,6 +24,17 @@ function fmtToi(sec: number): string {
 function dotColor(pct: number): string {
   return pct >= 90 ? '#00c078' : pct >= 70 ? '#60a5fa' : pct >= 40 ? '#8a8a82' : '#e8002d';
 }
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function rankStr(n: number): string {
+  return String(n).padStart(2, '0');
+}
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -75,12 +86,11 @@ function dotColor(pct: number): string {
       margin-top: 10px; color: var(--site-white);
     }
     .lb-sub {
-      margin-top: 10px; font-size: 13px; font-weight: 400;
+      margin-top: 10px; font-size: 13px;
       color: var(--site-muted); line-height: 1.55; max-width: 520px;
     }
 
-    /* ── HGBScore pair: side-by-side (4a + 4b only) ─────────────────── */
-    /* Natural pair: same metric, both 25 rows, identical height. */
+    /* ── HGBScore pair (4a + 4b): same metric, same 25 rows ─────────── */
     .lb-pair {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -91,94 +101,126 @@ function dotColor(pct: number): string {
     }
     @media (max-width: 768px) { .lb-pair { grid-template-columns: 1fr; row-gap: 32px; } }
 
-    /* ── Full-width sections (4c, 4d, goalie, methodology) ──────────── */
+    /* ── Full-width sections ────────────────────────────────────────── */
     .lb-section { padding: 28px 0; border-bottom: 1px solid var(--site-border); }
-    .lb-section:last-child { border-bottom: none; }
 
-    /* Blurb */
+    /* ── Section blurb ──────────────────────────────────────────────── */
     .lb-blurb {
-      margin-top: 6px; margin-bottom: 14px;
-      font-size: 13px; color: var(--site-muted); line-height: 1.55; max-width: 680px;
+      margin-top: 6px; margin-bottom: 16px;
+      font-size: 13px; color: var(--site-muted); line-height: 1.55; max-width: 620px;
     }
 
-    /* ── Table card ─────────────────────────────────────────────────── */
-    .lb-card {
-      background: #141414;
+    /* ── List container ─────────────────────────────────────────────── */
+    .lb-list {
+      background: var(--site-card);
       border: 1px solid var(--site-border);
       border-radius: var(--radius-md);
       overflow: hidden;
     }
-    [data-mode="light"] .lb-card { background: var(--site-card); }
 
-    /* ── Table — shared base ────────────────────────────────────────── */
-    .lb-table { width: 100%; border-collapse: collapse; }
-    .lb-table th {
-      font-family: var(--font-card-display);
-      font-size: 11px; font-weight: 700;
-      letter-spacing: 0.16em; text-transform: uppercase;
-      color: var(--site-muted);
-      padding: 10px 14px 8px;
-      text-align: right;
+    /* ── Row — flex link, not a table row ───────────────────────────── */
+    .lb-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-left: 3px solid transparent;
       border-bottom: 1px solid var(--site-border);
+      text-decoration: none;
+      color: inherit;
+      background: transparent;
+      transition: background 0.12s;
+    }
+    .lb-row:last-child { border-bottom: none; }
+    .lb-row:hover { background: rgba(255,255,255,0.05); }
+    [data-mode="light"] .lb-row:hover { background: rgba(13,13,20,0.04); }
+
+    /* Top-3 featured: taller, team-color tinted background */
+    .lb-row--top {
+      padding: 13px 16px;
+      background: var(--row-tint, transparent);
+    }
+    .lb-row--top:hover { background: rgba(255,255,255,0.07); }
+    [data-mode="light"] .lb-row--top:hover { background: rgba(13,13,20,0.06); }
+
+    /* ── Rank number ────────────────────────────────────────────────── */
+    .lb-rank {
+      font-family: var(--font-card-display);
+      font-size: 20px;
+      font-weight: 900;
+      line-height: 1;
+      color: rgba(255,255,255,0.16);
+      min-width: 30px;
+      text-align: right;
+      letter-spacing: -0.01em;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+    [data-mode="light"] .lb-rank { color: rgba(13,13,20,0.18); }
+    .lb-row--top .lb-rank {
+      color: rgba(255,255,255,0.5);
+      font-size: 24px;
+    }
+    [data-mode="light"] .lb-row--top .lb-rank { color: rgba(13,13,20,0.5); }
+
+    /* ── Team logo ──────────────────────────────────────────────────── */
+    .lb-logo {
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+      flex-shrink: 0;
+      opacity: 0.88;
+    }
+    .lb-row--top .lb-logo { width: 28px; height: 28px; opacity: 1; }
+
+    /* ── Two-line info block ────────────────────────────────────────── */
+    .lb-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .lb-name {
+      font-family: var(--font-site-body);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--site-white);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+    .lb-row--top .lb-name { font-size: 15px; }
+    .lb-meta {
+      font-family: var(--font-card-display);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--site-muted);
       white-space: nowrap;
     }
-    .lb-table th.th-l { text-align: left; }
-    .lb-table td {
-      padding: 9px 14px;
-      border-bottom: 1px solid var(--site-border);
-      font-family: var(--font-card-display);
-      font-size: 13px; font-weight: 600;
-      letter-spacing: 0.04em; text-transform: uppercase;
+
+    /* ── Metric value ───────────────────────────────────────────────── */
+    .lb-val {
+      font-family: var(--font-site-display);
+      font-size: 16px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
       color: var(--site-white);
-      text-align: right; white-space: nowrap;
+      min-width: 44px;
+      text-align: right;
+      flex-shrink: 0;
     }
-    .lb-table tr:last-child td { border-bottom: none; }
-    .lb-table tr[data-href] { cursor: pointer; }
-    .lb-table tr[data-href]:hover td { background: #1e1e1e; }
-    [data-mode="light"] .lb-table tr[data-href]:hover td { background: var(--site-dim); }
+    .lb-row--top .lb-val { font-size: 20px; min-width: 52px; }
 
-    /* Team-color left strip: 3px solid per-row, gives each row a unique identity */
-    .lb-table tr { border-left: 3px solid transparent; }
-
-    /* Zebra striping — barely-there alternate rows to break up the wall */
-    .lb-table tbody tr:nth-child(even) td { background: rgba(255,255,255,0.018); }
-    .lb-table tbody tr:nth-child(even):hover td { background: #1e1e1e; }
-    [data-mode="light"] .lb-table tbody tr:nth-child(even) td { background: rgba(13,13,20,0.03); }
-    [data-mode="light"] .lb-table tbody tr:nth-child(even):hover td { background: var(--site-dim); }
-
-    /* ── Compact variant for the 2-col pair (saves width) ───────────── */
-    .lb-pair .lb-table th { padding: 9px 10px 7px; }
-    .lb-pair .lb-table td { padding: 8px 10px; }
-
-    /* ── Column styles ──────────────────────────────────────────────── */
-    .td-rank {
-      font-family: var(--font-mono); font-size: 12px;
-      color: var(--site-muted); text-align: right; width: 28px;
-    }
-    /* Qualify with table parent to beat the base td rule */
-    .lb-table .td-pos { width: 40px; text-align: left; }
-    .lb-pos-badge {
-      display: inline-block; background: var(--site-border);
-      padding: 1px 5px; border-radius: var(--radius-sm);
-      font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
-    }
-    .lb-table .td-name { text-align: left; }
-    .lb-name-link {
-      font-family: var(--font-site-body); font-size: 14px;
-      font-weight: 600; color: var(--site-white);
-      text-decoration: none; letter-spacing: 0; text-transform: none;
-    }
-    .td-team { color: var(--site-muted); font-size: 12px; width: 48px; }
-    .td-gp   { color: var(--site-muted); width: 36px; }
-    .td-toi  { font-variant-numeric: tabular-nums; width: 64px; }
-    .td-val  {
-      font-family: var(--font-site-display); font-size: 16px;
-      font-weight: 700; font-variant-numeric: tabular-nums; width: 80px;
-    }
-    .td-dot  { width: 24px; text-align: center; }
-    .lb-dot  {
-      display: inline-block; width: 8px; height: 8px;
-      border-radius: var(--radius-pill);
+    /* ── Percentile dot ─────────────────────────────────────────────── */
+    .lb-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
     }
 
     /* ── View-all link ──────────────────────────────────────────────── */
@@ -191,7 +233,7 @@ function dotColor(pct: number): string {
     }
     .lb-view-all:hover { color: var(--site-white); }
 
-    /* ── Goalie / coming-soon text ──────────────────────────────────── */
+    /* ── Goalie / coming-soon ───────────────────────────────────────── */
     .lb-coming-text {
       margin-top: 10px; font-size: 13px;
       color: var(--site-muted); line-height: 1.55;
@@ -227,172 +269,140 @@ function dotColor(pct: number): string {
 
   <main class="lb-main">
 
-    <!-- BREADCRUMB -->
     <nav class="lb-crumb"><a href="/stats">← STATS</a></nav>
 
-    <!-- HERO -->
     <section class="lb-hero">
       <SectionEyebrow label="LEADERBOARDS" />
       <h1 class="lb-headline">Who's driving play this season.</h1>
       <p class="lb-sub">Four angles on the best skaters in the NHL — by HGBScore, finishing, and pure scoring rate.</p>
     </section>
 
-    <!-- HGBScore pair: 2-col side-by-side (same metric, same 25 rows, identical height) -->
+    <!-- HGBScore pair: 2-col, same metric, identical 25-row height -->
     <div class="lb-pair">
 
-      <!-- 4a: Top 25 Forwards · HGBScore V2 -->
       <section>
         <SectionEyebrow label="TOP 25 FORWARDS · HGBSCORE V2" />
         <p class="lb-blurb">Per-game blend of goals, assists, xG, and two-way play — rate-adjusted per 60 minutes.</p>
-        <div class="lb-card">
-          <table class="lb-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th class="th-l">POS</th>
-                <th class="th-l">NAME</th>
-                <th>TEAM</th>
-                <th>GP</th>
-                <th>HGBSCORE</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {fwdHGB.map((p, i) => (
-                <tr data-href={`/stats/player/${p.slug}`} style={`border-left-color:${pickTeamColor(p.team_abbrev)}`}>
-                  <td class="td-rank">{i + 1}</td>
-                  <td class="td-pos"><span class="lb-pos-badge">{p.pos}</span></td>
-                  <td class="td-name"><a class="lb-name-link" href={`/stats/player/${p.slug}`}>{p.display_name}</a></td>
-                  <td class="td-team">{p.team_abbrev}</td>
-                  <td class="td-gp">{p.gp}</td>
-                  <td class="td-val">{p.value.toFixed(2)}</td>
-                  <td class="td-dot"><span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div class="lb-list">
+          {fwdHGB.map((p, i) => {
+            const tc = pickTeamColor(p.team_abbrev);
+            const isTop = i < 3;
+            return (
+              <a
+                class={`lb-row${isTop ? ' lb-row--top' : ''}`}
+                href={`/stats/player/${p.slug}`}
+                style={`border-left-color:${tc};${isTop ? `--row-tint:${hexToRgba(tc, 0.08)};` : ''}`}
+              >
+                <span class="lb-rank">{rankStr(i + 1)}</span>
+                <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${p.team_abbrev}_light.svg`} alt={p.team_abbrev} width="28" height="28" loading="lazy" />
+                <div class="lb-info">
+                  <span class="lb-name">{p.display_name}</span>
+                  <span class="lb-meta">{p.pos} · {p.team_abbrev} · {p.gp} GP</span>
+                </div>
+                <span class="lb-val">{p.value.toFixed(2)}</span>
+                <span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span>
+              </a>
+            );
+          })}
         </div>
         <a href="/stats/leaderboards/all" class="lb-view-all">VIEW FULL LEADERBOARD →</a>
       </section>
 
-      <!-- 4b: Top 25 Defensemen · HGBScore V2 -->
       <section>
         <SectionEyebrow label="TOP 25 DEFENSEMEN · HGBSCORE V2" />
         <p class="lb-blurb">Defensemen typically score lower than forwards on HGBScore because volume matters — an elite defenseman drives play without racking up goals.</p>
-        <div class="lb-card">
-          <table class="lb-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th class="th-l">POS</th>
-                <th class="th-l">NAME</th>
-                <th>TEAM</th>
-                <th>GP</th>
-                <th>HGBSCORE</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {defHGB.map((p, i) => (
-                <tr data-href={`/stats/player/${p.slug}`} style={`border-left-color:${pickTeamColor(p.team_abbrev)}`}>
-                  <td class="td-rank">{i + 1}</td>
-                  <td class="td-pos"><span class="lb-pos-badge">{p.pos}</span></td>
-                  <td class="td-name"><a class="lb-name-link" href={`/stats/player/${p.slug}`}>{p.display_name}</a></td>
-                  <td class="td-team">{p.team_abbrev}</td>
-                  <td class="td-gp">{p.gp}</td>
-                  <td class="td-val">{p.value.toFixed(2)}</td>
-                  <td class="td-dot"><span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div class="lb-list">
+          {defHGB.map((p, i) => {
+            const tc = pickTeamColor(p.team_abbrev);
+            const isTop = i < 3;
+            return (
+              <a
+                class={`lb-row${isTop ? ' lb-row--top' : ''}`}
+                href={`/stats/player/${p.slug}`}
+                style={`border-left-color:${tc};${isTop ? `--row-tint:${hexToRgba(tc, 0.08)};` : ''}`}
+              >
+                <span class="lb-rank">{rankStr(i + 1)}</span>
+                <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${p.team_abbrev}_light.svg`} alt={p.team_abbrev} width="28" height="28" loading="lazy" />
+                <div class="lb-info">
+                  <span class="lb-name">{p.display_name}</span>
+                  <span class="lb-meta">{p.pos} · {p.team_abbrev} · {p.gp} GP</span>
+                </div>
+                <span class="lb-val">{p.value.toFixed(2)}</span>
+                <span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span>
+              </a>
+            );
+          })}
         </div>
         <a href="/stats/leaderboards/all" class="lb-view-all">VIEW FULL LEADERBOARD →</a>
       </section>
 
-    </div><!-- /lb-pair -->
+    </div>
 
-    <!-- 4c: Top 25 Forwards · xG/60 — full-width, includes TOI/G -->
+    <!-- xG/60: full-width -->
     <section class="lb-section">
       <SectionEyebrow label="TOP 25 FORWARDS · XG / 60" />
       <p class="lb-blurb">Expected goals per 60 minutes. Surfaces finishers who generate high-quality chances — not just volume shooters.</p>
-      <div class="lb-card">
-        <table class="lb-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th class="th-l">POS</th>
-              <th class="th-l">NAME</th>
-              <th>TEAM</th>
-              <th>GP</th>
-              <th>TOI/G</th>
-              <th>XG / 60</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {fwdXG.map((p, i) => (
-              <tr data-href={`/stats/player/${p.slug}`} style={`border-left-color:${pickTeamColor(p.team_abbrev)}`}>
-                <td class="td-rank">{i + 1}</td>
-                <td class="td-pos"><span class="lb-pos-badge">{p.pos}</span></td>
-                <td class="td-name"><a class="lb-name-link" href={`/stats/player/${p.slug}`}>{p.display_name}</a></td>
-                <td class="td-team">{p.team_abbrev}</td>
-                <td class="td-gp">{p.gp}</td>
-                <td class="td-toi">{fmtToi(p.toi_avg_sec)}</td>
-                <td class="td-val">{p.value.toFixed(2)}</td>
-                <td class="td-dot"><span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div class="lb-list">
+        {fwdXG.map((p, i) => {
+          const tc = pickTeamColor(p.team_abbrev);
+          const isTop = i < 3;
+          return (
+            <a
+              class={`lb-row${isTop ? ' lb-row--top' : ''}`}
+              href={`/stats/player/${p.slug}`}
+              style={`border-left-color:${tc};${isTop ? `--row-tint:${hexToRgba(tc, 0.08)};` : ''}`}
+            >
+              <span class="lb-rank">{rankStr(i + 1)}</span>
+              <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${p.team_abbrev}_light.svg`} alt={p.team_abbrev} width="28" height="28" loading="lazy" />
+              <div class="lb-info">
+                <span class="lb-name">{p.display_name}</span>
+                <span class="lb-meta">{p.pos} · {p.team_abbrev} · {p.gp} GP · {fmtToi(p.toi_avg_sec)} TOI</span>
+              </div>
+              <span class="lb-val">{p.value.toFixed(2)}</span>
+              <span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span>
+            </a>
+          );
+        })}
       </div>
       <a href="/stats/leaderboards/all" class="lb-view-all">VIEW FULL LEADERBOARD →</a>
     </section>
 
-    <!-- 4d: Top 10 · Goals/60 — full-width, spotlight treatment -->
+    <!-- Goals/60: full-width, Top 10 spotlight -->
     <section class="lb-section">
       <SectionEyebrow label="TOP 10 · GOALS / 60" />
       <p class="lb-blurb">Goals per 60 minutes, regardless of position or ice time. The rawest scoring-rate leaderboard — partial seasons welcome.</p>
-      <div class="lb-card">
-        <table class="lb-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th class="th-l">POS</th>
-              <th class="th-l">NAME</th>
-              <th>TEAM</th>
-              <th>GP</th>
-              <th>TOI/G</th>
-              <th>G / 60</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {goals60.map((p, i) => (
-              <tr data-href={`/stats/player/${p.slug}`} style={`border-left-color:${pickTeamColor(p.team_abbrev)}`}>
-                <td class="td-rank">{i + 1}</td>
-                <td class="td-pos"><span class="lb-pos-badge">{p.pos}</span></td>
-                <td class="td-name"><a class="lb-name-link" href={`/stats/player/${p.slug}`}>{p.display_name}</a></td>
-                <td class="td-team">{p.team_abbrev}</td>
-                <td class="td-gp">{p.gp}</td>
-                <td class="td-toi">{fmtToi(p.toi_avg_sec)}</td>
-                <td class="td-val">{p.value.toFixed(2)}</td>
-                <td class="td-dot"><span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div class="lb-list">
+        {goals60.map((p, i) => {
+          const tc = pickTeamColor(p.team_abbrev);
+          const isTop = i < 3;
+          return (
+            <a
+              class={`lb-row${isTop ? ' lb-row--top' : ''}`}
+              href={`/stats/player/${p.slug}`}
+              style={`border-left-color:${tc};${isTop ? `--row-tint:${hexToRgba(tc, 0.08)};` : ''}`}
+            >
+              <span class="lb-rank">{rankStr(i + 1)}</span>
+              <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${p.team_abbrev}_light.svg`} alt={p.team_abbrev} width="28" height="28" loading="lazy" />
+              <div class="lb-info">
+                <span class="lb-name">{p.display_name}</span>
+                <span class="lb-meta">{p.pos} · {p.team_abbrev} · {p.gp} GP · {fmtToi(p.toi_avg_sec)} TOI</span>
+              </div>
+              <span class="lb-val">{p.value.toFixed(2)}</span>
+              <span class="lb-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span>
+            </a>
+          );
+        })}
       </div>
       <a href="/stats/leaderboards/all" class="lb-view-all">VIEW FULL LEADERBOARD →</a>
     </section>
 
-    <!-- GOALIE PLACEHOLDER -->
+    <!-- Goalie placeholder -->
     <section class="lb-section">
       <SectionEyebrow label="GOALIE METRICS · COMING SOON" color="muted" />
       <p class="lb-coming-text">GSAx and save-percentile leaderboards pending — goalie pipeline is in development.</p>
     </section>
 
-    <!-- METHODOLOGY -->
+    <!-- Methodology -->
     <div class="lb-method">
       <SectionEyebrow label="HOW WE MEASURE" color="muted" />
       <span class="lb-method-text">
@@ -404,14 +414,6 @@ function dotColor(pct: number): string {
   </main>
 
   <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026</footer>
-
-  <script>
-    document.querySelectorAll<HTMLTableRowElement>('tr[data-href]').forEach(tr => {
-      tr.addEventListener('click', () => {
-        window.location.href = tr.dataset.href!;
-      });
-    });
-  </script>
 
 </body>
 </html>
