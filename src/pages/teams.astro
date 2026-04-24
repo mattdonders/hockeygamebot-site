@@ -1,7 +1,18 @@
 ---
 // HockeyGameBot — /teams page — static bot directory
 
-// Fetch standings from NHL API at build time.
+// Standings fallback: if the live fetch fails at build time, we load the last-known-good
+// standings from src/data/standings-fallback.json (verbatim NHL API payload).
+// To refresh after an NHL API schema change: curl https://api-web.nhle.com/v1/standings/now
+//   > src/data/standings-fallback.json  and update the fetched_at in standings-fallback.meta.json.
+import fallbackPayload from '../data/standings-fallback.json';
+import fallbackMeta from '../data/standings-fallback.meta.json';
+
+// Guard: if the fallback itself is malformed, fail the build loudly rather than silently.
+if (!(fallbackPayload as any)?.standings?.length) {
+  throw new Error('[teams] standings-fallback.json is missing or malformed — re-fetch before deploying');
+}
+
 // clinchIndicator: "x" = clinched spot, "y" = clinched division,
 //                  "z" = Presidents' Trophy, "e" = ELIMINATED, "p" = possible (not yet).
 // playoffMode = true when at least one team has clinched → show status badges.
@@ -9,22 +20,32 @@
 interface TeamStats { clinch: string | null; record: string; }
 const teamStats = new Map<string, TeamStats>();
 let playoffMode = false;
+let standingsSource: 'live' | 'fallback' = 'live';
+let standingsFetchedAt: string = new Date().toISOString();
+
+function processStandings(rows: any[]) {
+  for (const t of rows) {
+    const abbr: string = t.teamAbbrev?.default ?? '';
+    const clinch: string | null = t.clinchIndicator ?? null;
+    const record = `${t.wins ?? 0}-${t.losses ?? 0}-${t.otLosses ?? 0}`;
+    teamStats.set(abbr, { clinch, record });
+    if (clinch === 'x' || clinch === 'y' || clinch === 'z') playoffMode = true;
+  }
+}
 
 try {
   const res = await fetch('https://api-web.nhle.com/v1/standings/now');
   if (res.ok) {
     const data = await res.json();
-    for (const t of data.standings ?? []) {
-      const abbr: string = t.teamAbbrev?.default ?? '';
-      const clinch: string | null = t.clinchIndicator ?? null;
-      const record = `${t.wins ?? 0}-${t.losses ?? 0}-${t.otLosses ?? 0}`;
-      teamStats.set(abbr, { clinch, record });
-      if (clinch === 'x' || clinch === 'y' || clinch === 'z') playoffMode = true;
-    }
+    processStandings(data.standings ?? []);
+  } else {
+    throw new Error(`HTTP ${res.status}`);
   }
-} catch (e) {
-  // Build-time fetch failed — status row will be omitted rather than wrong.
-  console.warn('[teams] Failed to fetch NHL standings:', e);
+} catch (e: any) {
+  console.warn(`[teams] Standings fetch failed (${e?.message ?? e}), using fallback from ${fallbackMeta.fetched_at}`);
+  standingsSource = 'fallback';
+  standingsFetchedAt = fallbackMeta.fetched_at;
+  processStandings((fallbackPayload as any).standings ?? []);
 }
 
 const teams = [
@@ -157,6 +178,13 @@ const teams = [
           </div>
         </div>
       </div>
+
+      <!-- ── FALLBACK NOTICE (only shown when live standings fetch failed) ── -->
+      {standingsSource === 'fallback' && (
+        <p class="standings-notice">
+          Standings shown as of {new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(standingsFetchedAt))}. Live update temporarily unavailable.
+        </p>
+      )}
 
       <!-- ── TEAM GRID ──────────────────────────────────────────────── -->
       <div class="teams-grid">
@@ -359,6 +387,15 @@ html, body {
 .teams-inner {
   max-width: 1100px;
   margin: 0 auto;
+}
+
+/* ── STANDINGS FALLBACK NOTICE ──────────────────────────────────── */
+.standings-notice {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--muted);
+  margin-bottom: 14px;
+  text-align: center;
 }
 
 /* ── TEAM GRID ──────────────────────────────────────────────────── */
