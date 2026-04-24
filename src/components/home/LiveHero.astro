@@ -3,22 +3,29 @@
  * LiveHero — dense featured-game panel for /home-v2.
  *
  * Layer 1 shipped a 3-bar right pane (SHOTS / xG / TILT). SITE-HOME-015
- * refines it:
- *   • Right pane is now 4 bars: SHOTS · 5V5 xG · xG · ALL · WIN PROBABILITY
- *   • Game state (PP / EN / SO / 4v4 / 3v3) renders inline with the
- *     `LIVE · PERIOD · CLOCK` header line, color-coded per state type.
- *   • Goal feed caps at 4-6 chips, no horizontal scrollbar; "+ N more"
- *     placeholder in the last slot when truncated.
- *   • When goal_feed is empty or near-empty, a last-events strip fills the
- *     footer — the old bot had this pattern; Layer 1 missed it.
+ * refined it; SITE-HOME-016 polish pass follows:
+ *   • Right pane is 4 bars: SHOTS · 5V5 xG · xG · ALL · WIN PROBABILITY
+ *     (stat bars now flex-distribute evenly across full vertical height).
+ *   • Game state (PP / EN / SO / 4v4 / 3v3) renders as the FIRST meta chip
+ *     on the right side of the head row — color-coded per state type,
+ *     with a subtle tint + tracked font. 5v5 (or unset) shows no chip at
+ *     all; the LIVE line stays clean: `● Live · Period 2 · 08:41`.
+ *   • Goal feed caps at 4-6 chips with "+ N more" overflow placeholder.
+ *     Goal chips sport a running-score pill (top-right, cyan-bordered);
+ *     PBP (last-events) chips use left-accent-stripe only — softer bg and
+ *     smaller type so the two tiers read as visually distinct at a glance.
+ *   • A persistent "Latest Activity" card occupies the rightmost footer
+ *     slot regardless of goal count — pulsing cyan header, top-3 non-goal
+ *     events from last_events.
  *
  * Structure:
- *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock + optional
- *                inline state + right-aligned broadcast/series chips
+ *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock +
+ *                right-aligned meta chip group (state chip FIRST, then
+ *                broadcast/series chips).
  *   2. lh-body 1.2fr / 1fr grid:
  *      • lh-scoreblock: 3-col teams row + period-by-period table
- *      • lh-stats: 4 horizontal stat bars
- *   3. footer-strip: goal chips OR last-events chips (fallback)
+ *      • lh-stats: 4 horizontal stat bars evenly distributed
+ *   3. footer-strip: goal chips + PBP fill chips + Latest Activity card
  *
  * Losing team gets dim abbrev + score + 0.4-opacity/0.5-grayscale logo.
  * Active period cell in the PBP table gets cyan treatment.
@@ -134,13 +141,15 @@ function fmtClock(): string {
 }
 
 /**
- * Resolve the inline game-state suffix shown on the LIVE line.
- * 5v5 (and unset) is intentionally omitted — the LIVE line stays clean.
+ * Resolve the right-side strength-state chip (first item in the meta
+ * chip group). 5v5 and unset both suppress the chip entirely — the
+ * user's eye shouldn't have to parse a "5v5 is normal" chip.
  *
- * Returns null to suppress; otherwise { text, colorVar } where colorVar
- * is a CSS custom-property reference used for inline style color.
+ * Returned `colorVar` + `tintVar` are used for inline CSS variable
+ * overrides; a single `.chip.state-chip` rule consumes them for border,
+ * text, and background-tint.
  */
-type StateChip = { text: string; colorVar: string } | null;
+type StateChip = { text: string; colorVar: string; tintVar: string } | null;
 function resolveStrengthChip(s?: StrengthState | null): StateChip {
   if (!s) return null;
   const state = (s.state || '').toUpperCase();
@@ -150,17 +159,27 @@ function resolveStrengthChip(s?: StrengthState | null): StateChip {
   const parts = [s.team, state, s.clock].filter(Boolean);
   const text = parts.join(' ');
 
-  // Color rules (see SITE-HOME-015 spec):
+  // Color rules (per SITE-HOME-016 spec):
   //   PP             → cyan (--status-live)     advantage energy
   //   EN             → orange (--status-ot)     high-stakes
   //   4v4 / 3v3      → blue (--status-intermission)
   //   SO             → red (--hgb-red)
+  // tintVar is a 5%-alpha rgba of the same hue — subtle readability boost
+  // without the chip screaming at the rest of the meta strip.
   let colorVar = 'var(--status-live)';
-  if (state === 'EN') colorVar = 'var(--status-ot)';
-  else if (state === '4V4' || state === '3V3') colorVar = 'var(--status-intermission)';
-  else if (state === 'SO') colorVar = 'var(--hgb-red)';
+  let tintVar = 'rgba(0, 229, 255, 0.05)';
+  if (state === 'EN') {
+    colorVar = 'var(--status-ot)';
+    tintVar = 'rgba(255, 152, 0, 0.05)';
+  } else if (state === '4V4' || state === '3V3') {
+    colorVar = 'var(--status-intermission)';
+    tintVar = 'rgba(96, 165, 250, 0.05)';
+  } else if (state === 'SO') {
+    colorVar = 'var(--hgb-red)';
+    tintVar = 'rgba(232, 0, 45, 0.05)';
+  }
 
-  return { text, colorVar };
+  return { text, colorVar, tintVar };
 }
 const stateChip = resolveStrengthChip(game.strength_state);
 ---
@@ -171,13 +190,16 @@ const stateChip = resolveStrengthChip(game.strength_state);
     <div class="badge">
       <span class="dot" aria-hidden="true"></span>
       <span>{fmtClock()}</span>
-      {stateChip && (
-        <span class="state" style={`color:${stateChip.colorVar};`}>
-          · {stateChip.text}
-        </span>
-      )}
     </div>
     <div class="meta">
+      {stateChip && (
+        <span
+          class="chip state-chip"
+          style={`--sc-color:${stateChip.colorVar};--sc-tint:${stateChip.tintVar};`}
+        >
+          {stateChip.text}
+        </span>
+      )}
       {game.meta_chips.map((chip) => (
         <span class="chip">{chip}</span>
       ))}
@@ -429,17 +451,6 @@ const stateChip = resolveStrengthChip(game.strength_state);
     animation: ringPulse 1.8s ease-out infinite;
   }
 
-  /* Inline game-state suffix on the LIVE line (PP/EN/SO/4v4/3v3).
-     5v5 is intentionally hidden by the renderer — no chip noise. */
-  .badge .state {
-    font-family: var(--font-site-body);
-    font-weight: 700;
-    font-size: 11px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    /* color is set inline from the resolver per-state-type */
-  }
-
   @keyframes ringPulse {
     0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
     70%  { box-shadow: 0 0 0 10px rgba(0, 229, 255, 0); }
@@ -463,6 +474,15 @@ const stateChip = resolveStrengthChip(game.strength_state);
     padding: 3px 8px;
     border-radius: var(--radius-sm);
     color: #bbb;
+  }
+
+  /* State chip (first in meta group) — color-coded per state type via
+     per-chip CSS variable overrides. 5v5 suppresses rendering upstream. */
+  .chip.state-chip {
+    border-color: var(--sc-color, var(--status-live));
+    color: var(--sc-color, var(--status-live));
+    background: var(--sc-tint, transparent);
+    font-weight: 700;
   }
 
   /* ── body layout ──────────────────────────────────────────────── */
