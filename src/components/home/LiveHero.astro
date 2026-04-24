@@ -1,0 +1,605 @@
+---
+/**
+ * LiveHero — dense featured-game panel for /home-v2.
+ *
+ * Pixel-close reproduction of `.live-hero` in
+ * docs/designs/ui_kits/website/index.html.
+ *
+ * Structure:
+ *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock + meta chips
+ *   2. lh-body 1.2fr / 1fr grid:
+ *      • lh-scoreblock: 3-col teams row + period-by-period table
+ *      • lh-stats: 3 horizontal stat bars (shots / xG / tilt)
+ *   3. goal-feed: horizontal-scroll goal chips; includes overturned variant
+ *
+ * Losing team gets dim abbrev + score + 0.4-opacity/0.5-grayscale logo.
+ * Active period cell in the PBP table gets cyan treatment.
+ */
+
+export interface TeamPane {
+  abbrev: string;
+  record: string;
+  score: number;
+  accent: string;
+  logo: string;
+  pbp: number[]; // [P1, P2, P3, OT]
+}
+
+export interface StatPair {
+  home: number;
+  away: number;
+  unit?: string;
+}
+
+export interface GoalEntry {
+  period: number;
+  clock: string;
+  team: string;
+  scorer: string;
+  goal_number?: number;
+  assists: string[];
+  score_after: string;
+  strength?: string;
+  overturned?: boolean;
+  review_reason?: string;
+}
+
+export interface FeaturedGame {
+  status: 'live' | 'final' | 'scheduled';
+  period: number;
+  clock: string;
+  meta_chips: string[];
+  home: TeamPane;
+  away: TeamPane;
+  stats: {
+    shots: StatPair;
+    xg: StatPair;
+    tilt: StatPair;
+  };
+  goal_feed: GoalEntry[];
+}
+
+interface Props {
+  game: FeaturedGame;
+}
+
+const { game } = Astro.props;
+const { home, away, stats } = game;
+
+// Who's losing? Loser gets dimmed. Tie = no loser.
+const homeLoser = home.score < away.score;
+const awayLoser = away.score < home.score;
+
+// Period-by-period row: show period numbers 1-3 and OT column.
+// Active period gets `active` class; future periods get `dim` (shown as "–").
+const PBP_COLS = [1, 2, 3, 4]; // indices 0..3 → P1, P2, P3, OT
+function pbpCellClass(periodIdx: number): string {
+  const period1based = periodIdx + 1;
+  if (period1based === game.period) return 'cell active';
+  // If the period hasn't happened yet in this game, dim it.
+  if (period1based > game.period) return 'cell dim';
+  return 'cell';
+}
+function pbpCellValue(value: number, periodIdx: number): string {
+  const period1based = periodIdx + 1;
+  if (period1based > game.period) return '–';
+  return String(value);
+}
+
+// Bar widths: avoid divide-by-zero.
+function pct(a: number, b: number): [string, string] {
+  const sum = a + b;
+  if (sum <= 0) return ['50%', '50%'];
+  return [`${(a / sum) * 100}%`, `${(b / sum) * 100}%`];
+}
+const [shotsL, shotsR] = pct(stats.shots.home, stats.shots.away);
+const [xgL, xgR] = pct(stats.xg.home, stats.xg.away);
+const [tiltL, tiltR] = pct(stats.tilt.home, stats.tilt.away);
+
+function fmtClock(): string {
+  return `Live · Period ${game.period} · ${game.clock}`;
+}
+---
+<section class="live-hero" aria-label="Featured live game">
+
+  <!-- head row -->
+  <div class="lh-head">
+    <div class="badge">
+      <span class="dot" aria-hidden="true"></span>
+      <span>{fmtClock()}</span>
+    </div>
+    <div class="meta">
+      {game.meta_chips.map((chip) => (
+        <span class="chip">{chip}</span>
+      ))}
+    </div>
+  </div>
+
+  <div class="lh-body">
+
+    <!-- score + period line -->
+    <div class="lh-scoreblock">
+      <div class="lh-teams">
+        <div class:list={['lh-t', { loser: homeLoser }]}>
+          <img src={home.logo} alt={`${home.abbrev} logo`} />
+          <div class="tbl">
+            <span class="abbr">{home.abbrev}</span>
+            <span class="rec">{home.record}</span>
+          </div>
+          <span class="score">{home.score}</span>
+        </div>
+        <div class="lh-sep" aria-hidden="true">·</div>
+        <div class:list={['lh-t', 'right', { loser: awayLoser }]}>
+          <span class="score">{away.score}</span>
+          <div class="tbl right">
+            <span class="abbr">{away.abbrev}</span>
+            <span class="rec">{away.record}</span>
+          </div>
+          <img src={away.logo} alt={`${away.abbrev} logo`} />
+        </div>
+      </div>
+
+      <!-- period-by-period line -->
+      <div class="pbp" role="table" aria-label="Period by period">
+        <div class="h first"></div>
+        <div class="h">1</div>
+        <div class="h">2</div>
+        <div class="h">3</div>
+        <div class="h">OT</div>
+        <div class="h">T</div>
+
+        <div class:list={['tm', { loser: homeLoser }]}>
+          <img src={home.logo} alt="" />{home.abbrev}
+        </div>
+        {PBP_COLS.map((_p, idx) => (
+          <div class={pbpCellClass(idx)}>{pbpCellValue(home.pbp[idx] ?? 0, idx)}</div>
+        ))}
+        <div class="cell tot">{home.score}</div>
+
+        <div class:list={['tm', { loser: awayLoser }]}>
+          <img src={away.logo} alt="" />{away.abbrev}
+        </div>
+        {PBP_COLS.map((_p, idx) => (
+          <div class={pbpCellClass(idx)}>{pbpCellValue(away.pbp[idx] ?? 0, idx)}</div>
+        ))}
+        <div class="cell tot">{away.score}</div>
+      </div>
+    </div>
+
+    <!-- stats sidebar -->
+    <div class="lh-stats">
+      <div class="lh-stat">
+        <div class="vl">{stats.shots.home}</div>
+        <div class="lbl">Shots on Goal</div>
+        <div class:list={['vr', { dim: awayLoser }]}>{stats.shots.away}</div>
+        <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+          <div class="l" style={`width:${shotsL};`}></div>
+          <div class="r" style={`width:${shotsR};`}></div>
+        </div>
+      </div>
+
+      <div class="lh-stat">
+        <div class="vl">{stats.xg.home.toFixed(2)}</div>
+        <div class="lbl">Expected Goals (xG)</div>
+        <div class:list={['vr', { dim: awayLoser }]}>{stats.xg.away.toFixed(2)}</div>
+        <div class="bar cyan">
+          <div class="l" style={`width:${xgL};`}></div>
+          <div class="r" style={`width:${xgR};`}></div>
+        </div>
+      </div>
+
+      <div class="lh-stat">
+        <div class="vl">{stats.tilt.home}{stats.tilt.unit ?? ''}</div>
+        <div class="lbl">Offensive Tilt</div>
+        <div class:list={['vr', { dim: awayLoser }]}>{stats.tilt.away}{stats.tilt.unit ?? ''}</div>
+        <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+          <div class="l" style={`width:${tiltL};`}></div>
+          <div class="r" style={`width:${tiltR};`}></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- goal feed (spans full row) -->
+    <div class="goal-feed" aria-label="Goal feed">
+      {game.goal_feed.map((g) => (
+        <div class:list={['goal-chip', { overturned: g.overturned }]}>
+          <div class="t">
+            <span>P{g.period} · {g.clock} · {g.team}</span>
+            <span class="sc" style={g.overturned ? 'color:#ff7b8a' : undefined}>
+              {g.overturned ? 'OVERTURNED' : g.score_after}
+            </span>
+          </div>
+          <div class="p">
+            {g.scorer}{g.goal_number ? ` (${g.goal_number})` : ''}
+          </div>
+          {g.overturned ? (
+            <div class="rev">⊘ {g.review_reason ?? 'Reviewed'}</div>
+          ) : (
+            <div class="a">
+              {g.assists.length > 0 ? `A: ${g.assists.join(', ')}` : 'Unassisted'}
+              {g.strength ? ` · ${g.strength}` : ''}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+
+  </div>
+</section>
+
+<style>
+  .live-hero {
+    background: var(--site-card);
+    border: 1px solid var(--site-border);
+    border-radius: var(--radius-md);
+    margin-top: 6px;
+    overflow: hidden;
+  }
+
+  /* ── head ─────────────────────────────────────────────────────── */
+  .lh-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 22px;
+    border-bottom: 1px solid #1a1a1a;
+    background: #0b0b0b;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    color: var(--status-live);
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--status-live);
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: ringPulse 1.8s ease-out infinite;
+  }
+
+  @keyframes ringPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(0, 229, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+  }
+
+  .meta {
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .chip {
+    border: 1px solid var(--site-border2);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    color: #bbb;
+  }
+
+  /* ── body layout ──────────────────────────────────────────────── */
+  .lh-body {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 0;
+  }
+
+  .lh-scoreblock {
+    padding: 26px 30px;
+    border-right: 1px solid #1a1a1a;
+  }
+
+  .lh-teams {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .lh-t {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .lh-t.right {
+    justify-content: flex-end;
+  }
+
+  .lh-t img {
+    width: 64px;
+    height: 64px;
+    flex: none;
+  }
+
+  .tbl {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tbl.right {
+    text-align: right;
+  }
+
+  .lh-t .abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 22px;
+    color: var(--site-white);
+    letter-spacing: 0.06em;
+  }
+
+  .lh-t .rec {
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+
+  .lh-t .score {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 84px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    color: var(--site-white);
+    margin-left: 14px;
+  }
+
+  .lh-t.right .score {
+    margin-left: 0;
+    margin-right: 14px;
+  }
+
+  .lh-t.loser .abbr,
+  .lh-t.loser .score {
+    color: var(--site-muted);
+  }
+
+  .lh-t.loser img {
+    opacity: 0.4;
+    filter: grayscale(0.5);
+  }
+
+  .lh-sep {
+    color: var(--site-border2);
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 42px;
+    text-align: center;
+  }
+
+  /* ── period-by-period line ───────────────────────────────────── */
+  .pbp {
+    margin-top: 22px;
+    border-top: 1px solid #1a1a1a;
+    padding-top: 16px;
+    display: grid;
+    grid-template-columns: 1fr repeat(4, 48px) 68px;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .pbp .h {
+    color: var(--site-muted);
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    text-align: center;
+  }
+  .pbp .h.first { text-align: left; }
+
+  .pbp .tm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: var(--site-white);
+  }
+  .pbp .tm img {
+    width: 18px;
+    height: 18px;
+  }
+  .pbp .tm.loser { color: var(--site-muted); }
+  .pbp .tm.loser img { opacity: 0.35; }
+
+  .pbp .cell {
+    text-align: center;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
+    color: #ccc;
+    padding: 4px 0;
+    border: 1px solid #1a1a1a;
+    border-radius: var(--radius-sm);
+    background: #0a0a0a;
+  }
+  .pbp .cell.active {
+    color: var(--status-live);
+    border-color: rgba(0, 229, 255, 0.35);
+    box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.12);
+  }
+  .pbp .cell.dim { color: #333; }
+  .pbp .cell.tot {
+    color: var(--site-white);
+    background: #141414;
+    font-size: 16px;
+  }
+
+  /* ── live sidebar ─────────────────────────────────────────────── */
+  .lh-stats {
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: #0c0c0c;
+  }
+
+  .lh-stat {
+    display: grid;
+    grid-template-columns: 48px 1fr 48px;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .lh-stat .vl,
+  .lh-stat .vr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    font-size: 18px;
+    color: var(--site-white);
+  }
+  .lh-stat .vl { text-align: left; }
+  .lh-stat .vr { text-align: right; }
+  .lh-stat .vl.dim,
+  .lh-stat .vr.dim { color: var(--site-muted); }
+
+  .lh-stat .lbl {
+    text-align: center;
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+
+  .lh-stat .bar {
+    grid-column: 1 / -1;
+    display: flex;
+    height: 6px;
+    background: #151515;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  /* Team-accent split bar — colors threaded via CSS vars from team.accent */
+  .lh-stat .bar .l { background: var(--hc, var(--hgb-red)); }
+  .lh-stat .bar .r { background: var(--ac, #2a2a2a); }
+
+  /* Cyan variant for xG — matches design reference */
+  .lh-stat .bar.cyan .l { background: var(--status-live); }
+  .lh-stat .bar.cyan .r { background: #1a4050; }
+
+  /* ── goal feed ───────────────────────────────────────────────── */
+  .goal-feed {
+    grid-column: 1 / -1;
+    border-top: 1px solid #1a1a1a;
+    padding: 14px 24px;
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    background: #0a0a0a;
+    scrollbar-width: thin;
+  }
+
+  .goal-chip {
+    flex: none;
+    border: 1px solid var(--site-border);
+    border-radius: var(--radius-md);
+    padding: 9px 12px;
+    background: var(--site-card);
+    min-width: 220px;
+  }
+
+  .goal-chip .t {
+    display: flex;
+    justify-content: space-between;
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .goal-chip .t .sc {
+    color: var(--site-white);
+    font-family: var(--font-site-display);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.06em;
+  }
+
+  .goal-chip .p {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--site-white);
+    margin-top: 4px;
+    letter-spacing: 0.02em;
+  }
+
+  .goal-chip .a {
+    color: #888;
+    font-family: var(--font-site-body);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .goal-chip.overturned {
+    background: repeating-linear-gradient(45deg, #160b0b, #160b0b 6px, #0f0707 6px, #0f0707 12px);
+    border-color: rgba(232, 0, 45, 0.4);
+  }
+  .goal-chip.overturned .p {
+    color: #ff7b8a;
+    text-decoration: line-through;
+    text-decoration-color: rgba(255, 123, 138, 0.6);
+  }
+  .goal-chip .rev {
+    color: var(--hgb-red);
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── responsive ──────────────────────────────────────────────── */
+  @media (max-width: 960px) {
+    .lh-body { grid-template-columns: 1fr; }
+    .lh-scoreblock { border-right: none; border-bottom: 1px solid #1a1a1a; }
+  }
+
+  @media (max-width: 640px) {
+    .lh-scoreblock { padding: 20px 18px; }
+    .lh-t img { width: 44px; height: 44px; }
+    .lh-t .abbr { font-size: 18px; }
+    .lh-t .score { font-size: 56px; margin-left: 8px; }
+    .lh-t.right .score { margin-right: 8px; }
+    .lh-sep { font-size: 30px; }
+    .pbp { grid-template-columns: 1fr repeat(4, 36px) 52px; gap: 4px; }
+    .pbp .cell { font-size: 12px; }
+    .pbp .cell.tot { font-size: 14px; }
+    .lh-stats { padding: 16px 18px; }
+  }
+</style>

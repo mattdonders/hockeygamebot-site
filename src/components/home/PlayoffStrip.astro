@@ -1,0 +1,105 @@
+---
+/**
+ * PlayoffStrip — secondary strip under the topbar for playoff series.
+ *
+ * Matches docs/designs/ui_kits/website/index.html `.strip`:
+ *   - bg #0d0d0d, border-bottom #1c1c1c, padding 10px 18px
+ *   - red eyebrow on the left, series chips separated by `·`
+ *
+ * Render logic is controlled by the parent page — if `playoff_strip` is
+ * absent in the mock, the parent should not render this component.
+ */
+
+export interface SeriesChip {
+  text: string;
+  /** Short team abbreviations inside `text` to bold-ify. */
+  emphasize?: string[];
+}
+
+interface Props {
+  eyebrow: string;
+  series: SeriesChip[];
+}
+
+const { eyebrow, series } = Astro.props;
+
+// Split series.text into tokens, bolding any token that matches an
+// `emphasize` entry. Keeps server-rendered HTML intact — no client JS.
+function tokenize(chip: SeriesChip): Array<{ text: string; bold: boolean }> {
+  if (!chip.emphasize || chip.emphasize.length === 0) {
+    return [{ text: chip.text, bold: false }];
+  }
+  const pattern = new RegExp(`\\b(${chip.emphasize.map(escapeReg).join('|')})\\b`, 'g');
+  const parts: Array<{ text: string; bold: boolean }> = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(chip.text)) !== null) {
+    if (m.index > lastIdx) parts.push({ text: chip.text.slice(lastIdx, m.index), bold: false });
+    parts.push({ text: m[0], bold: true });
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < chip.text.length) parts.push({ text: chip.text.slice(lastIdx), bold: false });
+  return parts;
+}
+function escapeReg(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+---
+<div class="strip" role="note" aria-label="Playoff series overview">
+  <span class="eyebrow">★ {eyebrow}</span>
+  {series.map((chip) => (
+    <>
+      <span class="sep" aria-hidden="true">·</span>
+      <span class="series">
+        {tokenize(chip).map((part) => (
+          part.bold ? <b>{part.text}</b> : <>{part.text}</>
+        ))}
+      </span>
+    </>
+  ))}
+</div>
+
+<style>
+  .strip {
+    background: #0d0d0d;
+    border-bottom: 1px solid var(--site-border);
+    padding: 10px 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .eyebrow {
+    color: var(--hgb-red);
+    font-family: var(--font-site-body);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+
+  .series {
+    color: var(--site-text);
+    font-family: var(--font-site-body);
+    font-size: 12px;
+  }
+
+  .series :global(b) {
+    color: var(--site-white);
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+
+  .sep {
+    color: #333;
+    font-size: 12px;
+  }
+
+  @media (max-width: 720px) {
+    .strip { padding: 8px 12px; gap: 8px; }
+    .eyebrow { font-size: 10px; letter-spacing: 0.14em; }
+    .series { font-size: 11px; }
+  }
+</style>
