@@ -20,19 +20,39 @@ const top12Ids = new Set(fwdHGB.slice(0, 12).map(p => p.player_id));
 const fwdShots = loadTopForwardsShots60(20);
 const allPlayers = loadPlayers();
 const allFwds = allPlayers.filter(p => p.pos_group === 'F' && p.gp >= 20);
+
+// Empty-array math guards (P2 LOW fix — SITE-FIX-03).
+// `Math.min/max(...[])` returns ±Infinity, which breaks downstream math
+// (division, SVG coords, toFixed). Also `sum/length` on an empty array is NaN.
+// Helpers fall back to caller-supplied defaults when arr is empty.
+const hasFwds = allFwds.length > 0;
+function safeMin(vals: number[], fallback = 0): number {
+  return vals.length ? Math.min(...vals) : fallback;
+}
+function safeMax(vals: number[], fallback = 0): number {
+  return vals.length ? Math.max(...vals) : fallback;
+}
+function safeAvg(vals: number[], fallback = 0): number {
+  return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : fallback;
+}
+
 const shotsMax = fwdShots[0]?.value ?? 16;
-const shotsAvg = allFwds.reduce((s, p) => s + p.rates_per_60.shots, 0) / allFwds.length;
+const shotsAvg = safeAvg(allFwds.map(p => p.rates_per_60.shots));
 const avgBarPct = ((shotsAvg / shotsMax) * 100).toFixed(1);
 
 // ── Scatter (xG/60 × finishing) ──────────────────────────────────────────────
-const xMin = Math.max(0, Math.min(...allFwds.map(p => p.rates_per_60.ixg)) * 0.85);
-const xMax = Math.max(...allFwds.map(p => p.rates_per_60.ixg)) * 1.04;
+// All four extrema now safe: empty allFwds → 0-1 range, zero dots rendered,
+// empty-state markup below replaces the chart.
+const ixgVals      = allFwds.map(p => p.rates_per_60.ixg);
+const finishVals   = allFwds.map(p => p.rates_per_60.finishing);
+const xMin = Math.max(0, safeMin(ixgVals) * 0.85);
+const xMax = Math.max(safeMax(ixgVals) * 1.04, xMin + 0.01); // guard zero-width range
 const yAbsMax = Math.max(
-  Math.abs(Math.min(...allFwds.map(p => p.rates_per_60.finishing))),
-  Math.abs(Math.max(...allFwds.map(p => p.rates_per_60.finishing)))
-) * 1.04;
+  Math.abs(safeMin(finishVals)),
+  Math.abs(safeMax(finishVals))
+) * 1.04 || 1; // guard zero-range → default ±1
 const yMin = -yAbsMax, yMax = yAbsMax;
-const xAvg = allFwds.reduce((s, p) => s + p.rates_per_60.ixg, 0) / allFwds.length;
+const xAvg = safeAvg(ixgVals);
 
 const PL = 40, PR = 572, PT = 12, PB = 356;
 const PW = PR - PL, PH = PB - PT;
@@ -407,6 +427,19 @@ function fmtToi(sec: number): string {
     .lb-method-card .v { font-size: 12.5px; color: var(--site-muted); line-height: 1.55; }
     .lb-method-card .v .mono { font-family: var(--font-mono); font-size: 11px; color: var(--site-text); }
 
+    /* ── Empty state (degraded data) ─────────────────────────────────── */
+    .lb-empty {
+      padding: 40px 18px; text-align: center;
+      font-family: var(--font-site-body);
+      color: var(--site-muted); font-size: 13px; line-height: 1.6;
+    }
+    .lb-empty strong {
+      display: block; margin-bottom: 4px;
+      font-family: var(--font-card-display); font-weight: 700;
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--site-text);
+    }
+
     /* ── Footer ─────────────────────────────────────────────────────── */
     .lb-footer {
       text-align: center; margin-top: 48px; color: var(--site-border2);
@@ -519,6 +552,12 @@ function fmtToi(sec: number): string {
           <span>Forwards · Shots / 60</span>
           <span class="sub">league avg {shotsAvg.toFixed(1)} · max {shotsMax.toFixed(1)} · n={allFwds.length} fwds</span>
         </div>
+        {fwdShots.length === 0 && (
+          <div class="lb-empty">
+            <strong>No data available</strong>
+            No forwards match the current filter (min 20 GP).
+          </div>
+        )}
         {fwdShots.map((p, i) => {
           const barW = ((p.value / shotsMax) * 100).toFixed(1);
           const isTop = i < 3;
@@ -536,14 +575,16 @@ function fmtToi(sec: number): string {
             </a>
           );
         })}
-        <!-- League average reference row -->
-        <div class="bar-row avg-row" style="display:grid; grid-template-columns: 30px 160px 1fr 76px 52px; gap:14px; align-items:center; padding:9px 18px;">
-          <span class="bar-rk" style="color:var(--site-muted)">AVG</span>
-          <span class="bar-nm" style="color:var(--site-muted); font-size:12px;">League avg forward</span>
-          <span class="bar-cell"><span class="bar-fill" style={`width:${avgBarPct}%; background:var(--site-border2);`}></span></span>
-          <span class="bar-v" style="color:var(--site-muted); font-size:13px;">{shotsAvg.toFixed(1)}</span>
-          <span class="bar-gp">—</span>
-        </div>
+        <!-- League average reference row (only when data present) -->
+        {hasFwds && (
+          <div class="bar-row avg-row" style="display:grid; grid-template-columns: 30px 160px 1fr 76px 52px; gap:14px; align-items:center; padding:9px 18px;">
+            <span class="bar-rk" style="color:var(--site-muted)">AVG</span>
+            <span class="bar-nm" style="color:var(--site-muted); font-size:12px;">League avg forward</span>
+            <span class="bar-cell"><span class="bar-fill" style={`width:${avgBarPct}%; background:var(--site-border2);`}></span></span>
+            <span class="bar-v" style="color:var(--site-muted); font-size:13px;">{shotsAvg.toFixed(1)}</span>
+            <span class="bar-gp">—</span>
+          </div>
+        )}
       </div>
     </div>
 
@@ -565,6 +606,13 @@ function fmtToi(sec: number): string {
             <span><span class="sw" style="background:#2a2a2a"></span>Rest</span>
           </span>
         </div>
+        {!hasFwds && (
+          <div class="lb-empty">
+            <strong>No data available</strong>
+            Scatter plot requires at least one forward meeting the filter (min 20 GP).
+          </div>
+        )}
+        {hasFwds && (
         <div class="scatter-grid">
           <div class="scatter-plot">
             <svg viewBox={`0 0 610 ${PB + 30}`} preserveAspectRatio="none">
@@ -643,6 +691,7 @@ function fmtToi(sec: number): string {
             ))}
           </div>
         </div>
+        )}
       </div>
     </div>
 
@@ -656,6 +705,12 @@ function fmtToi(sec: number): string {
       </div>
       <p class="lb-sec-lede">Goals per 60 minutes, regardless of position or ice time. The rawest scoring-rate leaderboard — partial seasons welcome (min 10 GP). Caufield at the top is not a fluke.</p>
       <div class="goals-list">
+        {goals60.length === 0 && (
+          <div class="lb-empty">
+            <strong>No data available</strong>
+            No players match the current filter (min 10 GP).
+          </div>
+        )}
         {goals60.map((p, i) => {
           const tc = pickTeamColor(p.team_abbrev);
           const cls = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
