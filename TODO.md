@@ -35,8 +35,9 @@
 - [x] **SS-1**: Design token system (`stats-tokens.css`), dual light/dark mode, anti-FOUC
 - [x] **SS-2a/b**: 7 components (PageHeader, SectionEyebrow, PercentileTile, PlayerHero, LeaderboardRow, DualStatBar, GameRow), mode toggle + localStorage persistence
 - [x] **SS-3**: `/stats` landing page — hero, Season Leader (PlayerHero + PercentileTile 2×2), side-by-side skater/xG leaderboards, methodology teaser. `team-colors.ts`, `loadPlayerOfTheWeek()`. PercentileTile: 5-segment gradient, fixed text colors per mode, 97th+ glow.
-- [ ] **SS-4**: Player page `/stats/player/{slug}`
-- [ ] **SS-5**: Full leaderboards page `/stats/leaderboards` (F/D toggle, all metrics)
+- [x] **SS-4**: Player page `/stats/player/{slug}` — hero, percentile bars, radar, heatmap + sparkline + game log
+- [x] **SS-5**: Leaderboards `/stats/leaderboards` — HGBScore ranked lists, shots/60 bars, xG×finishing scatter, goals/60
+- [x] **SS-FIX-01**: Polish pass — phantom red stripe, hero ticker removed, heatmap shine, font floor audit, sparkline with adaptive zero line + white trendline, section C typography
 - [ ] **SS-6**: Methodology page `/stats/methodology`
 - [ ] **SS-7**: Mobile polish pass
 - [ ] **SS-8**: Merge stats into main site nav
