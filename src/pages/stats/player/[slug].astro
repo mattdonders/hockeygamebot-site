@@ -149,13 +149,22 @@ const axisEnds  = [0,1,2,3,4,5].map(i => radarPt(i, 100));
 const peerColors = peers.map(p => pickTeamColor(p.team_abbrev));
 
 // ── Season sparkline (bar + 5-game rolling avg) ───────────────────────────────
-const gsVals   = playerGames.map(g => g.gs_display);
-const tlMaxAbs = Math.max(...gsVals.map(Math.abs), 0.5);
-const TL_H = 72, TL_MID = 36, TL_MAX_BAR = 30;
+const gsVals  = playerGames.map(g => g.gs_display);
+const TL_H = 90, TL_PAD = 5;
+const dataMax = Math.max(...gsVals, 0.01);
+const dataMin = Math.min(...gsVals, -0.01);
+// Zero line sits proportionally so bars always fill their half
+const totalRange = dataMax - dataMin;
+const TL_MID = Math.round(TL_PAD + (dataMax / totalRange) * (TL_H - TL_PAD * 2));
+const TL_POS_H = TL_MID - TL_PAD;
+const TL_NEG_H = TL_H - TL_PAD - TL_MID;
 const tlAvgPts = playerGames.map((_, i) => {
   const w   = gsVals.slice(Math.max(0, i - 4), i + 1);
   const avg = w.reduce((s, v) => s + v, 0) / w.length;
-  return `${(i + 0.5).toFixed(1)},${(TL_MID - avg / tlMaxAbs * TL_MAX_BAR).toFixed(1)}`;
+  const y   = avg >= 0
+    ? TL_MID - (avg / dataMax) * TL_POS_H
+    : TL_MID + (Math.abs(avg) / Math.abs(dataMin)) * TL_NEG_H;
+  return `${(i + 0.5).toFixed(1)},${y.toFixed(1)}`;
 }).join(' ');
 
 // ── Recent games ──────────────────────────────────────────────────────────────
@@ -847,7 +856,7 @@ function rankStr(n: number): string {
     .tl-trend-tag { display: flex; align-items: center; gap: 5px; }
     .tl-trend-line { width: 18px; height: 2px; background: #00c078; border-radius: 1px; }
     [data-mode="light"] .tl-trend-line { background: #00874e; }
-    .tl-svg { width: 100%; height: 72px; display: block; }
+    .tl-svg { width: 100%; height: 90px; display: block; }
 
     /* ══ Game log divider ═══════════════════════════════════════════════ */
     .gl-div {
@@ -1165,19 +1174,21 @@ function rankStr(n: number): string {
               </span>
             </div>
             <svg class="tl-svg" viewBox={`0 0 ${playerGames.length} ${TL_H}`} preserveAspectRatio="none">
-              <line x1="0" y1={TL_MID} x2={playerGames.length} y2={TL_MID} stroke="#222" stroke-width="0.5"/>
+              <line x1="0" y1={TL_MID} x2={playerGames.length} y2={TL_MID} stroke="#2a2a2a" stroke-width="0.5"/>
               {playerGames.map((g, i) => {
-                const bh  = Math.max(Math.abs(g.gs_display) / tlMaxAbs * TL_MAX_BAR, 0.8);
                 const pos = g.gs_display >= 0;
+                const bh  = pos
+                  ? Math.max((g.gs_display / dataMax) * TL_POS_H, 0.8)
+                  : Math.max((Math.abs(g.gs_display) / Math.abs(dataMin)) * TL_NEG_H, 0.8);
                 return <rect
                   x={i + 0.08}
                   y={pos ? (TL_MID - bh).toFixed(1) : TL_MID.toString()}
                   width="0.84"
                   height={bh.toFixed(1)}
-                  fill={pos ? '#1e5e33' : '#3a1220'}
+                  fill={pos ? '#1e5e33' : '#801930'}
                 />;
               })}
-              <polyline points={tlAvgPts} fill="none" stroke="#00c078" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round"/>
+              <polyline points={tlAvgPts} fill="none" stroke="#00c078" stroke-width="0.6" stroke-linejoin="round" stroke-linecap="round"/>
             </svg>
           </div>
         </div>
