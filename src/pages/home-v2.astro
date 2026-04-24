@@ -1,0 +1,126 @@
+---
+import '../styles/site-tokens.css';
+import Topbar from '../components/home/Topbar.astro';
+import PlayoffStrip from '../components/home/PlayoffStrip.astro';
+import PageHero from '../components/home/PageHero.astro';
+import ModeBar from '../components/home/ModeBar.astro';
+import LiveHero from '../components/home/LiveHero.astro';
+import type { FeaturedGame } from '../components/home/LiveHero.astro';
+
+import liveMock from '../data/home-mock/live.json';
+import recapMock from '../data/home-mock/recap.json';
+
+// Resolve mode from query string; anything outside {live,recap} falls
+// back to live. (Tomorrow's slate is a Layer 5 stub and is never resolved.)
+const raw = Astro.url.searchParams.get('mode');
+const mode: 'live' | 'recap' = raw === 'recap' ? 'recap' : 'live';
+
+const data = mode === 'recap' ? recapMock : liveMock;
+
+// Narrow-type the featured game for LiveHero.
+const featured: FeaturedGame | undefined =
+  mode === 'live' ? (liveMock.featured_game as FeaturedGame) : undefined;
+
+const playoffStrip = ('playoff_strip' in data && data.playoff_strip) ? data.playoff_strip : null;
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <!-- Dev: keep /home-v2 out of search indices while the rebuild is in-progress -->
+  <meta name="robots" content="noindex,nofollow">
+  <title>HockeyGameBot — Home (v2 preview)</title>
+  <meta name="description" content="Rebuild preview of the HockeyGameBot home page. Not linked from the production scoreboard.">
+
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      background: var(--site-bg);
+      color: var(--site-text);
+      font-family: var(--font-site-body);
+    }
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+
+    /* ── Page shell ─────────────────────────────────────────────── */
+    .home-page {
+      padding: 22px 20px 80px;
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
+    /* ── Placeholder boxes for layer-N deliverables ─────────────── */
+    .hv2-placeholder {
+      border: 1px dashed var(--site-border2);
+      border-radius: var(--radius-md);
+      min-height: 180px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--site-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 20px;
+      background: repeating-linear-gradient(
+        135deg,
+        transparent,
+        transparent 10px,
+        rgba(255, 255, 255, 0.01) 10px,
+        rgba(255, 255, 255, 0.01) 20px
+      );
+    }
+
+    .hv2-placeholder.tall { min-height: 320px; }
+
+    .hv2-placeholders-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    @media (max-width: 720px) {
+      .home-page { padding: 16px 12px 60px; }
+      .hv2-placeholders-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body class="hgb-site">
+  <Topbar active="scores" dateLabel={data.date_label} />
+  {playoffStrip && (
+    <PlayoffStrip eyebrow={playoffStrip.eyebrow} series={playoffStrip.series} />
+  )}
+
+  <main class="home-page">
+    <PageHero eyebrow={data.hero_eyebrow} />
+    <ModeBar mode={mode} />
+
+    {mode === 'live' && featured && (
+      <>
+        <LiveHero game={featured} />
+        <div class="hv2-placeholders-grid" aria-hidden="true">
+          <div class="hv2-placeholder">Game grid · Layer 2</div>
+          <div class="hv2-placeholder">Artifacts inline · Layer 2</div>
+          <div class="hv2-placeholder">Model predictions · Layer 3</div>
+          <div class="hv2-placeholder">Goal wash overlays · Layer 3</div>
+        </div>
+      </>
+    )}
+
+    {mode === 'recap' && (
+      <div class="hv2-placeholder tall" aria-hidden="true">
+        Recap layout · Layer 4 — coming soon
+      </div>
+    )}
+  </main>
+</body>
+</html>
