@@ -2162,8 +2162,22 @@ async function openModal(gameId, { push = true } = {}) {
       fetch(`${API_BASE}/v1/games/${gameId}/flow`, { cache: 'no-store' }),
       fetch(`${API_BASE}/v1/games/${gameId}/events`, { cache: 'no-store' })
     ]);
-    flow = await flowResp.json();
-    eventsData = evResp.ok ? await evResp.json() : { events: [] };
+
+    if (flowResp.ok) {
+      flow = await flowResp.json();
+    } else {
+      const preview = await flowResp.text().then(t => t.slice(0, 500)).catch(() => '');
+      console.warn(`[HGB flow] ${flowResp.status}${preview ? ` — ${preview}` : ''}`);
+      flow = null;
+    }
+
+    if (evResp.ok) {
+      eventsData = await evResp.json();
+    } else {
+      const preview = await evResp.text().then(t => t.slice(0, 500)).catch(() => '');
+      console.warn(`[HGB events] ${evResp.status}${preview ? ` — ${preview}` : ''}`);
+      eventsData = null;
+    }
   } catch {
     content.innerHTML = '<div class="modal-loading">Failed to load game data.</div>';
     return;
@@ -2172,7 +2186,8 @@ async function openModal(gameId, { push = true } = {}) {
   const card = gameCards[gameId];
   if (!card) { content.innerHTML = '<div class="modal-loading">Game not found.</div>'; return; }
 
-  const points = (flow.points || []).filter(p => p.wp != null).sort((a, b) => a.t - b.t);
+  const flowOk = flow != null;
+  const points = flowOk ? (flow.points || []).filter(p => p.wp != null).sort((a, b) => a.t - b.t) : [];
   // Anchor line to game start at home-team advantage baseline if first data point comes in late
   if (points.length && points[0].t > 0) points.unshift({ t: 0, wp: 0.5513 });
   // For final games, force the last WP point to the definitive outcome (1.0 home win / 0.0 away win)
@@ -2180,7 +2195,7 @@ async function openModal(gameId, { push = true } = {}) {
     const finalWp = card.homeScore > card.awayScore ? 1.0 : 0.0;
     points[points.length - 1] = { ...points[points.length - 1], wp: finalWp };
   }
-  const goals = (flow.goals || []).map(g => ({ ...g, isHome: g.is_home }));
+  const goals = flowOk ? (flow.goals || []).map(g => ({ ...g, isHome: g.is_home })) : [];
 
   // Compute WP delta for each goal (scoring team's perspective).
   //
@@ -2267,11 +2282,14 @@ async function openModal(gameId, { push = true } = {}) {
   const totalsAll = calcXgTotals(xgEvents);
   const totals5v5 = calcXgTotals(xgEvents5v5);
 
-  const wpInner = points.length >= 2
-    ? buildWpChart(points, goals, card.home, card.away, card.homeColor, card.teamColor, tMax)
-    : `<div class="modal-no-chart">Win probability chart will appear once the game is underway.</div>`;
-  const xgInner5v5 = buildXgFlowChart(xgEvents5v5, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
-  const xgInnerAll = buildXgFlowChart(xgEvents, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
+  const _unavailable = `<div class="modal-no-chart" style="font-style:italic">Unavailable.</div>`;
+  const wpInner = !flowOk
+    ? _unavailable
+    : points.length >= 2
+      ? buildWpChart(points, goals, card.home, card.away, card.homeColor, card.teamColor, tMax)
+      : `<div class="modal-no-chart">Win probability chart will appear once the game is underway.</div>`;
+  const xgInner5v5 = eventsData == null ? _unavailable : buildXgFlowChart(xgEvents5v5, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
+  const xgInnerAll  = eventsData == null ? _unavailable : buildXgFlowChart(xgEvents, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
 
   const chartHtml = `<div class="modal-chart-wrap" id="mc-${gameId}">
     <div class="modal-tabs">
@@ -2381,7 +2399,9 @@ async function openModal(gameId, { push = true } = {}) {
   }
 
   // Single-column chronological list (modal view)
-  const goalsList = goals.length
+  const goalsList = !flowOk
+    ? `<div class="modal-no-goals" style="font-style:italic">Goal data unavailable.</div>`
+    : goals.length
     ? `<div class="modal-goals-list">
         ${(() => {
           const periodOf = t => t <= 1200 ? 'P1' : t <= 2400 ? 'P2' : t <= 3600 ? 'P3' : 'OT';
