@@ -791,6 +791,11 @@ let noGamesShown = false;
 let lastGoalTime = 0;  // epoch ms — suppresses re-sort for 45s after any goal
 let _yesterdayData = null; // cached once per session
 let _viewMode = 'today';   // 'today' | 'yesterday'
+let _consecutiveFailures = 0;
+let _retryDelay = 4_000;    // doubles on each failure, cap 60 000ms
+let _lastSuccessAt = 0;     // epoch ms — shown in stale bar
+let _countdownTimer = null; // countdown tick timeout handle
+let _modalOpener = null;    // element that triggered the modal — focus restored on close
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 
@@ -1740,8 +1745,22 @@ async function pollAndUpdate() {
     data = await fetchGames();
   } catch (e) {
     console.warn('[HGB] API fetch failed:', e.message);
+    _consecutiveFailures++;
+    clearInterval(pollTimer);
+    showApiError(_lastSuccessAt > 0);              // stale bar if we've ever loaded
+    pollTimer = setTimeout(pollAndUpdate, _retryDelay);
+    _retryDelay = Math.min(_retryDelay * 2, 60_000);
     return;
   }
+
+  // Successful fetch — clear error state and resume normal cadence
+  if (_consecutiveFailures > 0) {
+    _consecutiveFailures = 0;
+    _retryDelay = 4_000;
+    clearApiError();
+    startPolling(_recapMode ? 60_000 : POLL_INTERVAL);
+  }
+  _lastSuccessAt = Date.now();
 
   const todayGames = data.games || [];
   if (!todayGames.length) {
@@ -1883,6 +1902,73 @@ function showCatchupPill() {
   setTimeout(() => pill.classList.remove('show'), 1500);
 }
 
+// ── API error UI ──────────────────────────────────────────────────────────────
+function _fmtAgo(ms) {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
+}
+
+function showApiError(isStale) {
+  document.getElementById('api-error-banner')?.remove();
+  document.getElementById('api-stale-bar')?.remove();
+  clearTimeout(_countdownTimer);
+
+  const wrapper = document.getElementById('grid-wrapper');
+  if (!wrapper) return;
+
+  if (isStale) {
+    // Keep existing cards visible — amber bar above them
+    const bar = document.createElement('div');
+    bar.id = 'api-stale-bar';
+    bar.setAttribute('role', 'status'); // polite: don't interrupt screen readers
+    bar.style.cssText = 'padding:6px 14px;background:rgba(255,202,40,0.1);color:#ffca28;font-size:12px;text-align:center;letter-spacing:0.04em;border-bottom:1px solid rgba(255,202,40,0.2);';
+    const ago = _fmtAgo(Date.now() - _lastSuccessAt);
+    bar.textContent = `Scores last updated ${ago}. Retrying…`;
+    wrapper.prepend(bar);
+  } else {
+    // Cold-start: nothing to show — replace content with error banner
+    const secs = Math.round(_retryDelay / 1000);
+    const banner = document.createElement('div');
+    banner.id = 'api-error-banner';
+    banner.setAttribute('role', 'alert'); // assertive: announce immediately
+    banner.style.cssText = 'padding:40px 16px;text-align:center;';
+    banner.innerHTML = `
+      <div style="font-size:14px;font-weight:700;color:#ff3d3d;letter-spacing:0.06em;margin-bottom:8px;">UNABLE TO LOAD SCORES</div>
+      <div style="font-size:12px;color:#555;margin-bottom:14px;">Retrying in <span id="api-error-countdown">${secs}s</span>.</div>
+      <button id="api-error-retry" style="background:#ff3d3d;color:#fff;border:none;padding:7px 18px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit;font-weight:700;letter-spacing:0.08em;">RETRY NOW</button>`;
+    wrapper.innerHTML = '';
+    wrapper.appendChild(banner);
+
+    // Manual retry — treat as a fresh attempt (reset backoff)
+    document.getElementById('api-error-retry').addEventListener('click', () => {
+      clearTimeout(_countdownTimer);
+      clearInterval(pollTimer);
+      _consecutiveFailures = 0;
+      _retryDelay = 4_000;
+      clearApiError();
+      pollAndUpdate();
+    });
+
+    let remaining = secs;
+    const countEl = document.getElementById('api-error-countdown');
+    function tick() {
+      remaining--;
+      if (countEl && remaining > 0) {
+        countEl.textContent = `${remaining}s`;
+        _countdownTimer = setTimeout(tick, 1_000);
+      }
+    }
+    _countdownTimer = setTimeout(tick, 1_000);
+  }
+}
+
+function clearApiError() {
+  document.getElementById('api-error-banner')?.remove();
+  document.getElementById('api-stale-bar')?.remove();
+  clearTimeout(_countdownTimer);
+  _countdownTimer = null;
+}
+
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
@@ -1949,6 +2035,8 @@ connectSSE();
 function _hideModal() {
   document.getElementById('game-modal').style.display = 'none';
   document.body.style.overflow = '';
+  _modalOpener?.focus();
+  _modalOpener = null;
 }
 
 function closeModal() {
@@ -2066,9 +2154,11 @@ async function shareModal() {
 async function openModal(gameId, { push = true } = {}) {
   const modal = document.getElementById('game-modal');
   const content = document.getElementById('modal-content');
+  _modalOpener = document.activeElement;
   modal.style.display = 'flex';
   document.body.style.overflow = 'hidden';
   content.innerHTML = '<div class="modal-loading">Loading…</div>';
+  document.getElementById('modal-close').focus();
   if (push) history.pushState({ gameId }, '', `?game=${gameId}`);
 
   let flow, eventsData;
@@ -2077,8 +2167,22 @@ async function openModal(gameId, { push = true } = {}) {
       fetch(`${API_BASE}/v1/games/${gameId}/flow`, { cache: 'no-store' }),
       fetch(`${API_BASE}/v1/games/${gameId}/events`, { cache: 'no-store' })
     ]);
-    flow = await flowResp.json();
-    eventsData = evResp.ok ? await evResp.json() : { events: [] };
+
+    if (flowResp.ok) {
+      flow = await flowResp.json();
+    } else {
+      const preview = await flowResp.text().then(t => t.slice(0, 500)).catch(() => '');
+      console.warn(`[HGB flow] ${flowResp.status}${preview ? ` — ${preview}` : ''}`);
+      flow = null;
+    }
+
+    if (evResp.ok) {
+      eventsData = await evResp.json();
+    } else {
+      const preview = await evResp.text().then(t => t.slice(0, 500)).catch(() => '');
+      console.warn(`[HGB events] ${evResp.status}${preview ? ` — ${preview}` : ''}`);
+      eventsData = null;
+    }
   } catch {
     content.innerHTML = '<div class="modal-loading">Failed to load game data.</div>';
     return;
@@ -2086,8 +2190,10 @@ async function openModal(gameId, { push = true } = {}) {
 
   const card = gameCards[gameId];
   if (!card) { content.innerHTML = '<div class="modal-loading">Game not found.</div>'; return; }
+  modal.setAttribute('aria-label', `${card.away} at ${card.home}`);
 
-  const points = (flow.points || []).filter(p => p.wp != null).sort((a, b) => a.t - b.t);
+  const flowOk = flow != null;
+  const points = flowOk ? (flow.points || []).filter(p => p.wp != null).sort((a, b) => a.t - b.t) : [];
   // Anchor line to game start at home-team advantage baseline if first data point comes in late
   if (points.length && points[0].t > 0) points.unshift({ t: 0, wp: 0.5513 });
   // For final games, force the last WP point to the definitive outcome (1.0 home win / 0.0 away win)
@@ -2095,7 +2201,7 @@ async function openModal(gameId, { push = true } = {}) {
     const finalWp = card.homeScore > card.awayScore ? 1.0 : 0.0;
     points[points.length - 1] = { ...points[points.length - 1], wp: finalWp };
   }
-  const goals = (flow.goals || []).map(g => ({ ...g, isHome: g.is_home }));
+  const goals = flowOk ? (flow.goals || []).map(g => ({ ...g, isHome: g.is_home })) : [];
 
   // Compute WP delta for each goal (scoring team's perspective).
   //
@@ -2182,11 +2288,14 @@ async function openModal(gameId, { push = true } = {}) {
   const totalsAll = calcXgTotals(xgEvents);
   const totals5v5 = calcXgTotals(xgEvents5v5);
 
-  const wpInner = points.length >= 2
-    ? buildWpChart(points, goals, card.home, card.away, card.homeColor, card.teamColor, tMax)
-    : `<div class="modal-no-chart">Win probability chart will appear once the game is underway.</div>`;
-  const xgInner5v5 = buildXgFlowChart(xgEvents5v5, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
-  const xgInnerAll = buildXgFlowChart(xgEvents, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
+  const _unavailable = `<div class="modal-no-chart" style="font-style:italic">Unavailable.</div>`;
+  const wpInner = !flowOk
+    ? _unavailable
+    : points.length >= 2
+      ? buildWpChart(points, goals, card.home, card.away, card.homeColor, card.teamColor, tMax)
+      : `<div class="modal-no-chart">Win probability chart will appear once the game is underway.</div>`;
+  const xgInner5v5 = eventsData == null ? _unavailable : buildXgFlowChart(xgEvents5v5, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
+  const xgInnerAll  = eventsData == null ? _unavailable : buildXgFlowChart(xgEvents, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
 
   const chartHtml = `<div class="modal-chart-wrap" id="mc-${gameId}">
     <div class="modal-tabs">
@@ -2296,7 +2405,9 @@ async function openModal(gameId, { push = true } = {}) {
   }
 
   // Single-column chronological list (modal view)
-  const goalsList = goals.length
+  const goalsList = !flowOk
+    ? `<div class="modal-no-goals" style="font-style:italic">Goal data unavailable.</div>`
+    : goals.length
     ? `<div class="modal-goals-list">
         ${(() => {
           const periodOf = t => t <= 1200 ? 'P1' : t <= 2400 ? 'P2' : t <= 3600 ? 'P3' : 'OT';
@@ -2398,7 +2509,23 @@ async function openModal(gameId, { push = true } = {}) {
 document.getElementById('modal-close').addEventListener('click', closeModal);
 document.getElementById('modal-share').addEventListener('click', shareModal);
 document.getElementById('modal-backdrop').addEventListener('click', closeModal);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeGvp(); } });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeGvp(); }
+  if (e.key === 'Tab') {
+    const modal = document.getElementById('game-modal');
+    if (modal.style.display === 'none') return;
+    const focusable = Array.from(modal.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(el => el.offsetParent !== null);
+    if (focusable.length < 2) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+});
 
 // Back/forward button support — popstate fires when history changes via browser nav
 window.addEventListener('popstate', e => {
