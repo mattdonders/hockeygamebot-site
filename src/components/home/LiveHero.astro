@@ -278,10 +278,33 @@ const stateChip = resolveStrengthChip(game.strength_state);
       </div>
     </div>
 
-    <!-- goal feed (spans full row) -->
-    <div class="goal-feed" aria-label="Goal feed">
-      {game.goal_feed.map((g) => (
-        <div class:list={['goal-chip', { overturned: g.overturned }]}>
+    <!--
+      Footer strip — goal chips + last-events fallback.
+
+      Server always renders BOTH the full goal chip list (data-chip-kind="goal")
+      and the full last-events list (data-chip-kind="last"). A client script
+      elsewhere on the page decides the visible set based on:
+         • ?goals=N query param (dev override)
+         • available chip slots (cap 4-6)
+
+      Default (no param) shows goal chips only, plus a "+ N more" placeholder
+      chip in the last slot if goals overflow the cap. The last-events chips
+      stay hidden. When goals < 2, last-events fill the remaining slots.
+    -->
+    <div
+      class="goal-feed"
+      aria-label="Scoring summary"
+      data-max-slots="6"
+      data-min-slots="4"
+      data-goal-count={game.goal_feed.length}
+      data-last-count={(game.last_events ?? []).length}
+    >
+      {game.goal_feed.map((g, idx) => (
+        <div
+          class:list={['goal-chip', { overturned: g.overturned }]}
+          data-chip-kind="goal"
+          data-chip-idx={idx}
+        >
           <div class="t">
             <span>P{g.period} · {g.clock} · {g.team}</span>
             <span class="sc" style={g.overturned ? 'color:#ff7b8a' : undefined}>
@@ -301,6 +324,64 @@ const stateChip = resolveStrengthChip(game.strength_state);
           )}
         </div>
       ))}
+
+      <!-- "+ N more · open game" placeholder chip — shown when goals overflow
+           the visible cap. Client script toggles display + sets data-more-n. -->
+      <div
+        class="goal-chip more-chip"
+        data-chip-kind="more"
+        data-layer3-hook="open-game-modal"
+        hidden
+      >
+        <div class="t"><span>More</span></div>
+        {/* TODO: Layer 3 — open game modal on click */}
+        <div class="p">+<span data-more-n>0</span> more</div>
+        <div class="a">open game</div>
+      </div>
+
+      <!-- Last-events strip (fallback). Hidden unless the visible set
+           includes fewer than 2 goal chips; each chip's `data-ev-type`
+           drives its colored left border via CSS attribute selectors. -->
+      {(game.last_events ?? []).map((e, idx) => {
+        const evType = (e.type || '').toUpperCase();
+        const dangerHigh = evType === 'SHOT' && (e.danger || '').toLowerCase() === 'high';
+        const evClass = dangerHigh ? `${evType}_HIGH` : evType;
+        const title =
+          evType === 'PP_START' ? 'POWER PLAY' :
+          evType === 'PP_END'   ? 'PP ENDED'   :
+          evType === 'PK_START' ? 'PENALTY KILL' :
+          evType === 'PK_END'   ? 'PK ENDED'   :
+          evType === 'PENALTY'  ? 'PENALTY'    :
+          evType === 'TIMEOUT'  ? 'TIMEOUT'    :
+          evType === 'SHOT'     ? 'SHOT'       :
+          evType;
+        const dangerLabel =
+          dangerHigh ? 'high-danger shot' :
+          (evType === 'SHOT' && e.danger) ? `${e.danger}-danger shot` : undefined;
+        return (
+          <div
+            class="last-chip"
+            data-chip-kind="last"
+            data-chip-idx={idx}
+            data-ev-type={evClass}
+            hidden
+          >
+            <div class="t">
+              <span>P{e.period} · {e.clock}</span>
+            </div>
+            <div class="p">
+              {title}{e.team ? ` · ${e.team}` : ''}{e.player ? ` · ${e.player}` : ''}
+            </div>
+            {(e.reason || dangerLabel) && (
+              <div class="a">
+                {e.player && e.reason ? `${e.player} · ${e.reason}` :
+                 e.reason ? e.reason :
+                 dangerLabel}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
 
   </div>
@@ -599,28 +680,34 @@ const stateChip = resolveStrengthChip(game.strength_state);
   .lh-stat .bar.cyan .l { background: var(--status-live); }
   .lh-stat .bar.cyan .r { background: #1a4050; }
 
-  /* ── goal feed ───────────────────────────────────────────────── */
+  /* ── footer strip (goal chips + last-events fallback) ─────────── */
+  /* Flex-wrap with overflow-x hidden. Chips grow-shrink to fill row
+     with a firm min-width so they don't squish into unreadable pills.
+     A client-side script (in home-v2.astro) caps the visible count
+     to 4-6 and decides goal-vs-last mix based on `?goals=N`. */
   .goal-feed {
     grid-column: 1 / -1;
     border-top: 1px solid #1a1a1a;
     padding: 14px 24px;
     display: flex;
     gap: 14px;
-    overflow-x: auto;
+    overflow-x: hidden;
     background: #0a0a0a;
-    scrollbar-width: thin;
   }
 
-  .goal-chip {
-    flex: none;
+  .goal-chip,
+  .last-chip {
+    flex: 1 1 0;
+    min-width: 200px;
+    max-width: 320px;
     border: 1px solid var(--site-border);
     border-radius: var(--radius-md);
     padding: 9px 12px;
     background: var(--site-card);
-    min-width: 220px;
   }
 
-  .goal-chip .t {
+  .goal-chip .t,
+  .last-chip .t {
     display: flex;
     justify-content: space-between;
     color: #666;
@@ -637,7 +724,8 @@ const stateChip = resolveStrengthChip(game.strength_state);
     letter-spacing: 0.06em;
   }
 
-  .goal-chip .p {
+  .goal-chip .p,
+  .last-chip .p {
     font-family: var(--font-site-display);
     font-weight: 700;
     font-size: 13px;
@@ -646,7 +734,8 @@ const stateChip = resolveStrengthChip(game.strength_state);
     letter-spacing: 0.02em;
   }
 
-  .goal-chip .a {
+  .goal-chip .a,
+  .last-chip .a {
     color: #888;
     font-family: var(--font-site-body);
     font-size: 11px;
@@ -677,6 +766,48 @@ const stateChip = resolveStrengthChip(game.strength_state);
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* "+ N more · open game" truncation placeholder. Clickable styling
+     now; wire-up is Layer 3. */
+  .goal-chip.more-chip {
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background: transparent;
+    border-style: dashed;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .goal-chip.more-chip:hover {
+    border-color: var(--site-border2);
+    background: #0d0d0d;
+  }
+  .goal-chip.more-chip .t { justify-content: center; }
+  .goal-chip.more-chip .p { margin-top: 2px; }
+
+  /* Last-events chips — colored left border keyed to event type. */
+  .last-chip {
+    border-left-width: 3px;
+    padding-left: 10px; /* compensate for heavier left border */
+  }
+  .last-chip[data-ev-type="PP_START"],
+  .last-chip[data-ev-type="PP_END"],
+  .last-chip[data-ev-type="PK_START"],
+  .last-chip[data-ev-type="PK_END"] {
+    border-left-color: var(--status-live);
+  }
+  .last-chip[data-ev-type="PENALTY"] {
+    border-left-color: var(--status-danger);
+  }
+  .last-chip[data-ev-type="TIMEOUT"] {
+    border-left-color: var(--site-dim);
+  }
+  .last-chip[data-ev-type="SHOT_HIGH"] {
+    border-left-color: var(--status-ot);
+  }
+  /* Default SHOT / unknown: keep default --site-border left color */
 
   /* ── responsive ──────────────────────────────────────────────── */
   @media (max-width: 960px) {
