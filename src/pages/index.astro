@@ -795,6 +795,7 @@ let _consecutiveFailures = 0;
 let _retryDelay = 4_000;    // doubles on each failure, cap 60 000ms
 let _lastSuccessAt = 0;     // epoch ms — shown in stale bar
 let _countdownTimer = null; // countdown tick timeout handle
+let _modalOpener = null;    // element that triggered the modal — focus restored on close
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
 
@@ -2034,6 +2035,8 @@ connectSSE();
 function _hideModal() {
   document.getElementById('game-modal').style.display = 'none';
   document.body.style.overflow = '';
+  _modalOpener?.focus();
+  _modalOpener = null;
 }
 
 function closeModal() {
@@ -2151,9 +2154,11 @@ async function shareModal() {
 async function openModal(gameId, { push = true } = {}) {
   const modal = document.getElementById('game-modal');
   const content = document.getElementById('modal-content');
+  _modalOpener = document.activeElement;
   modal.style.display = 'flex';
   document.body.style.overflow = 'hidden';
   content.innerHTML = '<div class="modal-loading">Loading…</div>';
+  document.getElementById('modal-close').focus();
   if (push) history.pushState({ gameId }, '', `?game=${gameId}`);
 
   let flow, eventsData;
@@ -2185,6 +2190,7 @@ async function openModal(gameId, { push = true } = {}) {
 
   const card = gameCards[gameId];
   if (!card) { content.innerHTML = '<div class="modal-loading">Game not found.</div>'; return; }
+  modal.setAttribute('aria-label', `${card.away} at ${card.home}`);
 
   const flowOk = flow != null;
   const points = flowOk ? (flow.points || []).filter(p => p.wp != null).sort((a, b) => a.t - b.t) : [];
@@ -2503,7 +2509,23 @@ async function openModal(gameId, { push = true } = {}) {
 document.getElementById('modal-close').addEventListener('click', closeModal);
 document.getElementById('modal-share').addEventListener('click', shareModal);
 document.getElementById('modal-backdrop').addEventListener('click', closeModal);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeGvp(); } });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeGvp(); }
+  if (e.key === 'Tab') {
+    const modal = document.getElementById('game-modal');
+    if (modal.style.display === 'none') return;
+    const focusable = Array.from(modal.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(el => el.offsetParent !== null);
+    if (focusable.length < 2) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+});
 
 // Back/forward button support — popstate fires when history changes via browser nav
 window.addEventListener('popstate', e => {
