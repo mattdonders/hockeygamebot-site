@@ -10,21 +10,23 @@ import type { FeaturedGame } from '../components/home/LiveHero.astro';
 import liveMock from '../data/home-mock/live.json';
 import recapMock from '../data/home-mock/recap.json';
 
-// Resolve mode from query string; anything outside {live,recap} falls
-// back to live. (Tomorrow's slate is a Layer 5 stub and is never resolved.)
-const raw = Astro.url.searchParams.get('mode');
-const mode: 'live' | 'recap' = raw === 'recap' ? 'recap' : 'live';
+// Both mode bodies are rendered to the DOM at build time. A small inline
+// script in <head> reads ?mode= and swaps which view is visible + updates
+// the ModeBar active state, PageHero eyebrow, and Topbar date pill. This
+// pattern avoids Cloudflare Pages SSR while still supporting query-param
+// mode switching on a static build.
+const featured = liveMock.featured_game as FeaturedGame;
+const playoffStrip = liveMock.playoff_strip;
 
-const data = mode === 'recap' ? recapMock : liveMock;
-
-// Narrow-type the featured game for LiveHero.
-const featured: FeaturedGame | undefined =
-  mode === 'live' ? (liveMock.featured_game as FeaturedGame) : undefined;
-
-const playoffStrip = ('playoff_strip' in data && data.playoff_strip) ? data.playoff_strip : null;
+// Eyebrow + date values for both modes are shipped as data-* so the
+// tiny head script can swap them without re-rendering.
+const liveEyebrow = liveMock.hero_eyebrow;
+const recapEyebrow = recapMock.hero_eyebrow;
+const liveDate = liveMock.date_label;
+const recapDate = recapMock.date_label;
 ---
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-home-mode="live">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -33,6 +35,25 @@ const playoffStrip = ('playoff_strip' in data && data.playoff_strip) ? data.play
   <meta name="robots" content="noindex,nofollow">
   <title>HockeyGameBot — Home (v2 preview)</title>
   <meta name="description" content="Rebuild preview of the HockeyGameBot home page. Not linked from the production scoreboard.">
+
+  <!--
+    Mode swap — runs before first paint to avoid a live→recap flash.
+    Keeps SSR/static compatibility (Astro output: 'static') while still
+    letting /home-v2?mode=recap reach the right view. Safe no-op on the
+    default live view.
+  -->
+  <script is:inline>
+    (function () {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var raw = params.get('mode');
+        var mode = raw === 'recap' ? 'recap' : 'live';
+        document.documentElement.setAttribute('data-home-mode', mode);
+      } catch (e) {
+        document.documentElement.setAttribute('data-home-mode', 'live');
+      }
+    })();
+  </script>
 
   <style is:global>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,6 +75,10 @@ const playoffStrip = ('playoff_strip' in data && data.playoff_strip) ? data.play
       max-width: 1440px;
       margin: 0 auto;
     }
+
+    /* ── Mode-gated views ───────────────────────────────────────── */
+    html[data-home-mode="live"] [data-mode-view="recap"] { display: none; }
+    html[data-home-mode="recap"] [data-mode-view="live"] { display: none; }
 
     /* ── Placeholder boxes for layer-N deliverables ─────────────── */
     .hv2-placeholder {
@@ -95,32 +120,74 @@ const playoffStrip = ('playoff_strip' in data && data.playoff_strip) ? data.play
   </style>
 </head>
 <body class="hgb-site">
-  <Topbar active="scores" dateLabel={data.date_label} />
+  <Topbar active="scores" dateLabel={liveDate} />
   {playoffStrip && (
-    <PlayoffStrip eyebrow={playoffStrip.eyebrow} series={playoffStrip.series} />
+    <div data-mode-view="live">
+      <PlayoffStrip eyebrow={playoffStrip.eyebrow} series={playoffStrip.series} />
+    </div>
   )}
 
   <main class="home-page">
-    <PageHero eyebrow={data.hero_eyebrow} />
-    <ModeBar mode={mode} />
+    <div data-mode-view="live">
+      <PageHero eyebrow={liveEyebrow} />
+    </div>
+    <div data-mode-view="recap">
+      <PageHero eyebrow={recapEyebrow} />
+    </div>
 
-    {mode === 'live' && featured && (
-      <>
-        <LiveHero game={featured} />
-        <div class="hv2-placeholders-grid" aria-hidden="true">
-          <div class="hv2-placeholder">Game grid · Layer 2</div>
-          <div class="hv2-placeholder">Artifacts inline · Layer 2</div>
-          <div class="hv2-placeholder">Model predictions · Layer 3</div>
-          <div class="hv2-placeholder">Goal wash overlays · Layer 3</div>
-        </div>
-      </>
-    )}
+    <ModeBar mode="live" />
 
-    {mode === 'recap' && (
+    <section data-mode-view="live" aria-label="Live view">
+      <LiveHero game={featured} />
+      <div class="hv2-placeholders-grid" aria-hidden="true">
+        <div class="hv2-placeholder">Game grid · Layer 2</div>
+        <div class="hv2-placeholder">Artifacts inline · Layer 2</div>
+        <div class="hv2-placeholder">Model predictions · Layer 3</div>
+        <div class="hv2-placeholder">Goal wash overlays · Layer 3</div>
+      </div>
+    </section>
+
+    <section data-mode-view="recap" aria-label="Recap view">
       <div class="hv2-placeholder tall" aria-hidden="true">
         Recap layout · Layer 4 — coming soon
       </div>
-    )}
+    </section>
   </main>
+
+  <!--
+    Client-side mode binding:
+      1. Sync the ModeBar toggle `.active` state to the current URL mode.
+         (The Astro-rendered ModeBar always ships with `mode="live"` since
+         we pre-render once at build time.)
+      2. Date pill on the topbar is swapped if the mock diverges between
+         live + recap.
+  -->
+  <script is:inline define:vars={{ liveDate, recapDate }}>
+    (function () {
+      var mode = document.documentElement.getAttribute('data-home-mode') || 'live';
+
+      // ── ModeBar active state ─────────────────────────────────────
+      var toggles = document.querySelectorAll('.mode-bar .toggle');
+      toggles.forEach(function (node) {
+        var href = node.getAttribute('href') || '';
+        var key = href.indexOf('mode=recap') !== -1 ? 'recap'
+                : href.indexOf('mode=live')  !== -1 ? 'live'
+                : 'tomorrow';
+        var isActive = key === mode;
+        node.classList.toggle('active', isActive);
+        if (!node.classList.contains('disabled')) {
+          node.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        }
+        var dotSpan = node.querySelector('.dot');
+        if (dotSpan) dotSpan.textContent = isActive ? '●' : '○';
+      });
+
+      // ── Topbar date ──────────────────────────────────────────────
+      var dateEl = document.querySelector('.hgb-topbar .date');
+      if (dateEl) {
+        dateEl.textContent = mode === 'recap' ? recapDate : liveDate;
+      }
+    })();
+  </script>
 </body>
 </html>
