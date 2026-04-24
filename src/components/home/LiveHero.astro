@@ -182,6 +182,40 @@ function resolveStrengthChip(s?: StrengthState | null): StateChip {
   return { text, colorVar, tintVar };
 }
 const stateChip = resolveStrengthChip(game.strength_state);
+
+/**
+ * Latest Activity card payload — top 3 non-goal events from last_events.
+ * Always present regardless of the footer's goal-count override; gives
+ * the footer a stable rightmost anchor. Goals get their own chips; this
+ * card complements them with PP/PK/PENALTY/SHOT/TIMEOUT context.
+ */
+type LatestItem = {
+  period: number;
+  clock: string;
+  label: string;
+  evClass: string;
+};
+function buildLatestItems(events: LastEventEntry[]): LatestItem[] {
+  const out: LatestItem[] = [];
+  for (const e of events) {
+    const evType = (e.type || '').toUpperCase();
+    const dangerHigh = evType === 'SHOT' && (e.danger || '').toLowerCase() === 'high';
+    const evClass = dangerHigh ? `${evType}_HIGH` : evType;
+    const label =
+      evType === 'PP_START' ? 'POWER PLAY' :
+      evType === 'PP_END'   ? 'PP ENDED'   :
+      evType === 'PK_START' ? 'PENALTY KILL' :
+      evType === 'PK_END'   ? 'PK ENDED'   :
+      evType === 'PENALTY'  ? 'PENALTY'    :
+      evType === 'TIMEOUT'  ? 'TIMEOUT'    :
+      evType === 'SHOT'     ? (dangerHigh ? 'HIGH-DANGER SHOT' : 'SHOT') :
+      evType;
+    out.push({ period: e.period, clock: e.clock, label, evClass });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+const latestItems = buildLatestItems(game.last_events ?? []);
 ---
 <section class="live-hero" aria-label="Featured live game">
 
@@ -365,7 +399,10 @@ const stateChip = resolveStrengthChip(game.strength_state);
 
       <!-- Last-events strip (fallback). Hidden unless the visible set
            includes fewer than 2 goal chips; each chip's `data-ev-type`
-           drives its colored left border via CSS attribute selectors. -->
+           drives its colored left border via CSS attribute selectors.
+           Note: event set is the same source used by Latest Activity
+           below — the two slots are mutually exclusive in the all-goals
+           default case (Latest Activity always visible). -->
       {(game.last_events ?? []).map((e, idx) => {
         const evType = (e.type || '').toUpperCase();
         const dangerHigh = evType === 'SHOT' && (e.danger || '').toLowerCase() === 'high';
@@ -406,6 +443,31 @@ const stateChip = resolveStrengthChip(game.strength_state);
           </div>
         );
       })}
+
+      <!--
+        Latest Activity card — always-on rightmost slot. Shows the top 3
+        non-goal events from `last_events`. Pulsing cyan header dot reuses
+        the `ringPulse` animation. Placement is always-last via DOM order
+        plus the footer's flex row; the client script never hides this.
+      -->
+      <div class="latest-card" aria-label="Latest activity" data-chip-kind="latest">
+        <div class="lh-latest-head">
+          <span class="dot" aria-hidden="true"></span>
+          <span>Latest Activity</span>
+        </div>
+        {latestItems.length > 0 ? (
+          <ul class="lh-latest-body">
+            {latestItems.map((it) => (
+              <li class="lh-latest-row" data-ev-type={it.evClass}>
+                <span class="tstamp">P{it.period} · {it.clock}</span>
+                <span class="label">{it.label}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div class="lh-latest-empty">No activity yet</div>
+        )}
+      </div>
     </div>
 
   </div>
@@ -864,6 +926,105 @@ const stateChip = resolveStrengthChip(game.strength_state);
   }
   .goal-chip.more-chip .t { justify-content: center; }
   .goal-chip.more-chip .p { margin-top: 2px; }
+
+  /* ── Latest Activity card (always-on rightmost slot) ─────────────
+     Same footprint as goal/last chips but internal layout is a header
+     row + stacked list of 3 non-goal events. Persists across all
+     `?goals=N` variants — never hidden by the client slot script. */
+  .latest-card {
+    flex: 1 1 0;
+    min-width: 200px;
+    max-width: 320px;
+    border: 1px solid var(--site-border);
+    border-radius: var(--radius-md);
+    padding: 9px 12px;
+    background: var(--site-card);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .lh-latest-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--status-live);
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .lh-latest-head .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--status-live);
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: ringPulse 1.8s ease-out infinite;
+    flex: none;
+  }
+
+  .lh-latest-body {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .lh-latest-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid #1a1a1a;
+    font-family: var(--font-site-body);
+  }
+  .lh-latest-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .lh-latest-row:first-child { padding-top: 0; }
+
+  .lh-latest-row .tstamp {
+    color: #666;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    font-variant-numeric: tabular-nums;
+    flex: none;
+  }
+
+  .lh-latest-row .label {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #bbb;
+  }
+
+  /* Label color keyed to event type — matches the PBP left-stripe palette. */
+  .lh-latest-row[data-ev-type="PP_START"] .label,
+  .lh-latest-row[data-ev-type="PP_END"] .label,
+  .lh-latest-row[data-ev-type="PK_START"] .label,
+  .lh-latest-row[data-ev-type="PK_END"] .label {
+    color: var(--status-live);
+  }
+  .lh-latest-row[data-ev-type="PENALTY"] .label { color: var(--status-danger); }
+  .lh-latest-row[data-ev-type="SHOT_HIGH"] .label { color: var(--status-ot); }
+  .lh-latest-row[data-ev-type="TIMEOUT"] .label { color: #bbb; }
+
+  .lh-latest-empty {
+    color: var(--site-muted);
+    font-family: var(--font-site-body);
+    font-size: 11px;
+    text-align: center;
+    padding: 12px 0;
+  }
 
   /* Last-events chips — left-stripe color keyed to event type. */
   .last-chip[data-ev-type="PP_START"],
