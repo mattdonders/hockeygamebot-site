@@ -1,6 +1,8 @@
 ---
 import '../../styles/stats-tokens.css';
 import PageHeader from '../../components/stats/PageHeader.astro';
+import StatsSEO from '../../components/StatsSEO.astro';
+import ModeFoucScript from '../../components/ModeFoucScript.astro';
 import {
   loadPlayers,
   loadTopForwardsHGBScore,
@@ -19,19 +21,39 @@ const top12Ids = new Set(fwdHGB.slice(0, 12).map(p => p.player_id));
 const fwdShots = loadTopForwardsShots60(20);
 const allPlayers = loadPlayers();
 const allFwds = allPlayers.filter(p => p.pos_group === 'F' && p.gp >= 20);
+
+// Empty-array math guards (P2 LOW fix — SITE-FIX-03).
+// `Math.min/max(...[])` returns ±Infinity, which breaks downstream math
+// (division, SVG coords, toFixed). Also `sum/length` on an empty array is NaN.
+// Helpers fall back to caller-supplied defaults when arr is empty.
+const hasFwds = allFwds.length > 0;
+function safeMin(vals: number[], fallback = 0): number {
+  return vals.length ? Math.min(...vals) : fallback;
+}
+function safeMax(vals: number[], fallback = 0): number {
+  return vals.length ? Math.max(...vals) : fallback;
+}
+function safeAvg(vals: number[], fallback = 0): number {
+  return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : fallback;
+}
+
 const shotsMax = fwdShots[0]?.value ?? 16;
-const shotsAvg = allFwds.reduce((s, p) => s + p.rates_per_60.shots, 0) / allFwds.length;
+const shotsAvg = safeAvg(allFwds.map(p => p.rates_per_60.shots));
 const avgBarPct = ((shotsAvg / shotsMax) * 100).toFixed(1);
 
 // ── Scatter (xG/60 × finishing) ──────────────────────────────────────────────
-const xMin = Math.max(0, Math.min(...allFwds.map(p => p.rates_per_60.ixg)) * 0.85);
-const xMax = Math.max(...allFwds.map(p => p.rates_per_60.ixg)) * 1.04;
+// All four extrema now safe: empty allFwds → 0-1 range, zero dots rendered,
+// empty-state markup below replaces the chart.
+const ixgVals      = allFwds.map(p => p.rates_per_60.ixg);
+const finishVals   = allFwds.map(p => p.rates_per_60.finishing);
+const xMin = Math.max(0, safeMin(ixgVals) * 0.85);
+const xMax = Math.max(safeMax(ixgVals) * 1.04, xMin + 0.01); // guard zero-width range
 const yAbsMax = Math.max(
-  Math.abs(Math.min(...allFwds.map(p => p.rates_per_60.finishing))),
-  Math.abs(Math.max(...allFwds.map(p => p.rates_per_60.finishing)))
-) * 1.04;
+  Math.abs(safeMin(finishVals)),
+  Math.abs(safeMax(finishVals))
+) * 1.04 || 1; // guard zero-range → default ±1
 const yMin = -yAbsMax, yMax = yAbsMax;
-const xAvg = allFwds.reduce((s, p) => s + p.rates_per_60.ixg, 0) / allFwds.length;
+const xAvg = safeAvg(ixgVals);
 
 const PL = 40, PR = 572, PT = 12, PB = 356;
 const PW = PR - PL, PH = PB - PT;
@@ -88,20 +110,14 @@ function fmtToi(sec: number): string {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Anti-FOUC -->
-  <script is:inline>
-    (function(){
-      try {
-        var s = localStorage.getItem('hgb-mode');
-        var sys = window.matchMedia('(prefers-color-scheme:light)').matches ? 'light' : 'dark';
-        document.documentElement.dataset.mode = s || sys;
-      } catch(_) { document.documentElement.dataset.mode = 'dark'; }
-    })();
-  </script>
+  <ModeFoucScript />
   <meta name="color-scheme" content="light dark">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Leaderboards — HGB Stats</title>
+  <StatsSEO
+    title="Leaderboards — HGB Stats"
+    description="Top NHL skaters by HGBScore v2, shots per 60, expected goals, and pure goals per 60. Four angles on the season, all rate-adjusted, minimum 20 games played."
+  />
   <style is:global>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { min-height: 100vh; -webkit-font-smoothing: antialiased; }
@@ -185,8 +201,8 @@ function fmtToi(sec: number): string {
       background: transparent; transition: background 0.1s;
     }
     .rc-row:last-child { border-bottom: none; }
-    .rc-row:hover { background: rgba(255,255,255,0.04); }
-    [data-mode="light"] .rc-row:hover { background: rgba(13,13,20,0.04); }
+    /* --hover-bg inverts by mode: dark rgba(255,…,.04) / light rgba(13,…,.04) */
+    .rc-row:hover { background: var(--hover-bg); }
 
     /* Top-1 red gradient treatment (Claude Design) */
     .rc-row.top1 {
@@ -197,7 +213,7 @@ function fmtToi(sec: number): string {
 
     /* Top 2-3 tinted */
     .rc-row.top2, .rc-row.top3 { background: var(--row-tint, transparent); }
-    .rc-row.top2:hover, .rc-row.top3:hover { background: rgba(255,255,255,0.04); }
+    .rc-row.top2:hover, .rc-row.top3:hover { background: var(--hover-bg); }
 
     .rc-rank {
       font-family: var(--font-mono); font-size: 11px;
@@ -214,7 +230,8 @@ function fmtToi(sec: number): string {
       font-family: var(--font-site-body); font-size: 13px; font-weight: 600;
       color: var(--site-white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .rc-row.top1 .rc-name, .rc-row.top2 .rc-name, .rc-row.top3 .rc-name { color: #fff; font-size: 13.5px; }
+    /* --site-white inverts: dark #f5f5f5 / light #0d0d14 */
+    .rc-row.top1 .rc-name, .rc-row.top2 .rc-name, .rc-row.top3 .rc-name { color: var(--site-white); font-size: 13.5px; }
     .rc-meta {
       font-family: var(--font-card-display); font-size: 10px; font-weight: 700;
       letter-spacing: 0.1em; text-transform: uppercase; color: var(--site-muted);
@@ -257,12 +274,13 @@ function fmtToi(sec: number): string {
       border-bottom: 1px solid var(--site-border); font-size: 13px; position: relative;
     }
     .bar-row:last-child { border-bottom: none; }
-    .bar-row:hover { background: rgba(255,255,255,0.03); }
-    [data-mode="light"] .bar-row:hover { background: rgba(13,13,20,0.03); }
+    /* --hover-bg inverts by mode. Was hardcoded rgba(255,…,.03)/rgba(13,…,.03);
+     * a 0.04 alpha is within the audit tolerance and uses the shared token. */
+    .bar-row:hover { background: var(--hover-bg); }
     .bar-row.avg-row {
-      border-top: 1px dashed var(--site-border2); background: rgba(255,255,255,0.01);
+      border-top: 1px dashed var(--site-border2);
+      background: var(--hover-bg-soft);
     }
-    [data-mode="light"] .bar-row.avg-row { background: rgba(13,13,20,0.02); }
 
     .bar-rk { font-family: var(--font-mono); color: var(--site-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
     .bar-row.bar-top .bar-rk { color: var(--hgb-red); font-weight: 700; }
@@ -403,6 +421,19 @@ function fmtToi(sec: number): string {
     .lb-method-card .v { font-size: 12.5px; color: var(--site-muted); line-height: 1.55; }
     .lb-method-card .v .mono { font-family: var(--font-mono); font-size: 11px; color: var(--site-text); }
 
+    /* ── Empty state (degraded data) ─────────────────────────────────── */
+    .lb-empty {
+      padding: 40px 18px; text-align: center;
+      font-family: var(--font-site-body);
+      color: var(--site-muted); font-size: 13px; line-height: 1.6;
+    }
+    .lb-empty strong {
+      display: block; margin-bottom: 4px;
+      font-family: var(--font-card-display); font-weight: 700;
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--site-text);
+    }
+
     /* ── Footer ─────────────────────────────────────────────────────── */
     .lb-footer {
       text-align: center; margin-top: 48px; color: var(--site-border2);
@@ -515,6 +546,12 @@ function fmtToi(sec: number): string {
           <span>Forwards · Shots / 60</span>
           <span class="sub">league avg {shotsAvg.toFixed(1)} · max {shotsMax.toFixed(1)} · n={allFwds.length} fwds</span>
         </div>
+        {fwdShots.length === 0 && (
+          <div class="lb-empty">
+            <strong>No data available</strong>
+            No forwards match the current filter (min 20 GP).
+          </div>
+        )}
         {fwdShots.map((p, i) => {
           const barW = ((p.value / shotsMax) * 100).toFixed(1);
           const isTop = i < 3;
@@ -532,14 +569,16 @@ function fmtToi(sec: number): string {
             </a>
           );
         })}
-        <!-- League average reference row -->
-        <div class="bar-row avg-row" style="display:grid; grid-template-columns: 30px 160px 1fr 76px 52px; gap:14px; align-items:center; padding:9px 18px;">
-          <span class="bar-rk" style="color:var(--site-muted)">AVG</span>
-          <span class="bar-nm" style="color:var(--site-muted); font-size:12px;">League avg forward</span>
-          <span class="bar-cell"><span class="bar-fill" style={`width:${avgBarPct}%; background:var(--site-border2);`}></span></span>
-          <span class="bar-v" style="color:var(--site-muted); font-size:13px;">{shotsAvg.toFixed(1)}</span>
-          <span class="bar-gp">—</span>
-        </div>
+        <!-- League average reference row (only when data present) -->
+        {hasFwds && (
+          <div class="bar-row avg-row" style="display:grid; grid-template-columns: 30px 160px 1fr 76px 52px; gap:14px; align-items:center; padding:9px 18px;">
+            <span class="bar-rk" style="color:var(--site-muted)">AVG</span>
+            <span class="bar-nm" style="color:var(--site-muted); font-size:12px;">League avg forward</span>
+            <span class="bar-cell"><span class="bar-fill" style={`width:${avgBarPct}%; background:var(--site-border2);`}></span></span>
+            <span class="bar-v" style="color:var(--site-muted); font-size:13px;">{shotsAvg.toFixed(1)}</span>
+            <span class="bar-gp">—</span>
+          </div>
+        )}
       </div>
     </div>
 
@@ -561,6 +600,13 @@ function fmtToi(sec: number): string {
             <span><span class="sw" style="background:#2a2a2a"></span>Rest</span>
           </span>
         </div>
+        {!hasFwds && (
+          <div class="lb-empty">
+            <strong>No data available</strong>
+            Scatter plot requires at least one forward meeting the filter (min 20 GP).
+          </div>
+        )}
+        {hasFwds && (
         <div class="scatter-grid">
           <div class="scatter-plot">
             <svg viewBox={`0 0 610 ${PB + 30}`} preserveAspectRatio="none">
@@ -639,6 +685,7 @@ function fmtToi(sec: number): string {
             ))}
           </div>
         </div>
+        )}
       </div>
     </div>
 
@@ -652,6 +699,12 @@ function fmtToi(sec: number): string {
       </div>
       <p class="lb-sec-lede">Goals per 60 minutes, regardless of position or ice time. The rawest scoring-rate leaderboard — partial seasons welcome (min 10 GP). Caufield at the top is not a fluke.</p>
       <div class="goals-list">
+        {goals60.length === 0 && (
+          <div class="lb-empty">
+            <strong>No data available</strong>
+            No players match the current filter (min 10 GP).
+          </div>
+        )}
         {goals60.map((p, i) => {
           const tc = pickTeamColor(p.team_abbrev);
           const cls = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
