@@ -161,6 +161,14 @@ const recapDate = recapMock.date_label;
          we pre-render once at build time.)
       2. Date pill on the topbar is swapped if the mock diverges between
          live + recap.
+      3. Decide the visible chip set in the LiveHero footer strip:
+           • no param / goals=all → full goal chips, no last-events
+           • ?goals=0             → last-events only
+           • ?goals=1             → 1 goal + up to 3 last-events
+           • ?goals=N             → first N goals (clamped); fill with
+                                    last-events if visible < 2
+         Also handles "+ N more" overflow when goal count exceeds MAX.
+         MIN_SLOTS=4, MAX_SLOTS=6 from data-* on the footer.
   -->
   <script is:inline define:vars={{ liveDate, recapDate }}>
     (function () {
@@ -187,6 +195,73 @@ const recapDate = recapMock.date_label;
       if (dateEl) {
         dateEl.textContent = mode === 'recap' ? recapDate : liveDate;
       }
+
+      // ── LiveHero footer strip: goal/last-events slot allocation ─
+      (function hydrateFooterStrip() {
+        var feed = document.querySelector('.live-hero .goal-feed');
+        if (!feed) return;
+
+        var params = new URLSearchParams(window.location.search);
+        var goalsRaw = params.get('goals'); // null | 'all' | string-int
+
+        var MAX = parseInt(feed.getAttribute('data-max-slots') || '6', 10);
+        var MIN = parseInt(feed.getAttribute('data-min-slots') || '4', 10);
+        var totalGoals = parseInt(feed.getAttribute('data-goal-count') || '0', 10);
+        var totalLast  = parseInt(feed.getAttribute('data-last-count') || '0', 10);
+
+        // Resolve how many goal chips to show.
+        //   default | 'all' → totalGoals (clamped later by MAX)
+        //   '0' / '1' / 'N' → that many
+        var goalsToShow;
+        if (goalsRaw === null || goalsRaw === 'all') {
+          goalsToShow = totalGoals;
+        } else {
+          var parsed = parseInt(goalsRaw, 10);
+          goalsToShow = isNaN(parsed) ? totalGoals : Math.max(0, Math.min(parsed, totalGoals));
+        }
+
+        // Cap goals at MAX (one slot becomes the "+ N more" chip when overflow).
+        var hasOverflow = goalsToShow > MAX;
+        var goalSlots = hasOverflow ? (MAX - 1) : goalsToShow;
+
+        // Decide if last-events fill is needed (only when < 2 goals visible).
+        var lastNeeded = 0;
+        if (goalSlots < 2) {
+          // Fill up to MIN slots minimum, up to MAX ceiling.
+          var desired = Math.max(MIN - goalSlots, 0);
+          // Honor the spec's explicit rule for goals=1: "up to 3 last-events"
+          if (goalsRaw === '1') desired = 3;
+          if (goalsRaw === '0') desired = Math.max(5, MIN); // aim for 5, cap at MAX
+          lastNeeded = Math.min(desired, totalLast, MAX - goalSlots);
+        }
+
+        // Apply visibility to goal chips.
+        var goalChips = feed.querySelectorAll('[data-chip-kind="goal"]');
+        goalChips.forEach(function (chip) {
+          var idx = parseInt(chip.getAttribute('data-chip-idx') || '0', 10);
+          chip.hidden = idx >= goalSlots;
+        });
+
+        // "+ N more" placeholder.
+        var moreChip = feed.querySelector('[data-chip-kind="more"]');
+        if (moreChip) {
+          if (hasOverflow) {
+            var remaining = totalGoals - goalSlots;
+            var countEl = moreChip.querySelector('[data-more-n]');
+            if (countEl) countEl.textContent = String(remaining);
+            moreChip.hidden = false;
+          } else {
+            moreChip.hidden = true;
+          }
+        }
+
+        // Last-events chips fill whatever remains.
+        var lastChips = feed.querySelectorAll('[data-chip-kind="last"]');
+        lastChips.forEach(function (chip) {
+          var idx = parseInt(chip.getAttribute('data-chip-idx') || '0', 10);
+          chip.hidden = idx >= lastNeeded;
+        });
+      })();
     })();
   </script>
 </body>
