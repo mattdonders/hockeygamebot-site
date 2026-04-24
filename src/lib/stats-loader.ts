@@ -4,86 +4,45 @@ import methodologyData from '../data/stats/methodology.json';
 import metaData from '../data/stats/_meta.json';
 import playerGamesData from '../data/stats/player_games.json';
 
-export type RatesPer60 = {
-  goals: number;
-  a1: number;
-  shots: number;
-  ixg: number;
-  pen_diff: number;
-  ev_offence: number;
-  ev_defence: number;
-  finishing: number;
-};
+import {
+  PlayerRecordsSchema,
+  LeaderboardsSchema,
+  PlayerGamesSchema,
+  StatsMetaSchema,
+  MethodologySchema,
+  parseOrThrow,
+  type PlayerRecord,
+  type LeaderboardEntry as ZLeaderboardEntry,
+  type GameLogEntry as ZGameLogEntry,
+  type StatsMeta,
+} from './stats-schemas';
 
-export type Percentiles = {
-  game_score: number;
-  goals: number;
-  a1: number;
-  shots: number;
-  ixg: number;
-  pen_diff: number;
-  ev_offence: number;
-  ev_defence: number;
-  finishing: number;
-};
+// Build-time validation — runs once at module load. On failure the build
+// errors out with a path-aware message instead of silently rendering NaN
+// on pages that depend on these types. See `stats-schemas.ts` for the
+// cross-repo contract.
+const VALIDATED_PLAYERS = parseOrThrow(PlayerRecordsSchema, playersData, 'players.json');
+const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema, leaderboardsData, 'leaderboards.json');
+const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema, playerGamesData, 'player_games.json');
+const VALIDATED_META = parseOrThrow(StatsMetaSchema, metaData, '_meta.json');
+// Methodology schema is loose; parse to catch gross type errors but allow
+// extra keys silently.
+parseOrThrow(MethodologySchema, methodologyData, 'methodology.json');
 
-export type PlayerSummary = {
-  player_id: number;
-  slug: string;
-  first_name: string;
-  last_name: string;
-  display_name: string;
-  pos: string;
-  pos_group: 'F' | 'D';
-  team_abbrev: string;
-  gp: number;
-  goals: number;
-  assists: number;
-  toi_avg_sec: number;
-  avg_gs_display: number;
-  avg_gs_centered: number;
-  gs_pct: number;
-  rates_per_60: RatesPer60;
-  percentiles_vs_pos: Percentiles;
-  rapm: null;
-  war: null;
-  xgar: null;
-  qoc: null;
-  qot: null;
-};
+// ── Public types ────────────────────────────────────────────────────────────
+// Re-exported under their prior names so existing pages keep compiling.
 
-export type LeaderboardEntry = {
-  player_id: number;
-  slug: string;
-  display_name: string;
-  team_abbrev: string;
-  pos: string;
-  gp: number;
-  value: number;
-  pct: number;
-};
+export type RatesPer60 = PlayerRecord['rates_per_60'];
+export type Percentiles = PlayerRecord['percentiles_vs_pos'];
+export type PlayerSummary = PlayerRecord;
+export type LeaderboardEntry = ZLeaderboardEntry;
+export type GameLogEntry = ZGameLogEntry;
+export type MetaData = StatsMeta;
 
-export type GameLogEntry = {
-  game_date: string;
-  opp_abbrev: string;
-  is_home: boolean;
-  goals: number;
-  assists: number;
-  gs_display: number;
-  team_score: number;
-  opp_score: number;
-};
-
-export type MetaData = {
-  season: string;
-  generated_at: string;
-  source_sha256: string;
-  player_count: number;
-  pending_fields: string[];
-};
+// ── Loaders ─────────────────────────────────────────────────────────────────
 
 export function loadPlayers(): PlayerSummary[] {
-  return playersData as unknown as PlayerSummary[];
+  return VALIDATED_PLAYERS;
 }
 
 export function loadPlayer(slugOrId: string): PlayerSummary | null {
@@ -101,17 +60,15 @@ export function loadPlayer(slugOrId: string): PlayerSummary | null {
 export function loadLeaderboard(
   metric: 'game_score' | 'goals' | 'assists' | 'xg',
 ): LeaderboardEntry[] {
-  const boards = leaderboardsData as unknown as Record<string, LeaderboardEntry[]>;
-  return boards[metric] ?? [];
+  return VALIDATED_LEADERBOARDS[metric] ?? [];
 }
 
 export function loadMeta(): MetaData {
-  return metaData as unknown as MetaData;
+  return VALIDATED_META;
 }
 
 export function loadPlayerGames(playerId: number): GameLogEntry[] {
-  const map = playerGamesData as unknown as Record<string, GameLogEntry[]>;
-  return map[String(playerId)] ?? [];
+  return VALIDATED_PLAYER_GAMES[String(playerId)] ?? [];
 }
 
 // TODO: Once hgb-bot scripts/export_stats_data.py writes _meta.player_of_the_week
