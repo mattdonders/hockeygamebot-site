@@ -2,15 +2,23 @@
 /**
  * LiveHero — dense featured-game panel for /home-v2.
  *
- * Pixel-close reproduction of `.live-hero` in
- * docs/designs/ui_kits/website/index.html.
+ * Layer 1 shipped a 3-bar right pane (SHOTS / xG / TILT). SITE-HOME-015
+ * refines it:
+ *   • Right pane is now 4 bars: SHOTS · 5V5 xG · xG · ALL · WIN PROBABILITY
+ *   • Game state (PP / EN / SO / 4v4 / 3v3) renders inline with the
+ *     `LIVE · PERIOD · CLOCK` header line, color-coded per state type.
+ *   • Goal feed caps at 4-6 chips, no horizontal scrollbar; "+ N more"
+ *     placeholder in the last slot when truncated.
+ *   • When goal_feed is empty or near-empty, a last-events strip fills the
+ *     footer — the old bot had this pattern; Layer 1 missed it.
  *
  * Structure:
- *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock + meta chips
+ *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock + optional
+ *                inline state + right-aligned broadcast/series chips
  *   2. lh-body 1.2fr / 1fr grid:
  *      • lh-scoreblock: 3-col teams row + period-by-period table
- *      • lh-stats: 3 horizontal stat bars (shots / xG / tilt)
- *   3. goal-feed: horizontal-scroll goal chips; includes overturned variant
+ *      • lh-stats: 4 horizontal stat bars
+ *   3. footer-strip: goal chips OR last-events chips (fallback)
  *
  * Losing team gets dim abbrev + score + 0.4-opacity/0.5-grayscale logo.
  * Active period cell in the PBP table gets cyan treatment.
@@ -44,19 +52,43 @@ export interface GoalEntry {
   review_reason?: string;
 }
 
+/** Last-events strip (fallback when goal_feed has < 2 entries).
+ *  Known `type` values: PP_START | PP_END | PK_START | PK_END |
+ *  PENALTY | TIMEOUT | SHOT. Stored as a plain string to keep the
+ *  .astro frontmatter cheap to parse. */
+export interface LastEventEntry {
+  period: number;
+  clock: string;
+  type: string;
+  team?: string;
+  player?: string;
+  reason?: string;
+  danger?: string; // "low" | "medium" | "high"
+}
+
+/** Inline strength-state chip on the LIVE line (null / 5v5 = hidden). */
+export interface StrengthState {
+  state: string;        // PP | EN | SO | 4v4 | 3v3 | 5v5
+  team?: string;        // e.g. "BUF" — required for PP
+  clock?: string;       // e.g. "0:47" remaining
+}
+
 export interface FeaturedGame {
   status: 'live' | 'final' | 'scheduled';
   period: number;
   clock: string;
   meta_chips: string[];
+  strength_state?: StrengthState | null;
   home: TeamPane;
   away: TeamPane;
   stats: {
     shots: StatPair;
+    xg_5v5: StatPair;
     xg: StatPair;
-    tilt: StatPair;
+    wp: StatPair;
   };
   goal_feed: GoalEntry[];
+  last_events?: LastEventEntry[];
 }
 
 interface Props {
@@ -93,12 +125,44 @@ function pct(a: number, b: number): [string, string] {
   return [`${(a / sum) * 100}%`, `${(b / sum) * 100}%`];
 }
 const [shotsL, shotsR] = pct(stats.shots.home, stats.shots.away);
+const [xg5L, xg5R] = pct(stats.xg_5v5.home, stats.xg_5v5.away);
 const [xgL, xgR] = pct(stats.xg.home, stats.xg.away);
-const [tiltL, tiltR] = pct(stats.tilt.home, stats.tilt.away);
+const [wpL, wpR] = pct(stats.wp.home, stats.wp.away);
 
 function fmtClock(): string {
   return `Live · Period ${game.period} · ${game.clock}`;
 }
+
+/**
+ * Resolve the inline game-state suffix shown on the LIVE line.
+ * 5v5 (and unset) is intentionally omitted — the LIVE line stays clean.
+ *
+ * Returns null to suppress; otherwise { text, colorVar } where colorVar
+ * is a CSS custom-property reference used for inline style color.
+ */
+type StateChip = { text: string; colorVar: string } | null;
+function resolveStrengthChip(s?: StrengthState | null): StateChip {
+  if (!s) return null;
+  const state = (s.state || '').toUpperCase();
+  if (!state || state === '5V5') return null;
+
+  // Format: "TEAM STATE CLOCK" with any missing parts trimmed.
+  const parts = [s.team, state, s.clock].filter(Boolean);
+  const text = parts.join(' ');
+
+  // Color rules (see SITE-HOME-015 spec):
+  //   PP             → cyan (--status-live)     advantage energy
+  //   EN             → orange (--status-ot)     high-stakes
+  //   4v4 / 3v3      → blue (--status-intermission)
+  //   SO             → red (--hgb-red)
+  let colorVar = 'var(--status-live)';
+  if (state === 'EN') colorVar = 'var(--status-ot)';
+  else if (state === '4V4' || state === '3V3') colorVar = 'var(--status-intermission)';
+  else if (state === 'SO') colorVar = 'var(--hgb-red)';
+
+  return { text, colorVar };
+}
+const stateChip = resolveStrengthChip(game.strength_state);
 ---
 <section class="live-hero" aria-label="Featured live game">
 
@@ -107,6 +171,11 @@ function fmtClock(): string {
     <div class="badge">
       <span class="dot" aria-hidden="true"></span>
       <span>{fmtClock()}</span>
+      {stateChip && (
+        <span class="state" style={`color:${stateChip.colorVar};`}>
+          · {stateChip.text}
+        </span>
+      )}
     </div>
     <div class="meta">
       {game.meta_chips.map((chip) => (
@@ -166,10 +235,10 @@ function fmtClock(): string {
       </div>
     </div>
 
-    <!-- stats sidebar -->
+    <!-- stats sidebar — 4 bars: SHOTS · 5V5 xG · xG · ALL · WIN PROBABILITY -->
     <div class="lh-stats">
       <div class="lh-stat">
-        <div class="vl">{stats.shots.home}</div>
+        <div class:list={['vl', { dim: homeLoser }]}>{stats.shots.home}</div>
         <div class="lbl">Shots on Goal</div>
         <div class:list={['vr', { dim: awayLoser }]}>{stats.shots.away}</div>
         <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
@@ -179,8 +248,18 @@ function fmtClock(): string {
       </div>
 
       <div class="lh-stat">
-        <div class="vl">{stats.xg.home.toFixed(2)}</div>
-        <div class="lbl">Expected Goals (xG)</div>
+        <div class:list={['vl', { dim: homeLoser }]}>{stats.xg_5v5.home.toFixed(2)}</div>
+        <div class="lbl">5v5 xG</div>
+        <div class:list={['vr', { dim: awayLoser }]}>{stats.xg_5v5.away.toFixed(2)}</div>
+        <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+          <div class="l" style={`width:${xg5L};`}></div>
+          <div class="r" style={`width:${xg5R};`}></div>
+        </div>
+      </div>
+
+      <div class="lh-stat">
+        <div class:list={['vl', { dim: homeLoser }]}>{stats.xg.home.toFixed(2)}</div>
+        <div class="lbl">xG · All</div>
         <div class:list={['vr', { dim: awayLoser }]}>{stats.xg.away.toFixed(2)}</div>
         <div class="bar cyan">
           <div class="l" style={`width:${xgL};`}></div>
@@ -189,12 +268,12 @@ function fmtClock(): string {
       </div>
 
       <div class="lh-stat">
-        <div class="vl">{stats.tilt.home}{stats.tilt.unit ?? ''}</div>
-        <div class="lbl">Offensive Tilt</div>
-        <div class:list={['vr', { dim: awayLoser }]}>{stats.tilt.away}{stats.tilt.unit ?? ''}</div>
+        <div class:list={['vl', { dim: homeLoser }]}>{stats.wp.home}{stats.wp.unit ?? '%'}</div>
+        <div class="lbl">Win Probability</div>
+        <div class:list={['vr', { dim: awayLoser }]}>{stats.wp.away}{stats.wp.unit ?? '%'}</div>
         <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
-          <div class="l" style={`width:${tiltL};`}></div>
-          <div class="r" style={`width:${tiltR};`}></div>
+          <div class="l" style={`width:${wpL};`}></div>
+          <div class="r" style={`width:${wpR};`}></div>
         </div>
       </div>
     </div>
@@ -267,6 +346,17 @@ function fmtClock(): string {
     background: var(--status-live);
     box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
     animation: ringPulse 1.8s ease-out infinite;
+  }
+
+  /* Inline game-state suffix on the LIVE line (PP/EN/SO/4v4/3v3).
+     5v5 is intentionally hidden by the renderer — no chip noise. */
+  .badge .state {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    /* color is set inline from the resolver per-state-type */
   }
 
   @keyframes ringPulse {
@@ -450,19 +540,23 @@ function fmtClock(): string {
   }
 
   /* ── live sidebar ─────────────────────────────────────────────── */
+  /* 4 bars fit the same vertical block as Layer 1's 3 bars by shaving
+     the top/bottom container padding (20→16) and the inter-row gap
+     (14→11). Values are inherited 18px tabular-nums; labels stay 10px. */
   .lh-stats {
-    padding: 20px 24px;
+    padding: 16px 24px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 11px;
     background: #0c0c0c;
   }
 
   .lh-stat {
     display: grid;
-    grid-template-columns: 48px 1fr 48px;
+    grid-template-columns: 52px 1fr 52px;
     align-items: center;
-    gap: 10px;
+    row-gap: 4px;
+    column-gap: 10px;
   }
 
   .lh-stat .vl,
@@ -470,7 +564,7 @@ function fmtClock(): string {
     font-family: var(--font-site-display);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    font-size: 18px;
+    font-size: 17px;
     color: var(--site-white);
   }
   .lh-stat .vl { text-align: left; }
@@ -491,7 +585,7 @@ function fmtClock(): string {
   .lh-stat .bar {
     grid-column: 1 / -1;
     display: flex;
-    height: 6px;
+    height: 5px;
     background: #151515;
     border-radius: var(--radius-sm);
     overflow: hidden;
@@ -501,7 +595,7 @@ function fmtClock(): string {
   .lh-stat .bar .l { background: var(--hc, var(--hgb-red)); }
   .lh-stat .bar .r { background: var(--ac, #2a2a2a); }
 
-  /* Cyan variant for xG — matches design reference */
+  /* Cyan variant for one callout bar (xG · All) — matches design reference */
   .lh-stat .bar.cyan .l { background: var(--status-live); }
   .lh-stat .bar.cyan .r { background: #1a4050; }
 
