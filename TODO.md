@@ -4,6 +4,7 @@
 
 - [ ] WSH/NYR random WP dip — single bad data point, user chose not to fix unless cause is obvious
 - [ ] Rangers blowout: late-game goals showing +0.0% WP delta when model is already near 100% ceiling
+- [ ] **Leaderboards scatter margins** (`/stats/leaderboards` xG×Finishing plot): dots cluster upper-right, leaving large empty lower-left dead zone. The real fix is a proper axis range trim or log/sqrt x-scale — `preserveAspectRatio="none"` and `xMin=min*0.85` didn't resolve it visually. Defer to SS-7 or a dedicated scatter polish pass.
 
 ## Pending Action Items
 
