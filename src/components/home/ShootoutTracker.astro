@@ -7,13 +7,27 @@
  * pane (score block + period table) keeps rendering normally — the period
  * table grows an "SO" column, highlighted, when the game is in SO.
  *
- * Layout:
- *   ▍ SHOOTOUT · ROUND 4         (cyan dot pulse + label, mirrors LIVE)
- *   ─────────────────────────────
- *   HOME │ ✓  ✓  ✗  •            (one cell per round; •/— = upcoming)
- *   AWAY │ ✗  ✓  ✓  •
- *   ─────────────────────────────
- *   Swayman 2/4 · UPL 1/4         (goalies summary line)
+ * Two display modes:
+ *
+ *   STANDARD (rounds 1-4):
+ *     ▍ SHOOTOUT · ROUND 4
+ *     ─────────────────────────────
+ *     HOME │ ✓  ✓  ✗  •            (one cell per round; •/— = upcoming)
+ *     AWAY │ ✗  ✓  ✓  •            (each cell shows ✓/✗ + shooter name)
+ *     ─────────────────────────────
+ *     Swayman 2/4 · UPL 1/4
+ *
+ *   COMPACT (round 5+, i.e. sudden death engaged):
+ *     ▍ SHOOTOUT · ROUND 7
+ *           R1 R2 R3 R4 R5 R6 R7
+ *     HOME  ✓  ✗  ✓  ✓  ✗  ✓  •   (smaller cells, ✓/✗ only, names hidden,
+ *     AWAY  ✗  ✓  ✓  ✓  ✗  ✗  •    column headers per round)
+ *     ─────────────────────────────
+ *     Swayman 4/7 · UPL 5/7
+ *
+ *   Beyond 8 visible cells in compact: the round grid container scrolls
+ *   horizontally within the right pane (NOT page-level). Goalie summary
+ *   footer stays put — only the grid above it overflows.
  */
 
 export type ShootoutResult = 'goal' | 'save' | 'miss' | 'pending';
@@ -48,10 +62,16 @@ const { round, home, away, goalies, homeLabel = 'HOME', awayLabel = 'AWAY' } = A
 
 // We always render at least 4 columns visually so the grid feels like a
 // "round counter", not "however-many-attempts-have-been-taken". If the
-// game blows past 4 rounds (real shootouts can go 5, 6, 10), expand to
+// game blows past 4 rounds (real shootouts can go 5, 6, 10+), expand to
 // match the longest team's attempt count.
 const minCols = 4;
 const totalCols = Math.max(minCols, home.length, away.length);
+
+// Compact mode auto-engages once the game enters sudden death (round > 4).
+// In compact mode: smaller cells, ✓/✗ glyphs only, shooter names hidden,
+// round numbers as column headers. Beyond 8 visible cells, the grid
+// scrolls horizontally inside the right pane (CSS rule on .so-grid-wrap).
+const isCompact = round > 4;
 
 function cellClassFor(result: ShootoutResult | undefined): string {
   if (!result) return 'so-cell pending';
@@ -75,8 +95,12 @@ function rowCells(team: ShootoutAttempt[]): Array<ShootoutAttempt | null> {
 }
 const homeCells = rowCells(home);
 const awayCells = rowCells(away);
+
+// Round-number column headers (compact mode only). Reuses totalCols so
+// the header track lines up with the cell tracks below.
+const roundHeaders = Array.from({ length: totalCols }, (_, i) => i + 1);
 ---
-<section class="so-tracker" aria-label="Shootout tracker">
+<section class:list={['so-tracker', { 'so-compact': isCompact }]} aria-label="Shootout tracker">
   <div class="so-head">
     <span class="so-head-l">
       <span class="dot" aria-hidden="true"></span>
@@ -84,22 +108,39 @@ const awayCells = rowCells(away);
     </span>
   </div>
 
-  <div class="so-grid" style={`--so-cols:${totalCols};`} role="table">
-    <div class="so-team" role="rowheader">{homeLabel}</div>
-    {homeCells.map(cell => (
-      <div class={cellClassFor(cell?.result)} role="cell">
-        <span class="so-glyph">{cellGlyphFor(cell?.result)}</span>
-        {cell?.shooter && <span class="so-name">{cell.shooter}</span>}
-      </div>
-    ))}
+  <!--
+    Horizontal-scroll wrapper. In standard mode the grid fits inside
+    the pane and `overflow-x: auto` is a no-op. In compact mode beyond
+    ~8 rounds the cells overflow this wrapper and a scrollbar appears
+    INSIDE the right pane — the page itself never scrolls horizontally.
+  -->
+  <div class="so-grid-wrap">
+    <div class="so-grid" style={`--so-cols:${totalCols};`} role="table">
+      {isCompact && (
+        <>
+          <div class="so-team-h" aria-hidden="true"></div>
+          {roundHeaders.map(n => (
+            <div class="so-round-h" role="columnheader">R{n}</div>
+          ))}
+        </>
+      )}
 
-    <div class="so-team" role="rowheader">{awayLabel}</div>
-    {awayCells.map(cell => (
-      <div class={cellClassFor(cell?.result)} role="cell">
-        <span class="so-glyph">{cellGlyphFor(cell?.result)}</span>
-        {cell?.shooter && <span class="so-name">{cell.shooter}</span>}
-      </div>
-    ))}
+      <div class="so-team" role="rowheader">{homeLabel}</div>
+      {homeCells.map(cell => (
+        <div class={cellClassFor(cell?.result)} role="cell">
+          <span class="so-glyph">{cellGlyphFor(cell?.result)}</span>
+          {!isCompact && cell?.shooter && <span class="so-name">{cell.shooter}</span>}
+        </div>
+      ))}
+
+      <div class="so-team" role="rowheader">{awayLabel}</div>
+      {awayCells.map(cell => (
+        <div class={cellClassFor(cell?.result)} role="cell">
+          <span class="so-glyph">{cellGlyphFor(cell?.result)}</span>
+          {!isCompact && cell?.shooter && <span class="so-name">{cell.shooter}</span>}
+        </div>
+      ))}
+    </div>
   </div>
 
   <div class="so-foot">
@@ -157,12 +198,46 @@ const awayCells = rowCells(away);
   }
 
   /* ── Round grid — 1 row per team, 1 cell per round. ──────────── */
+
+  /* Scroll wrapper — only matters in compact mode beyond 8 rounds. In
+     standard mode the grid fits comfortably and overflow is a no-op.
+     `overflow-x: auto` confines the scrollbar to the right pane so the
+     page itself never scrolls horizontally on a wild 12-round shootout. */
+  .so-grid-wrap {
+    flex: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* Slim scrollbar styling — match the dark surface. */
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a transparent;
+  }
+  .so-grid-wrap::-webkit-scrollbar {
+    height: 6px;
+  }
+  .so-grid-wrap::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border-radius: 3px;
+  }
+
+  /* Standard mode (rounds 1-4): cells flex to fill the pane. */
   .so-grid {
     display: grid;
     grid-template-columns: 60px repeat(var(--so-cols, 4), 1fr);
     gap: 6px;
     align-items: stretch;
     flex: none;
+  }
+
+  /* Compact mode (round 5+): fixed-width cells so they stay legible
+     when 7+ columns render. Cell width landed at 56px — just wide
+     enough to host the ✓/✗ glyph at 18px without crowding the round
+     header above. The team-label column shrinks too (40px) since names
+     hide and the glyphs are doing the visual work. 8 cells × 56 + 40
+     + gaps ≈ 530px which fits the right pane comfortably (typical
+     pane is ~520-560px wide). 9th+ cell triggers .so-grid-wrap scroll. */
+  .so-compact .so-grid {
+    grid-template-columns: 40px repeat(var(--so-cols, 4), 56px);
+    gap: 4px;
   }
 
   .so-team {
@@ -173,6 +248,24 @@ const awayCells = rowCells(away);
     text-transform: uppercase;
     color: var(--site-muted);
     align-self: center;
+  }
+  .so-compact .so-team {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+
+  /* Round-number header row (compact only): R1 R2 R3 … above each cell. */
+  .so-team-h {
+    /* Spacer cell above the team-label column. */
+  }
+  .so-round-h {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--site-muted);
+    text-align: center;
+    padding-bottom: 2px;
   }
 
   .so-cell {
@@ -188,6 +281,12 @@ const awayCells = rowCells(away);
     min-height: 52px;
     overflow: hidden;
   }
+  /* Compact cells: shorter, no shooter-name slot to host. */
+  .so-compact .so-cell {
+    padding: 6px 2px;
+    min-height: 38px;
+    gap: 0;
+  }
 
   .so-glyph {
     font-family: var(--font-site-display);
@@ -196,6 +295,9 @@ const awayCells = rowCells(away);
     line-height: 1;
     color: #444;
     font-variant-numeric: tabular-nums;
+  }
+  .so-compact .so-glyph {
+    font-size: 18px;
   }
   .so-name {
     font-family: var(--font-site-body);
