@@ -1,0 +1,277 @@
+---
+/**
+ * TweetEcho — "what auto-posted overnight" section (SITE-HOME-04 / Layer 4).
+ *
+ * Stylized list of 3-4 tweet cards that mirror the auto-posts from
+ * @HockeyGameBot during the night. Each card carries:
+ *   - HGB avatar (red square with HGB wordmark)
+ *   - handle line + posted timestamp
+ *   - body_html (rendered with set:html — internal-only input from the
+ *     bot pipeline, allowed spans listed below)
+ *   - card_type footer (the script that generated the original PNG)
+ *   - engagement counts (likes / retweets / replies)
+ *
+ * Allowed body_html
+ * -----------------
+ * Constrained to a small set of inline tags + classes that round-trip
+ * cleanly between the bot's tweet templater and this surface:
+ *   <b>, <strong>      — emphasis
+ *   <br>               — newline
+ *   <span class="hl">  — cyan accent (live ticker)
+ *   <span class="gold">— gold accent (milestone)
+ *   <span class="red"> — red accent (alert / clinch)
+ *   <span class="green">— green accent (hot)
+ *
+ * Anything outside this allowlist will still render (set:html) but
+ * won't be styled — keep the bot strict about what it emits.
+ *
+ * Section header voice
+ * --------------------
+ * "Every card on this page also went out on @HockeyGameBot as it
+ * happened. This is the feed in reverse order."
+ */
+
+export interface TweetEchoEntry {
+  /** ISO-8601 timestamp; not displayed but useful for sort/audit. */
+  posted_at: string;
+  /** Human-readable time label, e.g. "10:47 PM" — what the user sees. */
+  posted_label: string;
+  /** Card-type footer, e.g. "CLINCH CARD · 1200×675". */
+  card_type: string;
+  /** Inner HTML with the allowlist documented above. */
+  body_html: string;
+  engagement: {
+    likes: number;
+    retweets: number;
+    replies: number;
+  };
+}
+
+export interface Props {
+  /** Newest first. Renders all entries in order. */
+  tweets: TweetEchoEntry[];
+  /** Section heading override. */
+  heading?: string;
+  /** Lede paragraph override. */
+  lede?: string;
+  /** Display handle, default `@HockeyGameBot`. */
+  handle?: string;
+  /** Display name, default `HockeyGameBot`. */
+  displayName?: string;
+}
+
+const {
+  tweets,
+  heading = 'What auto-posted overnight',
+  lede = 'Every card on this page also went out on @HockeyGameBot as it happened. This is the feed in reverse order — use it to catch up on the night.',
+  handle = '@HockeyGameBot',
+  displayName = 'HockeyGameBot',
+} = Astro.props;
+
+// Format engagement counts so 4200 → "4.2K", 812 → "812", etc.
+function formatCount(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '0';
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    return (m >= 10 ? m.toFixed(0) : m.toFixed(1)) + 'M';
+  }
+  if (n >= 1000) {
+    const k = n / 1000;
+    return (k >= 10 ? k.toFixed(0) : k.toFixed(1)) + 'K';
+  }
+  return String(Math.round(n));
+}
+
+// Highlight the @-mention inside the lede (visual flourish). Splits on
+// the handle so we keep the surrounding string textual + interpolate a
+// styled span.
+function ledeParts(text: string, h: string) {
+  const idx = text.indexOf(h);
+  if (idx === -1) return { before: text, mention: '', after: '' };
+  return {
+    before: text.slice(0, idx),
+    mention: h,
+    after: text.slice(idx + h.length),
+  };
+}
+const lp = ledeParts(lede, handle);
+---
+<section class="tweet-echo" aria-label="What auto-posted overnight">
+  <header class="te-head">
+    <h2 class="te-h2">{heading}</h2>
+    <p class="te-lede">
+      <span>{lp.before}</span>
+      {lp.mention && <b class="te-mention">{lp.mention}</b>}
+      <span>{lp.after}</span>
+    </p>
+  </header>
+
+  <div class="te-row">
+    {tweets.map((t) => (
+      <article class="te-card" data-recap-hook="open-detail-modal">
+        <div class="te-th">
+          <div class="te-ava" aria-hidden="true">HGB</div>
+          <div class="te-id">
+            <span class="te-name">{displayName}</span>
+            <span class="te-handle">{handle} · {t.posted_label}</span>
+          </div>
+        </div>
+        <div class="te-body" set:html={t.body_html}></div>
+        <div class="te-card-type" aria-label={`Generated from ${t.card_type}`}>{t.card_type}</div>
+        <div class="te-engage" aria-label="Engagement">
+          <span class="te-likes">♡ {formatCount(t.engagement.likes)}</span>
+          <span class="te-rts">↻ {formatCount(t.engagement.retweets)}</span>
+          <span class="te-replies">💬 {formatCount(t.engagement.replies)}</span>
+        </div>
+      </article>
+    ))}
+  </div>
+</section>
+
+<style>
+  .tweet-echo {
+    margin: 48px 0 24px;
+    padding-top: 20px;
+    border-top: 1px solid #181818;
+  }
+
+  .te-head { margin-bottom: 16px; }
+  .te-h2 {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 22px;
+    color: var(--site-white);
+    margin: 0 0 6px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .te-lede {
+    color: #888;
+    font-family: var(--font-site-body);
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+    max-width: 680px;
+  }
+  .te-mention {
+    color: var(--site-white);
+    font-weight: 700;
+  }
+
+  .te-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+
+  .te-card {
+    background: #0a0a0a;
+    border: 1px solid var(--site-border);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    transition: border-color 0.15s, transform 0.15s;
+    cursor: pointer;
+  }
+  .te-card:hover {
+    border-color: #2a2a2a;
+    transform: translateY(-1px);
+  }
+
+  .te-th {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .te-ava {
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    background: var(--hgb-red);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+  }
+
+  .te-id {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+    min-width: 0;
+  }
+  .te-name {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--site-white);
+    letter-spacing: 0.02em;
+  }
+  .te-handle {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #888;
+    letter-spacing: 0.04em;
+  }
+
+  .te-body {
+    font-size: 13px;
+    color: #ddd;
+    line-height: 1.5;
+    margin-top: 6px;
+  }
+
+  /*
+   * Allowlist of inline span classes the bot pipeline may emit inside
+   * tweet body_html. Anything else stays unstyled. Kept as :global so
+   * the set:html'd content actually picks the rule up.
+   */
+  .te-body :global(b),
+  .te-body :global(strong) {
+    color: var(--site-white);
+    font-weight: 600;
+  }
+  .te-body :global(.hl)    { color: var(--status-live); }
+  .te-body :global(.gold)  { color: #ffd54a; }
+  .te-body :global(.red)   { color: #ff7b8a; }
+  .te-body :global(.green) { color: var(--status-goal); }
+
+  .te-card-type {
+    margin-top: 10px;
+    padding: 24px 10px;
+    background: #0f0f0f;
+    border: 1px dashed #2a2a2a;
+    border-radius: 2px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #555;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .te-engage {
+    display: flex;
+    gap: 14px;
+    margin-top: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #666;
+  }
+
+  /* Responsive — 2-col tablet, 1-col phone. */
+  @media (max-width: 1024px) {
+    .te-row { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .te-row { grid-template-columns: 1fr; }
+    .te-h2 { font-size: 18px; }
+    .te-lede { font-size: 12px; }
+  }
+</style>
