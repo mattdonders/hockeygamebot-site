@@ -1,0 +1,194 @@
+---
+/**
+ * RecapWall — 12-col masonry-style grid that renders a mixed bag of
+ * artifact cards from `recap.wall[]` (SITE-HOME-04 / Layer 4).
+ *
+ * Each card carries:
+ *   - slug — discriminator into the artifact-component map (matches
+ *            `ArtifactSlug` in src/lib/artifact-schemas.ts)
+ *   - span — Tailwind-ish `a-N` token: `a-4`, `a-6`, `a-8`, `a-12`
+ *   - data — prop payload for the matching artifact component
+ *
+ * The wall itself does no layout decisions; the parent supplies the
+ * fully-mixed list and we render in order. Span normalizes mid-12 grid.
+ *
+ * Filter behaviour
+ * ----------------
+ * The `RecapFilterBar` stamps `data-filter="…"` on the wall. CSS rules
+ * here hide cells whose `data-slug` does not match the current filter
+ * (no JS framework needed). `data-filter="all"` is the no-op state.
+ *
+ * Filter → slug map:
+ *   all        → everything
+ *   games      → game
+ *   hot        → hot
+ *   cold       → cold
+ *   milestones → milestone, hattrick   (hat-trick is a milestone subtype)
+ *   lines      → line
+ *   clinches   → clinch
+ *   stars      → stars, goalie         (postgame star/goalie awards)
+ *
+ * Cards in `season` slug are visible only under `all` — they're an
+ * editorial overlay, not a category in the chip filter.
+ *
+ * Click hooks
+ * -----------
+ * Each cell is `data-recap-hook="open-detail-modal"`. No-op for now;
+ * Layer 5+ wires the modal.
+ */
+
+import ArtifactGame from './artifacts/ArtifactGame.astro';
+import ArtifactHot from './artifacts/ArtifactHot.astro';
+import ArtifactCold from './artifacts/ArtifactCold.astro';
+import ArtifactMilestone from './artifacts/ArtifactMilestone.astro';
+import ArtifactLine from './artifacts/ArtifactLine.astro';
+import ArtifactClinch from './artifacts/ArtifactClinch.astro';
+import ArtifactSeason from './artifacts/ArtifactSeason.astro';
+import ArtifactHatTrick from './artifacts/ArtifactHatTrick.astro';
+import ArtifactThreeStars from './artifacts/ArtifactThreeStars.astro';
+import ArtifactGoalie from './artifacts/ArtifactGoalie.astro';
+import ArtifactMatchup from './artifacts/ArtifactMatchup.astro';
+
+import type { ArtifactSlug } from '../../lib/artifact-schemas';
+
+export type RecapWallSpan = 'a-3' | 'a-4' | 'a-6' | 'a-8' | 'a-12';
+
+export interface RecapWallEntry {
+  slug: ArtifactSlug;
+  span: RecapWallSpan;
+  /** Loose-typed at this boundary; the parent has already validated via Zod. */
+  data: Record<string, any>;
+  /**
+   * Sort metadata (Layer 4.5) — stamped on each cell as data-* attributes
+   * so the inline RecapFilterBar sort handler can re-order siblings
+   * without re-rendering. Both fields are required by the schema in
+   * recap-mock-schemas.ts; the bot pipeline must populate them.
+   */
+  posted_at: string;
+  narrative_weight: number;
+}
+
+export interface Props {
+  /** Ordered cards. The wall renders them in order; consumer decides ordering. */
+  cards: RecapWallEntry[];
+  /**
+   * Default sort key. The wall starts pre-sorted by this key at SSR time;
+   * the inline sort handler can flip between 'impact' and 'latest' at
+   * runtime. Default: 'impact' (HGB IMPACT, largest first).
+   */
+  defaultSort?: 'impact' | 'latest';
+}
+
+const { cards, defaultSort = 'impact' } = Astro.props;
+
+/**
+ * Pre-sort at SSR time so the rendered HTML matches the default sort
+ * choice — avoids a client-side re-shuffle flash on first paint. The
+ * inline handler in RecapFilterBar flips DOM order for non-default sort.
+ */
+function compareImpact(a: RecapWallEntry, b: RecapWallEntry): number {
+  return (b.narrative_weight ?? 0) - (a.narrative_weight ?? 0);
+}
+function compareLatest(a: RecapWallEntry, b: RecapWallEntry): number {
+  // Newest first. ISO-8601 strings sort lexicographically equivalent to
+  // chronological order, so a string comparison is sufficient.
+  return (b.posted_at ?? '').localeCompare(a.posted_at ?? '');
+}
+const orderedCards = [...cards].sort(
+  defaultSort === 'latest' ? compareLatest : compareImpact,
+);
+---
+<div class="recap-wall" data-filter="all" data-sort={defaultSort}>
+  {orderedCards.map((card) => (
+    <div
+      class:list={['recap-cell', card.span]}
+      data-slug={card.slug}
+      data-recap-hook="open-detail-modal"
+      data-narrative-weight={card.narrative_weight}
+      data-posted-at={card.posted_at}
+    >
+      {card.slug === 'game' && <ArtifactGame {...card.data} />}
+      {card.slug === 'hot' && <ArtifactHot {...card.data} />}
+      {card.slug === 'cold' && <ArtifactCold {...card.data} />}
+      {card.slug === 'milestone' && <ArtifactMilestone {...card.data} />}
+      {card.slug === 'line' && <ArtifactLine {...card.data} />}
+      {card.slug === 'clinch' && <ArtifactClinch {...card.data} />}
+      {card.slug === 'season' && <ArtifactSeason {...card.data} />}
+      {card.slug === 'hattrick' && <ArtifactHatTrick {...card.data} />}
+      {card.slug === 'stars' && <ArtifactThreeStars {...card.data} />}
+      {card.slug === 'goalie' && <ArtifactGoalie {...card.data} />}
+      {card.slug === 'matchup' && <ArtifactMatchup {...card.data} />}
+    </div>
+  ))}
+</div>
+
+<style>
+  .recap-wall {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 18px;
+  }
+
+  .recap-cell { min-width: 0; display: flex; }
+  .recap-cell > :global(*) { flex: 1 1 0; min-width: 0; }
+
+  .recap-cell.a-3  { grid-column: span 3; }
+  .recap-cell.a-4  { grid-column: span 4; }
+  .recap-cell.a-6  { grid-column: span 6; }
+  .recap-cell.a-8  { grid-column: span 8; }
+  .recap-cell.a-12 { grid-column: span 12; }
+
+  /*
+   * Filter rules. Default state is data-filter="all" — every cell
+   * stays visible. Each non-`all` filter hides every cell that does
+   * not match the slug list for that chip.
+   *
+   * Implementation note: `display:none` (not `visibility:hidden`) so
+   * the grid auto-flows to fill any holes when filters re-pack the row.
+   */
+  .recap-wall[data-filter="games"] .recap-cell:not([data-slug="game"]) { display: none; }
+  .recap-wall[data-filter="hot"] .recap-cell:not([data-slug="hot"])    { display: none; }
+  .recap-wall[data-filter="cold"] .recap-cell:not([data-slug="cold"])  { display: none; }
+  .recap-wall[data-filter="milestones"]
+    .recap-cell:not([data-slug="milestone"]):not([data-slug="hattrick"]) { display: none; }
+  .recap-wall[data-filter="lines"] .recap-cell:not([data-slug="line"])    { display: none; }
+  .recap-wall[data-filter="clinches"] .recap-cell:not([data-slug="clinch"]) { display: none; }
+  .recap-wall[data-filter="stars"]
+    .recap-cell:not([data-slug="stars"]):not([data-slug="goalie"]) { display: none; }
+
+  /* Hover affordance: slight border highlight + cursor on cells. The
+     artifact cards already provide their own hover-actions — this is
+     just the cell-level click-target signal. */
+  .recap-cell {
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .recap-cell:hover { transform: translateY(-1px); }
+
+  /*
+   * Sort-change animation. When the inline sort handler stamps a fresh
+   * `data-sort` value, it briefly toggles `.is-sorting` on the wall.
+   * The opacity dip makes the DOM reorder less jarring than an instant
+   * jump; cards fade to ~0.35 then snap back. CSS-only — no JS-driven
+   * keyframe wait required.
+   */
+  .recap-wall.is-sorting .recap-cell { opacity: 0.35; }
+
+  /* Responsive collapse — preserve 12-col on big screens, collapse to
+     6-col @ tablet, 1-col @ phone. Keeps a-12 always full-width. */
+  @media (max-width: 1024px) {
+    .recap-wall { grid-template-columns: repeat(6, 1fr); gap: 14px; }
+    .recap-cell.a-8 { grid-column: span 6; }
+    .recap-cell.a-6 { grid-column: span 6; }
+    .recap-cell.a-4 { grid-column: span 3; }
+    .recap-cell.a-3 { grid-column: span 3; }
+  }
+  @media (max-width: 640px) {
+    .recap-wall { grid-template-columns: 1fr; gap: 12px; }
+    .recap-cell.a-3,
+    .recap-cell.a-4,
+    .recap-cell.a-6,
+    .recap-cell.a-8,
+    .recap-cell.a-12 { grid-column: span 1; }
+  }
+</style>

@@ -1,0 +1,132 @@
+---
+/**
+ * RecapHero — game-of-the-night hero block (SITE-HOME-04 / Layer 4).
+ *
+ * Renders the night's featured game as an `ArtifactGame` at a-8 width
+ * with one supporting artifact at a-4. Plays the same role for the recap
+ * page that `LiveHero` plays in live mode.
+ *
+ * Supporting hero shapes
+ * ----------------------
+ * `supporting.kind` is one of {clinch, milestone, hattrick} — the three
+ * artifact types that pair narratively with a single game's outcome.
+ * The eventual Python pipeline will pick whichever fired alongside the
+ * featured game and supply it as-is.
+ *
+ * Fallback
+ * --------
+ * When `supporting` is null/undefined, the ArtifactGame spans full width
+ * (a-12). Same component, different grid — no separate "no-supporting"
+ * variant needed.
+ */
+
+import ArtifactGame from './artifacts/ArtifactGame.astro';
+import ArtifactClinch from './artifacts/ArtifactClinch.astro';
+import ArtifactMilestone from './artifacts/ArtifactMilestone.astro';
+import ArtifactHatTrick from './artifacts/ArtifactHatTrick.astro';
+
+export type SupportingHeroKind = 'clinch' | 'milestone' | 'hattrick';
+
+export interface SupportingHero {
+  kind: SupportingHeroKind;
+  data: Record<string, any>;
+}
+
+export interface Props {
+  /** Game-of-the-night payload — passed straight through to ArtifactGame. */
+  game: Record<string, any>;
+  /** Optional companion card (clinch / milestone / hat trick). */
+  supporting?: SupportingHero | null;
+  /** Section heading override. Default: "Game of the night". */
+  heading?: string;
+}
+
+const { game, supporting, heading = 'Game of the night' } = Astro.props;
+const hasSupporting = !!supporting && !!supporting.kind && !!supporting.data;
+---
+<section class="recap-hero" aria-label="Game of the night">
+  <header class="rh-head">
+    <h2 class="rh-h2">
+      <span class="rh-tick" aria-hidden="true">★</span>
+      {heading}
+    </h2>
+    <span class="rh-meta" aria-hidden="true">FEATURED · LAST NIGHT</span>
+  </header>
+
+  <div class:list={['rh-grid', hasSupporting ? 'with-support' : 'solo']}>
+    <div class="rh-cell rh-game">
+      <ArtifactGame {...game} />
+    </div>
+
+    {hasSupporting && (
+      <div class="rh-cell rh-supporting" data-support-kind={supporting!.kind}>
+        {supporting!.kind === 'clinch' && <ArtifactClinch {...supporting!.data} />}
+        {supporting!.kind === 'milestone' && <ArtifactMilestone {...supporting!.data} />}
+        {supporting!.kind === 'hattrick' && <ArtifactHatTrick {...supporting!.data} />}
+      </div>
+    )}
+  </div>
+</section>
+
+<style>
+  .recap-hero {
+    margin: 18px 0 32px;
+  }
+
+  .rh-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .rh-h2 {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--site-white);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rh-tick { color: #ffd54a; font-size: 14px; }
+
+  .rh-meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #555;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .rh-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 18px;
+  }
+
+  .rh-cell { min-width: 0; display: flex; }
+  .rh-cell > :global(*) { flex: 1 1 0; min-width: 0; }
+
+  .rh-grid.with-support .rh-game       { grid-column: span 8; }
+  .rh-grid.with-support .rh-supporting { grid-column: span 4; }
+  .rh-grid.solo .rh-game               { grid-column: span 12; }
+
+  /* Responsive — collapse to single column at narrow widths. The
+     supporting card stacks below the featured game on tablet+ phone. */
+  @media (max-width: 1024px) {
+    .rh-grid { grid-template-columns: repeat(6, 1fr); gap: 14px; }
+    .rh-grid.with-support .rh-game       { grid-column: span 6; }
+    .rh-grid.with-support .rh-supporting { grid-column: span 6; }
+  }
+  @media (max-width: 640px) {
+    .rh-grid { grid-template-columns: 1fr; gap: 12px; }
+    .rh-grid.with-support .rh-game,
+    .rh-grid.with-support .rh-supporting,
+    .rh-grid.solo .rh-game { grid-column: span 1; }
+  }
+</style>

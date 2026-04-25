@@ -1,0 +1,374 @@
+---
+/**
+ * RecapScoreStrip — horizontal-scroll strip of compact final-score tiles
+ * (SITE-HOME-04.5 / Layer 4.5).
+ *
+ * Sits between RecapHero and RecapFilterBar in recap mode. Shows ALL
+ * games from the night as compact tiles, regardless of narrative weight,
+ * so a fan can scan every score even if their team's game wasn't a
+ * "story-worthy" wall card.
+ *
+ * Why a separate component
+ * ------------------------
+ * GameTile (Layer 3) is the live-mode broadcast strip element — too tall
+ * (~200px), too rich (xG bar, chips, foot notes) for a "did my team win"
+ * scan. RecapScoreTile is purpose-built: ~150px wide, two-row score line,
+ * minimal chrome, optimized for 12+ tiles fitting in a horizontal scroll.
+ *
+ * Manual scroll arrows
+ * --------------------
+ * `< >` chevrons appear at the strip edges and fade in only when overflow
+ * exists. A small inline script wires:
+ *   - scroll-position observers (debounced) to toggle chevron visibility
+ *   - click handlers that scrollBy({ left: ±300, behavior: 'smooth' })
+ *
+ * Click hook on each tile: `data-recap-hook="open-game-modal"` (no-op
+ * for now; Layer 5+ wires the modal).
+ *
+ * Cross-repo contract
+ * -------------------
+ * The RecapScoreTile shape mirrors a much-reduced ArtifactGame: just the
+ * fields needed for "team-team-score" rendering. The Python pipeline can
+ * populate all 12 from the night's box-scores without recomputing xG /
+ * WP polylines.
+ */
+
+export type RecapScoreTileState = 'final' | 'ot' | 'so';
+
+export interface RecapScoreTile {
+  /** Stable identifier — exposed on the tile root for click handling. */
+  gameId: string;
+  state: RecapScoreTileState;
+  /** Local kickoff label, e.g. "7:00 PM ET". Optional — falls through to OT/SO clock. */
+  startTime?: string;
+  /** OT/SO finish clock if applicable, e.g. "2:34 OT". Overrides startTime when set. */
+  endClock?: string;
+  home: {
+    abbrev: string;
+    score: number;
+    logo: string;
+    isLoser?: boolean;
+  };
+  away: {
+    abbrev: string;
+    score: number;
+    logo: string;
+    isLoser?: boolean;
+  };
+}
+
+export interface Props {
+  /** All games from the night, in render order (typically chronological). */
+  tiles: RecapScoreTile[];
+  /** Section heading override. */
+  heading?: string;
+}
+
+const { tiles, heading } = Astro.props;
+const total = tiles.length;
+const headingText = heading ?? `Final scores · ${total} game${total === 1 ? '' : 's'}`;
+
+function stateLabel(t: RecapScoreTile): string {
+  if (t.state === 'ot') return 'FINAL · OT';
+  if (t.state === 'so') return 'FINAL · SO';
+  return 'FINAL';
+}
+
+function metaLabel(t: RecapScoreTile): string {
+  if (t.endClock) return t.endClock;
+  if (t.startTime) return t.startTime;
+  return '';
+}
+---
+<section class="recap-score-strip" aria-label="All final scores">
+  <header class="rss-head">
+    <h2 class="rss-h2">
+      <span class="rss-tick" aria-hidden="true">▍</span>
+      {headingText}
+    </h2>
+  </header>
+
+  <div class="rss-frame">
+    <button
+      type="button"
+      class="rss-chev rss-chev--l"
+      aria-label="Scroll scores left"
+      data-rss-dir="-1"
+      hidden
+    >‹</button>
+
+    <div class="rss-track" role="list">
+      {tiles.map((t) => (
+        <article
+          class:list={['rss-tile', `rss-tile--${t.state}`]}
+          role="listitem"
+          data-recap-hook="open-game-modal"
+          data-game-id={t.gameId}
+        >
+          <div class="rss-state">{stateLabel(t)}</div>
+
+          <div class:list={['rss-row', { loser: t.away.isLoser }]}>
+            <img class="rss-logo" src={t.away.logo} alt={`${t.away.abbrev} logo`} loading="lazy" />
+            <span class="rss-abbr">{t.away.abbrev}</span>
+            <span class="rss-score">{t.away.score}</span>
+          </div>
+          <div class:list={['rss-row', { loser: t.home.isLoser }]}>
+            <img class="rss-logo" src={t.home.logo} alt={`${t.home.abbrev} logo`} loading="lazy" />
+            <span class="rss-abbr">{t.home.abbrev}</span>
+            <span class="rss-score">{t.home.score}</span>
+          </div>
+
+          <div class="rss-meta">{metaLabel(t)}</div>
+        </article>
+      ))}
+    </div>
+
+    <button
+      type="button"
+      class="rss-chev rss-chev--r"
+      aria-label="Scroll scores right"
+      data-rss-dir="1"
+      hidden
+    >›</button>
+  </div>
+</section>
+
+<script is:inline>
+  /*
+   * Hydrate horizontal-scroll chevrons. Lightweight, no dependencies:
+   *   - chevrons start `hidden` so SSR has a clean initial paint
+   *   - on hydrate, we measure overflow and reveal chevrons only if the
+   *     track is wider than its frame
+   *   - a passive scroll handler updates chevron `hidden` state as the
+   *     user scrolls (left chev hidden at scrollLeft=0, right chev hidden
+   *     at end-of-scroll, with a 4px tolerance for sub-pixel rounding)
+   *   - click handlers scroll by 300px in the indicated direction
+   *
+   * Using DOMContentLoaded + a fallback in case the document is already
+   * loaded (e.g. View Transitions). Mirrors the pattern in
+   * RecapFilterBar.
+   */
+  function hgbHydrateRecapScoreStrip() {
+    var strips = document.querySelectorAll('.recap-score-strip');
+    strips.forEach(function (strip) {
+      var track = strip.querySelector('.rss-track');
+      var chevL = strip.querySelector('.rss-chev--l');
+      var chevR = strip.querySelector('.rss-chev--r');
+      if (!track) return;
+
+      function updateChevrons() {
+        var hasOverflow = track.scrollWidth > track.clientWidth + 4;
+        if (!hasOverflow) {
+          if (chevL) chevL.hidden = true;
+          if (chevR) chevR.hidden = true;
+          return;
+        }
+        var atStart = track.scrollLeft <= 4;
+        var atEnd = track.scrollLeft + track.clientWidth >= track.scrollWidth - 4;
+        if (chevL) chevL.hidden = atStart;
+        if (chevR) chevR.hidden = atEnd;
+      }
+
+      track.addEventListener('scroll', updateChevrons, { passive: true });
+      window.addEventListener('resize', updateChevrons);
+
+      [chevL, chevR].forEach(function (btn) {
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          var dir = parseInt(btn.getAttribute('data-rss-dir') || '1', 10);
+          track.scrollBy({ left: dir * 300, behavior: 'smooth' });
+        });
+      });
+
+      // Initial measurement after a tick so layout has settled.
+      updateChevrons();
+      requestAnimationFrame(updateChevrons);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', hgbHydrateRecapScoreStrip);
+  } else {
+    hgbHydrateRecapScoreStrip();
+  }
+</script>
+
+<style>
+  .recap-score-strip {
+    margin: 0 0 18px;
+  }
+
+  .rss-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .rss-h2 {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: #999;
+    margin: 0;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rss-tick {
+    color: var(--hgb-red);
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  /* Frame holds the scrollable track + the chevron buttons positioned
+     absolutely against its edges. */
+  .rss-frame {
+    position: relative;
+  }
+
+  .rss-track {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+    padding: 2px 2px 8px;
+    /* Custom-styled thin scrollbar to match the dark surface. */
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a transparent;
+  }
+  .rss-track::-webkit-scrollbar { height: 6px; }
+  .rss-track::-webkit-scrollbar-track { background: transparent; }
+  .rss-track::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border-radius: 3px;
+  }
+  .rss-track::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+  /* ── Tile ─────────────────────────────────────────────────────── */
+  .rss-tile {
+    flex: 0 0 130px;
+    min-width: 130px;
+    background: #0f0f0f;
+    border: 1px solid #1c1c1c;
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rss-tile:hover {
+    border-color: #2a2a2a;
+    background: #131313;
+    transform: translateY(-1px);
+  }
+  .rss-tile:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+
+  .rss-state {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #666;
+  }
+  .rss-tile--ot .rss-state,
+  .rss-tile--so .rss-state {
+    color: var(--status-ot);
+  }
+
+  .rss-row {
+    display: grid;
+    grid-template-columns: 22px 1fr auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .rss-logo {
+    width: 22px;
+    height: 22px;
+  }
+  .rss-abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: #f5f5f5;
+  }
+  .rss-score {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    color: #f5f5f5;
+    text-align: right;
+  }
+
+  /* Loser dim — same visual contract as GameTile / ArtifactGame. */
+  .rss-row.loser .rss-abbr,
+  .rss-row.loser .rss-score { color: #555; }
+  .rss-row.loser .rss-logo {
+    opacity: 0.35;
+    filter: grayscale(0.4);
+  }
+
+  .rss-meta {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #555;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* ── Chevron buttons ──────────────────────────────────────────── */
+  .rss-chev {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 56px;
+    border: 1px solid #232323;
+    background: linear-gradient(90deg, #0a0a0a 70%, rgba(10, 10, 10, 0.4) 100%);
+    color: #ccc;
+    font-family: var(--font-site-display);
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    z-index: 2;
+    transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .rss-chev:hover {
+    background: #161616;
+    border-color: #3a3a3a;
+    color: #fff;
+  }
+  .rss-chev:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+  .rss-chev--l { left: -2px; }
+  .rss-chev--r {
+    right: -2px;
+    /* Mirror the gradient so it fades out toward the right edge. */
+    background: linear-gradient(270deg, #0a0a0a 70%, rgba(10, 10, 10, 0.4) 100%);
+  }
+  .rss-chev[hidden] { display: none; }
+
+  /* Mobile: chevrons hidden; users swipe the track natively. */
+  @media (max-width: 720px) {
+    .rss-chev { display: none; }
+    .rss-tile { flex: 0 0 116px; min-width: 116px; }
+  }
+</style>

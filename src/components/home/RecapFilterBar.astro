@@ -1,0 +1,386 @@
+---
+/**
+ * RecapFilterBar — chip-style category filter + sort selector for the
+ * recap-mode artifact wall (SITE-HOME-04 / Layer 4).
+ *
+ * Layout matches `docs/designs/ui_kits/website/recap_with_artifacts.html`
+ * `.filterbar` rules — eight chips on the left, mono "ORDER" pills on
+ * the right.
+ *
+ * Filtering model
+ * ---------------
+ * Pure CSS, no JS framework. Each chip clicks-through to set a single
+ * `data-filter` attribute on the *target* wall container (resolved via
+ * `data-filter-target` selector). Wall cards carry `data-slug="hot"` etc;
+ * scoped CSS rules in the parent page hide non-matching cards when the
+ * filter is anything other than `all`.
+ *
+ * The chip click handler is a tiny inline script so the page stays
+ * static-buildable with no client framework runtime. Falls back to a
+ * default-active "ALL" chip if JS is disabled — same effect as zero
+ * filtering.
+ *
+ * Sort toggle (Layer 4.5)
+ * -----------------------
+ * The right-side pill flips between HGB IMPACT (default) and LATEST
+ * FIRST. Click reorders wall cells in-place via DOM appendChild() of the
+ * sorted siblings — no re-render, no framework. Choice persists to
+ * sessionStorage under `hgb-recap-sort`.
+ *
+ *   HGB IMPACT  → sort by data-narrative-weight desc
+ *   LATEST FIRST → sort by data-posted-at desc (ISO-8601 lexicographic)
+ *
+ * The wall is pre-sorted at SSR time by the default key, so the first
+ * paint matches the default choice; only a non-default user choice
+ * triggers a runtime reorder.
+ */
+
+/**
+ * RecapFilter — single-token filter key. Kept as an inline string-literal
+ * union (not an `export type`) because Astro's component frontmatter
+ * parser does not currently handle leading-pipe TS unions in export
+ * positions. The runtime values are listed in `chips[]` below.
+ */
+export type RecapFilter = 'all' | 'games' | 'hot' | 'cold' | 'milestones' | 'lines' | 'clinches' | 'stars';
+
+export interface RecapFilterChip {
+  /** Filter slug stamped on the wall via [data-filter]. */
+  key: RecapFilter;
+  /** Display label, ALL CAPS in design. */
+  label: string;
+  /** Pre-computed count to show after the dot — optional. */
+  count?: number;
+}
+
+export interface Props {
+  /**
+   * CSS selector of the wall container the filter targets. The chip
+   * handler stamps [data-filter="…"] on this element. Default targets
+   * `.recap-wall` (the standard RecapWall class).
+   */
+  target?: string;
+  /** Initial filter (defaults to 'all'). */
+  initial?: RecapFilter;
+  /**
+   * Initial sort key (default: 'impact'). The matching label renders
+   * on the right-side pill; user clicks flip between the two.
+   */
+  initialSort?: 'impact' | 'latest';
+  /**
+   * Optional override for the default visual label. Component will
+   * compute the right label from `initialSort` when not provided —
+   * 'impact' → "HGB IMPACT ↓", 'latest' → "LATEST FIRST".
+   */
+  sortLabel?: string;
+  /**
+   * Optional pre-computed counts keyed by filter. When provided each
+   * chip shows "· N" after the label, matching the design reference.
+   */
+  counts?: Partial<Record<RecapFilter, number>>;
+}
+
+const {
+  target = '.recap-wall',
+  initial = 'all',
+  initialSort = 'impact',
+  sortLabel,
+  counts = {},
+} = Astro.props;
+
+const SORT_LABELS = { impact: 'HGB IMPACT ↓', latest: 'LATEST FIRST' } as const;
+const resolvedSortLabel = sortLabel ?? SORT_LABELS[initialSort];
+
+const chips: RecapFilterChip[] = [
+  { key: 'all',        label: 'ALL',         count: counts.all },
+  { key: 'games',      label: 'GAMES',       count: counts.games },
+  { key: 'hot',        label: 'HOT',         count: counts.hot },
+  { key: 'cold',       label: 'COLD',        count: counts.cold },
+  { key: 'milestones', label: 'MILESTONES',  count: counts.milestones },
+  { key: 'lines',      label: 'LINE COMBOS', count: counts.lines },
+  { key: 'clinches',   label: 'CLINCHES',    count: counts.clinches },
+  { key: 'stars',      label: 'STARS',       count: counts.stars },
+];
+---
+<div class="recap-filterbar" role="toolbar" aria-label="Recap wall filters">
+  <div class="rfb-chips" role="tablist" aria-label="Filter">
+    {chips.map((c) => (
+      <button
+        type="button"
+        class:list={['rfb-chip', { on: c.key === initial }]}
+        role="tab"
+        aria-selected={c.key === initial ? 'true' : 'false'}
+        data-filter-key={c.key}
+      >
+        <span class="dot" aria-hidden="true">{c.key === initial ? '●' : '○'}</span>
+        <span class="lbl">{c.label}</span>
+        {c.count !== undefined && c.count > 0 && (
+          <span class="ct">· {c.count}</span>
+        )}
+      </button>
+    ))}
+  </div>
+  <div class="rfb-spacer" aria-hidden="true"></div>
+  <div class="rfb-order" aria-label="Sort">
+    <button
+      type="button"
+      class="rfb-sort"
+      data-sort-key={initialSort}
+      aria-pressed="true"
+    >
+      <span>SORT · </span><b class="lbl">{resolvedSortLabel}</b>
+    </button>
+  </div>
+</div>
+
+<script is:inline define:vars={{ target, initial, initialSort }}>
+  /*
+   * Chip + sort hydration. Stays inline so the page is fully SSR'd and
+   * has zero framework runtime — every chip is a static button until JS
+   * runs, then the click handler stamps `data-filter` on the wall and
+   * toggles the `.on` state across siblings.
+   *
+   * The wall container itself does NOT need to live in this component;
+   * any element matching `target` will receive the data attribute. The
+   * CSS rules in the parent page (or RecapWall) are responsible for
+   * hiding non-matching cards.
+   */
+  /*
+   * The filter target (.recap-wall) is rendered AFTER this script in the
+   * DOM (RecapFilterBar precedes RecapWall in /home-v2.astro). Defer
+   * binding until DOMContentLoaded so document.querySelector(target)
+   * returns the actual wall element. If the document is already loaded
+   * when this runs (e.g. injected after page-load via View Transitions),
+   * `interactive`/`complete` short-circuits the listener.
+   */
+  function hgbHydrateRecapFilterBar() {
+    var bars = document.querySelectorAll('.recap-filterbar');
+    bars.forEach(function (bar) {
+      var chips = bar.querySelectorAll('.rfb-chip');
+      var wall = document.querySelector(target);
+      if (!wall) return;
+
+      // Set the initial filter on the wall once on hydrate.
+      wall.setAttribute('data-filter', initial);
+
+      function applyFilter(key) {
+        wall.setAttribute('data-filter', key);
+        chips.forEach(function (c) {
+          var active = c.getAttribute('data-filter-key') === key;
+          c.classList.toggle('on', active);
+          c.setAttribute('aria-selected', active ? 'true' : 'false');
+          var dot = c.querySelector('.dot');
+          if (dot) dot.textContent = active ? '●' : '○';
+        });
+      }
+
+      chips.forEach(function (chip) {
+        chip.addEventListener('click', function () {
+          var key = chip.getAttribute('data-filter-key') || 'all';
+          applyFilter(key);
+        });
+      });
+
+      // ── Sort pill — Layer 4.5 ─────────────────────────────────────
+      // Real sort: reorders .recap-cell siblings in DOM order via
+      // appendChild() of the sorted list. sessionStorage persists user's
+      // choice under `hgb-recap-sort`. CSS class `.is-sorting` triggers
+      // a brief opacity dip so the reorder reads as intentional motion.
+      var sort = bar.querySelector('.rfb-sort');
+      if (sort) {
+        var SORT_LABELS = { impact: 'HGB IMPACT ↓', latest: 'LATEST FIRST' };
+
+        function applySort(key) {
+          if (key !== 'impact' && key !== 'latest') key = 'impact';
+          var lbl = sort.querySelector('.lbl');
+          if (lbl) lbl.textContent = SORT_LABELS[key];
+          sort.setAttribute('data-sort-key', key);
+          sort.setAttribute('aria-pressed', 'true');
+
+          if (!wall) return;
+          var cells = Array.prototype.slice.call(
+            wall.querySelectorAll('.recap-cell'),
+          );
+          if (!cells.length) return;
+
+          cells.sort(function (a, b) {
+            if (key === 'latest') {
+              var pa = a.getAttribute('data-posted-at') || '';
+              var pb = b.getAttribute('data-posted-at') || '';
+              return pb.localeCompare(pa);
+            }
+            // impact (default)
+            var wa = parseInt(a.getAttribute('data-narrative-weight') || '0', 10);
+            var wb = parseInt(b.getAttribute('data-narrative-weight') || '0', 10);
+            return wb - wa;
+          });
+
+          // Brief opacity dip — purely cosmetic, tells the user "I
+          // re-ordered things" without hijacking the layout for an
+          // animated transition.
+          wall.classList.add('is-sorting');
+          cells.forEach(function (c) { wall.appendChild(c); });
+          wall.setAttribute('data-sort', key);
+          // Clear the dip on next frame so the fade-back reads.
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              wall.classList.remove('is-sorting');
+            });
+          });
+
+          try {
+            window.sessionStorage.setItem('hgb-recap-sort', key);
+          } catch (e) { /* sessionStorage blocked — non-fatal */ }
+        }
+
+        // Restore from session if present; otherwise honor SSR default.
+        try {
+          var saved = window.sessionStorage.getItem('hgb-recap-sort');
+          if (saved === 'impact' || saved === 'latest') {
+            // Only reorder if the saved choice differs from SSR default,
+            // to keep first paint flicker-free.
+            if (saved !== initialSort) applySort(saved);
+            else {
+              // Still update the label/pressed state so the pill matches
+              // saved choice on reload.
+              var lbl = sort.querySelector('.lbl');
+              if (lbl) lbl.textContent = SORT_LABELS[saved];
+              sort.setAttribute('data-sort-key', saved);
+            }
+          }
+        } catch (e) { /* sessionStorage blocked — fall back to SSR */ }
+
+        sort.addEventListener('click', function () {
+          var current = sort.getAttribute('data-sort-key') || 'impact';
+          var next = current === 'impact' ? 'latest' : 'impact';
+          applySort(next);
+        });
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', hgbHydrateRecapFilterBar);
+  } else {
+    hgbHydrateRecapFilterBar();
+  }
+</script>
+
+<style>
+  .recap-filterbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 14px 0 10px;
+    border-top: 1px solid #181818;
+    border-bottom: 1px solid #181818;
+    margin: 18px 0 26px;
+    overflow-x: auto;
+  }
+
+  .rfb-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .rfb-chip {
+    appearance: none;
+    background: #0b0b0b;
+    border: 1px solid #222;
+    border-radius: 2px;
+    padding: 7px 12px;
+    color: #888;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+
+  .rfb-chip:hover,
+  .rfb-chip:focus-visible {
+    color: var(--site-white);
+    border-color: #2e2e2e;
+    outline: none;
+  }
+
+  .rfb-chip.on {
+    color: var(--site-white);
+    border-color: #3a3a3a;
+    background: #151515;
+  }
+
+  .rfb-chip .dot {
+    color: var(--status-live);
+    font-size: 9px;
+  }
+  .rfb-chip:not(.on) .dot {
+    color: #444;
+  }
+
+  .rfb-chip .ct {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 10px;
+    color: #555;
+    letter-spacing: 0;
+  }
+  .rfb-chip.on .ct {
+    color: var(--status-live);
+  }
+
+  .rfb-spacer { flex: 1; }
+
+  .rfb-order {
+    display: flex;
+    gap: 14px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: #666;
+    letter-spacing: 0.1em;
+  }
+
+  .rfb-sort {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #666;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+
+  .rfb-sort b { color: #ddd; font-weight: 500; }
+
+  .rfb-sort:hover,
+  .rfb-sort:focus-visible {
+    color: var(--site-white);
+    border-color: #2a2a2a;
+    background: #0c0c0c;
+    outline: none;
+  }
+
+  @media (max-width: 640px) {
+    .recap-filterbar {
+      flex-wrap: wrap;
+      padding: 10px 0 6px;
+    }
+    .rfb-chip {
+      padding: 5px 9px;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+    }
+    .rfb-spacer { display: none; }
+  }
+</style>

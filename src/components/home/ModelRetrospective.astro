@@ -1,0 +1,361 @@
+---
+/**
+ * ModelRetrospective — "how the bot's predictions did last night" + a
+ * running season ATS ticker (SITE-HOME-04.5 / Layer 4.5).
+ *
+ * Sits between TweetEcho and the page footer in recap mode. Three-column
+ * stat block (1-col on mobile) + a season-running ticker line. The
+ * Python pipeline computes both blocks server-side from the bot's stored
+ * win-probability + line-on-close history; this surface is a pure
+ * renderer.
+ *
+ * Shape (mirrors `ModelRetrospectiveSchema` in recap-mock-schemas.ts):
+ *
+ *   last_night.outright_wins / outright_total : "7/9 OUTRIGHT WINS · 78%"
+ *   last_night.ats_record + ats_ev            : "+2.4 EV · 8-4 ATS"
+ *   last_night.best_call                      : "BOS over PIT · model 64% · won 4-3 OT"
+ *   last_night.worst_miss (optional)          : "EDM at 71% · lost 3-0 to LAK"
+ *   season.{ats_record, ats_pct, ats_ev}      : "SEASON ATS · 89-72-3 · 55.3% · +14.2 EV"
+ *
+ * Cross-repo contract: see `ModelRetrospectiveSchema` for the exact
+ * field shape the Python bot must populate. Keep best/worst calls
+ * single-line — no nested arrays, no localized strings (the surface is
+ * tight on space).
+ */
+
+export interface BestCall {
+  winner: string;
+  loser: string;
+  /** 0-100 win probability the model assigned to `winner`. */
+  model_pct: number;
+  /** Free-form result string, e.g. "4-3 OT". */
+  actual: string;
+}
+
+export interface WorstMiss {
+  /** Team the model favored. */
+  favorite: string;
+  model_pct: number;
+  /** Free-form, includes verb: "lost 3-0 to LAK". */
+  actual: string;
+}
+
+export interface ModelRetrospectiveLastNight {
+  outright_wins: number;
+  outright_total: number;
+  ats_record: string;
+  ats_ev: string;
+  best_call: BestCall;
+  worst_miss?: WorstMiss;
+}
+
+export interface ModelRetrospectiveSeason {
+  ats_record: string;
+  ats_pct: number;
+  ats_ev: string;
+}
+
+export interface Props {
+  last_night: ModelRetrospectiveLastNight;
+  season: ModelRetrospectiveSeason;
+  /** Section heading override. */
+  heading?: string;
+}
+
+const { last_night, season, heading = 'How the model did last night' } =
+  Astro.props;
+
+// Outright win pct — round to whole number for display.
+const outrightPct =
+  last_night.outright_total > 0
+    ? Math.round((last_night.outright_wins / last_night.outright_total) * 100)
+    : 0;
+
+const seasonPctLabel = season.ats_pct.toFixed(1);
+---
+<section class="model-retro" aria-label="Model retrospective">
+  <header class="mr-head">
+    <h2 class="mr-h2">
+      <span class="mr-tick" aria-hidden="true">▍</span>
+      {heading}
+    </h2>
+  </header>
+
+  <div class="mr-card">
+    <div class="mr-grid">
+      <div class="mr-col">
+        <div class="mr-num">
+          {last_night.outright_wins}<span class="mr-frac">/{last_night.outright_total}</span>
+        </div>
+        <div class="mr-lbl">Outright wins</div>
+        <div class="mr-sub">{outrightPct}% straight up</div>
+      </div>
+
+      <div class="mr-col">
+        <div class="mr-num mr-num--ev">
+          <span class="mr-ev">{last_night.ats_ev}</span>
+          <span class="mr-ev-unit">EV</span>
+        </div>
+        <div class="mr-lbl">Against the spread</div>
+        <div class="mr-sub">{last_night.ats_record} ATS</div>
+      </div>
+
+      <div class="mr-col mr-col--call">
+        <div class="mr-call-eyebrow">Best call</div>
+        <div class="mr-call-line">
+          <b class="mr-team">{last_night.best_call.winner}</b>
+          <span class="mr-call-vs">over</span>
+          <b class="mr-team mr-team--dim">{last_night.best_call.loser}</b>
+        </div>
+        <div class="mr-call-meta">
+          model <b>{last_night.best_call.model_pct}%</b>
+          <span class="mr-call-sep"> · </span>
+          {last_night.best_call.actual}
+        </div>
+      </div>
+    </div>
+
+    {last_night.worst_miss && (
+      <div class="mr-miss">
+        <span class="mr-miss-eyebrow">Worst miss</span>
+        <span class="mr-miss-body">
+          <b class="mr-team">{last_night.worst_miss.favorite}</b>
+          at <b>{last_night.worst_miss.model_pct}%</b>
+          <span class="mr-call-sep"> · </span>
+          {last_night.worst_miss.actual}
+        </span>
+      </div>
+    )}
+
+    <div class="mr-ticker" aria-label="Season-to-date ATS">
+      <span class="mr-ticker-eyebrow">Season ATS</span>
+      <span class="mr-ticker-body">
+        <b>{season.ats_record}</b>
+        <span class="mr-call-sep"> · </span>
+        <b>{seasonPctLabel}%</b>
+        <span class="mr-call-sep"> · </span>
+        <b>{season.ats_ev}</b> EV
+      </span>
+    </div>
+  </div>
+</section>
+
+<style>
+  .model-retro {
+    margin: 36px 0 24px;
+  }
+
+  .mr-head { margin-bottom: 12px; }
+  .mr-h2 {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 14px;
+    color: #999;
+    margin: 0;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mr-tick {
+    color: var(--hgb-red);
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .mr-card {
+    background: #0a0a0a;
+    border: 1px solid var(--site-border);
+    border-radius: var(--radius-md);
+    padding: 18px 22px;
+  }
+
+  /* ── 3-col stat block ─────────────────────────────────────────── */
+  .mr-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .mr-col {
+    min-width: 0;
+    border-left: 1px solid #181818;
+    padding-left: 18px;
+  }
+  .mr-col:first-child {
+    border-left: none;
+    padding-left: 0;
+  }
+
+  /* Big numerals — mirrors the Oswald 700 large treatment in the brief. */
+  .mr-num {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 36px;
+    line-height: 1;
+    color: var(--site-white);
+    font-variant-numeric: tabular-nums;
+  }
+  .mr-frac {
+    color: #666;
+    font-size: 24px;
+    font-weight: 500;
+    margin-left: 2px;
+  }
+  .mr-num--ev {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .mr-ev {
+    color: var(--status-goal);
+    font-size: 36px;
+  }
+  .mr-ev-unit {
+    color: #666;
+    font-size: 14px;
+    letter-spacing: 0.16em;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+
+  .mr-lbl {
+    margin-top: 6px;
+    color: #888;
+    font-family: var(--font-site-display);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .mr-sub {
+    margin-top: 4px;
+    color: #666;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+
+  /* "Best call" column reads as a sentence-style line with team
+     emphasis, not a giant numeral. */
+  .mr-col--call .mr-call-eyebrow {
+    color: #888;
+    font-family: var(--font-site-display);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .mr-call-line {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 22px;
+    line-height: 1.1;
+    color: var(--site-white);
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .mr-team { color: var(--site-white); }
+  .mr-team--dim { color: #666; }
+  .mr-call-vs {
+    font-family: var(--font-site-body);
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    letter-spacing: 0.06em;
+    text-transform: lowercase;
+  }
+  .mr-call-meta {
+    margin-top: 6px;
+    color: #888;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .mr-call-meta b {
+    color: var(--site-white);
+    font-weight: 600;
+  }
+  .mr-call-sep { color: #444; }
+
+  /* ── Worst miss line ──────────────────────────────────────────── */
+  .mr-miss {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid #181818;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    color: #888;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .mr-miss-eyebrow {
+    color: var(--hgb-red);
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .mr-miss-body b {
+    color: var(--site-white);
+    font-weight: 600;
+  }
+
+  /* ── Season ticker ────────────────────────────────────────────── */
+  .mr-ticker {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid #181818;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    color: #888;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .mr-ticker-eyebrow {
+    color: #ccc;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+  }
+  .mr-ticker-body b {
+    color: var(--site-white);
+    font-weight: 700;
+  }
+
+  /* Responsive — collapse to single column at <720px so the numerals
+     don't wrap awkwardly. */
+  @media (max-width: 720px) {
+    .mr-card { padding: 14px 16px; }
+    .mr-grid {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .mr-col {
+      border-left: none;
+      padding-left: 0;
+      padding-top: 12px;
+      border-top: 1px solid #181818;
+    }
+    .mr-col:first-child {
+      padding-top: 0;
+      border-top: none;
+    }
+    .mr-num { font-size: 30px; }
+    .mr-ev { font-size: 30px; }
+    .mr-call-line { font-size: 18px; }
+  }
+</style>
