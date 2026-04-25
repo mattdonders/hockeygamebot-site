@@ -1,0 +1,495 @@
+---
+/**
+ * GameTile — compact 3×2×1 grid scoreboard tile (SITE-HOME-03 / Layer 3).
+ *
+ * Mirrors the design's `.gc` rules in
+ * `docs/designs/ui_kits/website/index.html` (~line 113+). NOT to be
+ * confused with `ArtifactGame`, which is the 320-px-tall "Game of the
+ * Night" hero card — that one's a Layer 2 component for static recap
+ * showcases. THIS tile is the live-mode broadcast strip element: dense,
+ * hover-able, ~180–220px tall, designed to mass-render 6–9 games below
+ * the LiveHero.
+ *
+ * State color coding (top-row state badge):
+ *   live          → cyan
+ *   final         → muted grey
+ *   ot            → orange (final-OT or live-OT)
+ *   pre           → yellow (pre-game / scheduled)
+ *   intermission  → blue
+ *
+ * Click hook: `data-layer3-hook="open-game-modal"` is stamped on the
+ * tile root for Layer 5+ wiring. No-op for now.
+ *
+ * xG-bar treatment: rendered only if `xgBar` is supplied. Live + final
+ * games typically have it; pre-game tiles can pass `xgBar` as a Win-%
+ * preview bar (cyan/dim split) — same DOM, semantically different
+ * payload. Suppressed entirely if undefined.
+ */
+
+export type GameTileState = 'live' | 'final' | 'ot' | 'pre' | 'intermission';
+
+export interface GameTileTeam {
+  abbrev: string;
+  /** Score; for `pre` state, set to null/0 — renders as em-dash. */
+  score: number | null;
+  /** Shots on goal for the current game (live/final). Optional for pre. */
+  sog?: number | string | null;
+  /** Expected goals (number). Optional for pre. */
+  xg?: number | string | null;
+  /** Record for live/final ("W" / "L" / "L/OT"); season record for pre. */
+  record: string;
+  /** Logo URL (assets.nhle CDN or /logos/<abbr>_light.svg). */
+  logo: string;
+  /** Team accent color (hex). Currently unused — could light up the row. */
+  accent?: string;
+}
+
+export interface GameTileChip {
+  label: string;
+  /** Color kind — keep in sync with the `.gc .foot .chip.*` rules in the
+   *  design file. Falls through to neutral grey. */
+  kind?: 'pp' | 'ot' | 'overturned' | 'hot' | 'final' | 'live' | string;
+}
+
+export interface GameTileXgBar {
+  home: number;
+  away: number;
+  /** Optional override for the small label on the left of the bar. Default
+   *  "xG"; pre-game tiles can pass "Win". */
+  label?: string;
+}
+
+export interface Props {
+  state: GameTileState;
+  /** P1/P2/P3/OT — used for the state line ("Live · P3 · 02:18"). */
+  period?: number;
+  /** "MM:SS" current clock (live + intermission). */
+  clock?: string;
+  /** Local kickoff label for `pre` (e.g. "7:00 PM ET"). */
+  startTime?: string;
+  /** Top-left context (broadcast, "Final · OT · Reg season", etc). */
+  topContext?: string;
+  /** Stable identifier — exposed on the root element for click handling. */
+  gameId?: string;
+
+  home: GameTileTeam;
+  away: GameTileTeam;
+  chips?: GameTileChip[];
+  xgBar?: GameTileXgBar;
+
+  /** Free-form tail string in the foot (e.g. arena name). Optional. */
+  footNote?: string;
+}
+
+const {
+  state,
+  period,
+  clock,
+  startTime,
+  topContext,
+  gameId,
+  home,
+  away,
+  chips = [],
+  xgBar,
+  footNote,
+} = Astro.props;
+
+// ── Loser detection — only matters for live/final/ot. PRE always renders both
+//    teams at full saturation. Tie = no loser. ─────────────────────────────
+const homeScore = home.score ?? 0;
+const awayScore = away.score ?? 0;
+const showLoser = state === 'final' || state === 'ot' || state === 'live' || state === 'intermission';
+const homeLoser = showLoser && homeScore < awayScore;
+const awayLoser = showLoser && awayScore < homeScore;
+
+// ── State badge content ────────────────────────────────────────────────────
+function stateBadgeText(): string {
+  if (state === 'live') {
+    const p = period ? `P${period}` : 'Live';
+    return clock ? `Live · ${p} · ${clock}` : `Live · ${p}`;
+  }
+  if (state === 'ot') {
+    return clock ? `OT · ${clock}` : 'OT · Final';
+  }
+  if (state === 'intermission') {
+    return clock ? `INT · ${clock}` : 'Intermission';
+  }
+  if (state === 'final') return 'Final';
+  if (state === 'pre') return startTime ?? 'Tonight';
+  return 'TBD';
+}
+
+// ── xG-bar percentages — clamped to avoid divide-by-zero. ──────────────────
+function pct(a: number, b: number): [number, number] {
+  const sum = a + b;
+  if (sum <= 0) return [50, 50];
+  return [(a / sum) * 100, (b / sum) * 100];
+}
+
+const xgL = xgBar ? pct(xgBar.home, xgBar.away)[0] : 50;
+const xgR = xgBar ? pct(xgBar.home, xgBar.away)[1] : 50;
+const xgValueLabel = xgBar
+  ? `${(xgBar.label ?? 'xG') === 'Win' ? `${home.abbrev} ` : ''}${Math.round(xgL)}%`
+  : '';
+
+// Score value renderer — em-dash for null/0 in pre-game state.
+function scoreFor(team: GameTileTeam): string {
+  if (state === 'pre') return '—';
+  if (team.score === null || team.score === undefined) return '—';
+  return String(team.score);
+}
+
+function valueFor(v: number | string | null | undefined, fallback = '—'): string {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  }
+  return v;
+}
+---
+<article
+  class:list={['gc', `gc--${state}`]}
+  data-layer3-hook="open-game-modal"
+  data-game-id={gameId}
+>
+  <div class="gc-top">
+    <span class="gc-top-l">{topContext ?? ' '}</span>
+    <span class:list={['gc-state', `state-${state}`]}>
+      <span class="gc-dot" aria-hidden="true"></span>{stateBadgeText()}
+    </span>
+  </div>
+
+  <div class="gc-colhead">
+    <span>Team</span>
+    <span class="c">R</span>
+    <span class="c">{state === 'pre' ? 'W%' : 'SOG'}</span>
+    <span class="c">{state === 'pre' ? 'xG/G' : 'xG'}</span>
+  </div>
+
+  <div class:list={['gc-row', { loser: homeLoser }]}>
+    <div class="gc-tm">
+      <img src={home.logo} alt={`${home.abbrev} logo`} loading="lazy" />
+      <div class="gc-tm-tl">
+        <span class="gc-abbr">{home.abbrev}</span>
+        <span class="gc-rec">{home.record}</span>
+      </div>
+    </div>
+    <span class="gc-sc">{scoreFor(home)}</span>
+    <span class="gc-sog">{valueFor(home.sog)}</span>
+    <span class="gc-xg">{valueFor(home.xg)}</span>
+  </div>
+
+  <div class:list={['gc-row', { loser: awayLoser }]}>
+    <div class="gc-tm">
+      <img src={away.logo} alt={`${away.abbrev} logo`} loading="lazy" />
+      <div class="gc-tm-tl">
+        <span class="gc-abbr">{away.abbrev}</span>
+        <span class="gc-rec">{away.record}</span>
+      </div>
+    </div>
+    <span class="gc-sc">{scoreFor(away)}</span>
+    <span class="gc-sog">{valueFor(away.sog)}</span>
+    <span class="gc-xg">{valueFor(away.xg)}</span>
+  </div>
+
+  {xgBar && (
+    <div class="gc-xgbar">
+      <span class="lbl">{xgBar.label ?? 'xG'}</span>
+      <div class="track">
+        <div class="a" style={`width:${xgL}%;`}></div>
+        <div class="b" style={`width:${xgR}%;`}></div>
+      </div>
+      <span class="v">{xgValueLabel}</span>
+    </div>
+  )}
+
+  {(chips.length > 0 || footNote) && (
+    <div class="gc-foot">
+      <span class="gc-foot-l">{footNote ?? ' '}</span>
+      {chips.length > 0 && (
+        <div class="gc-chips">
+          {chips.map(c => (
+            <span class:list={['gc-chip', c.kind ? `gc-chip--${c.kind}` : null]}>
+              {c.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )}
+</article>
+
+<style>
+  /* Mirrors `.gc` from docs/designs/ui_kits/website/index.html ~line 113.
+     Kept as scoped styles (not is:global) — Layer 3 owns this surface. */
+  .gc {
+    background: #0f0f0f;
+    border: 1px solid #1c1c1c;
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    cursor: pointer;
+    position: relative;
+    min-width: 0;
+  }
+  .gc:hover {
+    border-color: #2a2a2a;
+    background: #121212;
+  }
+  .gc:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+
+  /* ── Top row: context + state badge ───────────────────────────── */
+  .gc-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #666;
+  }
+  .gc-top-l {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .gc-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+  .gc-state.state-live { color: var(--status-live); }
+  .gc-state.state-final { color: var(--status-final); }
+  .gc-state.state-ot { color: var(--status-ot); }
+  .gc-state.state-pre { color: var(--status-scheduled); }
+  .gc-state.state-intermission { color: var(--status-intermission); }
+  .gc-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .gc--live .gc-dot {
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: gc-ringPulse 1.8s ease-out infinite;
+  }
+  @keyframes gc-ringPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.45); }
+    70%  { box-shadow: 0 0 0 8px rgba(0, 229, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+  }
+
+  /* ── Column header row ──────────────────────────────────────── */
+  .gc-colhead {
+    display: grid;
+    grid-template-columns: 1fr 34px 34px 34px;
+    gap: 4px;
+    color: #444;
+    font-family: var(--font-site-body);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-top: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #151515;
+  }
+  .gc-colhead .c { text-align: right; }
+
+  /* ── Per-team rows ──────────────────────────────────────────── */
+  .gc-row {
+    display: grid;
+    grid-template-columns: 1fr 34px 34px 34px;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 0;
+  }
+  .gc-row + .gc-row { border-top: 1px solid #151515; }
+
+  .gc-tm {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .gc-tm img {
+    width: 28px;
+    height: 28px;
+    flex: none;
+  }
+  .gc-tm-tl {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .gc-abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.06em;
+    color: #f5f5f5;
+  }
+  .gc-rec {
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .gc-sc {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 24px;
+    font-variant-numeric: tabular-nums;
+    color: #f5f5f5;
+    text-align: right;
+  }
+  .gc-sog {
+    color: #888;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .gc-xg {
+    color: var(--status-live);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* PRE-game state: muted score (em-dash placeholder). */
+  .gc--pre .gc-sc { color: #444; }
+  .gc--pre .gc-xg { color: #888; }
+
+  /* Loser dim — design spec: text #555, logo opacity .35 + grayscale .4 */
+  .gc-row.loser .gc-abbr,
+  .gc-row.loser .gc-sc { color: #555; }
+  .gc-row.loser .gc-sog,
+  .gc-row.loser .gc-xg { color: #444; }
+  .gc-row.loser img {
+    opacity: 0.35;
+    filter: grayscale(0.4);
+  }
+
+  /* ── Optional xG / Win mini-bar ─────────────────────────────── */
+  .gc-xgbar {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #151515;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    color: #666;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .gc-xgbar .lbl {
+    width: 24px;
+    color: #444;
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .gc-xgbar .track {
+    flex: 1;
+    height: 4px;
+    background: #151515;
+    border-radius: 2px;
+    display: flex;
+    overflow: hidden;
+  }
+  .gc-xgbar .track .a { background: var(--status-live); }
+  .gc-xgbar .track .b { background: #333; }
+  .gc-xgbar .v {
+    font-family: var(--font-mono);
+    color: #bbb;
+    font-size: 10px;
+    letter-spacing: 0;
+    text-transform: none;
+    min-width: 32px;
+    text-align: right;
+  }
+
+  /* ── Foot: chips + arena/notes ──────────────────────────────── */
+  .gc-foot {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #1a1a1a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    min-width: 0;
+  }
+  .gc-foot-l {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .gc-chips {
+    display: flex;
+    gap: 6px;
+    flex: none;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .gc-chip {
+    padding: 2px 6px;
+    border: 1px solid #222;
+    border-radius: 2px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #888;
+    white-space: nowrap;
+  }
+  .gc-chip--hot {
+    color: var(--status-ot);
+    border-color: rgba(255, 152, 0, 0.4);
+  }
+  .gc-chip--ot {
+    color: var(--status-ot);
+    border-color: rgba(255, 152, 0, 0.4);
+  }
+  .gc-chip--overturned {
+    color: var(--hgb-red);
+    border-color: rgba(232, 0, 45, 0.5);
+  }
+  .gc-chip--pp {
+    color: var(--status-live);
+    border-color: rgba(0, 229, 255, 0.4);
+  }
+  .gc-chip--live {
+    color: var(--status-live);
+    border-color: rgba(0, 229, 255, 0.4);
+  }
+  .gc-chip--final {
+    color: var(--status-final);
+    border-color: var(--site-border2);
+  }
+</style>
