@@ -1,0 +1,635 @@
+---
+/**
+ * GameTile — compact 3×2×1 grid scoreboard tile (SITE-HOME-03 / Layer 3).
+ *
+ * Mirrors the design's `.gc` rules in
+ * `docs/designs/ui_kits/website/index.html` (~line 113+). NOT to be
+ * confused with `ArtifactGame`, which is the 320-px-tall "Game of the
+ * Night" hero card — that one's a Layer 2 component for static recap
+ * showcases. THIS tile is the live-mode broadcast strip element: dense,
+ * hover-able, ~180–220px tall, designed to mass-render 6–9 games below
+ * the LiveHero.
+ *
+ * State color coding (top-row state badge):
+ *   live          → cyan
+ *   final         → muted grey
+ *   ot            → orange (final-OT or live-OT)
+ *   pre           → yellow (pre-game / scheduled)
+ *   intermission  → blue
+ *
+ * Click hook: `data-layer3-hook="open-game-modal"` is stamped on the
+ * tile root for Layer 5+ wiring. No-op for now.
+ *
+ * xG-bar treatment: rendered only if `xgBar` is supplied. Live + final
+ * games typically have it; pre-game tiles can pass `xgBar` as a Win-%
+ * preview bar (cyan/dim split) — same DOM, semantically different
+ * payload. Suppressed entirely if undefined.
+ */
+
+export type GameTileState = 'live' | 'final' | 'ot' | 'pre' | 'intermission';
+
+export interface GameTileTeam {
+  abbrev: string;
+  /** Score; for `pre` state, set to null/0 — renders as em-dash. */
+  score: number | null;
+  /** Shots on goal for the current game (live/final). Optional for pre. */
+  sog?: number | string | null;
+  /**
+   * 5v5 expected goals for the current game (live/final). Pre-game tiles
+   * pass a season-average xG/G into this slot. Field name kept generic
+   * (`xg`) for backward-compat callers; preferred new field is `xg_5v5`
+   * (which falls through to this slot at render time).
+   */
+  xg?: number | string | null;
+  /**
+   * Preferred field for 5v5 xG. When present, takes precedence over
+   * `xg`. The mock data uses this name so it's self-documenting; the
+   * column header reads "5V5 XG" regardless.
+   */
+  xg_5v5?: number | string | null;
+  /** Record for live/final ("W" / "L" / "L/OT"); season record for pre. */
+  record: string;
+  /** Logo URL (assets.nhle CDN or /logos/<abbr>_light.svg). */
+  logo: string;
+  /** Team accent color (hex). Currently unused — could light up the row. */
+  accent?: string;
+}
+
+export interface GameTileChip {
+  label: string;
+  /** Color kind — keep in sync with the `.gc .foot .chip.*` rules in the
+   *  design file. Falls through to neutral grey. */
+  kind?: 'pp' | 'ot' | 'overturned' | 'hot' | 'final' | 'live' | string;
+}
+
+export interface GameTileXgBar {
+  home: number;
+  away: number;
+  /** Optional override for the small label on the left of the bar. Default
+   *  "xG"; pre-game tiles can pass "Win". */
+  label?: string;
+}
+
+export interface Props {
+  state: GameTileState;
+  /** P1/P2/P3/OT — used for the state line ("Live · P3 · 02:18"). */
+  period?: number;
+  /** "MM:SS" current clock (live + intermission). */
+  clock?: string;
+  /** Local kickoff label for `pre` (e.g. "7:00 PM ET"). */
+  startTime?: string;
+  /** Top-left context (broadcast, "Final · OT · Reg season", etc). */
+  topContext?: string;
+  /** Stable identifier — exposed on the root element for click handling. */
+  gameId?: string;
+
+  home: GameTileTeam;
+  away: GameTileTeam;
+  chips?: GameTileChip[];
+  xgBar?: GameTileXgBar;
+
+  /** Free-form tail string in the foot (e.g. arena name). Optional. */
+  footNote?: string;
+}
+
+const {
+  state,
+  period,
+  clock,
+  startTime,
+  topContext,
+  gameId,
+  home,
+  away,
+  chips = [],
+  xgBar,
+  footNote,
+} = Astro.props;
+
+// ── Loser detection — applies ONLY to FINAL / OT-final tiles. A live or
+//    intermission game has no loser yet; the trailing team should render
+//    at full strength so the grid doesn't read a verdict that hasn't been
+//    handed down. PRE has no scores at all. Tie = no loser. ───────────
+const homeScore = home.score ?? 0;
+const awayScore = away.score ?? 0;
+const showLoser = state === 'final' || state === 'ot';
+const homeLoser = showLoser && homeScore < awayScore;
+const awayLoser = showLoser && awayScore < homeScore;
+
+// ── State badge content ────────────────────────────────────────────────────
+function stateBadgeText(): string {
+  if (state === 'live') {
+    const p = period ? `P${period}` : 'Live';
+    return clock ? `Live · ${p} · ${clock}` : `Live · ${p}`;
+  }
+  if (state === 'ot') {
+    return clock ? `OT · ${clock}` : 'OT · Final';
+  }
+  if (state === 'intermission') {
+    return clock ? `INT · ${clock}` : 'Intermission';
+  }
+  if (state === 'final') return 'Final';
+  if (state === 'pre') return startTime ?? 'Tonight';
+  return 'TBD';
+}
+
+// ── xG-bar percentages — clamped to avoid divide-by-zero. ──────────────────
+function pct(a: number, b: number): [number, number] {
+  const sum = a + b;
+  if (sum <= 0) return [50, 50];
+  return [(a / sum) * 100, (b / sum) * 100];
+}
+
+const xgL = xgBar ? pct(xgBar.home, xgBar.away)[0] : 50;
+const xgR = xgBar ? pct(xgBar.home, xgBar.away)[1] : 50;
+
+// Whole-number percentages for team labels. We round both halves
+// then nudge so they always sum to 100 — avoids "58 / 41" rendering
+// from a 58.4 / 41.6 split.
+const xgLrounded = Math.round(xgL);
+const xgRrounded = 100 - xgLrounded;
+const homeLeads = xgLrounded > xgRrounded;
+const awayLeads = xgRrounded > xgLrounded;
+
+// Team accents fall back to the cyan default when not provided.
+// `--site-accent-h` / `-a` are inline-stamped on the bar root so the
+// CSS rules below can read them via var(). When BOTH teams supply an
+// accent we use the split-fill colors; else the default cyan/dim
+// treatment from the original design is preserved.
+const hasTeamAccents = !!(home.accent && away.accent);
+const xgBarStyle = hasTeamAccents
+  ? `--gc-accent-h:${home.accent};--gc-accent-a:${away.accent};`
+  : undefined;
+
+// ── WP-bar visibility / treatment ─────────────────────────────────────────
+//
+// FINAL / OT-FINAL games hide the bar entirely — once the result is in,
+// a "win probability" reading is meaningless and just adds visual noise
+// to the grid. PRE games keep the bar but re-frame it as a PROJECTION
+// (model output, not a live in-game number) so users don't conflate the
+// two. LIVE / INTERMISSION renders the bar without an extra label.
+const isFinalState = state === 'final' || state === 'ot';
+const isPreState = state === 'pre';
+const showXgBar = !!xgBar && !isFinalState;
+
+// Score value renderer — em-dash for null/0 in pre-game state.
+function scoreFor(team: GameTileTeam): string {
+  if (state === 'pre') return '—';
+  if (team.score === null || team.score === undefined) return '—';
+  return String(team.score);
+}
+
+function valueFor(v: number | string | null | undefined, fallback = '—'): string {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  }
+  return v;
+}
+---
+<article
+  class:list={['gc', `gc--${state}`]}
+  data-layer3-hook="open-game-modal"
+  data-game-id={gameId}
+>
+  <div class="gc-top">
+    <span class="gc-top-l">{topContext ?? ' '}</span>
+    <span class:list={['gc-state', `state-${state}`]}>
+      <span class="gc-dot" aria-hidden="true"></span>{stateBadgeText()}
+    </span>
+  </div>
+
+  <div class="gc-colhead">
+    <span>Team</span>
+    <span class="c">G</span>
+    <span class="c">{state === 'pre' ? 'W%' : 'SOG'}</span>
+    <span class="c">{state === 'pre' ? 'xG/G' : '5V5 xG'}</span>
+  </div>
+
+  <div class:list={['gc-row', { loser: homeLoser }]}>
+    <div class="gc-tm">
+      <img src={home.logo} alt={`${home.abbrev} logo`} loading="lazy" />
+      <div class="gc-tm-tl">
+        <span class="gc-abbr">{home.abbrev}</span>
+        <span class="gc-rec">{home.record}</span>
+      </div>
+    </div>
+    <span class="gc-sc">{scoreFor(home)}</span>
+    <span class="gc-sog">{valueFor(home.sog)}</span>
+    <span class="gc-xg">{valueFor(home.xg_5v5 ?? home.xg)}</span>
+  </div>
+
+  <div class:list={['gc-row', { loser: awayLoser }]}>
+    <div class="gc-tm">
+      <img src={away.logo} alt={`${away.abbrev} logo`} loading="lazy" />
+      <div class="gc-tm-tl">
+        <span class="gc-abbr">{away.abbrev}</span>
+        <span class="gc-rec">{away.record}</span>
+      </div>
+    </div>
+    <span class="gc-sc">{scoreFor(away)}</span>
+    <span class="gc-sog">{valueFor(away.sog)}</span>
+    <span class="gc-xg">{valueFor(away.xg_5v5 ?? away.xg)}</span>
+  </div>
+
+  {showXgBar && (
+    <>
+      {isPreState && (
+        <div class="gc-xgbar__projlabel" aria-hidden="true">Projection</div>
+      )}
+      <div
+        class:list={[
+          'gc-xgbar',
+          { 'has-accents': hasTeamAccents, 'is-pre': isPreState },
+        ]}
+        style={xgBarStyle}
+      >
+        <span class:list={['gc-xgbar__side', 'side-home', { lead: homeLeads }]}>
+          <span class="abbr">{home.abbrev}</span>
+          <span class="pct">{xgLrounded}%</span>
+        </span>
+        <div class="track" aria-hidden="true">
+          <div class="a" style={`width:${xgL}%;`}></div>
+          <div class="b" style={`width:${xgR}%;`}></div>
+        </div>
+        <span class:list={['gc-xgbar__side', 'side-away', { lead: awayLeads }]}>
+          <span class="pct">{xgRrounded}%</span>
+          <span class="abbr">{away.abbrev}</span>
+        </span>
+      </div>
+    </>
+  )}
+
+  {(chips.length > 0 || footNote) && (
+    <div class="gc-foot">
+      <span class="gc-foot-l">{footNote ?? ' '}</span>
+      {chips.length > 0 && (
+        <div class="gc-chips">
+          {chips.map(c => (
+            <span class:list={['gc-chip', c.kind ? `gc-chip--${c.kind}` : null]}>
+              {c.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )}
+</article>
+
+<style>
+  /* Mirrors `.gc` from docs/designs/ui_kits/website/index.html ~line 113.
+     Kept as scoped styles (not is:global) — Layer 3 owns this surface. */
+  .gc {
+    background: #0f0f0f;
+    border: 1px solid #1c1c1c;
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    cursor: pointer;
+    position: relative;
+    min-width: 0;
+  }
+  .gc:hover {
+    border-color: #2a2a2a;
+    background: #121212;
+  }
+  .gc:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+
+  /* ── Top row: context + state badge ───────────────────────────── */
+  .gc-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #666;
+  }
+  .gc-top-l {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .gc-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+  .gc-state.state-live { color: var(--status-live); }
+  .gc-state.state-final { color: var(--status-final); }
+  .gc-state.state-ot { color: var(--status-ot); }
+  .gc-state.state-pre { color: var(--status-scheduled); }
+  .gc-state.state-intermission { color: var(--status-intermission); }
+  .gc-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .gc--live .gc-dot {
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: gc-ringPulse 1.8s ease-out infinite;
+  }
+  @keyframes gc-ringPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.45); }
+    70%  { box-shadow: 0 0 0 8px rgba(0, 229, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+  }
+
+  /* ── Final / OT-final tiles read "settled", not "active" ────────
+     Whole-tile opacity drop + slightly lighter border so a fan
+     scanning the grid can tell at a glance which games are still
+     going just from visual weight. The state badge still uses the
+     muted FINAL grey from --status-final, and the score numerals
+     stay full-strength via the override below — the result IS the
+     headline. */
+  .gc--final,
+  .gc--ot {
+    opacity: 0.78;
+    border-color: #1a1a1a;
+  }
+  .gc--final:hover,
+  .gc--ot:hover {
+    opacity: 1;
+    border-color: #2a2a2a;
+  }
+  /* Score numerals stay full-strength on final tiles — opacity above
+     would otherwise dim them past the loser-row treatment. */
+  .gc--final .gc-row:not(.loser) .gc-sc,
+  .gc--ot    .gc-row:not(.loser) .gc-sc { color: #fff; }
+
+  /* ── Column header row ──────────────────────────────────────── */
+  .gc-colhead {
+    display: grid;
+    grid-template-columns: 1fr 34px 38px 50px;
+    gap: 4px;
+    color: #444;
+    font-family: var(--font-site-body);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-top: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #151515;
+  }
+  .gc-colhead .c { text-align: center; }
+  /* G (score) column stays right-aligned to match the bigger score
+     numerals below — only SOG + 5V5 xG are centered. */
+  .gc-colhead .c:first-of-type { text-align: right; }
+
+  /* ── Per-team rows ──────────────────────────────────────────── */
+  .gc-row {
+    display: grid;
+    grid-template-columns: 1fr 34px 38px 50px;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 0;
+  }
+  .gc-row + .gc-row { border-top: 1px solid #151515; }
+
+  .gc-tm {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .gc-tm img {
+    width: 28px;
+    height: 28px;
+    flex: none;
+  }
+  .gc-tm-tl {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .gc-abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.06em;
+    color: #f5f5f5;
+  }
+  .gc-rec {
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .gc-sc {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 24px;
+    font-variant-numeric: tabular-nums;
+    color: #f5f5f5;
+    text-align: right;
+  }
+  .gc-sog {
+    color: #888;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+  .gc-xg {
+    color: var(--status-live);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+
+  /* PRE-game state: muted score (em-dash placeholder). */
+  .gc--pre .gc-sc { color: #444; }
+  .gc--pre .gc-xg { color: #888; }
+
+  /* Loser dim — design spec: text #555, logo opacity .35 + grayscale .4 */
+  .gc-row.loser .gc-abbr,
+  .gc-row.loser .gc-sc { color: #555; }
+  .gc-row.loser .gc-sog,
+  .gc-row.loser .gc-xg { color: #444; }
+  .gc-row.loser img {
+    opacity: 0.35;
+    filter: grayscale(0.4);
+  }
+
+  /* ── Optional xG / Win mini-bar ─────────────────────────────── */
+  /* Team-labeled split-fill: HOME ABBR · % · [══════════] · % · AWAY ABBR.
+     The bar fills with team-accent colors when both teams supply an
+     `accent` hex; otherwise falls back to the cyan/dim default from
+     the original Layer 3 design. The team with the higher % gets a
+     bolder font weight (700 vs 500) so the favored side reads louder
+     at a glance. */
+  .gc-xgbar {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #151515;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .gc-xgbar__side {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+    color: #888;
+    font-weight: 500;
+    flex: none;
+    min-width: 56px;
+  }
+  .gc-xgbar__side.side-home { justify-content: flex-start; }
+  .gc-xgbar__side.side-away {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  .gc-xgbar__side .abbr {
+    font-family: var(--font-site-display);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: #999;
+  }
+  .gc-xgbar__side .pct {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: #bbb;
+  }
+  /* Higher % gets bolder type weight so the favored team reads louder. */
+  .gc-xgbar__side.lead { font-weight: 700; }
+  .gc-xgbar__side.lead .abbr { color: #f5f5f5; }
+  .gc-xgbar__side.lead .pct  { color: #fff; }
+  .gc-xgbar__side.side-away.lead { justify-content: flex-end; }
+
+  .gc-xgbar .track {
+    flex: 1;
+    height: 4px;
+    background: #151515;
+    border-radius: 2px;
+    display: flex;
+    overflow: hidden;
+    min-width: 40px;
+  }
+  /* Default fill — cyan + dim grey, used when team accents are missing. */
+  .gc-xgbar .track .a { background: var(--status-live); }
+  .gc-xgbar .track .b { background: #333; }
+  /* When both teams supply an accent, use the team-color split fill —
+     mirrors the LiveHero stat-bar treatment. */
+  .gc-xgbar.has-accents .track .a { background: var(--gc-accent-h); }
+  .gc-xgbar.has-accents .track .b { background: var(--gc-accent-a); }
+
+  /* PRE-game state — gets a "PROJECTION" label above the bar and a
+     subtle dashed-overlay treatment so the model output can't be
+     confused for a live in-game number. */
+  .gc-xgbar__projlabel {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #151515;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #555;
+    line-height: 1;
+  }
+  /* When the projection label is rendered, the bar that follows skips
+     its own top border + spacing — the label already paid that cost. */
+  .gc-xgbar__projlabel + .gc-xgbar {
+    margin-top: 6px;
+    padding-top: 0;
+    border-top: none;
+  }
+  .gc-xgbar.is-pre .track {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.04) 0,
+      rgba(255, 255, 255, 0.04) 3px,
+      transparent 3px,
+      transparent 6px
+    );
+  }
+
+  /* ── Foot: chips + arena/notes ──────────────────────────────── */
+  .gc-foot {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #1a1a1a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    min-width: 0;
+  }
+  .gc-foot-l {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .gc-chips {
+    display: flex;
+    gap: 6px;
+    flex: none;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .gc-chip {
+    padding: 2px 6px;
+    border: 1px solid #222;
+    border-radius: 2px;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #888;
+    white-space: nowrap;
+  }
+  .gc-chip--hot {
+    color: var(--status-ot);
+    border-color: rgba(255, 152, 0, 0.4);
+  }
+  .gc-chip--ot {
+    color: var(--status-ot);
+    border-color: rgba(255, 152, 0, 0.4);
+  }
+  .gc-chip--overturned {
+    color: var(--hgb-red);
+    border-color: rgba(232, 0, 45, 0.5);
+  }
+  .gc-chip--pp {
+    color: var(--status-live);
+    border-color: rgba(0, 229, 255, 0.4);
+  }
+  .gc-chip--live {
+    color: var(--status-live);
+    border-color: rgba(0, 229, 255, 0.4);
+  }
+  .gc-chip--final {
+    color: var(--status-final);
+    border-color: var(--site-border2);
+  }
+</style>

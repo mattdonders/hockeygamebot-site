@@ -5,28 +5,135 @@ import PlayoffStrip from '../components/home/PlayoffStrip.astro';
 import PageHero from '../components/home/PageHero.astro';
 import ModeBar from '../components/home/ModeBar.astro';
 import LiveHero from '../components/home/LiveHero.astro';
-import type { FeaturedGame } from '../components/home/LiveHero.astro';
+import LiveMomentStrip from '../components/home/LiveMomentStrip.astro';
+import GameTile from '../components/home/GameTile.astro';
 
-import liveMock from '../data/home-mock/live.json';
+import liveMockRaw from '../data/home-mock/live.json';
+import liveShootoutMockRaw from '../data/home-mock/live.shootout.json';
+import liveShootoutLongMockRaw from '../data/home-mock/live.shootout-long.json';
 import recapMock from '../data/home-mock/recap.json';
 
-// Both mode bodies are rendered to the DOM at build time. A small inline
-// script in <head> reads ?mode= and swaps which view is visible + updates
-// the ModeBar active state, PageHero eyebrow, and Topbar date pill. This
-// pattern avoids Cloudflare Pages SSR while still supporting query-param
-// mode switching on a static build.
-const featured = liveMock.featured_game as FeaturedGame;
-const playoffStrip = liveMock.playoff_strip;
+import { parseLiveMockOrThrow } from '../lib/live-mock-schemas';
+import { pickHero } from '../lib/excitement';
 
-// Eyebrow + date values for both modes are shipped as data-* so the
-// tiny head script can swap them without re-rendering.
+// Validate all live fixtures at build time so any drift between the
+// JSON shape and the Layer 3 contract fails the build with a path-aware
+// error rather than rendering broken markup.
+const liveMock = parseLiveMockOrThrow(liveMockRaw, 'home-mock/live.json');
+const liveShootoutMock = parseLiveMockOrThrow(
+  liveShootoutMockRaw,
+  'home-mock/live.shootout.json',
+);
+const liveShootoutLongMock = parseLiveMockOrThrow(
+  liveShootoutLongMockRaw,
+  'home-mock/live.shootout-long.json',
+);
+
+// ── Hero selection ──────────────────────────────────────────────────────────
+//
+// Layer 3 introduces a shared `pickHero()` (in src/lib/excitement.ts) that
+// applies hero-stickiness rules. For the static mock we hardcode the prior
+// hero id to the BOS@BUF playoff featured game — this exercises the sticky
+// path: even if a tighter game existed, the "I'm broadcast + 30" bonus
+// keeps the hero put. The real-time wiring in Layer 6 will read the prior
+// hero id from session state.
+const PRIOR_HERO_ID = '2026030124'; // BOS @ BUF
+// Build an ExcitementGame view from the games[] grid entries so pickHero
+// can score them. The mock games array carries `state` not `status`, so we
+// translate here at the boundary.
+type GridGame = (typeof liveMock.games extends infer T
+  ? T extends Array<infer U>
+    ? U
+    : never
+  : never);
+function gridToExcitement(g: GridGame) {
+  const status =
+    g.state === 'live' || g.state === 'intermission'
+      ? 'live'
+      : g.state === 'final' || g.state === 'ot'
+      ? 'final'
+      : 'scheduled';
+  return {
+    id: g.id,
+    status,
+    period: g.period,
+    time_remaining: g.clock,
+    home_team: { score: g.home.score ?? 0 },
+    away_team: { score: g.away.score ?? 0 },
+  };
+}
+const heroPick = liveMock.games
+  ? pickHero(liveMock.games.map(gridToExcitement), { currentHeroId: PRIOR_HERO_ID })
+  : null;
+// Resolve the actual featured game payload (with full stats / goal_feed /
+// last_events) — `featured_game` in the JSON is the rich payload; `games[]`
+// is the compact tile shape. We pickHero from the tiles, then look up the
+// matching rich payload. If the picked id matches the JSON's existing
+// featured_game.id, we use it as-is.
+const featured = liveMock.featured_game;
+// In a future layer the rich payload would be fetched per-pick; for the
+// mock, we always show liveMock.featured_game (BOS @ BUF) and let the
+// stickiness *decision* be observable via game-tile selection.
+const heroPickedId = heroPick?.id ?? null;
+const heroIsStickyChosen = heroPickedId === featured.id;
+
+// Sub-grid: every game EXCEPT the picked hero. If pickHero returned null
+// (no games), fall back to "everything except featured_game.id".
+const heroIdToExclude = heroPickedId ?? featured.id;
+const subgridGames = (liveMock.games ?? []).filter(g => g.id !== heroIdToExclude);
+
+// Shootout-fixture variant — same layout, different mock. All variants
+// are SSR'd to the page; a head script reads `?fixture=shootout` /
+// `?fixture=shootout-long` and toggles which one is visible.
+const featuredSO = liveShootoutMock.featured_game;
+const subgridSO = (liveShootoutMock.games ?? []).filter(
+  g => g.id !== featuredSO.id,
+);
+// Long-shootout variant exercises the ShootoutTracker compact mode
+// (round 7, 7 cells per team in sudden death). Same data shape as the
+// standard shootout fixture; only the round count + attempts differ.
+const featuredSOLong = liveShootoutLongMock.featured_game;
+const subgridSOLong = (liveShootoutLongMock.games ?? []).filter(
+  g => g.id !== featuredSOLong.id,
+);
+
+const playoffStrip = liveMock.playoff_strip;
+const playoffStripSO = liveShootoutMock.playoff_strip;
+const playoffStripSOLong = liveShootoutLongMock.playoff_strip;
 const liveEyebrow = liveMock.hero_eyebrow;
+const liveEyebrowSO = liveShootoutMock.hero_eyebrow;
+const liveEyebrowSOLong = liveShootoutLongMock.hero_eyebrow;
 const recapEyebrow = recapMock.hero_eyebrow;
 const liveDate = liveMock.date_label;
 const recapDate = recapMock.date_label;
+
+// Section header counts.
+function countByState(games: typeof liveMock.games | undefined): {
+  total: number;
+  live: number;
+  final: number;
+  pre: number;
+} {
+  const list = games ?? [];
+  return {
+    total: list.length,
+    live: list.filter(g => g.state === 'live' || g.state === 'intermission').length,
+    final: list.filter(g => g.state === 'final' || g.state === 'ot').length,
+    pre: list.filter(g => g.state === 'pre').length,
+  };
+}
+const grid = countByState(liveMock.games);
+const gridSO = countByState(liveShootoutMock.games);
+const gridSOLong = countByState(liveShootoutLongMock.games);
+
+// Telemetry artifact count — feeds ModeBar's "N ARTIFACTS FIRED TONIGHT"
+// line. Same ModeBar is rendered once across both fixtures, so we pull
+// from the default fixture (the shootout fixture is a swap-in variant
+// for QA, not a separate page state).
+const artifactsCount = (liveMock.live_moments ?? []).length;
 ---
 <!DOCTYPE html>
-<html lang="en" data-home-mode="live">
+<html lang="en" data-home-mode="live" data-fixture="default">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -41,6 +148,10 @@ const recapDate = recapMock.date_label;
     Keeps SSR/static compatibility (Astro output: 'static') while still
     letting /home-v2?mode=recap reach the right view. Safe no-op on the
     default live view.
+
+    Layer 3 also reads `?fixture=shootout` and stamps `data-fixture` on
+    the html root. Both live-fixture variants render at build time; CSS
+    rules below show/hide the right one.
   -->
   <script is:inline>
     (function () {
@@ -49,8 +160,23 @@ const recapDate = recapMock.date_label;
         var raw = params.get('mode');
         var mode = raw === 'recap' ? 'recap' : 'live';
         document.documentElement.setAttribute('data-home-mode', mode);
+
+        var fixture = params.get('fixture');
+        var resolvedFixture =
+          fixture === 'shootout'      ? 'shootout'
+          : fixture === 'shootout-long' ? 'shootout-long'
+          : fixture === 'empty'       ? 'empty'
+          : 'default';
+        document.documentElement.setAttribute('data-fixture', resolvedFixture);
+        // The 'empty' variant reuses the default mock but suppresses the
+        // LiveMomentStrip — same data, different presentation. Stamp a
+        // body-level data attr so the strip's CSS knows to hide.
+        if (resolvedFixture === 'empty') {
+          document.documentElement.setAttribute('data-strip-empty', '1');
+        }
       } catch (e) {
         document.documentElement.setAttribute('data-home-mode', 'live');
+        document.documentElement.setAttribute('data-fixture', 'default');
       }
     })();
   </script>
@@ -80,7 +206,59 @@ const recapDate = recapMock.date_label;
     html[data-home-mode="live"] [data-mode-view="recap"] { display: none; }
     html[data-home-mode="recap"] [data-mode-view="live"] { display: none; }
 
-    /* ── Placeholder boxes for layer-N deliverables ─────────────── */
+    /* ── Fixture-gated views (default vs shootout vs shootout-long) ──── */
+    html[data-fixture="default"] [data-fixture-view="shootout"],
+    html[data-fixture="default"] [data-fixture-view="shootout-long"] { display: none; }
+    html[data-fixture="shootout"] [data-fixture-view="default"],
+    html[data-fixture="shootout"] [data-fixture-view="shootout-long"] { display: none; }
+    html[data-fixture="shootout-long"] [data-fixture-view="default"],
+    html[data-fixture="shootout-long"] [data-fixture-view="shootout"] { display: none; }
+    /* `?fixture=empty` reuses the default fixture but suppresses the
+       LiveMomentStrip — verifies the empty-state hide behaviour. */
+    html[data-fixture="empty"] [data-fixture-view="shootout"],
+    html[data-fixture="empty"] [data-fixture-view="shootout-long"] { display: none; }
+    html[data-strip-empty="1"] .live-moment-strip { display: none; }
+
+    /* ── Section headers (mirrors design's .sec-h pattern) ─────── */
+    .home-sec-h {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 36px 0 12px;
+    }
+    .home-sec-h h2 {
+      font-family: var(--font-site-display);
+      font-weight: 700;
+      font-size: 22px;
+      color: var(--site-white);
+      margin: 0;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .home-sec-h .count {
+      color: var(--site-muted);
+      font-family: var(--font-site-body);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    /* ── 3×2×1 grid (live mode) ─────────────────────────────────── */
+    .home-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 1024px) {
+      .home-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .home-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Recap-mode placeholder (Layer 4) ───────────────────────── */
     .hv2-placeholder {
       border: 1px dashed var(--site-border2);
       border-radius: var(--radius-md);
@@ -106,44 +284,122 @@ const recapDate = recapMock.date_label;
 
     .hv2-placeholder.tall { min-height: 320px; }
 
-    .hv2-placeholders-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-      margin-top: 28px;
-    }
-
     @media (max-width: 720px) {
       .home-page { padding: 16px 12px 60px; }
-      .hv2-placeholders-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body class="hgb-site">
   <Topbar active="scores" dateLabel={liveDate} />
   {playoffStrip && (
-    <div data-mode-view="live">
+    <div data-mode-view="live" data-fixture-view="default">
       <PlayoffStrip eyebrow={playoffStrip.eyebrow} series={playoffStrip.series} />
+    </div>
+  )}
+  {playoffStripSO && (
+    <div data-mode-view="live" data-fixture-view="shootout">
+      <PlayoffStrip eyebrow={playoffStripSO.eyebrow} series={playoffStripSO.series} />
+    </div>
+  )}
+  {playoffStripSOLong && (
+    <div data-mode-view="live" data-fixture-view="shootout-long">
+      <PlayoffStrip eyebrow={playoffStripSOLong.eyebrow} series={playoffStripSOLong.series} />
     </div>
   )}
 
   <main class="home-page">
-    <div data-mode-view="live">
+    <div data-mode-view="live" data-fixture-view="default">
       <PageHero eyebrow={liveEyebrow} />
+    </div>
+    <div data-mode-view="live" data-fixture-view="shootout">
+      <PageHero eyebrow={liveEyebrowSO} />
+    </div>
+    <div data-mode-view="live" data-fixture-view="shootout-long">
+      <PageHero eyebrow={liveEyebrowSOLong} />
     </div>
     <div data-mode-view="recap">
       <PageHero eyebrow={recapEyebrow} />
     </div>
 
-    <ModeBar mode="live" />
+    <ModeBar mode="live" artifactsCount={artifactsCount} />
 
-    <section data-mode-view="live" aria-label="Live view">
+    <!--
+      LIVE MODE — default fixture (regulation BOS @ BUF in P3, 8 other games)
+      Hero is selected via pickHero() with PRIOR_HERO_ID hardcoded for the
+      mock; in production Layer 6 will read prior id from session state.
+    -->
+    <section
+      data-mode-view="live"
+      data-fixture-view="default"
+      aria-label="Live view"
+    >
       <LiveHero game={featured} />
-      <div class="hv2-placeholders-grid" aria-hidden="true">
-        <div class="hv2-placeholder">Game grid · Layer 2</div>
-        <div class="hv2-placeholder">Artifacts inline · Layer 2</div>
-        <div class="hv2-placeholder">Model predictions · Layer 3</div>
-        <div class="hv2-placeholder">Goal wash overlays · Layer 3</div>
+      <LiveMomentStrip moments={liveMock.live_moments ?? []} />
+
+      <div class="home-sec-h">
+        <h2>Tonight's Games</h2>
+        <span class="count">
+          {grid.total} games · {grid.live} live · {grid.final} final · {grid.pre} upcoming
+        </span>
+      </div>
+      <div class="home-grid">
+        {subgridGames.map(g => (
+          <GameTile {...g} />
+        ))}
+      </div>
+    </section>
+
+    <!--
+      LIVE MODE — shootout fixture (BOS @ BUF SHOOTOUT, 5 other games).
+      Same layout, different mock data. Both are SSR'd; the head script
+      sets data-fixture and CSS swaps which one renders.
+    -->
+    <section
+      data-mode-view="live"
+      data-fixture-view="shootout"
+      aria-label="Live view (shootout fixture)"
+    >
+      <LiveHero game={featuredSO} />
+      <LiveMomentStrip moments={liveShootoutMock.live_moments ?? []} />
+
+      <div class="home-sec-h">
+        <h2>Tonight's Games</h2>
+        <span class="count">
+          {gridSO.total} games · {gridSO.live} live · {gridSO.final} final · {gridSO.pre} upcoming
+        </span>
+      </div>
+      <div class="home-grid">
+        {subgridSO.map(g => (
+          <GameTile {...g} />
+        ))}
+      </div>
+    </section>
+
+    <!--
+      LIVE MODE — long-shootout fixture (BOS @ BUF SO Round 7, sudden
+      death). Exercises the ShootoutTracker compact mode: round-number
+      column headers, shooter names hidden, ✓/✗ glyphs only, smaller
+      cells. 7 cells per team fits comfortably; 9th+ would trigger the
+      horizontal-scroll-within-the-pane behaviour.
+    -->
+    <section
+      data-mode-view="live"
+      data-fixture-view="shootout-long"
+      aria-label="Live view (long shootout fixture)"
+    >
+      <LiveHero game={featuredSOLong} />
+      <LiveMomentStrip moments={liveShootoutLongMock.live_moments ?? []} />
+
+      <div class="home-sec-h">
+        <h2>Tonight's Games</h2>
+        <span class="count">
+          {gridSOLong.total} games · {gridSOLong.live} live · {gridSOLong.final} final · {gridSOLong.pre} upcoming
+        </span>
+      </div>
+      <div class="home-grid">
+        {subgridSOLong.map(g => (
+          <GameTile {...g} />
+        ))}
       </div>
     </section>
 
@@ -153,6 +409,23 @@ const recapDate = recapMock.date_label;
       </div>
     </section>
   </main>
+
+  <!--
+    Hero-pick debug stamp — useful for screenshotting the stickiness
+    behaviour. data-hero-* attrs on the LiveHero root identify which game
+    pickHero() chose and whether stickiness preserved the prior hero.
+  -->
+  <script is:inline define:vars={{ heroPickedId, heroIsStickyChosen }}>
+    (function () {
+      try {
+        var hero = document.querySelector('[data-fixture-view="default"] .live-hero');
+        if (hero) {
+          hero.setAttribute('data-hero-id', heroPickedId || '');
+          hero.setAttribute('data-hero-sticky', heroIsStickyChosen ? '1' : '0');
+        }
+      } catch (e) { /* no-op */ }
+    })();
+  </script>
 
   <!--
     Client-side mode binding:
@@ -201,34 +474,41 @@ const recapDate = recapMock.date_label;
       // the tab pill row inside `.lh-right`. Layer 1.9 collapsed the
       // top/bottom split — `data-stats-active` now lives on `.lh-right`
       // directly. CSS handles the 200ms fade.
+      //
+      // Layer 3: when the featured game is in shootout, the right pane
+      // is replaced by ShootoutTracker (no `.lh-right[data-stats-active]`
+      // is rendered) so this hydration is a no-op for that path.
       (function hydrateStatsCarousel() {
-        var zone = document.querySelector('.live-hero .lh-right');
-        if (!zone) return;
-        var tabs = zone.querySelectorAll('[data-stats-target]');
-        if (!tabs.length) return;
+        // Hydrate every visible LiveHero. SSR ships both fixture
+        // variants, but the inactive one is display:none'd via CSS.
+        var zones = document.querySelectorAll('.live-hero .lh-right[data-stats-active]');
+        zones.forEach(function (zone) {
+          var tabs = zone.querySelectorAll('[data-stats-target]');
+          if (!tabs.length) return;
 
-        function applyPanel(target) {
-          var panel = target === 'b' ? 'b' : 'a';
-          zone.setAttribute('data-stats-active', panel);
-          tabs.forEach(function (t) {
-            var match = t.getAttribute('data-stats-target') === panel;
-            t.setAttribute('aria-selected', match ? 'true' : 'false');
-          });
-        }
+          function applyPanel(target) {
+            var panel = target === 'b' ? 'b' : 'a';
+            zone.setAttribute('data-stats-active', panel);
+            tabs.forEach(function (t) {
+              var match = t.getAttribute('data-stats-target') === panel;
+              t.setAttribute('aria-selected', match ? 'true' : 'false');
+            });
+          }
 
-        // Restore choice from session if present.
-        try {
-          var saved = window.sessionStorage.getItem('hgb-stats-panel');
-          if (saved === 'a' || saved === 'b') applyPanel(saved);
-        } catch (e) { /* sessionStorage blocked — fall back to default */ }
+          // Restore choice from session if present.
+          try {
+            var saved = window.sessionStorage.getItem('hgb-stats-panel');
+            if (saved === 'a' || saved === 'b') applyPanel(saved);
+          } catch (e) { /* sessionStorage blocked — fall back to default */ }
 
-        tabs.forEach(function (tab) {
-          tab.addEventListener('click', function () {
-            var target = tab.getAttribute('data-stats-target') || 'a';
-            applyPanel(target);
-            try {
-              window.sessionStorage.setItem('hgb-stats-panel', target);
-            } catch (e) { /* ignore */ }
+          tabs.forEach(function (tab) {
+            tab.addEventListener('click', function () {
+              var target = tab.getAttribute('data-stats-target') || 'a';
+              applyPanel(target);
+              try {
+                window.sessionStorage.setItem('hgb-stats-panel', target);
+              } catch (e) { /* ignore */ }
+            });
           });
         });
       })();
@@ -238,30 +518,33 @@ const recapDate = recapMock.date_label;
       // When zero chips render, stamp data-rendered-goals="0" so the
       // CSS rule collapses the footer.
       (function hydrateGoalFooter() {
-        var feed = document.querySelector('.live-hero .goal-feed');
-        if (!feed) return;
+        var feeds = document.querySelectorAll('.live-hero .goal-feed');
+        if (!feeds.length) return;
 
         var params = new URLSearchParams(window.location.search);
         var goalsRaw = params.get('goals'); // null | 'all' | string-int
-        var totalGoals = parseInt(feed.getAttribute('data-goal-count') || '0', 10);
 
-        var visibleGoals;
-        if (goalsRaw === null || goalsRaw === 'all') {
-          visibleGoals = totalGoals;
-        } else {
-          var parsed = parseInt(goalsRaw, 10);
-          visibleGoals = isNaN(parsed)
-            ? totalGoals
-            : Math.max(0, Math.min(parsed, totalGoals));
-        }
+        feeds.forEach(function (feed) {
+          var totalGoals = parseInt(feed.getAttribute('data-goal-count') || '0', 10);
 
-        var goalChips = feed.querySelectorAll('[data-chip-kind="goal"]');
-        goalChips.forEach(function (chip) {
-          var idx = parseInt(chip.getAttribute('data-chip-idx') || '0', 10);
-          chip.hidden = idx >= visibleGoals;
+          var visibleGoals;
+          if (goalsRaw === null || goalsRaw === 'all') {
+            visibleGoals = totalGoals;
+          } else {
+            var parsed = parseInt(goalsRaw, 10);
+            visibleGoals = isNaN(parsed)
+              ? totalGoals
+              : Math.max(0, Math.min(parsed, totalGoals));
+          }
+
+          var goalChips = feed.querySelectorAll('[data-chip-kind="goal"]');
+          goalChips.forEach(function (chip) {
+            var idx = parseInt(chip.getAttribute('data-chip-idx') || '0', 10);
+            chip.hidden = idx >= visibleGoals;
+          });
+
+          feed.setAttribute('data-rendered-goals', String(visibleGoals));
         });
-
-        feed.setAttribute('data-rendered-goals', String(visibleGoals));
       })();
     })();
   </script>

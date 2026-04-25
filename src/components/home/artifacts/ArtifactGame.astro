@@ -46,6 +46,17 @@ export interface Props {
 
 const { tag, byline, state, home, away, score, wp } = Astro.props;
 
+// Loser-dim treatment only applies once the game is OVER. ArtifactGame
+// is most often a post-game recap so this is usually true, but the
+// `state.label` is free-form ("FINAL · OT" vs. "P3 04:23") and a
+// future caller could re-use the card for a live snapshot. Gate on
+// the label so an in-progress card doesn't render a "verdict" that
+// hasn't been handed down yet.
+const labelUpper = (state.label ?? '').toUpperCase();
+const gameIsOver = labelUpper.startsWith('FINAL') || labelUpper.startsWith('OT');
+const homeIsLoser = gameIsOver && !!home.isLoser;
+const awayIsLoser = gameIsOver && !!away.isLoser;
+
 // Build polyline path. Coord space: x ∈ [0, 600], y ∈ [0, 52].
 // p=1 (home wins) at top (y=0), p=0 at bottom (y=52). Mid (50%) at y=26.
 const W = 600;
@@ -93,7 +104,7 @@ const goalDots = wp.goals.map((g) => {
 ---
 <ArtifactShell variantClass="art-game" tag={tag} byline={byline}>
   <div class="art-game__teams">
-    <div class:list={['art-game__side', 'l', { loser: home.isLoser }]}>
+    <div class:list={['art-game__side', 'l', { loser: homeIsLoser }]}>
       <div class="art-game__logo" style={`background:${home.accentColor};color:#000;`}>{home.abbrev}</div>
       <div class="art-game__abbr">{home.name}</div>
       <div class="art-game__xg">{home.xg}</div>
@@ -101,10 +112,10 @@ const goalDots = wp.goals.map((g) => {
     <div class="art-game__vs">
       <span class="art-game__fstate">{state.label}</span>{score.home} – {score.away}
     </div>
-    <div class:list={['art-game__side', 'r', { loser: away.isLoser }]}>
+    <div class:list={['art-game__side', 'r', { loser: awayIsLoser }]}>
       <div class="art-game__logo" style={`background:${away.accentColor};color:#000;`}>{away.abbrev}</div>
       <div class="art-game__abbr">{away.name}</div>
-      <div class="art-game__xg" style={away.isLoser ? 'color:#777' : undefined}>{away.xg}</div>
+      <div class="art-game__xg" style={awayIsLoser ? 'color:#777' : undefined}>{away.xg}</div>
     </div>
   </div>
 
