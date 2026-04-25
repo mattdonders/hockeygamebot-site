@@ -10,18 +10,23 @@ import GameTile from '../components/home/GameTile.astro';
 
 import liveMockRaw from '../data/home-mock/live.json';
 import liveShootoutMockRaw from '../data/home-mock/live.shootout.json';
+import liveShootoutLongMockRaw from '../data/home-mock/live.shootout-long.json';
 import recapMock from '../data/home-mock/recap.json';
 
 import { parseLiveMockOrThrow } from '../lib/live-mock-schemas';
 import { pickHero } from '../lib/excitement';
 
-// Validate both live fixtures at build time so any drift between the
+// Validate all live fixtures at build time so any drift between the
 // JSON shape and the Layer 3 contract fails the build with a path-aware
 // error rather than rendering broken markup.
 const liveMock = parseLiveMockOrThrow(liveMockRaw, 'home-mock/live.json');
 const liveShootoutMock = parseLiveMockOrThrow(
   liveShootoutMockRaw,
   'home-mock/live.shootout.json',
+);
+const liveShootoutLongMock = parseLiveMockOrThrow(
+  liveShootoutLongMockRaw,
+  'home-mock/live.shootout-long.json',
 );
 
 // ── Hero selection ──────────────────────────────────────────────────────────
@@ -77,18 +82,27 @@ const heroIsStickyChosen = heroPickedId === featured.id;
 const heroIdToExclude = heroPickedId ?? featured.id;
 const subgridGames = (liveMock.games ?? []).filter(g => g.id !== heroIdToExclude);
 
-// Shootout-fixture variant — same layout, different mock. Both are SSR'd
-// to the page; a head script reads `?fixture=shootout` and toggles which
-// one is visible.
+// Shootout-fixture variant — same layout, different mock. All variants
+// are SSR'd to the page; a head script reads `?fixture=shootout` /
+// `?fixture=shootout-long` and toggles which one is visible.
 const featuredSO = liveShootoutMock.featured_game;
 const subgridSO = (liveShootoutMock.games ?? []).filter(
   g => g.id !== featuredSO.id,
 );
+// Long-shootout variant exercises the ShootoutTracker compact mode
+// (round 7, 7 cells per team in sudden death). Same data shape as the
+// standard shootout fixture; only the round count + attempts differ.
+const featuredSOLong = liveShootoutLongMock.featured_game;
+const subgridSOLong = (liveShootoutLongMock.games ?? []).filter(
+  g => g.id !== featuredSOLong.id,
+);
 
 const playoffStrip = liveMock.playoff_strip;
 const playoffStripSO = liveShootoutMock.playoff_strip;
+const playoffStripSOLong = liveShootoutLongMock.playoff_strip;
 const liveEyebrow = liveMock.hero_eyebrow;
 const liveEyebrowSO = liveShootoutMock.hero_eyebrow;
+const liveEyebrowSOLong = liveShootoutLongMock.hero_eyebrow;
 const recapEyebrow = recapMock.hero_eyebrow;
 const liveDate = liveMock.date_label;
 const recapDate = recapMock.date_label;
@@ -110,6 +124,7 @@ function countByState(games: typeof liveMock.games | undefined): {
 }
 const grid = countByState(liveMock.games);
 const gridSO = countByState(liveShootoutMock.games);
+const gridSOLong = countByState(liveShootoutLongMock.games);
 
 // Telemetry artifact count — feeds ModeBar's "N ARTIFACTS FIRED TONIGHT"
 // line. Same ModeBar is rendered once across both fixtures, so we pull
@@ -148,8 +163,9 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
 
         var fixture = params.get('fixture');
         var resolvedFixture =
-          fixture === 'shootout' ? 'shootout'
-          : fixture === 'empty'  ? 'empty'
+          fixture === 'shootout'      ? 'shootout'
+          : fixture === 'shootout-long' ? 'shootout-long'
+          : fixture === 'empty'       ? 'empty'
           : 'default';
         document.documentElement.setAttribute('data-fixture', resolvedFixture);
         // The 'empty' variant reuses the default mock but suppresses the
@@ -190,12 +206,17 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
     html[data-home-mode="live"] [data-mode-view="recap"] { display: none; }
     html[data-home-mode="recap"] [data-mode-view="live"] { display: none; }
 
-    /* ── Fixture-gated views (default vs shootout) ──────────────── */
-    html[data-fixture="default"] [data-fixture-view="shootout"] { display: none; }
-    html[data-fixture="shootout"] [data-fixture-view="default"] { display: none; }
+    /* ── Fixture-gated views (default vs shootout vs shootout-long) ──── */
+    html[data-fixture="default"] [data-fixture-view="shootout"],
+    html[data-fixture="default"] [data-fixture-view="shootout-long"] { display: none; }
+    html[data-fixture="shootout"] [data-fixture-view="default"],
+    html[data-fixture="shootout"] [data-fixture-view="shootout-long"] { display: none; }
+    html[data-fixture="shootout-long"] [data-fixture-view="default"],
+    html[data-fixture="shootout-long"] [data-fixture-view="shootout"] { display: none; }
     /* `?fixture=empty` reuses the default fixture but suppresses the
        LiveMomentStrip — verifies the empty-state hide behaviour. */
-    html[data-fixture="empty"] [data-fixture-view="shootout"] { display: none; }
+    html[data-fixture="empty"] [data-fixture-view="shootout"],
+    html[data-fixture="empty"] [data-fixture-view="shootout-long"] { display: none; }
     html[data-strip-empty="1"] .live-moment-strip { display: none; }
 
     /* ── Section headers (mirrors design's .sec-h pattern) ─────── */
@@ -280,6 +301,11 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       <PlayoffStrip eyebrow={playoffStripSO.eyebrow} series={playoffStripSO.series} />
     </div>
   )}
+  {playoffStripSOLong && (
+    <div data-mode-view="live" data-fixture-view="shootout-long">
+      <PlayoffStrip eyebrow={playoffStripSOLong.eyebrow} series={playoffStripSOLong.series} />
+    </div>
+  )}
 
   <main class="home-page">
     <div data-mode-view="live" data-fixture-view="default">
@@ -287,6 +313,9 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
     </div>
     <div data-mode-view="live" data-fixture-view="shootout">
       <PageHero eyebrow={liveEyebrowSO} />
+    </div>
+    <div data-mode-view="live" data-fixture-view="shootout-long">
+      <PageHero eyebrow={liveEyebrowSOLong} />
     </div>
     <div data-mode-view="recap">
       <PageHero eyebrow={recapEyebrow} />
@@ -341,6 +370,34 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       </div>
       <div class="home-grid">
         {subgridSO.map(g => (
+          <GameTile {...g} />
+        ))}
+      </div>
+    </section>
+
+    <!--
+      LIVE MODE — long-shootout fixture (BOS @ BUF SO Round 7, sudden
+      death). Exercises the ShootoutTracker compact mode: round-number
+      column headers, shooter names hidden, ✓/✗ glyphs only, smaller
+      cells. 7 cells per team fits comfortably; 9th+ would trigger the
+      horizontal-scroll-within-the-pane behaviour.
+    -->
+    <section
+      data-mode-view="live"
+      data-fixture-view="shootout-long"
+      aria-label="Live view (long shootout fixture)"
+    >
+      <LiveHero game={featuredSOLong} />
+      <LiveMomentStrip moments={liveShootoutLongMock.live_moments ?? []} />
+
+      <div class="home-sec-h">
+        <h2>Tonight's Games</h2>
+        <span class="count">
+          {gridSOLong.total} games · {gridSOLong.live} live · {gridSOLong.final} final · {gridSOLong.pre} upcoming
+        </span>
+      </div>
+      <div class="home-grid">
+        {subgridSOLong.map(g => (
           <GameTile {...g} />
         ))}
       </div>
