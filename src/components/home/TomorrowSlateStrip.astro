@@ -1,0 +1,314 @@
+---
+/**
+ * TomorrowSlateStrip — horizontal-scroll strip of TOMORROW's scheduled
+ * games (SITE-HOME-05).
+ *
+ * Sits under TomorrowHero. Same horizontal-scroll pattern as
+ * RecapScoreStrip — including the chevron buttons and overflow-detect
+ * script — but tile content swaps "scores" for "scheduled start time +
+ * series context". No winner-loser dim because no game has happened yet.
+ *
+ * Why a separate component instead of swapping a `state="pre"` mode
+ * into RecapScoreStrip
+ * --------------------------------------------------------------------
+ * RecapScoreStrip is opinionated about the "did the game happen" framing
+ * — its tile renders score numerals as the visual anchor. Tomorrow tiles
+ * have no scores; the time + series context is the anchor. Forcing both
+ * into one component means a bunch of conditional layout rules that
+ * obscure intent. This is the same design decision that birthed
+ * RecapScoreTile vs GameTile in Layer 4.5.
+ *
+ * Click hook on each tile: `data-tomorrow-hook="open-preview-modal"`
+ * (no-op for now; Layer 5+ wires the modal).
+ */
+
+export interface TomorrowSlateTile {
+  gameId: string;
+  start_time: string;
+  series_status?: string;
+  home: {
+    abbrev: string;
+    logo: string;
+    record?: string;
+    accentColor?: string;
+  };
+  away: {
+    abbrev: string;
+    logo: string;
+    record?: string;
+    accentColor?: string;
+  };
+}
+
+export interface Props {
+  tiles: TomorrowSlateTile[];
+  heading?: string;
+}
+
+const { tiles, heading } = Astro.props;
+const total = tiles.length;
+const headingText = heading ?? `Tomorrow's slate · ${total} game${total === 1 ? '' : 's'}`;
+---
+<section class="tomorrow-slate-strip" aria-label="Tomorrow's scheduled games">
+  <header class="tss-head">
+    <h2 class="tss-h2">
+      <span class="tss-tick" aria-hidden="true">▍</span>
+      {headingText}
+    </h2>
+  </header>
+
+  <div class="tss-frame">
+    <button
+      type="button"
+      class="tss-chev tss-chev--l"
+      aria-label="Scroll slate left"
+      data-tss-dir="-1"
+      hidden
+    >‹</button>
+
+    <div class="tss-track" role="list">
+      {tiles.map((t) => (
+        <article
+          class="tss-tile"
+          role="listitem"
+          data-tomorrow-hook="open-preview-modal"
+          data-game-id={t.gameId}
+        >
+          <div class="tss-state">PRE · {t.start_time}</div>
+
+          <div class="tss-row">
+            <img class="tss-logo" src={t.away.logo} alt={`${t.away.abbrev} logo`} loading="lazy" />
+            <span class="tss-abbr">{t.away.abbrev}</span>
+            {t.away.record && <span class="tss-rec">{t.away.record}</span>}
+          </div>
+          <div class="tss-row">
+            <img class="tss-logo" src={t.home.logo} alt={`${t.home.abbrev} logo`} loading="lazy" />
+            <span class="tss-abbr">{t.home.abbrev}</span>
+            {t.home.record && <span class="tss-rec">{t.home.record}</span>}
+          </div>
+
+          {t.series_status && <div class="tss-meta">{t.series_status}</div>}
+        </article>
+      ))}
+    </div>
+
+    <button
+      type="button"
+      class="tss-chev tss-chev--r"
+      aria-label="Scroll slate right"
+      data-tss-dir="1"
+      hidden
+    >›</button>
+  </div>
+</section>
+
+<script is:inline>
+  /*
+   * Hydrate horizontal-scroll chevrons. Mirrors the pattern in
+   * RecapScoreStrip — no shared dep because the selectors are scoped to
+   * the component's own classes (avoiding accidental cross-component
+   * coupling).
+   */
+  function hgbHydrateTomorrowSlateStrip() {
+    var strips = document.querySelectorAll('.tomorrow-slate-strip');
+    strips.forEach(function (strip) {
+      var track = strip.querySelector('.tss-track');
+      var chevL = strip.querySelector('.tss-chev--l');
+      var chevR = strip.querySelector('.tss-chev--r');
+      if (!track) return;
+
+      function updateChevrons() {
+        var hasOverflow = track.scrollWidth > track.clientWidth + 4;
+        if (!hasOverflow) {
+          if (chevL) chevL.hidden = true;
+          if (chevR) chevR.hidden = true;
+          return;
+        }
+        var atStart = track.scrollLeft <= 4;
+        var atEnd = track.scrollLeft + track.clientWidth >= track.scrollWidth - 4;
+        if (chevL) chevL.hidden = atStart;
+        if (chevR) chevR.hidden = atEnd;
+      }
+
+      track.addEventListener('scroll', updateChevrons, { passive: true });
+      window.addEventListener('resize', updateChevrons);
+
+      [chevL, chevR].forEach(function (btn) {
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          var dir = parseInt(btn.getAttribute('data-tss-dir') || '1', 10);
+          track.scrollBy({ left: dir * 300, behavior: 'smooth' });
+        });
+      });
+
+      updateChevrons();
+      requestAnimationFrame(updateChevrons);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', hgbHydrateTomorrowSlateStrip);
+  } else {
+    hgbHydrateTomorrowSlateStrip();
+  }
+</script>
+
+<style>
+  .tomorrow-slate-strip {
+    margin: 0 0 24px;
+  }
+
+  .tss-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .tss-h2 {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: #999;
+    margin: 0;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tss-tick {
+    color: var(--status-live);
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .tss-frame {
+    position: relative;
+  }
+
+  .tss-track {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+    padding: 2px 2px 8px;
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a transparent;
+  }
+  .tss-track::-webkit-scrollbar { height: 6px; }
+  .tss-track::-webkit-scrollbar-track { background: transparent; }
+  .tss-track::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border-radius: 3px;
+  }
+  .tss-track::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+  .tss-tile {
+    flex: 0 0 150px;
+    min-width: 150px;
+    background: #0f0f0f;
+    border: 1px solid #1c1c1c;
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .tss-tile:hover {
+    border-color: #2a2a2a;
+    background: #131313;
+    transform: translateY(-1px);
+  }
+  .tss-tile:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+
+  .tss-state {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--status-scheduled);
+  }
+
+  .tss-row {
+    display: grid;
+    grid-template-columns: 22px auto 1fr;
+    align-items: center;
+    gap: 8px;
+  }
+  .tss-logo {
+    width: 22px;
+    height: 22px;
+  }
+  .tss-abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: #f5f5f5;
+  }
+  .tss-rec {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: #666;
+    text-align: right;
+    letter-spacing: 0.04em;
+  }
+
+  .tss-meta {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #666;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  .tss-chev {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 56px;
+    border: 1px solid #232323;
+    background: linear-gradient(90deg, #0a0a0a 70%, rgba(10, 10, 10, 0.4) 100%);
+    color: #ccc;
+    font-family: var(--font-site-display);
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    z-index: 2;
+    transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .tss-chev:hover {
+    background: #161616;
+    border-color: #3a3a3a;
+    color: #fff;
+  }
+  .tss-chev:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+  .tss-chev--l { left: -2px; }
+  .tss-chev--r {
+    right: -2px;
+    background: linear-gradient(270deg, #0a0a0a 70%, rgba(10, 10, 10, 0.4) 100%);
+  }
+  .tss-chev[hidden] { display: none; }
+
+  @media (max-width: 720px) {
+    .tss-chev { display: none; }
+    .tss-tile { flex: 0 0 130px; min-width: 130px; }
+  }
+</style>
