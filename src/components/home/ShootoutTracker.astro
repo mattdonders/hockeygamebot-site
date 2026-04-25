@@ -1,0 +1,254 @@
+---
+/**
+ * ShootoutTracker — round grid + goalie summary for the LiveHero right pane.
+ *
+ * Renders when the featured game is in the shootout (`featured_game.status
+ * === 'shootout'`). Replaces the GAME / PBP carousel; the LiveHero's left
+ * pane (score block + period table) keeps rendering normally — the period
+ * table grows an "SO" column, highlighted, when the game is in SO.
+ *
+ * Layout:
+ *   ▍ SHOOTOUT · ROUND 4         (cyan dot pulse + label, mirrors LIVE)
+ *   ─────────────────────────────
+ *   HOME │ ✓  ✓  ✗  •            (one cell per round; •/— = upcoming)
+ *   AWAY │ ✗  ✓  ✓  •
+ *   ─────────────────────────────
+ *   Swayman 2/4 · UPL 1/4         (goalies summary line)
+ */
+
+export type ShootoutResult = 'goal' | 'save' | 'miss' | 'pending';
+
+export interface ShootoutAttempt {
+  /** Last name of the shooter — single line, truncated. */
+  shooter: string;
+  result: ShootoutResult;
+}
+
+export interface ShootoutGoalie {
+  name: string;
+  saves: number;
+  attempts: number;
+}
+
+export interface Props {
+  /** Current round (1-based). Used in the header. */
+  round: number;
+  /** Cells for the home team — one per attempt taken so far. */
+  home: ShootoutAttempt[];
+  /** Cells for the away team. */
+  away: ShootoutAttempt[];
+  /** Goalie summary — saves / attempts faced. */
+  goalies: { home: ShootoutGoalie; away: ShootoutGoalie };
+  /** Optional team labels to show in the row prefix; defaults to HOME / AWAY. */
+  homeLabel?: string;
+  awayLabel?: string;
+}
+
+const { round, home, away, goalies, homeLabel = 'HOME', awayLabel = 'AWAY' } = Astro.props;
+
+// We always render at least 4 columns visually so the grid feels like a
+// "round counter", not "however-many-attempts-have-been-taken". If the
+// game blows past 4 rounds (real shootouts can go 5, 6, 10), expand to
+// match the longest team's attempt count.
+const minCols = 4;
+const totalCols = Math.max(minCols, home.length, away.length);
+
+function cellClassFor(result: ShootoutResult | undefined): string {
+  if (!result) return 'so-cell pending';
+  return `so-cell ${result}`;
+}
+
+function cellGlyphFor(result: ShootoutResult | undefined): string {
+  if (!result || result === 'pending') return '—';
+  if (result === 'goal') return '✓';
+  if (result === 'save' || result === 'miss') return '✗';
+  return '—';
+}
+
+// Build pre-computed cells (left → right).
+function rowCells(team: ShootoutAttempt[]): Array<ShootoutAttempt | null> {
+  const cells: Array<ShootoutAttempt | null> = [];
+  for (let i = 0; i < totalCols; i++) {
+    cells.push(team[i] ?? null);
+  }
+  return cells;
+}
+const homeCells = rowCells(home);
+const awayCells = rowCells(away);
+---
+<section class="so-tracker" aria-label="Shootout tracker">
+  <div class="so-head">
+    <span class="so-head-l">
+      <span class="dot" aria-hidden="true"></span>
+      <span>Shootout · Round {round}</span>
+    </span>
+  </div>
+
+  <div class="so-grid" style={`--so-cols:${totalCols};`} role="table">
+    <div class="so-team" role="rowheader">{homeLabel}</div>
+    {homeCells.map(cell => (
+      <div class={cellClassFor(cell?.result)} role="cell">
+        <span class="so-glyph">{cellGlyphFor(cell?.result)}</span>
+        {cell?.shooter && <span class="so-name">{cell.shooter}</span>}
+      </div>
+    ))}
+
+    <div class="so-team" role="rowheader">{awayLabel}</div>
+    {awayCells.map(cell => (
+      <div class={cellClassFor(cell?.result)} role="cell">
+        <span class="so-glyph">{cellGlyphFor(cell?.result)}</span>
+        {cell?.shooter && <span class="so-name">{cell.shooter}</span>}
+      </div>
+    ))}
+  </div>
+
+  <div class="so-foot">
+    <span class="so-goalie">
+      <b>{goalies.home.name}</b> {goalies.home.saves}/{goalies.home.attempts}
+    </span>
+    <span class="so-sep" aria-hidden="true">·</span>
+    <span class="so-goalie">
+      <b>{goalies.away.name}</b> {goalies.away.saves}/{goalies.away.attempts}
+    </span>
+  </div>
+</section>
+
+<style>
+  .so-tracker {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+    gap: 12px;
+  }
+
+  /* ── Header — mirrors the cyan-dot LIVE-FEED head treatment ────── */
+  .so-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--status-live);
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    flex: none;
+  }
+  .so-head-l {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .so-head .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--status-live);
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: so-ringPulse 1.8s ease-out infinite;
+    flex: none;
+  }
+  @keyframes so-ringPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(0, 229, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+  }
+
+  /* ── Round grid — 1 row per team, 1 cell per round. ──────────── */
+  .so-grid {
+    display: grid;
+    grid-template-columns: 60px repeat(var(--so-cols, 4), 1fr);
+    gap: 6px;
+    align-items: stretch;
+    flex: none;
+  }
+
+  .so-team {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--site-muted);
+    align-self: center;
+  }
+
+  .so-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 4px;
+    border: 1px solid #1a1a1a;
+    border-radius: var(--radius-sm);
+    background: #0a0a0a;
+    min-height: 52px;
+    overflow: hidden;
+  }
+
+  .so-glyph {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 22px;
+    line-height: 1;
+    color: #444;
+    font-variant-numeric: tabular-nums;
+  }
+  .so-name {
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    color: #888;
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .so-cell.goal {
+    border-color: rgba(0, 230, 118, 0.35);
+    background: rgba(0, 230, 118, 0.05);
+  }
+  .so-cell.goal .so-glyph { color: var(--status-goal); }
+
+  .so-cell.save,
+  .so-cell.miss {
+    border-color: rgba(232, 0, 45, 0.4);
+    background: rgba(232, 0, 45, 0.05);
+  }
+  .so-cell.save .so-glyph,
+  .so-cell.miss .so-glyph { color: var(--hgb-red); }
+
+  .so-cell.pending {
+    border-style: dashed;
+    border-color: #222;
+  }
+
+  /* ── Goalie summary footer ─────────────────────────────────── */
+  .so-foot {
+    flex: none;
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid #1a1a1a;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--site-muted);
+    font-family: var(--font-site-body);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .so-goalie b {
+    color: var(--site-white);
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    margin-right: 4px;
+  }
+  .so-sep { color: var(--site-border2); }
+</style>
