@@ -53,6 +53,26 @@ const PlayoffStripSchema = z.object({
 const WallSpanSchema = z.enum(['a-3', 'a-4', 'a-6', 'a-8', 'a-12']);
 
 /**
+ * Sort metadata on every wall entry (Layer 4.5).
+ *
+ *   - `posted_at`        : ISO-8601 timestamp when the bot tweeted/posted
+ *                           the artifact. Used for LATEST-FIRST sort.
+ *   - `narrative_weight` : 0-100 HGB-IMPACT weight from `narrativeWeight()`.
+ *                           Used for HGB-IMPACT sort. The Python pipeline
+ *                           computes this server-side so the client is a
+ *                           pure renderer (matches the design intent of
+ *                           the wall as an editorial output).
+ *
+ * `_narrativeScore` is an optional audit-trail field stamped on game
+ * cards specifically — the algorithm-derived raw score that earned the
+ * card a wall slot. Ignored by components, kept for tuning visibility.
+ */
+const WallSortFields = {
+  posted_at: z.string().min(1),
+  narrative_weight: z.number().int().min(0).max(100),
+};
+
+/**
  * Each wall entry pairs a slug with the matching artifact schema. The
  * union is discriminated so a typo in one slug doesn't cascade-fail
  * every other slug's payload — Zod reports the exact path.
@@ -64,17 +84,17 @@ const WallSpanSchema = z.enum(['a-3', 'a-4', 'a-6', 'a-8', 'a-12']);
  * unfiltered ALL view is the only place it shows.
  */
 const WallEntrySchema = z.discriminatedUnion('slug', [
-  z.object({ slug: z.literal('game'),       span: WallSpanSchema, data: ArtifactGameSchema }),
-  z.object({ slug: z.literal('hot'),        span: WallSpanSchema, data: ArtifactHotSchema }),
-  z.object({ slug: z.literal('cold'),       span: WallSpanSchema, data: ArtifactColdSchema }),
-  z.object({ slug: z.literal('milestone'),  span: WallSpanSchema, data: ArtifactMilestoneSchema }),
-  z.object({ slug: z.literal('line'),       span: WallSpanSchema, data: ArtifactLineSchema }),
-  z.object({ slug: z.literal('matchup'),    span: WallSpanSchema, data: ArtifactMatchupSchema }),
-  z.object({ slug: z.literal('clinch'),     span: WallSpanSchema, data: ArtifactClinchSchema }),
-  z.object({ slug: z.literal('season'),     span: WallSpanSchema, data: ArtifactSeasonSchema }),
-  z.object({ slug: z.literal('hattrick'),   span: WallSpanSchema, data: ArtifactHatTrickSchema }),
-  z.object({ slug: z.literal('stars'),      span: WallSpanSchema, data: ArtifactThreeStarsSchema }),
-  z.object({ slug: z.literal('goalie'),     span: WallSpanSchema, data: ArtifactGoalieSchema }),
+  z.object({ slug: z.literal('game'),       span: WallSpanSchema, ...WallSortFields, _narrativeScore: z.number().int().min(0).max(100).optional(), data: ArtifactGameSchema }),
+  z.object({ slug: z.literal('hot'),        span: WallSpanSchema, ...WallSortFields, data: ArtifactHotSchema }),
+  z.object({ slug: z.literal('cold'),       span: WallSpanSchema, ...WallSortFields, data: ArtifactColdSchema }),
+  z.object({ slug: z.literal('milestone'),  span: WallSpanSchema, ...WallSortFields, data: ArtifactMilestoneSchema }),
+  z.object({ slug: z.literal('line'),       span: WallSpanSchema, ...WallSortFields, data: ArtifactLineSchema }),
+  z.object({ slug: z.literal('matchup'),    span: WallSpanSchema, ...WallSortFields, data: ArtifactMatchupSchema }),
+  z.object({ slug: z.literal('clinch'),     span: WallSpanSchema, ...WallSortFields, data: ArtifactClinchSchema }),
+  z.object({ slug: z.literal('season'),     span: WallSpanSchema, ...WallSortFields, data: ArtifactSeasonSchema }),
+  z.object({ slug: z.literal('hattrick'),   span: WallSpanSchema, ...WallSortFields, data: ArtifactHatTrickSchema }),
+  z.object({ slug: z.literal('stars'),      span: WallSpanSchema, ...WallSortFields, data: ArtifactThreeStarsSchema }),
+  z.object({ slug: z.literal('goalie'),     span: WallSpanSchema, ...WallSortFields, data: ArtifactGoalieSchema }),
 ]);
 export type WallEntry = z.infer<typeof WallEntrySchema>;
 
@@ -115,6 +135,69 @@ export const TweetEchoEntrySchema = z.object({
 });
 export type TweetEchoEntry = z.infer<typeof TweetEchoEntrySchema>;
 
+// ── Final-scores strip (Layer 4.5) ─────────────────────────────────────
+
+/**
+ * Compact tile shape for the FINAL SCORES horizontal-scroll strip. Mirrors
+ * the props of `RecapScoreStrip.RecapScoreTile` — kept loose-typed on the
+ * logo URL since the bot may emit a CDN path or a relative `/logos/` ref.
+ */
+export const RecapScoreTileSchema = z.object({
+  gameId: z.string().min(1),
+  state: z.enum(['final', 'ot', 'so']),
+  startTime: z.string().optional(),
+  endClock: z.string().optional(),
+  home: z.object({
+    abbrev: z.string().min(2).max(4),
+    score: z.number().int().nonnegative(),
+    logo: z.string().min(1),
+    isLoser: z.boolean().optional(),
+  }),
+  away: z.object({
+    abbrev: z.string().min(2).max(4),
+    score: z.number().int().nonnegative(),
+    logo: z.string().min(1),
+    isLoser: z.boolean().optional(),
+  }),
+});
+export type RecapScoreTile = z.infer<typeof RecapScoreTileSchema>;
+
+// ── Model retrospective (Layer 4.5) ────────────────────────────────────
+
+/**
+ * "How the model did last night" + season ATS ticker. The Python pipeline
+ * computes both blocks from the bot's stored win-probability + line-on-
+ * close history. Optional at the top level — section hides if absent.
+ */
+export const ModelRetrospectiveSchema = z.object({
+  last_night: z.object({
+    outright_wins: z.number().int().nonnegative(),
+    outright_total: z.number().int().nonnegative(),
+    ats_record: z.string().min(1),
+    /** "+2.4" — leading sign required so the UI can render it raw. */
+    ats_ev: z.string().min(1),
+    best_call: z.object({
+      winner: z.string().min(2).max(4),
+      loser: z.string().min(2).max(4),
+      model_pct: z.number().int().min(0).max(100),
+      actual: z.string().min(1),
+    }),
+    worst_miss: z
+      .object({
+        favorite: z.string().min(2).max(4),
+        model_pct: z.number().int().min(0).max(100),
+        actual: z.string().min(1),
+      })
+      .optional(),
+  }),
+  season: z.object({
+    ats_record: z.string().min(1),
+    ats_pct: z.number().min(0).max(100),
+    ats_ev: z.string().min(1),
+  }),
+});
+export type ModelRetrospective = z.infer<typeof ModelRetrospectiveSchema>;
+
 // ── Top-level recap-mock schema ────────────────────────────────────────
 
 export const RecapMockSchema = z.object({
@@ -128,12 +211,26 @@ export const RecapMockSchema = z.object({
   /** Optional companion artifact next to the hero. */
   supporting_hero: SupportingHeroSchema.nullable().optional(),
 
+  /**
+   * ALL games from the night, compact tile shape. Renders in
+   * `RecapScoreStrip` between RecapHero and RecapFilterBar. Optional —
+   * absent means no strip rendered (degenerate "no games last night"
+   * fallback).
+   */
+  final_scores: z.array(RecapScoreTileSchema).optional(),
+
   /** Wall cards, in render order. Empty array allowed (no-recap night). */
   wall: z.array(WallEntrySchema),
 
   /** Tweet echo entries. 0+ allowed; section hides gracefully when empty
    *  (TweetEcho component renders a placeholder lede with no row). */
   tweet_echo: z.array(TweetEchoEntrySchema),
+
+  /**
+   * Model retrospective — "how the bot's predictions did last night" +
+   * season-running ticker. Optional; section hides if absent.
+   */
+  model_retrospective: ModelRetrospectiveSchema.optional(),
 });
 export type RecapMock = z.infer<typeof RecapMockSchema>;
 
