@@ -196,14 +196,29 @@ const recapDate = recapMock.date_label;
         dateEl.textContent = mode === 'recap' ? recapDate : liveDate;
       }
 
-      // ── LiveHero footer strip: goal/last-events slot allocation ─
+      // ── LiveHero footer strip: goal slot allocation + Latest density ─
       //
-      // Footer layout (Layer 1.6):
-      //   [ goal/PBP chips … ] [ + N more? ] [ Latest Activity ]
+      // Footer model (Layer 1.7):
+      //   [ goal chips … ] [ + N more? ] [ Latest Activity ]
       //
-      // The Latest Activity card is rendered server-side and never
-      // toggled by this script — it always occupies the rightmost slot.
-      // Effective capacity for chips + more = MAX - 1 (reserved slot).
+      // 6-slot total. The PBP-chip fallback from 1.5 is gone — Latest
+      // Activity absorbs the role and flex-grows to whatever remains.
+      // Density attribute drives column count + visible-event count.
+      //
+      // Slot matrix:
+      //   visibleGoals + moreChip = G slots used
+      //   slotsForLatest = MAX - G
+      //   density:
+      //     0 → "hidden"     (goals fill all 6)
+      //     1 → "narrow"
+      //     2 → "medium"
+      //     3 → "wide"
+      //     4 → "wide"       (more breathing room than 3)
+      //     5 → "very-wide"
+      //     6 → "max"        (full footer width, header summary visible)
+      //
+      // Decision: overturned chips count toward the visible cap (one chip
+      // = one slot to the user's eye, regardless of validation status).
       (function hydrateFooterStrip() {
         var feed = document.querySelector('.live-hero .goal-feed');
         if (!feed) return;
@@ -211,51 +226,40 @@ const recapDate = recapMock.date_label;
         var params = new URLSearchParams(window.location.search);
         var goalsRaw = params.get('goals'); // null | 'all' | string-int
 
-        var MAX_ALL = parseInt(feed.getAttribute('data-max-slots') || '6', 10);
-        var MIN = parseInt(feed.getAttribute('data-min-slots') || '4', 10);
-        var MAX = MAX_ALL - 1; // reserve rightmost slot for Latest Activity
+        var MAX = parseInt(feed.getAttribute('data-max-slots') || '6', 10);
         var totalGoals = parseInt(feed.getAttribute('data-goal-count') || '0', 10);
-        var totalLast  = parseInt(feed.getAttribute('data-last-count') || '0', 10);
 
-        // Resolve how many goal chips to show.
-        //   default | 'all' → totalGoals (clamped later by MAX)
-        //   '0' / '1' / 'N' → that many
-        var goalsToShow;
+        // Resolve how many goal chips the user wants to show.
+        //   default | 'all' → totalGoals
+        //   '0' / '1' / 'N' → that many (clamped to [0, totalGoals])
+        var goalsRequested;
         if (goalsRaw === null || goalsRaw === 'all') {
-          goalsToShow = totalGoals;
+          goalsRequested = totalGoals;
         } else {
           var parsed = parseInt(goalsRaw, 10);
-          goalsToShow = isNaN(parsed) ? totalGoals : Math.max(0, Math.min(parsed, totalGoals));
+          goalsRequested = isNaN(parsed) ? totalGoals : Math.max(0, Math.min(parsed, totalGoals));
         }
 
-        // Cap goals at MAX (one slot becomes the "+ N more" chip when overflow).
-        var hasOverflow = goalsToShow > MAX;
-        var goalSlots = hasOverflow ? (MAX - 1) : goalsToShow;
-
-        // Decide if last-events fill is needed (only when < 2 goals visible).
-        var lastNeeded = 0;
-        if (goalSlots < 2) {
-          // Fill up to MIN slots minimum, up to MAX ceiling.
-          // MIN counts the Latest Activity card too, so subtract 1.
-          var desired = Math.max((MIN - 1) - goalSlots, 0);
-          // Honor the spec's explicit rule for goals=1: "up to 3 last-events"
-          if (goalsRaw === '1') desired = 3;
-          if (goalsRaw === '0') desired = Math.max(4, MIN - 1); // aim for 4, cap at MAX
-          lastNeeded = Math.min(desired, totalLast, MAX - goalSlots);
-        }
+        // Cap at MAX. If goalsRequested exceeds MAX, the last slot
+        // becomes "+ N more" and we render MAX - 1 goal chips.
+        var hasOverflow = goalsRequested > MAX;
+        var visibleGoals = hasOverflow ? (MAX - 1) : Math.min(goalsRequested, MAX);
+        var moreSlots = hasOverflow ? 1 : 0;
+        var slotsUsed = visibleGoals + moreSlots;
+        var slotsForLatest = Math.max(0, MAX - slotsUsed);
 
         // Apply visibility to goal chips.
         var goalChips = feed.querySelectorAll('[data-chip-kind="goal"]');
         goalChips.forEach(function (chip) {
           var idx = parseInt(chip.getAttribute('data-chip-idx') || '0', 10);
-          chip.hidden = idx >= goalSlots;
+          chip.hidden = idx >= visibleGoals;
         });
 
         // "+ N more" placeholder.
         var moreChip = feed.querySelector('[data-chip-kind="more"]');
         if (moreChip) {
           if (hasOverflow) {
-            var remaining = totalGoals - goalSlots;
+            var remaining = totalGoals - visibleGoals;
             var countEl = moreChip.querySelector('[data-more-n]');
             if (countEl) countEl.textContent = String(remaining);
             moreChip.hidden = false;
@@ -264,12 +268,23 @@ const recapDate = recapMock.date_label;
           }
         }
 
-        // Last-events chips fill whatever remains.
-        var lastChips = feed.querySelectorAll('[data-chip-kind="last"]');
-        lastChips.forEach(function (chip) {
-          var idx = parseInt(chip.getAttribute('data-chip-idx') || '0', 10);
-          chip.hidden = idx >= lastNeeded;
-        });
+        // Latest Activity — flex-grow scales with slot count, density
+        // attribute drives internal layout.
+        var latest = feed.querySelector('[data-chip-kind="latest"]');
+        if (latest) {
+          var density;
+          if (slotsForLatest <= 0) density = 'hidden';
+          else if (slotsForLatest === 1) density = 'narrow';
+          else if (slotsForLatest === 2) density = 'medium';
+          else if (slotsForLatest === 3) density = 'wide';
+          else if (slotsForLatest === 4) density = 'wide';
+          else if (slotsForLatest === 5) density = 'very-wide';
+          else density = 'max';
+          latest.setAttribute('data-density', density);
+          // Flex-grow set to slot count so the card claims its share of
+          // the row. flex-basis stays 0 so it doesn't bias from content.
+          latest.style.flexGrow = String(slotsForLatest);
+        }
       })();
     })();
   </script>
