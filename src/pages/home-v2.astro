@@ -15,18 +15,37 @@ import RecapWall from '../components/home/RecapWall.astro';
 import TweetEcho from '../components/home/TweetEcho.astro';
 import ModelRetrospective from '../components/home/ModelRetrospective.astro';
 
+// Layer 5 additions — tomorrow + offseason chrome.
+import TomorrowHero from '../components/home/TomorrowHero.astro';
+import TomorrowSlateStrip from '../components/home/TomorrowSlateStrip.astro';
+import PredictionsGrid from '../components/home/PredictionsGrid.astro';
+import ArtifactMatchup from '../components/home/artifacts/ArtifactMatchup.astro';
+import ArtifactHot from '../components/home/artifacts/ArtifactHot.astro';
+import ArtifactCold from '../components/home/artifacts/ArtifactCold.astro';
+import ArtifactMilestone from '../components/home/artifacts/ArtifactMilestone.astro';
+import OffseasonHero from '../components/home/OffseasonHero.astro';
+import LastPlayedCard from '../components/home/LastPlayedCard.astro';
+import SummerStorylines from '../components/home/SummerStorylines.astro';
+
 import liveMockRaw from '../data/home-mock/live.json';
 import liveShootoutMockRaw from '../data/home-mock/live.shootout.json';
 import liveShootoutLongMockRaw from '../data/home-mock/live.shootout-long.json';
 import recapMockRaw from '../data/home-mock/recap.json';
+import tomorrowMockRaw from '../data/home-mock/tomorrow.json';
+import offseasonMockRaw from '../data/home-mock/offseason.json';
+import scheduleVariantsRaw from '../data/home-mock/schedule.json';
 
 import { parseLiveMockOrThrow } from '../lib/live-mock-schemas';
 import { parseRecapMockOrThrow } from '../lib/recap-mock-schemas';
+import {
+  parseTomorrowMockOrThrow,
+  parseOffseasonMockOrThrow,
+  parseScheduleVariantsOrThrow,
+} from '../lib/auto-mode-schemas';
 import { pickHero } from '../lib/excitement';
+import { HOME_MODES } from '../lib/auto-mode';
 
-// Validate all live fixtures at build time so any drift between the
-// JSON shape and the Layer 3 contract fails the build with a path-aware
-// error rather than rendering broken markup.
+// Validate all live fixtures at build time.
 const liveMock = parseLiveMockOrThrow(liveMockRaw, 'home-mock/live.json');
 const liveShootoutMock = parseLiveMockOrThrow(
   liveShootoutMockRaw,
@@ -37,18 +56,22 @@ const liveShootoutLongMock = parseLiveMockOrThrow(
   'home-mock/live.shootout-long.json',
 );
 
-// ── Hero selection ──────────────────────────────────────────────────────────
-//
-// Layer 3 introduces a shared `pickHero()` (in src/lib/excitement.ts) that
-// applies hero-stickiness rules. For the static mock we hardcode the prior
-// hero id to the BOS@BUF playoff featured game — this exercises the sticky
-// path: even if a tighter game existed, the "I'm broadcast + 30" bonus
-// keeps the hero put. The real-time wiring in Layer 6 will read the prior
-// hero id from session state.
+// Layer 5 mocks.
+const tomorrowMock = parseTomorrowMockOrThrow(
+  tomorrowMockRaw,
+  'home-mock/tomorrow.json',
+);
+const offseasonMock = parseOffseasonMockOrThrow(
+  offseasonMockRaw,
+  'home-mock/offseason.json',
+);
+const scheduleVariants = parseScheduleVariantsOrThrow(
+  scheduleVariantsRaw,
+  'home-mock/schedule.json',
+);
+
+// ── Hero selection (existing live-mode logic — unchanged) ──────────────────
 const PRIOR_HERO_ID = '2026030124'; // BOS @ BUF
-// Build an ExcitementGame view from the games[] grid entries so pickHero
-// can score them. The mock games array carries `state` not `status`, so we
-// translate here at the boundary.
 type GridGame = (typeof liveMock.games extends infer T
   ? T extends Array<infer U>
     ? U
@@ -73,33 +96,17 @@ function gridToExcitement(g: GridGame) {
 const heroPick = liveMock.games
   ? pickHero(liveMock.games.map(gridToExcitement), { currentHeroId: PRIOR_HERO_ID })
   : null;
-// Resolve the actual featured game payload (with full stats / goal_feed /
-// last_events) — `featured_game` in the JSON is the rich payload; `games[]`
-// is the compact tile shape. We pickHero from the tiles, then look up the
-// matching rich payload. If the picked id matches the JSON's existing
-// featured_game.id, we use it as-is.
 const featured = liveMock.featured_game;
-// In a future layer the rich payload would be fetched per-pick; for the
-// mock, we always show liveMock.featured_game (BOS @ BUF) and let the
-// stickiness *decision* be observable via game-tile selection.
 const heroPickedId = heroPick?.id ?? null;
 const heroIsStickyChosen = heroPickedId === featured.id;
 
-// Sub-grid: every game EXCEPT the picked hero. If pickHero returned null
-// (no games), fall back to "everything except featured_game.id".
 const heroIdToExclude = heroPickedId ?? featured.id;
 const subgridGames = (liveMock.games ?? []).filter(g => g.id !== heroIdToExclude);
 
-// Shootout-fixture variant — same layout, different mock. All variants
-// are SSR'd to the page; a head script reads `?fixture=shootout` /
-// `?fixture=shootout-long` and toggles which one is visible.
 const featuredSO = liveShootoutMock.featured_game;
 const subgridSO = (liveShootoutMock.games ?? []).filter(
   g => g.id !== featuredSO.id,
 );
-// Long-shootout variant exercises the ShootoutTracker compact mode
-// (round 7, 7 cells per team in sudden death). Same data shape as the
-// standard shootout fixture; only the round count + attempts differ.
 const featuredSOLong = liveShootoutLongMock.featured_game;
 const subgridSOLong = (liveShootoutLongMock.games ?? []).filter(
   g => g.id !== featuredSOLong.id,
@@ -108,43 +115,37 @@ const subgridSOLong = (liveShootoutLongMock.games ?? []).filter(
 const playoffStrip = liveMock.playoff_strip;
 const playoffStripSO = liveShootoutMock.playoff_strip;
 const playoffStripSOLong = liveShootoutLongMock.playoff_strip;
-// Recap mode now carries its own playoff_strip (validated at build time).
-// In production the strip will be re-resolved per render-mode; for the
-// mock we just pass through whatever lives in recap.json.
 const recapMock = parseRecapMockOrThrow(recapMockRaw, 'home-mock/recap.json');
 const recapPlayoffStrip = recapMock.playoff_strip;
+const tomorrowPlayoffStrip = tomorrowMock.playoff_strip;
 const liveEyebrow = liveMock.hero_eyebrow;
 const liveEyebrowSO = liveShootoutMock.hero_eyebrow;
 const liveEyebrowSOLong = liveShootoutLongMock.hero_eyebrow;
 const recapEyebrow = recapMock.hero_eyebrow;
+const tomorrowEyebrow = tomorrowMock.hero_eyebrow;
+const offseasonEyebrow = offseasonMock.hero_eyebrow;
 const liveDate = liveMock.date_label;
 const recapDate = recapMock.date_label;
+const tomorrowDate = tomorrowMock.date_label;
+const offseasonDate = offseasonMock.date_label;
 
-// ── Recap-mode body data ─────────────────────────────────────────────────
-//
-// Layer 4: derive filter chip counts from the wall so the chips display
-// "ALL · N" / "GAMES · N" etc with real numbers. Bot pipeline can either
-// pass these explicitly or compute the same way.
+// ── Recap-mode body data (existing logic — unchanged) ───────────────────
 const recapWall = recapMock.wall;
 const recapCounts = {
   all: recapWall.length,
   games: recapWall.filter(c => c.slug === 'game').length,
   hot: recapWall.filter(c => c.slug === 'hot').length,
   cold: recapWall.filter(c => c.slug === 'cold').length,
-  // milestone bucket = milestone + hattrick (subtype). Keep parallel to
-  // RecapWall's filter rule.
   milestones:
     recapWall.filter(c => c.slug === 'milestone').length +
     recapWall.filter(c => c.slug === 'hattrick').length,
   lines: recapWall.filter(c => c.slug === 'line').length,
   clinches: recapWall.filter(c => c.slug === 'clinch').length,
-  // stars bucket = stars + goalie (postgame awards).
   stars:
     recapWall.filter(c => c.slug === 'stars').length +
     recapWall.filter(c => c.slug === 'goalie').length,
 };
 
-// Section header counts.
 function countByState(games: typeof liveMock.games | undefined): {
   total: number;
   live: number;
@@ -163,11 +164,26 @@ const grid = countByState(liveMock.games);
 const gridSO = countByState(liveShootoutMock.games);
 const gridSOLong = countByState(liveShootoutLongMock.games);
 
-// Telemetry artifact count — feeds ModeBar's "N ARTIFACTS FIRED TONIGHT"
-// line. Same ModeBar is rendered once across both fixtures, so we pull
-// from the default fixture (the shootout fixture is a swap-in variant
-// for QA, not a separate page state).
 const artifactsCount = (liveMock.live_moments ?? []).length;
+
+// Hero copy variants — eyebrow + h1 + sub vary by mode. All other modes
+// fall through to the existing default in PageHero.
+const offseasonHeroCopy = {
+  eyebrow: offseasonMock.hero_eyebrow,
+  title: 'Hockey returns Oct 8.',
+  sub: "Until then — countdown, last season's wrap, and the moves shaping next year.",
+};
+const tomorrowHeroCopy = {
+  eyebrow: tomorrowMock.hero_eyebrow,
+  title: 'Tomorrow night, picked apart.',
+  sub: "Predictions, key matchups, milestone watches and the storylines we're tracking — refreshed at 4 AM ET.",
+};
+
+// Inline data the head + body scripts need. Serialised as JSON-strings
+// inside the <html> so the auto-mode resolver can run before first paint
+// without an extra fetch.
+const scheduleVariantsJson = JSON.stringify(scheduleVariants);
+const homeModesJson = JSON.stringify(HOME_MODES);
 ---
 <!DOCTYPE html>
 <html lang="en" data-home-mode="live" data-fixture="default">
@@ -175,29 +191,84 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <!-- Dev: keep /home-v2 out of search indices while the rebuild is in-progress -->
   <meta name="robots" content="noindex,nofollow">
   <title>HockeyGameBot — Home (v2 preview)</title>
   <meta name="description" content="Rebuild preview of the HockeyGameBot home page. Not linked from the production scoreboard.">
 
   <!--
-    Mode swap — runs before first paint to avoid a live→recap flash.
-    Keeps SSR/static compatibility (Astro output: 'static') while still
-    letting /home-v2?mode=recap reach the right view. Safe no-op on the
-    default live view.
+    Mode swap (Layer 5 rewrite of the Layer 1 head script):
 
-    Layer 3 also reads `?fixture=shootout` and stamps `data-fixture` on
-    the html root. Both live-fixture variants render at build time; CSS
-    rules below show/hide the right one.
+    Resolution order (matches src/lib/auto-mode.ts/resolveMode):
+      1. sessionStorage[hgb-mode-override] — sticky in-tab manual choice
+      2. ?mode=<mode>                      — direct-link / share URL
+      3. detectMode(schedule, now)         — auto fallback (live | recap)
+
+    The schedule snapshot the resolver uses can be swapped via
+    `?schedule=morning|afternoon|evening|night|offseason` — falls back
+    to `default` when absent or unknown.
+
+    All four mode body sections render at build time; CSS rules below
+    show the active one only.
   -->
-  <script is:inline>
+  <script is:inline define:vars={{ scheduleVariantsJson, homeModesJson }}>
     (function () {
       try {
-        var params = new URLSearchParams(window.location.search);
-        var raw = params.get('mode');
-        var mode = raw === 'recap' ? 'recap' : 'live';
-        document.documentElement.setAttribute('data-home-mode', mode);
+        var modes = JSON.parse(homeModesJson);
+        var variants = JSON.parse(scheduleVariantsJson);
 
+        var params = new URLSearchParams(window.location.search);
+        var schedKey = params.get('schedule') || 'default';
+        var schedule = variants[schedKey] || variants.default;
+
+        // Inline detectMode — keep this in sync with src/lib/auto-mode.ts.
+        // Pure JS so it can run before module hydration.
+        function detectMode(sched, now) {
+          var liveLike = ['live', 'intermission', 'shootout'];
+          var states = (sched && sched.today && sched.today.games_states) || [];
+          for (var i = 0; i < states.length; i++) {
+            if (liveLike.indexOf(states[i]) !== -1) return 'live';
+          }
+          if (
+            sched && sched.today &&
+            sched.today.games_count > 0 &&
+            sched.today.first_game_start_iso
+          ) {
+            var firstStart = Date.parse(sched.today.first_game_start_iso);
+            if (isFinite(firstStart)) {
+              var windowOpens = firstStart - 60 * 60 * 1000;
+              var allFinal = states.every(function (s) { return s === 'final'; });
+              if (now.getTime() >= windowOpens && !allFinal) return 'live';
+            }
+          }
+          return 'recap';
+        }
+
+        // 1. sessionStorage override
+        var override = null;
+        try { override = window.sessionStorage.getItem('hgb-mode-override'); } catch (e) {}
+
+        var mode, source;
+        if (override && modes.indexOf(override) !== -1) {
+          mode = override;
+          source = 'override';
+        } else {
+          // 2. URL param
+          var raw = params.get('mode');
+          if (raw && modes.indexOf(raw) !== -1) {
+            mode = raw;
+            source = 'url';
+          } else {
+            // 3. Auto-detect
+            mode = detectMode(schedule, new Date());
+            source = 'auto';
+          }
+        }
+
+        document.documentElement.setAttribute('data-home-mode', mode);
+        document.documentElement.setAttribute('data-mode-source', source);
+        document.documentElement.setAttribute('data-schedule-variant', schedKey);
+
+        // Fixture variant — unchanged from Layer 3.
         var fixture = params.get('fixture');
         var resolvedFixture =
           fixture === 'shootout'      ? 'shootout'
@@ -205,14 +276,12 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
           : fixture === 'empty'       ? 'empty'
           : 'default';
         document.documentElement.setAttribute('data-fixture', resolvedFixture);
-        // The 'empty' variant reuses the default mock but suppresses the
-        // LiveMomentStrip — same data, different presentation. Stamp a
-        // body-level data attr so the strip's CSS knows to hide.
         if (resolvedFixture === 'empty') {
           document.documentElement.setAttribute('data-strip-empty', '1');
         }
       } catch (e) {
         document.documentElement.setAttribute('data-home-mode', 'live');
+        document.documentElement.setAttribute('data-mode-source', 'auto');
         document.documentElement.setAttribute('data-fixture', 'default');
       }
     })();
@@ -240,8 +309,18 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
     }
 
     /* ── Mode-gated views ───────────────────────────────────────── */
-    html[data-home-mode="live"] [data-mode-view="recap"] { display: none; }
-    html[data-home-mode="recap"] [data-mode-view="live"] { display: none; }
+    /*
+      Each [data-mode-view] block renders at build time and is hidden
+      via CSS when the active mode doesn't match. This keeps SSR clean
+      and avoids hydration flicker.
+    */
+    html[data-home-mode="live"]      [data-mode-view]:not([data-mode-view~="live"])      { display: none; }
+    html[data-home-mode="recap"]     [data-mode-view]:not([data-mode-view~="recap"])     { display: none; }
+    html[data-home-mode="tomorrow"]  [data-mode-view]:not([data-mode-view~="tomorrow"])  { display: none; }
+    html[data-home-mode="offseason"] [data-mode-view]:not([data-mode-view~="offseason"]) { display: none; }
+
+    /* Playoff strip is hidden in offseason mode — handled via the same
+       per-mode rules (the strip lives inside [data-mode-view] containers). */
 
     /* ── Fixture-gated views (default vs shootout vs shootout-long) ──── */
     html[data-fixture="default"] [data-fixture-view="shootout"],
@@ -250,8 +329,6 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
     html[data-fixture="shootout"] [data-fixture-view="shootout-long"] { display: none; }
     html[data-fixture="shootout-long"] [data-fixture-view="default"],
     html[data-fixture="shootout-long"] [data-fixture-view="shootout"] { display: none; }
-    /* `?fixture=empty` reuses the default fixture but suppresses the
-       LiveMomentStrip — verifies the empty-state hide behaviour. */
     html[data-fixture="empty"] [data-fixture-view="shootout"],
     html[data-fixture="empty"] [data-fixture-view="shootout-long"] { display: none; }
     html[data-strip-empty="1"] .live-moment-strip { display: none; }
@@ -295,6 +372,16 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       .home-grid { grid-template-columns: 1fr; }
     }
 
+    /* Tomorrow + Offseason wall grids reuse the same chrome but break
+       at narrower thresholds — matchup wall is denser, storylines wider. */
+    .home-wall {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 900px) { .home-wall { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px) { .home-wall { grid-template-columns: 1fr; } }
+
     /* ── Recap-mode placeholder (Layer 4) ───────────────────────── */
     .hv2-placeholder {
       border: 1px dashed var(--site-border2);
@@ -328,6 +415,13 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
 </head>
 <body class="hgb-site">
   <Topbar active="scores" dateLabel={liveDate} />
+
+  <!--
+    Playoff strip — live + recap + tomorrow modes carry it; offseason
+    explicitly omits it (per spec: "no playoffs in offseason"). Each
+    mode passes its own series array because round/series state evolves
+    night-to-night.
+  -->
   {playoffStrip && (
     <div data-mode-view="live" data-fixture-view="default">
       <PlayoffStrip eyebrow={playoffStrip.eyebrow} series={playoffStrip.series} />
@@ -348,8 +442,18 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       <PlayoffStrip eyebrow={recapPlayoffStrip.eyebrow} series={recapPlayoffStrip.series} />
     </div>
   )}
+  {tomorrowPlayoffStrip && (
+    <div data-mode-view="tomorrow">
+      <PlayoffStrip eyebrow={tomorrowPlayoffStrip.eyebrow} series={tomorrowPlayoffStrip.series} />
+    </div>
+  )}
 
   <main class="home-page">
+    <!--
+      PageHero — eyebrow + h1 + sub vary by mode. Live + recap use the
+      page-default copy (same baseline as Layer 1). Tomorrow + offseason
+      get their own framing.
+    -->
     <div data-mode-view="live" data-fixture-view="default">
       <PageHero eyebrow={liveEyebrow} />
     </div>
@@ -362,14 +466,32 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
     <div data-mode-view="recap">
       <PageHero eyebrow={recapEyebrow} />
     </div>
-
-    <ModeBar mode="live" artifactsCount={artifactsCount} />
+    <div data-mode-view="tomorrow">
+      <PageHero
+        eyebrow={tomorrowHeroCopy.eyebrow}
+        title={tomorrowHeroCopy.title}
+        sub={tomorrowHeroCopy.sub}
+      />
+    </div>
+    <div data-mode-view="offseason">
+      <PageHero
+        eyebrow={offseasonHeroCopy.eyebrow}
+        title={offseasonHeroCopy.title}
+        sub={offseasonHeroCopy.sub}
+      />
+    </div>
 
     <!--
-      LIVE MODE — default fixture (regulation BOS @ BUF in P3, 8 other games)
-      Hero is selected via pickHero() with PRIOR_HERO_ID hardcoded for the
-      mock; in production Layer 6 will read prior id from session state.
+      ModeBar — Astro renders it once with `mode="live"` because the
+      page is statically built. The page script below patches the active
+      pill + telemetry source stamp after resolveMode() runs. This
+      avoids needing 4 ModeBar SSR copies.
     -->
+    <ModeBar mode="live" artifactsCount={artifactsCount} />
+
+    <!-- ════════════════════════════════════════════════════════════════
+         LIVE MODE (existing — unchanged structurally)
+    ════════════════════════════════════════════════════════════════ -->
     <section
       data-mode-view="live"
       data-fixture-view="default"
@@ -391,11 +513,6 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       </div>
     </section>
 
-    <!--
-      LIVE MODE — shootout fixture (BOS @ BUF SHOOTOUT, 5 other games).
-      Same layout, different mock data. Both are SSR'd; the head script
-      sets data-fixture and CSS swaps which one renders.
-    -->
     <section
       data-mode-view="live"
       data-fixture-view="shootout"
@@ -417,13 +534,6 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       </div>
     </section>
 
-    <!--
-      LIVE MODE — long-shootout fixture (BOS @ BUF SO Round 7, sudden
-      death). Exercises the ShootoutTracker compact mode: round-number
-      column headers, shooter names hidden, ✓/✗ glyphs only, smaller
-      cells. 7 cells per team fits comfortably; 9th+ would trigger the
-      horizontal-scroll-within-the-pane behaviour.
-    -->
     <section
       data-mode-view="live"
       data-fixture-view="shootout-long"
@@ -445,19 +555,9 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       </div>
     </section>
 
-    <!--
-      RECAP MODE — Layer 4 + Layer 4.5 body. Layout:
-        1. RecapHero          — game-of-night ArtifactGame (a-8) + supporting (a-4)
-        2. RecapScoreStrip    — ALL games as compact horizontal-scroll tiles (4.5)
-        3. RecapFilterBar     — eight chips + sort selector (HGB IMPACT default)
-        4. RecapWall          — 12-col masonry, filtered + sorted client-side
-        5. TweetEcho          — "what auto-posted overnight" (3-4 stylized tweets)
-        6. ModelRetrospective — model performance last night + season ticker (4.5)
-
-      Recap-mode is wired to its own data files; the live-mode views above
-      remain untouched. Per-mode swap is handled by the head script that
-      stamps `data-home-mode` on <html>.
-    -->
+    <!-- ════════════════════════════════════════════════════════════════
+         RECAP MODE (existing — unchanged)
+    ════════════════════════════════════════════════════════════════ -->
     <section data-mode-view="recap" aria-label="Recap view">
       <RecapHero
         game={recapMock.game_of_night}
@@ -486,12 +586,123 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
         />
       )}
     </section>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         TOMORROW MODE (Layer 5)
+         Section order:
+           1. TomorrowHero            — date + featured matchup
+           2. TomorrowSlateStrip      — all scheduled games
+           3. Matchup previews wall   — top 3-4 ArtifactMatchup cards
+           4. PredictionsGrid         — per-game model projections
+           5. Storylines wall         — Hot/Cold/Milestone "could fire tomorrow"
+    ════════════════════════════════════════════════════════════════ -->
+    <section data-mode-view="tomorrow" aria-label="Tomorrow's slate view">
+      <TomorrowHero
+        date_label={tomorrowMock.date_label}
+        featured={tomorrowMock.featured_matchup}
+      />
+
+      <TomorrowSlateStrip tiles={tomorrowMock.slate} />
+
+      {tomorrowMock.matchup_previews.length > 0 && (
+        <>
+          <div class="home-sec-h">
+            <h2>Matchup previews</h2>
+            <span class="count">{tomorrowMock.matchup_previews.length} games highlighted</span>
+          </div>
+          <div class="home-wall">
+            {tomorrowMock.matchup_previews.map((m) => (
+              <ArtifactMatchup {...m} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {tomorrowMock.predictions.length > 0 && (
+        <PredictionsGrid predictions={tomorrowMock.predictions} />
+      )}
+
+      {tomorrowMock.storylines.length > 0 && (
+        <>
+          <div class="home-sec-h">
+            <h2>Storylines to watch</h2>
+            <span class="count">{tomorrowMock.storylines.length} could fire tomorrow</span>
+          </div>
+          <div class="home-wall">
+            {tomorrowMock.storylines.map((s) => {
+              if (s.kind === 'hot') return <ArtifactHot {...s.data} />;
+              if (s.kind === 'cold') return <ArtifactCold {...s.data} />;
+              if (s.kind === 'milestone') return <ArtifactMilestone {...s.data} />;
+              return null;
+            })}
+          </div>
+        </>
+      )}
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         OFFSEASON MODE (Layer 5 — basic V1)
+         Section order:
+           1. OffseasonHero       — countdown + camp/opening dates
+           2. LastPlayedCard      — memorial wrap of ArtifactGame
+           3. SummerStorylines    — placeholder card grid
+           4. "We'll be back" footnote
+    ════════════════════════════════════════════════════════════════ -->
+    <section data-mode-view="offseason" aria-label="Offseason view">
+      <OffseasonHero
+        eyebrow={offseasonMock.hero_eyebrow}
+        countdown={offseasonMock.countdown}
+      />
+
+      <LastPlayedCard
+        memorial_eyebrow={offseasonMock.last_played.memorial_eyebrow}
+        game_data={offseasonMock.last_played.game_data}
+        kind={offseasonMock.last_played.kind}
+      />
+
+      <SummerStorylines storylines={offseasonMock.summer_storylines} />
+
+      <footer class="oh-footer">
+        <span class="oh-footer-tick" aria-hidden="true">▍</span>
+        <span class="oh-footer-text">
+          We'll be back. <a href="?mode=live">Live mode →</a> when the puck drops.
+        </span>
+      </footer>
+    </section>
   </main>
+
+  <style is:global>
+    /* ── Offseason "we'll be back" footnote ──────────────────────── */
+    .oh-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 0 0;
+      border-top: 1px dashed #1c1c1c;
+      margin-top: 12px;
+    }
+    .oh-footer-tick {
+      color: var(--hgb-red);
+      font-size: 14px;
+      line-height: 1;
+    }
+    .oh-footer-text {
+      font-family: var(--font-site-body);
+      font-size: 12.5px;
+      color: #888;
+    }
+    .oh-footer-text a {
+      color: var(--site-white);
+      text-decoration: none;
+      font-weight: 700;
+      border-bottom: 1px solid var(--status-live);
+    }
+    .oh-footer-text a:hover { color: var(--status-live); }
+  </style>
 
   <!--
     Hero-pick debug stamp — useful for screenshotting the stickiness
-    behaviour. data-hero-* attrs on the LiveHero root identify which game
-    pickHero() chose and whether stickiness preserved the prior hero.
+    behaviour on the live fixture.
   -->
   <script is:inline define:vars={{ heroPickedId, heroIsStickyChosen }}>
     (function () {
@@ -506,59 +717,95 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
   </script>
 
   <!--
-    Client-side mode binding:
-      1. Sync the ModeBar toggle `.active` state to the current URL mode.
-         (The Astro-rendered ModeBar always ships with `mode="live"` since
-         we pre-render once at build time.)
-      2. Date pill on the topbar is swapped if the mock diverges between
-         live + recap.
-      3. LiveHero footer goal-chip clamp via `?goals=N`:
-           • no param / 'all' → render all
-           • ?goals=N         → render min(N, total) chips
-           • ?goals=0         → footer collapses entirely (CSS rule via
-                                data-rendered-goals="0")
-         No "+ N more" placeholder, no Latest Activity card. Goal-list
-         overflow will be handled by the Layer 3 game modal.
+    Page-level hydration script (Layer 5 rewrite of Layer 1 binding):
+
+    1. Sync ModeBar pills + source stamp + reset button to the resolved
+       mode + source attrs the head script wrote.
+    2. Wire ModeBar pill clicks → setOverride() → reload.
+    3. Wire ↻ AUTO reset button → clearOverride() → reload (drops
+       ?mode= from URL on the way so auto-detect runs clean).
+    4. Topbar date pill swap (per-mode date label).
+    5. Hydrate the existing LiveHero stats carousel + goal-chip clamp
+       (unchanged from Layer 1.9 / Layer 3).
   -->
-  <script is:inline define:vars={{ liveDate, recapDate }}>
+  <script is:inline define:vars={{ liveDate, recapDate, tomorrowDate, offseasonDate }}>
     (function () {
       var mode = document.documentElement.getAttribute('data-home-mode') || 'live';
+      var source = document.documentElement.getAttribute('data-mode-source') || 'auto';
 
-      // ── ModeBar active state ─────────────────────────────────────
-      var toggles = document.querySelectorAll('.mode-bar .toggle');
+      // ── ModeBar active pill ──────────────────────────────────────
+      var toggles = document.querySelectorAll('.mode-bar [data-mode-toggle]');
       toggles.forEach(function (node) {
-        var href = node.getAttribute('href') || '';
-        var key = href.indexOf('mode=recap') !== -1 ? 'recap'
-                : href.indexOf('mode=live')  !== -1 ? 'live'
-                : 'tomorrow';
+        var key = node.getAttribute('data-mode-toggle');
         var isActive = key === mode;
         node.classList.toggle('active', isActive);
-        if (!node.classList.contains('disabled')) {
-          node.setAttribute('aria-selected', isActive ? 'true' : 'false');
-        }
+        node.setAttribute('aria-selected', isActive ? 'true' : 'false');
         var dotSpan = node.querySelector('.dot');
         if (dotSpan) dotSpan.textContent = isActive ? '●' : '○';
       });
 
+      // ── Source stamp + reset link ────────────────────────────────
+      var sourceStamp = document.querySelector('[data-mode-source]');
+      var resetBtn = document.querySelector('[data-mode-reset]');
+
+      function paintSource(s) {
+        if (!sourceStamp) return;
+        if (s === 'override') {
+          sourceStamp.textContent = ' · MANUAL';
+          sourceStamp.setAttribute('data-source', 'manual');
+        } else if (s === 'url') {
+          sourceStamp.textContent = ' · LINK';
+          sourceStamp.setAttribute('data-source', 'url');
+        } else {
+          sourceStamp.textContent = ' · AUTO MODE';
+          sourceStamp.setAttribute('data-source', 'auto');
+        }
+        if (resetBtn) {
+          // Reset button only meaningful when an override is in effect.
+          // For 'url' we leave it hidden — the URL itself is the
+          // user-visible reset (delete the param).
+          resetBtn.hidden = s !== 'override';
+        }
+      }
+      paintSource(source);
+
+      // ── ModeBar click → setOverride + reload ────────────────────
+      toggles.forEach(function (node) {
+        node.addEventListener('click', function (e) {
+          e.preventDefault();
+          var key = node.getAttribute('data-mode-toggle');
+          if (!key) return;
+          try { window.sessionStorage.setItem('hgb-mode-override', key); } catch (e2) {}
+          // Drop ?mode= from the URL so the manual choice owns the source.
+          // Keep ?schedule=N if present so QA stays sticky across clicks.
+          var url = new URL(window.location.href);
+          url.searchParams.delete('mode');
+          window.location.href = url.toString();
+        });
+      });
+
+      // ── Reset button → clearOverride + reload ────────────────────
+      if (resetBtn) {
+        resetBtn.addEventListener('click', function () {
+          try { window.sessionStorage.removeItem('hgb-mode-override'); } catch (e2) {}
+          var url = new URL(window.location.href);
+          url.searchParams.delete('mode');
+          window.location.href = url.toString();
+        });
+      }
+
       // ── Topbar date ──────────────────────────────────────────────
       var dateEl = document.querySelector('.hgb-topbar .date');
       if (dateEl) {
-        dateEl.textContent = mode === 'recap' ? recapDate : liveDate;
+        dateEl.textContent =
+          mode === 'recap'     ? recapDate
+        : mode === 'tomorrow'  ? tomorrowDate
+        : mode === 'offseason' ? offseasonDate
+        :                        liveDate;
       }
 
-      // ── LiveHero stats carousel (Layer 1.9) ──────────────────────
-      // Two panels (a=GAME stat bars, b=PBP feed). User's choice
-      // persists in sessionStorage under `hgb-stats-panel`. Toggle is
-      // the tab pill row inside `.lh-right`. Layer 1.9 collapsed the
-      // top/bottom split — `data-stats-active` now lives on `.lh-right`
-      // directly. CSS handles the 200ms fade.
-      //
-      // Layer 3: when the featured game is in shootout, the right pane
-      // is replaced by ShootoutTracker (no `.lh-right[data-stats-active]`
-      // is rendered) so this hydration is a no-op for that path.
+      // ── LiveHero stats carousel (unchanged from Layer 1.9) ──────
       (function hydrateStatsCarousel() {
-        // Hydrate every visible LiveHero. SSR ships both fixture
-        // variants, but the inactive one is display:none'd via CSS.
         var zones = document.querySelectorAll('.live-hero .lh-right[data-stats-active]');
         zones.forEach(function (zone) {
           var tabs = zone.querySelectorAll('[data-stats-target]');
@@ -573,7 +820,6 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
             });
           }
 
-          // Restore choice from session if present.
           try {
             var saved = window.sessionStorage.getItem('hgb-stats-panel');
             if (saved === 'a' || saved === 'b') applyPanel(saved);
@@ -591,16 +837,13 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
         });
       })();
 
-      // ── LiveHero footer goal-chip clamp ──────────────────────────
-      // Resolve `?goals=N`, hide chips beyond the requested count.
-      // When zero chips render, stamp data-rendered-goals="0" so the
-      // CSS rule collapses the footer.
+      // ── LiveHero footer goal-chip clamp (unchanged from Layer 3) ─
       (function hydrateGoalFooter() {
         var feeds = document.querySelectorAll('.live-hero .goal-feed');
         if (!feeds.length) return;
 
         var params = new URLSearchParams(window.location.search);
-        var goalsRaw = params.get('goals'); // null | 'all' | string-int
+        var goalsRaw = params.get('goals');
 
         feeds.forEach(function (feed) {
           var totalGoals = parseInt(feed.getAttribute('data-goal-count') || '0', 10);
