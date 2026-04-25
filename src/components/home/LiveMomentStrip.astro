@@ -1,0 +1,202 @@
+---
+/**
+ * LiveMomentStrip — "JUST HAPPENED" row of artifact cards under LiveHero.
+ *
+ * Renders up to 3 artifact cards from `live_moments[]`. The full list
+ * stays in the data; only the 3 newest visible. Older moments slide
+ * off-screen-right when bumped (FIFO). When the list has more than 3,
+ * a "+ N more · all moments →" link appears in the section header
+ * (no-op for now; Layer 5+ wires the modal).
+ *
+ * If `live_moments` is empty: renders NOTHING. Entire section hidden.
+ *
+ * Supported slugs (per spec — NOT every artifact fires live):
+ *   • milestone, hattrick, goalie, clinch
+ *
+ * Anything else (hot/cold/season/matchup/stars/game/line) is filtered
+ * out at render time. The data file SHOULD only carry the live-firing
+ * slugs, but we defensive-filter anyway so a typo doesn't pollute the
+ * strip with a recap-style card.
+ */
+
+import ArtifactMilestone from './artifacts/ArtifactMilestone.astro';
+import ArtifactHatTrick from './artifacts/ArtifactHatTrick.astro';
+import ArtifactGoalie from './artifacts/ArtifactGoalie.astro';
+import ArtifactClinch from './artifacts/ArtifactClinch.astro';
+
+import type {
+  ArtifactMilestone as ArtifactMilestoneData,
+  ArtifactHatTrick as ArtifactHatTrickData,
+  ArtifactGoalie as ArtifactGoalieData,
+  ArtifactClinch as ArtifactClinchData,
+} from '../../lib/artifact-schemas';
+
+/** Live-only artifact slugs. Keep in sync with the schemas in
+ *  `src/lib/live-mock-schemas.ts` (LiveMomentSchema discriminator). */
+export type LiveMomentSlug = 'milestone' | 'hattrick' | 'goalie' | 'clinch';
+
+export type LiveMoment =
+  | { slug: 'milestone'; fired_at: string; data: ArtifactMilestoneData }
+  | { slug: 'hattrick'; fired_at: string; data: ArtifactHatTrickData }
+  | { slug: 'goalie'; fired_at: string; data: ArtifactGoalieData }
+  | { slug: 'clinch'; fired_at: string; data: ArtifactClinchData };
+
+export interface Props {
+  /** Newest first. Empty array → strip renders nothing at all. */
+  moments: LiveMoment[];
+  /** Override the section heading. Default: "JUST HAPPENED". */
+  heading?: string;
+  /** Maximum visible cards (defaults to 3). Older moments overflow into
+   *  the "+ N more" link. */
+  visible?: number;
+}
+
+const { moments, heading = 'Just happened', visible = 3 } = Astro.props;
+
+// Defensive filter — only render slugs we have a renderer for. If the
+// data ever contains a recap-style slug, just drop it instead of
+// crashing the page.
+const SUPPORTED: LiveMomentSlug[] = ['milestone', 'hattrick', 'goalie', 'clinch'];
+const supported = moments.filter(m => SUPPORTED.includes(m.slug));
+
+const visibleMoments = supported.slice(0, visible);
+const overflowCount = Math.max(0, supported.length - visible);
+
+// Bail out entirely if we have no moments — section header included.
+const shouldRender = visibleMoments.length > 0;
+---
+{shouldRender && (
+  <section class="live-moment-strip" aria-label="Live moments">
+    <header class="lms-head">
+      <h2 class="lms-h2">
+        <span class="lms-h2-tick" aria-hidden="true">▍</span>
+        <span class="lms-h2-pulse" aria-hidden="true"></span>
+        {heading}
+      </h2>
+      {overflowCount > 0 && (
+        <button
+          type="button"
+          class="lms-overflow"
+          data-layer3-hook="open-all-moments-modal"
+        >
+          + {overflowCount} more · all moments →
+        </button>
+      )}
+    </header>
+
+    <div class="lms-grid">
+      {visibleMoments.map(moment => (
+        <div class="lms-cell">
+          {moment.slug === 'milestone' && <ArtifactMilestone {...moment.data} />}
+          {moment.slug === 'hattrick' && <ArtifactHatTrick {...moment.data} />}
+          {moment.slug === 'goalie' && <ArtifactGoalie {...moment.data} />}
+          {moment.slug === 'clinch' && <ArtifactClinch {...moment.data} />}
+        </div>
+      ))}
+    </div>
+  </section>
+)}
+
+<style>
+  .live-moment-strip {
+    margin-top: 36px;
+  }
+
+  .lms-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .lms-h2 {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--status-live);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .lms-h2-tick { color: var(--status-live); font-weight: 700; }
+  .lms-h2-pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--status-live);
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: lms-pulse 1.8s ease-out infinite;
+  }
+  @keyframes lms-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(0, 229, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+  }
+
+  .lms-overflow {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--site-border2);
+    border-radius: var(--radius-sm);
+    color: var(--site-text);
+    padding: 5px 12px;
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .lms-overflow:hover {
+    color: var(--status-live);
+    border-color: rgba(0, 229, 255, 0.4);
+  }
+  .lms-overflow:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+
+  /* Three equal columns at desktop, collapse to fewer columns on
+     narrower viewports. The artifact cards have their own intrinsic
+     sizing — we just give them a 1fr cell to live in. */
+  .lms-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .lms-cell {
+    min-width: 0;
+    /* Each artifact card uses position: relative + variant-class
+       backgrounds; this cell just clips overflow so a card's tag/actions
+       never bleed past its slot. */
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    display: flex;
+  }
+
+  /* The artifact components render their own card root with their own
+     border + padding. The cell itself is just a layout slot. */
+  .lms-cell > :global(*) {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  @media (max-width: 960px) {
+    .lms-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .lms-cell:nth-child(n+3) { display: none; }
+  }
+  @media (max-width: 640px) {
+    .lms-grid {
+      grid-template-columns: 1fr;
+    }
+    .lms-cell:nth-child(n+2) { display: none; }
+  }
+</style>
