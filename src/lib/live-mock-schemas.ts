@@ -121,7 +121,10 @@ const GameTileTeamSchema = z.object({
   abbrev: z.string().min(2).max(4),
   score: z.number().int().nullable(),
   sog: z.union([z.number(), z.string()]).nullable().optional(),
+  /** Generic xG slot — backward-compat. Prefer `xg_5v5` for new data. */
   xg: z.union([z.number(), z.string()]).nullable().optional(),
+  /** 5v5 xG (preferred). When present, takes precedence over `xg`. */
+  xg_5v5: z.union([z.number(), z.string()]).nullable().optional(),
   record: z.string(),
   logo: z.string().min(1),
   accent: z.string().regex(/^#[0-9A-Fa-f]{3,8}$/).optional(),
