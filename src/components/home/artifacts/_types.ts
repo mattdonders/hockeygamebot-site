@@ -7,11 +7,19 @@
  * inside the `.astro` files; only the SHARED types live here.
  */
 
+/**
+ * Tag color kind. Each value maps to a CSS class on `.art-tag` — see the
+ * `.art-tag--*` rules in ArtifactShell.astro for the full kind→color
+ * lookup. Pick the kind that MATCHES the card's accent (so a tag on a
+ * HOT card reads green, a tag on a MILESTONE card reads gold, …) or
+ * `neutral` if the tag should step out of the card's visual language.
+ */
 export type ArtifactTagKind =
   | 'red'
   | 'hot'
   | 'cold'
   | 'game'
+  | 'ot'
   | 'mile'
   | 'line'
   | 'matchup'

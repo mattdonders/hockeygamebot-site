@@ -28,8 +28,14 @@ import { z } from 'zod';
 
 const ArtifactTagSchema = z.object({
   label: z.string().min(1),
+  /**
+   * Color kind — keep in sync with `ArtifactTagKind` in
+   * `src/components/home/artifacts/_types.ts` and the `.art-tag--*`
+   * lookup in `ArtifactShell.astro`. Pick the kind that matches the
+   * card's accent so the tag reads as part of the card, not on top of it.
+   */
   kind: z
-    .enum(['red', 'hot', 'cold', 'game', 'mile', 'line', 'matchup', 'stars', 'goalie', 'neutral'])
+    .enum(['red', 'hot', 'cold', 'game', 'ot', 'mile', 'line', 'matchup', 'stars', 'goalie', 'neutral'])
     .optional(),
 });
 
