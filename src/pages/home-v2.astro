@@ -8,12 +8,18 @@ import LiveHero from '../components/home/LiveHero.astro';
 import LiveMomentStrip from '../components/home/LiveMomentStrip.astro';
 import GameTile from '../components/home/GameTile.astro';
 
+import RecapHero from '../components/home/RecapHero.astro';
+import RecapFilterBar from '../components/home/RecapFilterBar.astro';
+import RecapWall from '../components/home/RecapWall.astro';
+import TweetEcho from '../components/home/TweetEcho.astro';
+
 import liveMockRaw from '../data/home-mock/live.json';
 import liveShootoutMockRaw from '../data/home-mock/live.shootout.json';
 import liveShootoutLongMockRaw from '../data/home-mock/live.shootout-long.json';
-import recapMock from '../data/home-mock/recap.json';
+import recapMockRaw from '../data/home-mock/recap.json';
 
 import { parseLiveMockOrThrow } from '../lib/live-mock-schemas';
+import { parseRecapMockOrThrow } from '../lib/recap-mock-schemas';
 import { pickHero } from '../lib/excitement';
 
 // Validate all live fixtures at build time so any drift between the
@@ -100,12 +106,41 @@ const subgridSOLong = (liveShootoutLongMock.games ?? []).filter(
 const playoffStrip = liveMock.playoff_strip;
 const playoffStripSO = liveShootoutMock.playoff_strip;
 const playoffStripSOLong = liveShootoutLongMock.playoff_strip;
+// Recap mode now carries its own playoff_strip (validated at build time).
+// In production the strip will be re-resolved per render-mode; for the
+// mock we just pass through whatever lives in recap.json.
+const recapMock = parseRecapMockOrThrow(recapMockRaw, 'home-mock/recap.json');
+const recapPlayoffStrip = recapMock.playoff_strip;
 const liveEyebrow = liveMock.hero_eyebrow;
 const liveEyebrowSO = liveShootoutMock.hero_eyebrow;
 const liveEyebrowSOLong = liveShootoutLongMock.hero_eyebrow;
 const recapEyebrow = recapMock.hero_eyebrow;
 const liveDate = liveMock.date_label;
 const recapDate = recapMock.date_label;
+
+// ── Recap-mode body data ─────────────────────────────────────────────────
+//
+// Layer 4: derive filter chip counts from the wall so the chips display
+// "ALL · N" / "GAMES · N" etc with real numbers. Bot pipeline can either
+// pass these explicitly or compute the same way.
+const recapWall = recapMock.wall;
+const recapCounts = {
+  all: recapWall.length,
+  games: recapWall.filter(c => c.slug === 'game').length,
+  hot: recapWall.filter(c => c.slug === 'hot').length,
+  cold: recapWall.filter(c => c.slug === 'cold').length,
+  // milestone bucket = milestone + hattrick (subtype). Keep parallel to
+  // RecapWall's filter rule.
+  milestones:
+    recapWall.filter(c => c.slug === 'milestone').length +
+    recapWall.filter(c => c.slug === 'hattrick').length,
+  lines: recapWall.filter(c => c.slug === 'line').length,
+  clinches: recapWall.filter(c => c.slug === 'clinch').length,
+  // stars bucket = stars + goalie (postgame awards).
+  stars:
+    recapWall.filter(c => c.slug === 'stars').length +
+    recapWall.filter(c => c.slug === 'goalie').length,
+};
 
 // Section header counts.
 function countByState(games: typeof liveMock.games | undefined): {
@@ -306,6 +341,11 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       <PlayoffStrip eyebrow={playoffStripSOLong.eyebrow} series={playoffStripSOLong.series} />
     </div>
   )}
+  {recapPlayoffStrip && (
+    <div data-mode-view="recap">
+      <PlayoffStrip eyebrow={recapPlayoffStrip.eyebrow} series={recapPlayoffStrip.series} />
+    </div>
+  )}
 
   <main class="home-page">
     <div data-mode-view="live" data-fixture-view="default">
@@ -403,10 +443,33 @@ const artifactsCount = (liveMock.live_moments ?? []).length;
       </div>
     </section>
 
+    <!--
+      RECAP MODE — Layer 4 body. Layout:
+        1. RecapHero        — game-of-night ArtifactGame (a-8) + supporting (a-4)
+        2. RecapFilterBar   — eight chips, sort selector
+        3. RecapWall        — 12-col masonry, filter-driven via data-filter
+        4. TweetEcho        — "what auto-posted overnight" (3-4 stylized tweets)
+
+      Recap-mode is wired to its own data files; the live-mode views above
+      remain untouched. Per-mode swap is handled by the head script that
+      stamps `data-home-mode` on <html>.
+    -->
     <section data-mode-view="recap" aria-label="Recap view">
-      <div class="hv2-placeholder tall" aria-hidden="true">
-        Recap layout · Layer 4 — coming soon
-      </div>
+      <RecapHero
+        game={recapMock.game_of_night}
+        supporting={recapMock.supporting_hero ?? null}
+      />
+
+      <RecapFilterBar
+        target=".recap-wall"
+        initial="all"
+        sortLabel="LATEST FIRST"
+        counts={recapCounts}
+      />
+
+      <RecapWall cards={recapMock.wall} />
+
+      <TweetEcho tweets={recapMock.tweet_echo} />
     </section>
   </main>
 
