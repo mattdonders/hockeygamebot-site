@@ -1,0 +1,286 @@
+---
+/**
+ * RecapFilterBar — chip-style category filter + sort selector for the
+ * recap-mode artifact wall (SITE-HOME-04 / Layer 4).
+ *
+ * Layout matches `docs/designs/ui_kits/website/recap_with_artifacts.html`
+ * `.filterbar` rules — eight chips on the left, mono "ORDER" pills on
+ * the right.
+ *
+ * Filtering model
+ * ---------------
+ * Pure CSS, no JS framework. Each chip clicks-through to set a single
+ * `data-filter` attribute on the *target* wall container (resolved via
+ * `data-filter-target` selector). Wall cards carry `data-slug="hot"` etc;
+ * scoped CSS rules in the parent page hide non-matching cards when the
+ * filter is anything other than `all`.
+ *
+ * The chip click handler is a tiny inline script so the page stays
+ * static-buildable with no client framework runtime. Falls back to a
+ * default-active "ALL" chip if JS is disabled — same effect as zero
+ * filtering.
+ *
+ * Sort toggle
+ * -----------
+ * The right-side pill flips between LATEST FIRST and HGB IMPACT. For now
+ * (Layer 4) it's visual-only — the wall mock already orders cards by
+ * narrative importance. Layer 5/6 will wire actual sort.
+ */
+
+export type RecapFilter =
+  | 'all'
+  | 'games'
+  | 'hot'
+  | 'cold'
+  | 'milestones'
+  | 'lines'
+  | 'clinches'
+  | 'stars';
+
+export interface RecapFilterChip {
+  /** Filter slug stamped on the wall via [data-filter]. */
+  key: RecapFilter;
+  /** Display label, ALL CAPS in design. */
+  label: string;
+  /** Pre-computed count to show after the dot — optional. */
+  count?: number;
+}
+
+export interface Props {
+  /**
+   * CSS selector of the wall container the filter targets. The chip
+   * handler stamps [data-filter="…"] on this element. Default targets
+   * `.recap-wall` (the standard RecapWall class).
+   */
+  target?: string;
+  /** Initial filter (defaults to 'all'). */
+  initial?: RecapFilter;
+  /** Sort label on the right side (Layer 4 visual-only). */
+  sortLabel?: string;
+  /**
+   * Optional pre-computed counts keyed by filter. When provided each
+   * chip shows "· N" after the label, matching the design reference.
+   */
+  counts?: Partial<Record<RecapFilter, number>>;
+}
+
+const {
+  target = '.recap-wall',
+  initial = 'all',
+  sortLabel = 'LATEST FIRST',
+  counts = {},
+} = Astro.props;
+
+const chips: RecapFilterChip[] = [
+  { key: 'all',        label: 'ALL',         count: counts.all },
+  { key: 'games',      label: 'GAMES',       count: counts.games },
+  { key: 'hot',        label: 'HOT',         count: counts.hot },
+  { key: 'cold',       label: 'COLD',        count: counts.cold },
+  { key: 'milestones', label: 'MILESTONES',  count: counts.milestones },
+  { key: 'lines',      label: 'LINE COMBOS', count: counts.lines },
+  { key: 'clinches',   label: 'CLINCHES',    count: counts.clinches },
+  { key: 'stars',      label: 'STARS',       count: counts.stars },
+];
+---
+<div class="recap-filterbar" role="toolbar" aria-label="Recap wall filters">
+  <div class="rfb-chips" role="tablist" aria-label="Filter">
+    {chips.map((c) => (
+      <button
+        type="button"
+        class:list={['rfb-chip', { on: c.key === initial }]}
+        role="tab"
+        aria-selected={c.key === initial ? 'true' : 'false'}
+        data-filter-key={c.key}
+      >
+        <span class="dot" aria-hidden="true">{c.key === initial ? '●' : '○'}</span>
+        <span class="lbl">{c.label}</span>
+        {c.count !== undefined && c.count > 0 && (
+          <span class="ct">· {c.count}</span>
+        )}
+      </button>
+    ))}
+  </div>
+  <div class="rfb-spacer" aria-hidden="true"></div>
+  <div class="rfb-order" aria-label="Sort">
+    <button type="button" class="rfb-sort" data-sort-key="latest" aria-pressed="true">
+      <span>SORT · </span><b class="lbl">{sortLabel}</b>
+    </button>
+  </div>
+</div>
+
+<script is:inline define:vars={{ target, initial }}>
+  /*
+   * Chip + sort hydration. Stays inline so the page is fully SSR'd and
+   * has zero framework runtime — every chip is a static button until JS
+   * runs, then the click handler stamps `data-filter` on the wall and
+   * toggles the `.on` state across siblings.
+   *
+   * The wall container itself does NOT need to live in this component;
+   * any element matching `target` will receive the data attribute. The
+   * CSS rules in the parent page (or RecapWall) are responsible for
+   * hiding non-matching cards.
+   */
+  (function () {
+    var bars = document.querySelectorAll('.recap-filterbar');
+    bars.forEach(function (bar) {
+      var chips = bar.querySelectorAll('.rfb-chip');
+      var wall = document.querySelector(target);
+      if (!wall) return;
+
+      // Set the initial filter on the wall once on hydrate.
+      wall.setAttribute('data-filter', initial);
+
+      function applyFilter(key) {
+        wall.setAttribute('data-filter', key);
+        chips.forEach(function (c) {
+          var active = c.getAttribute('data-filter-key') === key;
+          c.classList.toggle('on', active);
+          c.setAttribute('aria-selected', active ? 'true' : 'false');
+          var dot = c.querySelector('.dot');
+          if (dot) dot.textContent = active ? '●' : '○';
+        });
+      }
+
+      chips.forEach(function (chip) {
+        chip.addEventListener('click', function () {
+          var key = chip.getAttribute('data-filter-key') || 'all';
+          applyFilter(key);
+        });
+      });
+
+      // Sort pill toggles label only (Layer 4 visual). Real sort lands later.
+      var sort = bar.querySelector('.rfb-sort');
+      if (sort) {
+        var labels = ['LATEST FIRST', 'HGB IMPACT ↓'];
+        sort.addEventListener('click', function () {
+          var lbl = sort.querySelector('.lbl');
+          if (!lbl) return;
+          var current = (lbl.textContent || '').trim();
+          var next = current === labels[0] ? labels[1] : labels[0];
+          lbl.textContent = next;
+          sort.setAttribute('aria-pressed', next === labels[0] ? 'true' : 'false');
+        });
+      }
+    });
+  })();
+</script>
+
+<style>
+  .recap-filterbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 14px 0 10px;
+    border-top: 1px solid #181818;
+    border-bottom: 1px solid #181818;
+    margin: 18px 0 26px;
+    overflow-x: auto;
+  }
+
+  .rfb-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .rfb-chip {
+    appearance: none;
+    background: #0b0b0b;
+    border: 1px solid #222;
+    border-radius: 2px;
+    padding: 7px 12px;
+    color: #888;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+
+  .rfb-chip:hover,
+  .rfb-chip:focus-visible {
+    color: var(--site-white);
+    border-color: #2e2e2e;
+    outline: none;
+  }
+
+  .rfb-chip.on {
+    color: var(--site-white);
+    border-color: #3a3a3a;
+    background: #151515;
+  }
+
+  .rfb-chip .dot {
+    color: var(--status-live);
+    font-size: 9px;
+  }
+  .rfb-chip:not(.on) .dot {
+    color: #444;
+  }
+
+  .rfb-chip .ct {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 10px;
+    color: #555;
+    letter-spacing: 0;
+  }
+  .rfb-chip.on .ct {
+    color: var(--status-live);
+  }
+
+  .rfb-spacer { flex: 1; }
+
+  .rfb-order {
+    display: flex;
+    gap: 14px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: #666;
+    letter-spacing: 0.1em;
+  }
+
+  .rfb-sort {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #666;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+
+  .rfb-sort b { color: #ddd; font-weight: 500; }
+
+  .rfb-sort:hover,
+  .rfb-sort:focus-visible {
+    color: var(--site-white);
+    border-color: #2a2a2a;
+    background: #0c0c0c;
+    outline: none;
+  }
+
+  @media (max-width: 640px) {
+    .recap-filterbar {
+      flex-wrap: wrap;
+      padding: 10px 0 6px;
+    }
+    .rfb-chip {
+      padding: 5px 9px;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+    }
+    .rfb-spacer { display: none; }
+  }
+</style>
