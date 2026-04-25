@@ -8,6 +8,12 @@
  *   - timeLabel — center column big time, e.g. "10:30 PM ET"
  *   - keyMatchupTitle — "Key matchup · HGB edge"
  *   - matchups — array of {left, right} player pairs (max 2 to fit height)
+ *   - home_wp / away_wp — optional model WP (0..1) — Layer 5.7
+ *
+ * WP display variants (controlled by `variant` prop):
+ *   - 'inline'  (Variant A) — WP% renders inline next to the team abbrev
+ *   - 'chip'    (Variant B) — WP% renders as a pill below the abbrev
+ *   - 'none'    (default)   — no WP shown (pre-Layer 5.7 behavior)
  *
  * Python card-generator note: drives the @HockeyGameBot pre-game tweet
  * 1-2h before puck drop. `keyMatchupTitle` could swap for "Goalie battle"
@@ -46,9 +52,13 @@ export interface SeasonSeries {
   summary: string;
 }
 
+export type WpVariant = 'inline' | 'chip' | 'none';
+
 export interface Props {
   tag?: ArtifactTag;
   byline?: ArtifactByline;
+  /** Optional game ID — not rendered, used for prediction joining. */
+  gameId?: string;
   eyebrow: string;
   home: MatchupSide;
   away: MatchupSide;
@@ -63,29 +73,92 @@ export interface Props {
    * current-season ("SEASON SERIES") or historical-context ("LAST SEASON").
    */
   season_series?: SeasonSeries;
+  /** Home team win probability (0..1) from the model. */
+  home_wp?: number;
+  /** Away team win probability (0..1) from the model. */
+  away_wp?: number;
+  /**
+   * WP display variant. Controls where the WP% appears when home_wp/away_wp
+   * are present.
+   *   'inline' — WP renders next to the abbrev on the same line (Variant A)
+   *   'chip'   — WP renders as a pill below the abbrev (Variant B)
+   *   'none'   — WP is never shown even if home_wp/away_wp are supplied
+   * Defaults to 'none' so existing render sites without variant prop are unaffected.
+   */
+  variant?: WpVariant;
 }
 
-const { tag, byline, eyebrow, home, away, timeLabel, venue, keyMatchupTitle, matchups, season_series } = Astro.props;
+const {
+  tag,
+  byline,
+  gameId,
+  eyebrow,
+  home,
+  away,
+  timeLabel,
+  venue,
+  keyMatchupTitle,
+  matchups,
+  season_series,
+  home_wp,
+  away_wp,
+  variant = 'none',
+} = Astro.props;
+
+const showWp = variant !== 'none' && home_wp !== undefined && away_wp !== undefined;
+
+function fmtWp(v: number): string {
+  return `${Math.round(v * 100)}%`;
+}
+
+const homeWpStr = showWp ? fmtWp(home_wp!) : '';
+const awayWpStr = showWp ? fmtWp(away_wp!) : '';
 ---
-<ArtifactShell variantClass="art-match" tag={tag} byline={byline}>
+<ArtifactShell
+  variantClass={`art-match art-match--wp-${variant}`}
+  tag={tag}
+  byline={byline}
+>
   <div class="art-match__ehead">{eyebrow}</div>
   <div class="art-match__vs">
+    {/* Home team square */}
     <div class="art-match__sq">
       <TeamLogo abbr={home.abbrev} size={88} class="art-match__logo" />
-      <div class="art-match__abbr">{home.name}</div>
+      <div class="art-match__name-row">
+        <span class="art-match__abbr">{home.name}</span>
+        {showWp && variant === 'inline' && (
+          <span class="art-match__wp-inline">{homeWpStr}</span>
+        )}
+      </div>
+      {showWp && variant === 'chip' && (
+        <div class="art-match__wp-chip">{homeWpStr} WP</div>
+      )}
       <div class="art-match__rec">{home.record}</div>
     </div>
+
+    {/* Center column */}
     <div class="art-match__mid">
       <span class="art-match__vs-label">VS</span>
       <span class="art-match__time">{timeLabel}</span>
       {venue && <span class="art-match__venue">{venue}</span>}
     </div>
+
+    {/* Away team square */}
     <div class="art-match__sq">
       <TeamLogo abbr={away.abbrev} size={88} class="art-match__logo" />
-      <div class="art-match__abbr">{away.name}</div>
+      <div class="art-match__name-row">
+        {showWp && variant === 'inline' && (
+          <span class="art-match__wp-inline away">{awayWpStr}</span>
+        )}
+        <span class="art-match__abbr">{away.name}</span>
+      </div>
+      {showWp && variant === 'chip' && (
+        <div class="art-match__wp-chip">{awayWpStr} WP</div>
+      )}
       <div class="art-match__rec">{away.record}</div>
     </div>
   </div>
+
   <div class="art-match__keymatch">
     <div class="art-match__k">{keyMatchupTitle}</div>
     {matchups.map((m) => (
@@ -100,6 +173,7 @@ const { tag, byline, eyebrow, home, away, timeLabel, venue, keyMatchupTitle, mat
       </div>
     ))}
   </div>
+
   {season_series && (
     <div class="art-match__series" data-scope={season_series.scope}>
       <span class="art-match__series-k">
@@ -130,10 +204,20 @@ const { tag, byline, eyebrow, home, away, timeLabel, venue, keyMatchupTitle, mat
   }
   .art-match__sq { display: flex; flex-direction: column; align-items: center; }
   /* TeamLogo wrapper — size locked via the `size` prop on the
-     component (72px hero). Background/border treatments removed in
+     component (88px hero). Background/border treatments removed in
      favor of the inline SVG mark itself; NHL `_dark.svg` variants
      are designed to read against dark surfaces. */
   .art-match .art-match__logo { margin-bottom: 8px; }
+
+  /* ── Team name row — hosts abbrev + optional inline WP ───────── */
+  .art-match__name-row {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
   .art-match__abbr {
     font-family: var(--font-site-display); font-weight: 700;
     font-size: 22px; color: #fff;
@@ -143,6 +227,41 @@ const { tag, byline, eyebrow, home, away, timeLabel, venue, keyMatchupTitle, mat
     font-family: var(--font-mono); font-size: 10.5px;
     color: #6ca5ad; margin-top: 3px;
   }
+
+  /* ── Variant A — WP% inline next to abbrev ───────────────────── */
+  .art-match__wp-inline {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: #22d3ee;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  /* Away inline WP is dimmer since the model is home-centric */
+  .art-match__wp-inline.away {
+    color: #6ca5ad;
+  }
+
+  /* ── Variant B — WP% as a pill chip below the abbrev ─────────── */
+  .art-match__wp-chip {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 4px;
+    margin-bottom: 2px;
+    padding: 2px 8px;
+    background: rgba(34, 211, 238, 0.12);
+    border: 1px solid rgba(34, 211, 238, 0.25);
+    border-radius: 2px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #22d3ee;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
   /*
    * Center column visual hierarchy (Layer 5.5 polish):
    *   VS  ← architectural anchor (slightly larger, bold cyan)

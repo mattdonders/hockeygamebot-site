@@ -200,6 +200,11 @@ const SeasonSeriesSchema = z.object({
 
 export const ArtifactMatchupSchema = z.object({
   ...TagAndBylineFields,
+  /**
+   * Optional game ID — used when the matchup preview is joined with
+   * predictions data (Layer 5.7+). Not rendered in the card itself.
+   */
+  gameId: z.string().optional(),
   eyebrow: z.string(),
   home: MatchupSideSchema,
   away: MatchupSideSchema,
@@ -210,6 +215,13 @@ export const ArtifactMatchupSchema = z.object({
   matchups: z.array(MatchupPairSchema).min(1).max(4),
   /** Optional season-series summary (current-season or last-season fallback). */
   season_series: SeasonSeriesSchema.optional(),
+  /**
+   * Model win probability (0..1) for home team. When present the
+   * card renders WP next to the team name (variant A inline or
+   * variant B chip below). Absent on non-prediction cards.
+   */
+  home_wp: z.number().min(0).max(1).optional(),
+  away_wp: z.number().min(0).max(1).optional(),
 });
 export type ArtifactMatchup = z.infer<typeof ArtifactMatchupSchema>;
 
