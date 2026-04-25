@@ -161,6 +161,13 @@ const recapDate = recapMock.date_label;
          we pre-render once at build time.)
       2. Date pill on the topbar is swapped if the mock diverges between
          live + recap.
+      3. LiveHero footer goal-chip clamp via `?goals=N`:
+           • no param / 'all' → render all
+           • ?goals=N         → render min(N, total) chips
+           • ?goals=0         → footer collapses entirely (CSS rule via
+                                data-rendered-goals="0")
+         No "+ N more" placeholder, no Latest Activity card. Goal-list
+         overflow will be handled by the Layer 3 game modal.
   -->
   <script is:inline define:vars={{ liveDate, recapDate }}>
     (function () {
@@ -187,6 +194,75 @@ const recapDate = recapMock.date_label;
       if (dateEl) {
         dateEl.textContent = mode === 'recap' ? recapDate : liveDate;
       }
+
+      // ── LiveHero stats carousel (Layer 1.9) ──────────────────────
+      // Two panels (a=GAME stat bars, b=PBP feed). User's choice
+      // persists in sessionStorage under `hgb-stats-panel`. Toggle is
+      // the tab pill row inside `.lh-right`. Layer 1.9 collapsed the
+      // top/bottom split — `data-stats-active` now lives on `.lh-right`
+      // directly. CSS handles the 200ms fade.
+      (function hydrateStatsCarousel() {
+        var zone = document.querySelector('.live-hero .lh-right');
+        if (!zone) return;
+        var tabs = zone.querySelectorAll('[data-stats-target]');
+        if (!tabs.length) return;
+
+        function applyPanel(target) {
+          var panel = target === 'b' ? 'b' : 'a';
+          zone.setAttribute('data-stats-active', panel);
+          tabs.forEach(function (t) {
+            var match = t.getAttribute('data-stats-target') === panel;
+            t.setAttribute('aria-selected', match ? 'true' : 'false');
+          });
+        }
+
+        // Restore choice from session if present.
+        try {
+          var saved = window.sessionStorage.getItem('hgb-stats-panel');
+          if (saved === 'a' || saved === 'b') applyPanel(saved);
+        } catch (e) { /* sessionStorage blocked — fall back to default */ }
+
+        tabs.forEach(function (tab) {
+          tab.addEventListener('click', function () {
+            var target = tab.getAttribute('data-stats-target') || 'a';
+            applyPanel(target);
+            try {
+              window.sessionStorage.setItem('hgb-stats-panel', target);
+            } catch (e) { /* ignore */ }
+          });
+        });
+      })();
+
+      // ── LiveHero footer goal-chip clamp ──────────────────────────
+      // Resolve `?goals=N`, hide chips beyond the requested count.
+      // When zero chips render, stamp data-rendered-goals="0" so the
+      // CSS rule collapses the footer.
+      (function hydrateGoalFooter() {
+        var feed = document.querySelector('.live-hero .goal-feed');
+        if (!feed) return;
+
+        var params = new URLSearchParams(window.location.search);
+        var goalsRaw = params.get('goals'); // null | 'all' | string-int
+        var totalGoals = parseInt(feed.getAttribute('data-goal-count') || '0', 10);
+
+        var visibleGoals;
+        if (goalsRaw === null || goalsRaw === 'all') {
+          visibleGoals = totalGoals;
+        } else {
+          var parsed = parseInt(goalsRaw, 10);
+          visibleGoals = isNaN(parsed)
+            ? totalGoals
+            : Math.max(0, Math.min(parsed, totalGoals));
+        }
+
+        var goalChips = feed.querySelectorAll('[data-chip-kind="goal"]');
+        goalChips.forEach(function (chip) {
+          var idx = parseInt(chip.getAttribute('data-chip-idx') || '0', 10);
+          chip.hidden = idx >= visibleGoals;
+        });
+
+        feed.setAttribute('data-rendered-goals', String(visibleGoals));
+      })();
     })();
   </script>
 </body>

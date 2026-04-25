@@ -2,15 +2,30 @@
 /**
  * LiveHero — dense featured-game panel for /home-v2.
  *
- * Pixel-close reproduction of `.live-hero` in
- * docs/designs/ui_kits/website/index.html.
+ * Layer 1.9 collapses the 1.8 top/bottom split. The right pane is now a
+ * single carousel zone — the GAME tab fills the pane with 4 stat bars,
+ * the PBP tab fills it with the live play-by-play feed. Right-pane
+ * height shrinks naturally to match the left pane (no `min-height: 400px`,
+ * no hairline divider).
+ *
+ *   • Game state (PP / EN / SO / 4v4 / 3v3) renders as the FIRST meta
+ *     chip on the right side of the head row — color-coded per state
+ *     type. 5v5 (or unset) suppresses the chip — the LIVE line stays
+ *     clean: `● Live · Period 3 · 02:18`.
+ *   • Footer = goal chips ONLY. No "+ N more" placeholder, no Latest
+ *     Activity card. Modal (Layer 3) will own full goal-list overflow.
+ *   • `?goals=N` clamps how many goal chips render; `?goals=0` collapses
+ *     the footer entirely.
  *
  * Structure:
- *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock + meta chips
+ *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock +
+ *                right-aligned meta chip group (state chip FIRST, then
+ *                broadcast/series chips).
  *   2. lh-body 1.2fr / 1fr grid:
  *      • lh-scoreblock: 3-col teams row + period-by-period table
- *      • lh-stats: 3 horizontal stat bars (shots / xG / tilt)
- *   3. goal-feed: horizontal-scroll goal chips; includes overturned variant
+ *      • lh-right: single carousel zone — tabs row + active panel
+ *        (GAME = 4 stat bars, PBP = vertical play-by-play feed).
+ *   3. footer-strip: goal chips only (collapses at 0 goals).
  *
  * Losing team gets dim abbrev + score + 0.4-opacity/0.5-grayscale logo.
  * Active period cell in the PBP table gets cyan treatment.
@@ -44,19 +59,47 @@ export interface GoalEntry {
   review_reason?: string;
 }
 
+/** Latest Activity card source. Known `type` values:
+ *  PP_START | PP_END | PK_START | PK_END | PENALTY | TIMEOUT | SHOT.
+ *  Stored as a plain string to keep the .astro frontmatter cheap to parse. */
+export interface LastEventEntry {
+  period: number;
+  clock: string;
+  type: string;
+  team?: string;
+  player?: string;
+  reason?: string;
+  danger?: string; // "low" | "medium" | "high"
+}
+
+/** Inline strength-state chip on the LIVE line (null / 5v5 = hidden). */
+export interface StrengthState {
+  state: string;        // PP | EN | SO | 4v4 | 3v3 | 5v5
+  team?: string;        // e.g. "BUF" — required for PP
+  clock?: string;       // e.g. "0:47" remaining
+}
+
 export interface FeaturedGame {
   status: 'live' | 'final' | 'scheduled';
   period: number;
   clock: string;
   meta_chips: string[];
+  strength_state?: StrengthState | null;
   home: TeamPane;
   away: TeamPane;
   stats: {
+    /* GAME tab (Layer 1.9) — 4 stat bars at full pane height. */
     shots: StatPair;
-    xg: StatPair;
-    tilt: StatPair;
+    xg_5v5: StatPair;
+    xg_all: StatPair;
+    wp: StatPair;
+    /* Reserved for future BOX SCORE / SHIFTS / TILT panels — see
+       extensibility comment near the carousel implementation below. */
+    faceoff_pct?: StatPair;
+    hits?: StatPair;
   };
   goal_feed: GoalEntry[];
+  last_events?: LastEventEntry[];
 }
 
 interface Props {
@@ -92,13 +135,113 @@ function pct(a: number, b: number): [string, string] {
   if (sum <= 0) return ['50%', '50%'];
   return [`${(a / sum) * 100}%`, `${(b / sum) * 100}%`];
 }
+// GAME-tab bar widths (4 bars — Layer 1.9)
 const [shotsL, shotsR] = pct(stats.shots.home, stats.shots.away);
-const [xgL, xgR] = pct(stats.xg.home, stats.xg.away);
-const [tiltL, tiltR] = pct(stats.tilt.home, stats.tilt.away);
+const [xg5L, xg5R] = pct(stats.xg_5v5.home, stats.xg_5v5.away);
+const [xgAllL, xgAllR] = pct(stats.xg_all.home, stats.xg_all.away);
+const [wpL, wpR] = pct(stats.wp.home, stats.wp.away);
 
 function fmtClock(): string {
   return `Live · Period ${game.period} · ${game.clock}`;
 }
+
+/**
+ * Resolve the right-side strength-state chip (first item in the meta
+ * chip group). 5v5 and unset both suppress the chip entirely — the
+ * user's eye shouldn't have to parse a "5v5 is normal" chip.
+ *
+ * Returned `colorVar` + `tintVar` are used for inline CSS variable
+ * overrides; a single `.chip.state-chip` rule consumes them for border,
+ * text, and background-tint.
+ */
+type StateChip = { text: string; colorVar: string; tintVar: string } | null;
+function resolveStrengthChip(s?: StrengthState | null): StateChip {
+  if (!s) return null;
+  const state = (s.state || '').toUpperCase();
+  if (!state || state === '5V5') return null;
+
+  // Format: "TEAM STATE CLOCK" with any missing parts trimmed.
+  const parts = [s.team, state, s.clock].filter(Boolean);
+  const text = parts.join(' ');
+
+  // Color rules (per SITE-HOME-016 spec):
+  //   PP             → cyan (--status-live)     advantage energy
+  //   EN             → orange (--status-ot)     high-stakes
+  //   4v4 / 3v3      → blue (--status-intermission)
+  //   SO             → red (--hgb-red)
+  // tintVar is a 5%-alpha rgba of the same hue — subtle readability boost
+  // without the chip screaming at the rest of the meta strip.
+  let colorVar = 'var(--status-live)';
+  let tintVar = 'rgba(0, 229, 255, 0.05)';
+  if (state === 'EN') {
+    colorVar = 'var(--status-ot)';
+    tintVar = 'rgba(255, 152, 0, 0.05)';
+  } else if (state === '4V4' || state === '3V3') {
+    colorVar = 'var(--status-intermission)';
+    tintVar = 'rgba(96, 165, 250, 0.05)';
+  } else if (state === 'SO') {
+    colorVar = 'var(--hgb-red)';
+    tintVar = 'rgba(232, 0, 45, 0.05)';
+  }
+
+  return { text, colorVar, tintVar };
+}
+const stateChip = resolveStrengthChip(game.strength_state);
+
+/**
+ * Vertical PBP feed (Layer 1.8) — newest-first stack of 4-5 events on
+ * the bottom-right of the hero. Builds normalized rows from the same
+ * `last_events` payload that previously fed Latest Activity.
+ *
+ * The page renders up to MAX_FEED_ROWS items; CSS keeps the zone height
+ * fixed so the stack never pushes the footer down. If `last_events` has
+ * more entries than visible rows, a truncation hint surfaces at the
+ * bottom (`+ N earlier · open game →`) — wired to the Layer 3 modal via
+ * `data-layer3-hook="open-game-modal"`.
+ */
+/* Layer 1.9 — full-pane PBP feed: 7-8 rows fit comfortably now that the
+   feed owns the entire right pane (was ~5 in 1.8 when split with stats). */
+const MAX_FEED_ROWS = 8;
+type FeedRow = {
+  period: number;
+  clock: string;
+  label: string;
+  evClass: string;
+  team?: string;
+  player?: string;
+  reason?: string;
+};
+function buildFeedRows(events: LastEventEntry[]): FeedRow[] {
+  const out: FeedRow[] = [];
+  for (const e of events) {
+    const evType = (e.type || '').toUpperCase();
+    const dangerHigh = evType === 'SHOT' && (e.danger || '').toLowerCase() === 'high';
+    const evClass = dangerHigh ? `${evType}_HIGH` : evType;
+    const label =
+      evType === 'PP_START' ? 'POWER PLAY' :
+      evType === 'PP_END'   ? 'PP ENDED'   :
+      evType === 'PK_START' ? 'PENALTY KILL' :
+      evType === 'PK_END'   ? 'PK ENDED'   :
+      evType === 'PENALTY'  ? 'PENALTY'    :
+      evType === 'TIMEOUT'  ? 'TIMEOUT'    :
+      evType === 'SHOT'     ? (dangerHigh ? 'HIGH-DANGER SHOT' : 'SHOT') :
+      evType;
+    out.push({
+      period: e.period,
+      clock: e.clock,
+      label,
+      evClass,
+      team: e.team,
+      player: e.player,
+      reason: e.reason,
+    });
+  }
+  return out;
+}
+const allFeedRows = buildFeedRows(game.last_events ?? []);
+const visibleFeedRows = allFeedRows.slice(0, MAX_FEED_ROWS);
+const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
+
 ---
 <section class="live-hero" aria-label="Featured live game">
 
@@ -109,6 +252,14 @@ function fmtClock(): string {
       <span>{fmtClock()}</span>
     </div>
     <div class="meta">
+      {stateChip && (
+        <span
+          class="chip state-chip"
+          style={`--sc-color:${stateChip.colorVar};--sc-tint:${stateChip.tintVar};`}
+        >
+          {stateChip.text}
+        </span>
+      )}
       {game.meta_chips.map((chip) => (
         <span class="chip">{chip}</span>
       ))}
@@ -166,48 +317,158 @@ function fmtClock(): string {
       </div>
     </div>
 
-    <!-- stats sidebar -->
-    <div class="lh-stats">
-      <div class="lh-stat">
-        <div class="vl">{stats.shots.home}</div>
-        <div class="lbl">Shots on Goal</div>
-        <div class:list={['vr', { dim: awayLoser }]}>{stats.shots.away}</div>
-        <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
-          <div class="l" style={`width:${shotsL};`}></div>
-          <div class="r" style={`width:${shotsR};`}></div>
+    {/*
+      Right pane (Layer 1.9) — single carousel zone. Two tabs:
+        • GAME  → 4 stat bars at full pane height
+        • PBP   → vertical play-by-play feed at full pane height
+      The active panel fills the entire pane; the right pane height
+      naturally matches the left pane (no min-height anchor, no top/bottom
+      split, no hairline divider). `data-stats-active` on `.lh-right`
+      drives the swap; CSS handles the 200ms fade.
+
+      Carousel container is structured to support 3+ tabs without
+      restructuring. Future panels may include:
+        - BOX SCORE: faceoff %, hits, blocks, PIM, PP%
+        - SHIFTS: most-played this period, EV TOI leaders
+        - TILT: territorial possession (when data available)
+
+      To add a new panel: extend the panel field arrays in live.json with
+      _panel_c_fields, add a [data-stats-target="c"] pill, and the existing
+      sessionStorage + transition logic will handle the rest.
+    */}
+    <div class="lh-right" data-stats-active="a">
+      <div class="lh-stats-tabs" role="tablist" aria-label="Stats panel">
+        <button
+          type="button"
+          class="lh-stats-tab"
+          role="tab"
+          aria-selected="true"
+          data-stats-target="a"
+        >
+          Game
+        </button>
+        <button
+          type="button"
+          class="lh-stats-tab"
+          role="tab"
+          aria-selected="false"
+          data-stats-target="b"
+        >
+          PBP
+        </button>
+      </div>
+
+      {/* GAME tab — 4 stat bars at full pane height */}
+      <div class="lh-stats-panel" data-panel="a" role="tabpanel">
+        <div class="lh-stat">
+          <div class:list={['vl', { dim: homeLoser }]}>{stats.shots.home}</div>
+          <div class="lbl">Shots on Goal</div>
+          <div class:list={['vr', { dim: awayLoser }]}>{stats.shots.away}</div>
+          <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+            <div class="l" style={`width:${shotsL};`}></div>
+            <div class="r" style={`width:${shotsR};`}></div>
+          </div>
+        </div>
+
+        <div class="lh-stat">
+          <div class:list={['vl', { dim: homeLoser }]}>{stats.xg_5v5.home.toFixed(2)}</div>
+          <div class="lbl">5v5 xG</div>
+          <div class:list={['vr', { dim: awayLoser }]}>{stats.xg_5v5.away.toFixed(2)}</div>
+          <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+            <div class="l" style={`width:${xg5L};`}></div>
+            <div class="r" style={`width:${xg5R};`}></div>
+          </div>
+        </div>
+
+        <div class="lh-stat">
+          <div class:list={['vl', { dim: homeLoser }]}>{stats.xg_all.home.toFixed(2)}</div>
+          <div class="lbl">xG · All</div>
+          <div class:list={['vr', { dim: awayLoser }]}>{stats.xg_all.away.toFixed(2)}</div>
+          <div class="bar cyan">
+            <div class="l" style={`width:${xgAllL};`}></div>
+            <div class="r" style={`width:${xgAllR};`}></div>
+          </div>
+        </div>
+
+        <div class="lh-stat">
+          <div class:list={['vl', { dim: homeLoser }]}>{stats.wp.home}{stats.wp.unit ?? '%'}</div>
+          <div class="lbl">Win Probability</div>
+          <div class:list={['vr', { dim: awayLoser }]}>{stats.wp.away}{stats.wp.unit ?? '%'}</div>
+          <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+            <div class="l" style={`width:${wpL};`}></div>
+            <div class="r" style={`width:${wpR};`}></div>
+          </div>
         </div>
       </div>
 
-      <div class="lh-stat">
-        <div class="vl">{stats.xg.home.toFixed(2)}</div>
-        <div class="lbl">Expected Goals (xG)</div>
-        <div class:list={['vr', { dim: awayLoser }]}>{stats.xg.away.toFixed(2)}</div>
-        <div class="bar cyan">
-          <div class="l" style={`width:${xgL};`}></div>
-          <div class="r" style={`width:${xgR};`}></div>
+      {/* PBP tab — vertical play-by-play feed at full pane height */}
+      <div class="lh-stats-panel lh-feed-panel" data-panel="b" role="tabpanel" aria-label="Live play-by-play feed">
+        <div class="lh-feed-head">
+          <span class="lh-feed-head-l">
+            <span class="dot" aria-hidden="true"></span>
+            <span>Live Feed</span>
+          </span>
         </div>
-      </div>
-
-      <div class="lh-stat">
-        <div class="vl">{stats.tilt.home}{stats.tilt.unit ?? ''}</div>
-        <div class="lbl">Offensive Tilt</div>
-        <div class:list={['vr', { dim: awayLoser }]}>{stats.tilt.away}{stats.tilt.unit ?? ''}</div>
-        <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
-          <div class="l" style={`width:${tiltL};`}></div>
-          <div class="r" style={`width:${tiltR};`}></div>
-        </div>
+        {visibleFeedRows.length > 0 ? (
+          <ul class="lh-feed-body">
+            {visibleFeedRows.map((it, idx) => (
+              <li
+                class:list={['lh-feed-row', { newest: idx === 0 }]}
+                data-ev-type={it.evClass}
+              >
+                <span class="tstamp">P{it.period} · {it.clock}</span>
+                <span class="label">{it.label}</span>
+                {(it.team || it.player || it.reason) && (
+                  <span class="who">
+                    {it.team ?? ''}{it.team && (it.player || it.reason) ? ' · ' : ''}
+                    {it.player ?? it.reason ?? ''}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div class="lh-feed-empty">No activity yet</div>
+        )}
+        {earlierCount > 0 && (
+          <button
+            class="lh-feed-more"
+            type="button"
+            data-layer3-hook="open-game-modal"
+          >
+            + {earlierCount} earlier · open game →
+          </button>
+        )}
       </div>
     </div>
 
-    <!-- goal feed (spans full row) -->
-    <div class="goal-feed" aria-label="Goal feed">
-      {game.goal_feed.map((g) => (
-        <div class:list={['goal-chip', { overturned: g.overturned }]}>
+    <!--
+      Footer strip — goal chips ONLY (Layer 1.8).
+
+      No "+ N more" overflow chip; no Latest Activity card. The page
+      script reads `?goals=N` and toggles chip visibility; if zero chips
+      render, the entire `.goal-feed` collapses (display:none) so the
+      hero shrinks vertically by the footer height. Goal-list overflow
+      will be handled by the Layer 3 modal.
+    -->
+    <div
+      class="goal-feed"
+      aria-label="Scoring summary"
+      data-goal-count={game.goal_feed.length}
+    >
+      {game.goal_feed.map((g, idx) => (
+        <div
+          class:list={['goal-chip', { overturned: g.overturned }]}
+          data-chip-kind="goal"
+          data-chip-idx={idx}
+        >
+          {/* Running-score pill, top-right. For overturned: OVERTURNED
+              badge replaces the score pill and takes red styling. */}
+          <span class:list={['score-pill', { overturned: g.overturned }]}>
+            {g.overturned ? 'OVERTURNED' : g.score_after}
+          </span>
           <div class="t">
             <span>P{g.period} · {g.clock} · {g.team}</span>
-            <span class="sc" style={g.overturned ? 'color:#ff7b8a' : undefined}>
-              {g.overturned ? 'OVERTURNED' : g.score_after}
-            </span>
           </div>
           <div class="p">
             {g.scorer}{g.goal_number ? ` (${g.goal_number})` : ''}
@@ -292,6 +553,15 @@ function fmtClock(): string {
     padding: 3px 8px;
     border-radius: var(--radius-sm);
     color: #bbb;
+  }
+
+  /* State chip (first in meta group) — color-coded per state type via
+     per-chip CSS variable overrides. 5v5 suppresses rendering upstream. */
+  .chip.state-chip {
+    border-color: var(--sc-color, var(--status-live));
+    color: var(--sc-color, var(--status-live));
+    background: var(--sc-tint, transparent);
+    font-weight: 700;
   }
 
   /* ── body layout ──────────────────────────────────────────────── */
@@ -449,20 +719,86 @@ function fmtClock(): string {
     font-size: 16px;
   }
 
-  /* ── live sidebar ─────────────────────────────────────────────── */
-  .lh-stats {
-    padding: 20px 24px;
+  /* ── right pane (Layer 1.9) — single carousel zone ──────────────── */
+  /* The right pane is a column flex containing tabs + the active panel.
+     Each panel (GAME / PBP) fills the entire pane below the tab row.
+     No min-height anchor: the right pane shrinks to match left-pane
+     height naturally (~270-300px depending on `?goals=N`). The
+     `.lh-body` grid row uses `align-items: stretch` (default) so both
+     panes share the row's intrinsic height. */
+  .lh-right {
     display: flex;
     flex-direction: column;
-    gap: 14px;
     background: #0c0c0c;
+    min-width: 0;
+    padding: 14px 24px 18px;
+    gap: 10px;
+  }
+
+  /* Tab pills — left-aligned row above the active panel. Uses the same
+     chip aesthetic as `.chip` in the head row but with selected-state
+     emphasis. */
+  .lh-stats-tabs {
+    display: flex;
+    gap: 6px;
+    flex: none;
+  }
+
+  .lh-stats-tab {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--site-border2);
+    color: #888;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .lh-stats-tab:hover {
+    color: #ccc;
+    border-color: var(--site-border);
+  }
+  .lh-stats-tab[aria-selected="true"] {
+    color: var(--status-live);
+    border-color: rgba(0, 229, 255, 0.45);
+    background: rgba(0, 229, 255, 0.06);
+  }
+  .lh-stats-tab:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+
+  /* Panels: stack on top of one another within the right pane — only
+     the active panel renders. 200ms fade keyed off `[data-stats-active]`
+     on `.lh-right`. The active panel grows to fill all remaining
+     vertical space below the tab row. */
+  .lh-stats-panel {
+    flex: 1 1 0;
+    min-height: 0;
+    display: none;
+    flex-direction: column;
+    justify-content: space-evenly;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 200ms ease;
+  }
+  .lh-right[data-stats-active="a"] .lh-stats-panel[data-panel="a"],
+  .lh-right[data-stats-active="b"] .lh-stats-panel[data-panel="b"] {
+    display: flex;
+    opacity: 1;
   }
 
   .lh-stat {
     display: grid;
-    grid-template-columns: 48px 1fr 48px;
+    grid-template-columns: 52px 1fr 52px;
     align-items: center;
-    gap: 10px;
+    row-gap: 4px;
+    column-gap: 10px;
   }
 
   .lh-stat .vl,
@@ -470,7 +806,7 @@ function fmtClock(): string {
     font-family: var(--font-site-display);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    font-size: 18px;
+    font-size: 17px;
     color: var(--site-white);
   }
   .lh-stat .vl { text-align: left; }
@@ -491,7 +827,7 @@ function fmtClock(): string {
   .lh-stat .bar {
     grid-column: 1 / -1;
     display: flex;
-    height: 6px;
+    height: 5px;
     background: #151515;
     border-radius: var(--radius-sm);
     overflow: hidden;
@@ -501,29 +837,194 @@ function fmtClock(): string {
   .lh-stat .bar .l { background: var(--hc, var(--hgb-red)); }
   .lh-stat .bar .r { background: var(--ac, #2a2a2a); }
 
-  /* Cyan variant for xG — matches design reference */
+  /* Cyan variant for one callout bar (xG · All) — matches design reference */
   .lh-stat .bar.cyan .l { background: var(--status-live); }
   .lh-stat .bar.cyan .r { background: #1a4050; }
 
-  /* ── goal feed ───────────────────────────────────────────────── */
+  /* ── PBP-tab feed panel (Layer 1.9) ────────────────────────────────
+     Vertical PBP feed — newest at top, color-coded labels, hairline
+     row separators. Header carries the pulsing cyan dot to match the
+     LIVE badge in the head row. Now occupies the full right pane (was
+     bottom-half in 1.8); 7-8 rows fit comfortably. */
+  .lh-feed-panel {
+    /* No padding override — inherits from .lh-right. Header + body
+       layout uses gap from the panel's own flex column. */
+    overflow: hidden;
+  }
+
+  .lh-feed-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--status-live);
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    flex: none;
+  }
+  .lh-feed-head-l {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .lh-feed-head .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--status-live);
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: ringPulse 1.8s ease-out infinite;
+    flex: none;
+  }
+
+  .lh-feed-body {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Each row: tstamp (mono, muted) + label (uppercase, color-coded) +
+     who (right-aligned, dim). flex: none so the body's flex column
+     doesn't squash them. */
+  .lh-feed-row {
+    display: grid;
+    grid-template-columns: 88px 1fr auto;
+    grid-template-areas: "tstamp label who";
+    align-items: baseline;
+    column-gap: 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid #161616;
+    font-family: var(--font-site-body);
+    line-height: 1.25;
+    min-width: 0;
+  }
+  .lh-feed-row:last-child { border-bottom: none; }
+
+  /* Newest row (idx=0) — fade-in mask so it appears to slide in from
+     above. Subtle: top 12% of the row's height fades from transparent
+     to opaque. */
+  .lh-feed-row.newest {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%);
+            mask-image: linear-gradient(to bottom, transparent 0%, black 12%);
+  }
+
+  .lh-feed-row .tstamp {
+    grid-area: tstamp;
+    color: #666;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .lh-feed-row .label {
+    grid-area: label;
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #bbb;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .lh-feed-row .who {
+    grid-area: who;
+    color: #888;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+  }
+
+  /* Label color keyed to event type. */
+  .lh-feed-row[data-ev-type="PP_START"] .label,
+  .lh-feed-row[data-ev-type="PP_END"] .label,
+  .lh-feed-row[data-ev-type="PK_START"] .label,
+  .lh-feed-row[data-ev-type="PK_END"] .label {
+    color: var(--status-live);
+  }
+  .lh-feed-row[data-ev-type="PENALTY"] .label { color: var(--status-danger); }
+  .lh-feed-row[data-ev-type="SHOT_HIGH"] .label { color: var(--status-ot); }
+  .lh-feed-row[data-ev-type="TIMEOUT"] .label { color: var(--site-muted); }
+
+  .lh-feed-empty {
+    color: var(--site-muted);
+    font-family: var(--font-site-body);
+    font-size: 11px;
+    text-align: center;
+    padding: 12px 0;
+  }
+
+  /* "+ N earlier · open game →" — wired to Layer 3 modal. */
+  .lh-feed-more {
+    appearance: none;
+    background: transparent;
+    border: none;
+    padding: 6px 0 0;
+    color: var(--site-muted);
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 700;
+    text-align: center;
+    cursor: pointer;
+    transition: color 120ms ease;
+    flex: none;
+  }
+  .lh-feed-more:hover { color: var(--status-live); }
+
+  /* ── footer strip (goal chips only — Layer 1.8) ─────────────── */
+  /* Flex row, no wrap. Goal chips share width via flex-grow. The strip
+     has a stable min-height so it never stretches across `?goals=N`
+     variants — chips center-align in the row. When zero chips render
+     (data-rendered-goals="0"), the whole strip collapses via display:none
+     and the hero shrinks by the footer height. */
   .goal-feed {
     grid-column: 1 / -1;
     border-top: 1px solid #1a1a1a;
     padding: 14px 24px;
     display: flex;
     gap: 14px;
-    overflow-x: auto;
+    overflow-x: hidden;
     background: #0a0a0a;
-    scrollbar-width: thin;
+    min-height: 110px;
+    align-items: stretch;
   }
+  .goal-feed[data-rendered-goals="0"] { display: none; }
 
+  /* Honor the native `hidden` attribute on goal chips so the page-script
+     visibility toggle works regardless of any rule declaring display. */
+  .goal-feed [hidden] { display: none !important; }
+
+  /* Goal chip — solid border + running-score pill top-right. flex-basis
+     of 0 + flex-grow 1 makes each visible chip claim an equal share of
+     the slots NOT consumed by Latest Activity. */
   .goal-chip {
-    flex: none;
-    border: 1px solid var(--site-border);
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 320px;
     border-radius: var(--radius-md);
     padding: 9px 12px;
+    position: relative;
+    border: 1px solid var(--site-border);
     background: var(--site-card);
-    min-width: 220px;
+    padding-right: 58px; /* reserve room for the score-pill absolute position */
   }
 
   .goal-chip .t {
@@ -535,28 +1036,67 @@ function fmtClock(): string {
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font-weight: 700;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
-  .goal-chip .t .sc {
-    color: var(--site-white);
+  .goal-chip .t > span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  /* Running-score pill on goal chips — cyan accent, top-right anchor. */
+  .goal-chip .score-pill {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    padding: 2px 8px;
+    border: 1px solid rgba(0, 229, 255, 0.35);
+    border-radius: 999px;
     font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--status-live);
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
+    line-height: 1.3;
+    background: rgba(0, 229, 255, 0.05);
+  }
+  .goal-chip .score-pill.overturned {
+    color: var(--hgb-red);
+    border-color: rgba(232, 0, 45, 0.4);
+    background: rgba(232, 0, 45, 0.06);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    padding: 2px 6px;
   }
 
   .goal-chip .p {
     font-family: var(--font-site-display);
     font-weight: 700;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--site-white);
     margin-top: 4px;
     letter-spacing: 0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
+  /* Single-line clamp on player + assists lines so the chip stays a
+     consistent 3-line height across viewport widths (no 1200px wrap to
+     a 4-line chip that would push the footer taller). */
   .goal-chip .a {
     color: #888;
     font-family: var(--font-site-body);
     font-size: 11px;
     margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .goal-chip.overturned {
