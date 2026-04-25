@@ -161,14 +161,13 @@ const recapDate = recapMock.date_label;
          we pre-render once at build time.)
       2. Date pill on the topbar is swapped if the mock diverges between
          live + recap.
-      3. Decide the visible chip set in the LiveHero footer strip:
-           • no param / goals=all → full goal chips, no last-events
-           • ?goals=0             → last-events only
-           • ?goals=1             → 1 goal + up to 3 last-events
-           • ?goals=N             → first N goals (clamped); fill with
-                                    last-events if visible < 2
-         Also handles "+ N more" overflow when goal count exceeds MAX.
-         MIN_SLOTS=4, MAX_SLOTS=6 from data-* on the footer.
+      3. LiveHero footer goal-chip clamp via `?goals=N`:
+           • no param / 'all' → render all
+           • ?goals=N         → render min(N, total) chips
+           • ?goals=0         → footer collapses entirely (CSS rule via
+                                data-rendered-goals="0")
+         No "+ N more" placeholder, no Latest Activity card. Goal-list
+         overflow will be handled by the Layer 3 game modal.
   -->
   <script is:inline define:vars={{ liveDate, recapDate }}>
     (function () {
@@ -196,115 +195,35 @@ const recapDate = recapMock.date_label;
         dateEl.textContent = mode === 'recap' ? recapDate : liveDate;
       }
 
-      // ── LiveHero footer strip: goal slot allocation + Latest density ─
-      //
-      // Footer model (Layer 1.7):
-      //   [ goal chips … ] [ + N more? ] [ Latest Activity ]
-      //
-      // The PBP-chip fallback from 1.5 is gone — Latest Activity absorbs
-      // the role and flex-grows to whatever remains. Density attribute
-      // drives column count + visible-event count.
-      //
-      // Slot allocation (target 6 base slots; one extra when overflow
-      // forces a "+ N more" chip — chosen so the matrix in the
-      // SITE-HOME-017 spec lands cleanly):
-      //
-      //   visibleGoals (V): clamped to ≤ 5 so Latest always gets ≥ 1 slot
-      //   moreChip      (M): 1 if totalGoals > V else 0
-      //   slotsForLatest(L): 6 - V  (always reserves at least 1 when V<6)
-      //
-      //   Special case: when ?goals=6 exactly and totalGoals=6, no
-      //   overflow → V=6, M=0, L=0 → Latest hidden.
-      //
-      //   density modes: 1→narrow, 2→medium, 3→wide, 4→wide,
-      //                  5→very-wide, 6→max, 0→hidden.
-      //
-      // Decision: overturned chips count toward the visible cap (one chip
-      // = one slot to the user's eye, regardless of validation status).
-      (function hydrateFooterStrip() {
+      // ── LiveHero footer goal-chip clamp ──────────────────────────
+      // Resolve `?goals=N`, hide chips beyond the requested count.
+      // When zero chips render, stamp data-rendered-goals="0" so the
+      // CSS rule collapses the footer.
+      (function hydrateGoalFooter() {
         var feed = document.querySelector('.live-hero .goal-feed');
         if (!feed) return;
 
         var params = new URLSearchParams(window.location.search);
         var goalsRaw = params.get('goals'); // null | 'all' | string-int
-
-        var MAX = parseInt(feed.getAttribute('data-max-slots') || '6', 10);
         var totalGoals = parseInt(feed.getAttribute('data-goal-count') || '0', 10);
 
-        // Resolve how many goal chips the user wants to show.
-        //   default | 'all' → totalGoals
-        //   '0' / '1' / 'N' → that many (clamped to [0, totalGoals])
-        var goalsRequested;
+        var visibleGoals;
         if (goalsRaw === null || goalsRaw === 'all') {
-          goalsRequested = totalGoals;
+          visibleGoals = totalGoals;
         } else {
           var parsed = parseInt(goalsRaw, 10);
-          goalsRequested = isNaN(parsed) ? totalGoals : Math.max(0, Math.min(parsed, totalGoals));
+          visibleGoals = isNaN(parsed)
+            ? totalGoals
+            : Math.max(0, Math.min(parsed, totalGoals));
         }
 
-        // Compute visible goals + overflow.
-        // - When goalsRequested ≤ MAX-1 (≤5), no overflow; goals fill that
-        //   many slots, Latest gets the rest.
-        // - When goalsRequested > MAX-1 (≥6), cap visible at MAX-1 (5),
-        //   add a "+ N more" chip in slot 6, and let Latest still claim 1
-        //   slot (narrow) — making the row 7 chips total. This matches
-        //   the spec matrix (`?goals=8 → 5 visible + +3 more + narrow`).
-        // - Special case: goalsRequested === MAX (6) and no overflow →
-        //   Latest hidden (V=6, M=0, L=0).
-        var visibleGoals;
-        var hasOverflow;
-        if (goalsRequested >= MAX) {
-          if (goalsRequested === MAX && totalGoals === MAX) {
-            // Exactly 6 goals total, render all 6, hide Latest.
-            visibleGoals = MAX;
-            hasOverflow = false;
-          } else {
-            visibleGoals = MAX - 1; // 5
-            hasOverflow = true;
-          }
-        } else {
-          visibleGoals = goalsRequested;
-          hasOverflow = false;
-        }
-        var slotsForLatest = Math.max(0, MAX - visibleGoals);
-
-        // Apply visibility to goal chips.
         var goalChips = feed.querySelectorAll('[data-chip-kind="goal"]');
         goalChips.forEach(function (chip) {
           var idx = parseInt(chip.getAttribute('data-chip-idx') || '0', 10);
           chip.hidden = idx >= visibleGoals;
         });
 
-        // "+ N more" placeholder.
-        var moreChip = feed.querySelector('[data-chip-kind="more"]');
-        if (moreChip) {
-          if (hasOverflow) {
-            var remaining = totalGoals - visibleGoals;
-            var countEl = moreChip.querySelector('[data-more-n]');
-            if (countEl) countEl.textContent = String(remaining);
-            moreChip.hidden = false;
-          } else {
-            moreChip.hidden = true;
-          }
-        }
-
-        // Latest Activity — flex-grow scales with slot count, density
-        // attribute drives internal layout.
-        var latest = feed.querySelector('[data-chip-kind="latest"]');
-        if (latest) {
-          var density;
-          if (slotsForLatest <= 0) density = 'hidden';
-          else if (slotsForLatest === 1) density = 'narrow';
-          else if (slotsForLatest === 2) density = 'medium';
-          else if (slotsForLatest === 3) density = 'wide';
-          else if (slotsForLatest === 4) density = 'wide';
-          else if (slotsForLatest === 5) density = 'very-wide';
-          else density = 'max';
-          latest.setAttribute('data-density', density);
-          // flex-grow set to slot count so the card claims its share of
-          // the row. flex-basis stays 0 so it doesn't bias from content.
-          latest.style.flexGrow = String(slotsForLatest);
-        }
+        feed.setAttribute('data-rendered-goals', String(visibleGoals));
       })();
     })();
   </script>

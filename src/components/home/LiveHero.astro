@@ -2,23 +2,19 @@
 /**
  * LiveHero — dense featured-game panel for /home-v2.
  *
- * Layer 1 shipped a 3-bar right pane (SHOTS / xG / TILT). SITE-HOME-015
- * refined it; 016 added the always-on Latest Activity card; 017 collapses
- * the footer model:
- *   • Right pane is 4 bars: SHOTS · 5V5 xG · xG · ALL · WIN PROBABILITY
- *     (stat bars flex-distribute evenly across full vertical height).
- *   • Game state (PP / EN / SO / 4v4 / 3v3) renders as the FIRST meta chip
- *     on the right side of the head row — color-coded per state type,
- *     with a subtle tint + tracked font. 5v5 (or unset) suppresses the
- *     chip — the LIVE line stays clean: `● Live · Period 2 · 08:41`.
- *   • Goal feed caps at 5 visible + "+ N more" overflow placeholder.
- *     Latest Activity card absorbs whatever footer width the goals don't
- *     use — see Section B in the SITE-HOME-017 spec for the slot matrix.
- *   • The PBP-chip fallback (added in 015) is gone. Latest Activity is
- *     the canonical "what else is going on" surface; it shifts density
- *     mode (narrow / medium / wide / very-wide / max) based on slots.
- *   • Max-mode (0 visible goals) shows a header summary line on the
- *     Latest Activity card with shots + xG totals.
+ * Layer 1.8 pivots away from the horizontal-fill Latest Activity model.
+ * The component now follows a vertical reading rhythm:
+ *   • Right pane is split top/bottom — stats carousel (3 bars × 2 panels,
+ *     toggled via tab pills) on top, vertical PBP feed (newest-first
+ *     stack of 4–5 events) on bottom. A 1px hairline divides the two.
+ *   • Game state (PP / EN / SO / 4v4 / 3v3) renders as the FIRST meta
+ *     chip on the right side of the head row — color-coded per state
+ *     type. 5v5 (or unset) suppresses the chip — the LIVE line stays
+ *     clean: `● Live · Period 3 · 02:18`.
+ *   • Footer = goal chips ONLY. No "+ N more" placeholder, no Latest
+ *     Activity card. Modal (Layer 3) will own full goal-list overflow.
+ *   • `?goals=N` clamps how many goal chips render; `?goals=0` collapses
+ *     the footer entirely.
  *
  * Structure:
  *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock +
@@ -26,8 +22,9 @@
  *                broadcast/series chips).
  *   2. lh-body 1.2fr / 1fr grid:
  *      • lh-scoreblock: 3-col teams row + period-by-period table
- *      • lh-stats: 4 horizontal stat bars evenly distributed
- *   3. footer-strip: goal chips + "+N more" + Latest Activity card
+ *      • lh-right: stats-zone (carousel, 3 bars per panel) + feed-zone
+ *        (vertical PBP, ~4-5 events, newest at top).
+ *   3. footer-strip: goal chips only (collapses at 0 goals).
  *
  * Losing team gets dim abbrev + score + 0.4-opacity/0.5-grayscale logo.
  * Active period cell in the PBP table gets cyan treatment.
@@ -184,59 +181,6 @@ function resolveStrengthChip(s?: StrengthState | null): StateChip {
 }
 const stateChip = resolveStrengthChip(game.strength_state);
 
-/**
- * Latest Activity card payload — full normalized list of non-goal events.
- * The page-level inline script trims the visible count + sets the column
- * count via a `data-density` attribute, so we ship up to 9 items here
- * (max-mode max). Detail fields (player, team, reason, danger) are kept
- * so denser modes can opt-in to richer rows via CSS selectors.
- */
-type LatestItem = {
-  period: number;
-  clock: string;
-  label: string;
-  evClass: string;
-  team?: string;
-  player?: string;
-  reason?: string;
-};
-function buildLatestItems(events: LastEventEntry[]): LatestItem[] {
-  const out: LatestItem[] = [];
-  for (const e of events) {
-    const evType = (e.type || '').toUpperCase();
-    const dangerHigh = evType === 'SHOT' && (e.danger || '').toLowerCase() === 'high';
-    const evClass = dangerHigh ? `${evType}_HIGH` : evType;
-    const label =
-      evType === 'PP_START' ? 'POWER PLAY' :
-      evType === 'PP_END'   ? 'PP ENDED'   :
-      evType === 'PK_START' ? 'PENALTY KILL' :
-      evType === 'PK_END'   ? 'PK ENDED'   :
-      evType === 'PENALTY'  ? 'PENALTY'    :
-      evType === 'TIMEOUT'  ? 'TIMEOUT'    :
-      evType === 'SHOT'     ? (dangerHigh ? 'HIGH-DANGER SHOT' : 'SHOT') :
-      evType;
-    out.push({
-      period: e.period,
-      clock: e.clock,
-      label,
-      evClass,
-      team: e.team,
-      player: e.player,
-      reason: e.reason,
-    });
-    if (out.length >= 9) break;
-  }
-  return out;
-}
-const latestItems = buildLatestItems(game.last_events ?? []);
-
-/**
- * Max-mode summary line (rendered server-side, conditionally shown via
- * CSS when `data-density="max"`). Matches the design: shots (whole) and
- * xG (2-decimal) totals so a glance at the card answers "what's the
- * game state right now" even with zero scored content.
- */
-const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.xg.home.toFixed(2)}-${stats.xg.away.toFixed(2)} xG`;
 ---
 <section class="live-hero" aria-label="Featured live game">
 
@@ -356,21 +300,17 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     </div>
 
     <!--
-      Footer strip — goal chips + "+N more" overflow + Latest Activity.
+      Footer strip — goal chips ONLY (Layer 1.8).
 
-      Layer 1.7 collapsed the 1.5-era PBP-chip fallback. The footer is
-      always:  [ goal chips … ]  [ + N more? ]  [ Latest Activity ]
-      where Latest Activity flex-grows to absorb whatever width the goal
-      chips don't use. The inline page script clamps `goalsToShow` from
-      `?goals=N`, computes `slotsForLatest`, and stamps a
-      `data-density="hidden|narrow|medium|wide|very-wide|max"` attribute
-      on the Latest Activity card so its CSS adapts (column count, event
-      count, header summary). 6-slot footer is the target.
+      No "+ N more" overflow chip; no Latest Activity card. The page
+      script reads `?goals=N` and toggles chip visibility; if zero chips
+      render, the entire `.goal-feed` collapses (display:none) so the
+      hero shrinks vertically by the footer height. Goal-list overflow
+      will be handled by the Layer 3 modal.
     -->
     <div
       class="goal-feed"
       aria-label="Scoring summary"
-      data-max-slots="6"
       data-goal-count={game.goal_feed.length}
     >
       {game.goal_feed.map((g, idx) => (
@@ -400,64 +340,6 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
           )}
         </div>
       ))}
-
-      <!-- "+ N more · open game" placeholder chip — shown when goals overflow
-           the visible cap. Client script toggles display + sets data-more-n. -->
-      <div
-        class="goal-chip more-chip"
-        data-chip-kind="more"
-        data-layer3-hook="open-game-modal"
-        hidden
-      >
-        <div class="t"><span>More</span></div>
-        {/* TODO: Layer 3 — open game modal on click */}
-        <div class="p">+<span data-more-n>0</span> more</div>
-        <div class="a">open game</div>
-      </div>
-
-      <!--
-        Latest Activity card — flex-grows to absorb whatever footer width
-        the goal chips don't use. The inline page script stamps the card
-        with `data-density="…"` based on slot count; CSS rules below key
-        column count + visible-event count off that attribute. Pulsing
-        cyan header dot reuses the `ringPulse` animation.
-      -->
-      <div
-        class="latest-card"
-        aria-label="Latest activity"
-        data-chip-kind="latest"
-        data-density="narrow"
-      >
-        <div class="lh-latest-head">
-          <span class="lh-latest-head-l">
-            <span class="dot" aria-hidden="true"></span>
-            <span>Latest Activity</span>
-          </span>
-          <span class="lh-latest-summary" aria-hidden="true">{maxSummary}</span>
-        </div>
-        {latestItems.length > 0 ? (
-          <ul class="lh-latest-body">
-            {latestItems.map((it, idx) => (
-              <li
-                class="lh-latest-row"
-                data-ev-type={it.evClass}
-                data-row-idx={idx}
-              >
-                <span class="tstamp">P{it.period} · {it.clock}</span>
-                <span class="label">{it.label}</span>
-                {(it.team || it.player) && (
-                  <span class="who">
-                    {it.team ?? ''}{it.team && it.player ? ' · ' : ''}{it.player ?? ''}
-                  </span>
-                )}
-                {it.reason && <span class="reason">{it.reason}</span>}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div class="lh-latest-empty">No activity yet</div>
-        )}
-      </div>
     </div>
 
   </div>
@@ -756,13 +638,12 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
   .lh-stat .bar.cyan .l { background: var(--status-live); }
   .lh-stat .bar.cyan .r { background: #1a4050; }
 
-  /* ── footer strip (goal chips + Latest Activity) ──────────────── */
-  /* Flex row, no wrap. Goal chips have flex-basis 0 + min-width 0 (slot-
-     share via flex-grow). Latest Activity is sized via flex-grow set by
-     the page script — it absorbs whatever room the goal chips leave.
-     The strip has a stable min-height so the footer never visibly
-     stretches across `?goals=N` variants — goal chips center-align in
-     the row and Latest content overflows hidden if it tries to grow. */
+  /* ── footer strip (goal chips only — Layer 1.8) ─────────────── */
+  /* Flex row, no wrap. Goal chips share width via flex-grow. The strip
+     has a stable min-height so it never stretches across `?goals=N`
+     variants — chips center-align in the row. When zero chips render
+     (data-rendered-goals="0"), the whole strip collapses via display:none
+     and the hero shrinks by the footer height. */
   .goal-feed {
     grid-column: 1 / -1;
     border-top: 1px solid #1a1a1a;
@@ -771,13 +652,13 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     gap: 14px;
     overflow-x: hidden;
     background: #0a0a0a;
-    min-height: 152px;
+    min-height: 110px;
     align-items: stretch;
   }
+  .goal-feed[data-rendered-goals="0"] { display: none; }
 
-  /* Honor the native `hidden` attribute even when a .goal-chip.more-chip
-     rule declares display:flex (which would otherwise win over the UA
-     stylesheet). Scoped to footer-strip chips only. */
+  /* Honor the native `hidden` attribute on goal chips so the page-script
+     visibility toggle works regardless of any rule declaring display. */
   .goal-feed [hidden] { display: none !important; }
 
   /* Goal chip — solid border + running-score pill top-right. flex-basis
@@ -891,277 +772,6 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     overflow: hidden;
     text-overflow: ellipsis;
   }
-
-  /* "+ N more · open game" truncation placeholder. Clickable styling
-     now; wire-up is Layer 3. */
-  .goal-chip.more-chip {
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-    background: transparent;
-    border-style: dashed;
-    transition: border-color 120ms ease, background 120ms ease;
-  }
-  .goal-chip.more-chip:hover {
-    border-color: var(--site-border2);
-    background: #0d0d0d;
-  }
-  .goal-chip.more-chip .t { justify-content: center; }
-  .goal-chip.more-chip .p { margin-top: 2px; }
-
-  /* ── Latest Activity card ─────────────────────────────────────────
-     Flex-grow is set by the inline page script via inline style based on
-     remaining slot count (0..6). Internal layout adapts via the
-     `data-density` attribute (narrow / medium / wide / very-wide / max).
-     Hidden entirely when goals + "+N more" already use all 6 slots.
-
-     Height parity: goal chips set the footer's natural height (~95px for
-     a 3-line chip). The card's own height is capped by `goal-feed` since
-     all chips share a flex row — goal chips that grow taller than the
-     card's content force visual stretch onto the card; the card never
-     forces growth on goal chips because it overflows internally. */
-  .latest-card {
-    flex: 1 1 0;
-    min-width: 0;
-    border: 1px solid var(--site-border);
-    border-radius: var(--radius-md);
-    padding: 8px 14px;
-    background: var(--site-card);
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    overflow: hidden;            /* card never forces parent flex to grow */
-    align-self: stretch;         /* match the row's natural height */
-  }
-
-  /* Header — label + dot. The summary span is hidden by default and only
-     surfaces in max mode (see density rules near the bottom). */
-  .lh-latest-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    color: var(--status-live);
-    font-family: var(--font-site-body);
-    font-weight: 700;
-    font-size: 10px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-  }
-  .lh-latest-head-l {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .lh-latest-head .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--status-live);
-    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
-    animation: ringPulse 1.8s ease-out infinite;
-    flex: none;
-  }
-  .lh-latest-summary {
-    display: none;  /* shown only at data-density="max" */
-    color: #888;
-    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    font-variant-numeric: tabular-nums;
-    text-transform: none;
-  }
-
-  /* Body grid. column count controlled by data-density. The card's
-     overall height is anchored to the goal-chip row height (~70px body);
-     overflow is hidden so additional rows don't force the footer taller.
-     `lh-latest-body` height is capped via height: 100% + min-height: 0 so
-     it claims whatever the parent .latest-card grants it (which is
-     determined by the flex row's tallest sibling, i.e. the goal chip). */
-  .lh-latest-body {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    grid-template-columns: 1fr;
-    grid-auto-rows: min-content;
-    gap: 0;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  /* Row layout — single tight line by default. `who` reveals inline (not
-     stacked) at wider densities so row height stays ~22px regardless of
-     mode. Default grid is 2-col so narrow has more room for the label;
-     wider modes opt in to a 3-col grid where `who` claims the right
-     column. */
-  .lh-latest-row {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    grid-template-areas: "tstamp label";
-    column-gap: 10px;
-    align-items: baseline;
-    padding: 4px 0;
-    border-bottom: 1px solid #1a1a1a;
-    font-family: var(--font-site-body);
-    min-width: 0;
-    line-height: 1.3;
-  }
-  .lh-latest-row:last-child { border-bottom: none; padding-bottom: 0; }
-  .lh-latest-row:first-child { padding-top: 0; }
-
-  .lh-latest-row .tstamp {
-    grid-area: tstamp;
-    color: #666;
-    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    font-variant-numeric: tabular-nums;
-    flex: none;
-    white-space: nowrap;
-  }
-
-  .lh-latest-row .label {
-    grid-area: label;
-    font-family: var(--font-site-body);
-    font-weight: 700;
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    text-align: right;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #bbb;
-    min-width: 0;
-  }
-
-  /* `who` lives inline at the right of each row (after the label) at
-     densities ≥ medium. We pack TEAM · player into a single right-aligned
-     auto column so row height never grows beyond a single-line baseline. */
-  .lh-latest-row .who {
-    grid-area: who;
-    display: none;
-    color: #888;
-    font-family: var(--font-site-body);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    text-align: right;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 140px;
-  }
-  /* Reason lives in its own column past the label. Hidden by default; the
-     wide+ modes reveal it inline as a third right-aligned cell. */
-  .lh-latest-row .reason {
-    display: none;
-  }
-
-  /* Label color keyed to event type. */
-  .lh-latest-row[data-ev-type="PP_START"] .label,
-  .lh-latest-row[data-ev-type="PP_END"] .label,
-  .lh-latest-row[data-ev-type="PK_START"] .label,
-  .lh-latest-row[data-ev-type="PK_END"] .label {
-    color: var(--status-live);
-  }
-  .lh-latest-row[data-ev-type="PENALTY"] .label { color: var(--status-danger); }
-  .lh-latest-row[data-ev-type="SHOT_HIGH"] .label { color: var(--status-ot); }
-  .lh-latest-row[data-ev-type="TIMEOUT"] .label { color: #bbb; }
-
-  .lh-latest-empty {
-    color: var(--site-muted);
-    font-family: var(--font-site-body);
-    font-size: 11px;
-    text-align: center;
-    padding: 12px 0;
-  }
-
-  /* ── Latest Activity density modes ────────────────────────────────
-     Slot allocation matrix from SITE-HOME-017 §B/§C:
-
-       slots │ columns │ events │ row detail
-       ──────┼─────────┼────────┼────────────────────────────────
-       1     │ 1       │ 3      │ tstamp + label (default)
-       2     │ 1       │ 4      │ + player line where present
-       3     │ 2       │ 6      │ + player + danger/reason
-       4     │ 2       │ 6      │ same as 3, more breathing room
-       5     │ 2-3     │ 8      │ full event detail (auto-fit)
-       6     │ 3       │ 9      │ full detail + max-mode header
-
-     `data-density` is set by the inline page script. Out-of-DOM rows
-     are hidden via `nth-child` selectors; column count is grid-driven. */
-
-  /* Hidden — page script sets when goals fill all 6 slots. */
-  .latest-card[data-density="hidden"] { display: none; }
-
-  /* Density rules — column count + visible-row count. Row height stays
-     ~22px across all modes; total card body height stays ≤ 3 rows worth
-     so the footer's overall height never grows beyond the goal-chip
-     row's natural height. */
-
-  /* Narrow (1 slot) — 3 events, single column. The 3rd row is what makes
-     the card occasionally taller than a 3-line goal chip; that's still
-     within the ~150px footer budget. */
-  .latest-card[data-density="narrow"] .lh-latest-body { grid-template-columns: 1fr; }
-  .latest-card[data-density="narrow"] .lh-latest-row:nth-child(n+4) { display: none; }
-  /* Tighten row spacing in narrow so 3 events fit within a goal-chip's
-     row height without forcing the row tall. */
-  .latest-card[data-density="narrow"] .lh-latest-row { padding: 3px 0; }
-
-  /* Medium (2 slots) — 4 events laid out 2-col × 2-row to keep card
-     height in step with narrow (3 rows × 1 col); inline `who` revealed. */
-  .latest-card[data-density="medium"] .lh-latest-body {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 16px;
-  }
-  .latest-card[data-density="medium"] .lh-latest-row:nth-child(n+5) { display: none; }
-  .latest-card[data-density="medium"] .lh-latest-row {
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas: "tstamp label who";
-  }
-  .latest-card[data-density="medium"] .lh-latest-row .who { display: block; }
-
-  /* Wide (3 slots) — 6 events, 2-col grid, inline `who`. */
-  .latest-card[data-density="wide"] .lh-latest-body {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 18px;
-  }
-  .latest-card[data-density="wide"] .lh-latest-row:nth-child(n+7) { display: none; }
-  .latest-card[data-density="wide"] .lh-latest-row {
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas: "tstamp label who";
-  }
-  .latest-card[data-density="wide"] .lh-latest-row .who { display: block; }
-
-  /* Very-wide (5 slots) — 6 events, auto-fit grid (renders as 2-3 cols
-     depending on parent width). Inline `who` revealed. */
-  .latest-card[data-density="very-wide"] .lh-latest-body {
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    column-gap: 22px;
-  }
-  .latest-card[data-density="very-wide"] .lh-latest-row:nth-child(n+9) { display: none; }
-  .latest-card[data-density="very-wide"] .lh-latest-row {
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas: "tstamp label who";
-  }
-  .latest-card[data-density="very-wide"] .lh-latest-row .who { display: block; }
-
-  /* Max (6 slots, 0 goals) — 9 events, 3-col, inline `who` + header
-     summary line revealed. */
-  .latest-card[data-density="max"] .lh-latest-body {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    column-gap: 26px;
-  }
-  .latest-card[data-density="max"] .lh-latest-row {
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas: "tstamp label who";
-  }
-  .latest-card[data-density="max"] .lh-latest-row .who { display: block; }
-  .latest-card[data-density="max"] .lh-latest-summary { display: inline; }
 
   /* ── responsive ──────────────────────────────────────────────── */
   @media (max-width: 960px) {
