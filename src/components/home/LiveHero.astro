@@ -8,6 +8,13 @@
  * height shrinks naturally to match the left pane (no `min-height: 400px`,
  * no hairline divider).
  *
+ * Layer 3 adds a third right-pane mode: SHOOTOUT. When
+ * `featured_game.status === 'shootout'`, the GAME / PBP carousel is
+ * replaced wholesale by `<ShootoutTracker />` — there's no toggle, the
+ * shootout IS the show. The LIVE badge text becomes "Live · Shootout
+ * · Round N", and the period-by-period table grows an "SO" column
+ * (highlighted) inserted between OT and T.
+ *
  *   • Game state (PP / EN / SO / 4v4 / 3v3) renders as the FIRST meta
  *     chip on the right side of the head row — color-coded per state
  *     type. 5v5 (or unset) suppresses the chip — the LIVE line stays
@@ -79,8 +86,31 @@ export interface StrengthState {
   clock?: string;       // e.g. "0:47" remaining
 }
 
+/**
+ * Shootout payload — when `featured_game.status === 'shootout'`, the
+ * right pane swaps to ShootoutTracker. Mirrors the schema in
+ * src/data/home-mock/live.shootout.json.
+ */
+export interface ShootoutAttempt {
+  shooter: string;
+  result: 'goal' | 'save' | 'miss' | 'pending';
+}
+export interface ShootoutGoalie {
+  name: string;
+  saves: number;
+  attempts: number;
+}
+export interface ShootoutBlock {
+  round: number;
+  home: ShootoutAttempt[];
+  away: ShootoutAttempt[];
+  goalies: { home: ShootoutGoalie; away: ShootoutGoalie };
+}
+
 export interface FeaturedGame {
-  status: 'live' | 'final' | 'scheduled';
+  /** Stable id for the home-page hero stickiness logic. Optional in mock. */
+  id?: string;
+  status: 'live' | 'final' | 'scheduled' | 'shootout';
   period: number;
   clock: string;
   meta_chips: string[];
@@ -100,7 +130,11 @@ export interface FeaturedGame {
   };
   goal_feed: GoalEntry[];
   last_events?: LastEventEntry[];
+  /** Populated only when status === 'shootout'. Drives ShootoutTracker. */
+  shootout?: ShootoutBlock;
 }
+
+import ShootoutTracker from './ShootoutTracker.astro';
 
 interface Props {
   game: FeaturedGame;
@@ -109,22 +143,42 @@ interface Props {
 const { game } = Astro.props;
 const { home, away, stats } = game;
 
+const isShootout = game.status === 'shootout';
+
 // Who's losing? Loser gets dimmed. Tie = no loser.
 const homeLoser = home.score < away.score;
 const awayLoser = away.score < home.score;
 
 // Period-by-period row: show period numbers 1-3 and OT column.
+// In shootout mode, an extra SO column is inserted between OT and T —
+// the SO "value" is 1 if that team won the shootout, else 0/—. We don't
+// have win info for live SO until it ends, so the SO cell shows the
+// running shootout score (goals scored).
 // Active period gets `active` class; future periods get `dim` (shown as "–").
-const PBP_COLS = [1, 2, 3, 4]; // indices 0..3 → P1, P2, P3, OT
+const PBP_COLS = isShootout ? [1, 2, 3, 4, 5] : [1, 2, 3, 4];
+
+// Per-team SO running goal count (cells 4 in the array — only used in
+// shootout state). Pulled from the shootout block when present so the
+// scoreboard's SO column reflects what the tracker shows.
+function soGoalsFor(team: 'home' | 'away'): number {
+  if (!game.shootout) return 0;
+  const arr = game.shootout[team];
+  return arr.filter(a => a.result === 'goal').length;
+}
+
 function pbpCellClass(periodIdx: number): string {
   const period1based = periodIdx + 1;
-  if (period1based === game.period) return 'cell active';
+  // In shootout mode, the SO column (period=5) is the active one.
+  if (isShootout && period1based === 5) return 'cell active';
+  if (!isShootout && period1based === game.period) return 'cell active';
   // If the period hasn't happened yet in this game, dim it.
-  if (period1based > game.period) return 'cell dim';
+  if (period1based > game.period && !(isShootout && period1based === 5)) return 'cell dim';
   return 'cell';
 }
-function pbpCellValue(value: number, periodIdx: number): string {
+function pbpCellValue(value: number, periodIdx: number, team?: 'home' | 'away'): string {
   const period1based = periodIdx + 1;
+  // SO column in shootout mode: running goal count from the shootout block.
+  if (isShootout && period1based === 5 && team) return String(soGoalsFor(team));
   if (period1based > game.period) return '–';
   return String(value);
 }
@@ -142,6 +196,10 @@ const [xgAllL, xgAllR] = pct(stats.xg_all.home, stats.xg_all.away);
 const [wpL, wpR] = pct(stats.wp.home, stats.wp.away);
 
 function fmtClock(): string {
+  if (isShootout) {
+    const round = game.shootout?.round ?? 1;
+    return `Live · Shootout · Round ${round}`;
+  }
   return `Live · Period ${game.period} · ${game.clock}`;
 }
 
@@ -291,19 +349,20 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
       </div>
 
       <!-- period-by-period line -->
-      <div class="pbp" role="table" aria-label="Period by period">
+      <div class:list={['pbp', { 'has-so': isShootout }]} role="table" aria-label="Period by period">
         <div class="h first"></div>
         <div class="h">1</div>
         <div class="h">2</div>
         <div class="h">3</div>
         <div class="h">OT</div>
+        {isShootout && <div class="h so-h">SO</div>}
         <div class="h">T</div>
 
         <div class:list={['tm', { loser: homeLoser }]}>
           <img src={home.logo} alt="" />{home.abbrev}
         </div>
         {PBP_COLS.map((_p, idx) => (
-          <div class={pbpCellClass(idx)}>{pbpCellValue(home.pbp[idx] ?? 0, idx)}</div>
+          <div class={pbpCellClass(idx)}>{pbpCellValue(home.pbp[idx] ?? 0, idx, 'home')}</div>
         ))}
         <div class="cell tot">{home.score}</div>
 
@@ -311,7 +370,7 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
           <img src={away.logo} alt="" />{away.abbrev}
         </div>
         {PBP_COLS.map((_p, idx) => (
-          <div class={pbpCellClass(idx)}>{pbpCellValue(away.pbp[idx] ?? 0, idx)}</div>
+          <div class={pbpCellClass(idx)}>{pbpCellValue(away.pbp[idx] ?? 0, idx, 'away')}</div>
         ))}
         <div class="cell tot">{away.score}</div>
       </div>
@@ -326,6 +385,10 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
       split, no hairline divider). `data-stats-active` on `.lh-right`
       drives the swap; CSS handles the 200ms fade.
 
+      Layer 3 — when game.status === 'shootout', the carousel is
+      replaced wholesale by <ShootoutTracker />. The shootout IS the
+      show; no toggle, no GAME/PBP tabs, no fade.
+
       Carousel container is structured to support 3+ tabs without
       restructuring. Future panels may include:
         - BOX SCORE: faceoff %, hits, blocks, PIM, PP%
@@ -336,6 +399,18 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
       _panel_c_fields, add a [data-stats-target="c"] pill, and the existing
       sessionStorage + transition logic will handle the rest.
     */}
+    {isShootout && game.shootout ? (
+      <div class="lh-right lh-right-so">
+        <ShootoutTracker
+          round={game.shootout.round}
+          home={game.shootout.home}
+          away={game.shootout.away}
+          goalies={game.shootout.goalies}
+          homeLabel={home.abbrev}
+          awayLabel={away.abbrev}
+        />
+      </div>
+    ) : (
     <div class="lh-right" data-stats-active="a">
       <div class="lh-stats-tabs" role="tablist" aria-label="Stats panel">
         <button
@@ -441,6 +516,7 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
         )}
       </div>
     </div>
+    )}
 
     <!--
       Footer strip — goal chips ONLY (Layer 1.8).
@@ -666,6 +742,14 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
     gap: 6px;
     align-items: center;
   }
+  /* Layer 3 — when the game's in shootout, the table grows an SO column
+     between OT and T. Five 48px period cells + the 68px total. */
+  .pbp.has-so {
+    grid-template-columns: 1fr repeat(5, 48px) 68px;
+  }
+  .pbp .h.so-h {
+    color: var(--status-live);
+  }
 
   .pbp .h {
     color: var(--site-muted);
@@ -733,6 +817,15 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
     min-width: 0;
     padding: 14px 24px 18px;
     gap: 10px;
+  }
+  /* Shootout right pane — same padding/bg, but no internal scrollbox.
+     ShootoutTracker renders the round grid + goalie summary directly. */
+  .lh-right-so {
+    background: #0c0c0c;
+    padding: 14px 24px 18px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   /* Tab pills — left-aligned row above the active panel. Uses the same
