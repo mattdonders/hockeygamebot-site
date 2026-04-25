@@ -140,9 +140,24 @@ function pct(a: number, b: number): [number, number] {
 
 const xgL = xgBar ? pct(xgBar.home, xgBar.away)[0] : 50;
 const xgR = xgBar ? pct(xgBar.home, xgBar.away)[1] : 50;
-const xgValueLabel = xgBar
-  ? `${(xgBar.label ?? 'xG') === 'Win' ? `${home.abbrev} ` : ''}${Math.round(xgL)}%`
-  : '';
+
+// Whole-number percentages for team labels. We round both halves
+// then nudge so they always sum to 100 — avoids "58 / 41" rendering
+// from a 58.4 / 41.6 split.
+const xgLrounded = Math.round(xgL);
+const xgRrounded = 100 - xgLrounded;
+const homeLeads = xgLrounded > xgRrounded;
+const awayLeads = xgRrounded > xgLrounded;
+
+// Team accents fall back to the cyan default when not provided.
+// `--site-accent-h` / `-a` are inline-stamped on the bar root so the
+// CSS rules below can read them via var(). When BOTH teams supply an
+// accent we use the split-fill colors; else the default cyan/dim
+// treatment from the original design is preserved.
+const hasTeamAccents = !!(home.accent && away.accent);
+const xgBarStyle = hasTeamAccents
+  ? `--gc-accent-h:${home.accent};--gc-accent-a:${away.accent};`
+  : undefined;
 
 // Score value renderer — em-dash for null/0 in pre-game state.
 function scoreFor(team: GameTileTeam): string {
@@ -205,13 +220,22 @@ function valueFor(v: number | string | null | undefined, fallback = '—'): stri
   </div>
 
   {xgBar && (
-    <div class="gc-xgbar">
-      <span class="lbl">{xgBar.label ?? 'xG'}</span>
-      <div class="track">
+    <div
+      class:list={['gc-xgbar', { 'has-accents': hasTeamAccents }]}
+      style={xgBarStyle}
+    >
+      <span class:list={['gc-xgbar__side', 'side-home', { lead: homeLeads }]}>
+        <span class="abbr">{home.abbrev}</span>
+        <span class="pct">{xgLrounded}%</span>
+      </span>
+      <div class="track" aria-hidden="true">
         <div class="a" style={`width:${xgL}%;`}></div>
         <div class="b" style={`width:${xgR}%;`}></div>
       </div>
-      <span class="v">{xgValueLabel}</span>
+      <span class:list={['gc-xgbar__side', 'side-away', { lead: awayLeads }]}>
+        <span class="pct">{xgRrounded}%</span>
+        <span class="abbr">{away.abbrev}</span>
+      </span>
     </div>
   )}
 
@@ -402,27 +426,58 @@ function valueFor(v: number | string | null | undefined, fallback = '—'): stri
   }
 
   /* ── Optional xG / Win mini-bar ─────────────────────────────── */
+  /* Team-labeled split-fill: HOME ABBR · % · [══════════] · % · AWAY ABBR.
+     The bar fills with team-accent colors when both teams supply an
+     `accent` hex; otherwise falls back to the cyan/dim default from
+     the original Layer 3 design. The team with the higher % gets a
+     bolder font weight (700 vs 500) so the favored side reads louder
+     at a glance. */
   .gc-xgbar {
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px solid #151515;
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
     font-family: var(--font-site-body);
     font-size: 10px;
-    color: #666;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    font-weight: 700;
   }
-  .gc-xgbar .lbl {
-    width: 24px;
-    color: #444;
+  .gc-xgbar__side {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+    color: #888;
+    font-weight: 500;
+    flex: none;
+    min-width: 56px;
+  }
+  .gc-xgbar__side.side-home { justify-content: flex-start; }
+  .gc-xgbar__side.side-away {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  .gc-xgbar__side .abbr {
+    font-family: var(--font-site-display);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: #999;
+  }
+  .gc-xgbar__side .pct {
     font-family: var(--font-mono);
+    font-size: 10px;
     letter-spacing: 0;
     text-transform: none;
+    color: #bbb;
   }
+  /* Higher % gets bolder type weight so the favored team reads louder. */
+  .gc-xgbar__side.lead { font-weight: 700; }
+  .gc-xgbar__side.lead .abbr { color: #f5f5f5; }
+  .gc-xgbar__side.lead .pct  { color: #fff; }
+  .gc-xgbar__side.side-away.lead { justify-content: flex-end; }
+
   .gc-xgbar .track {
     flex: 1;
     height: 4px;
@@ -430,18 +485,15 @@ function valueFor(v: number | string | null | undefined, fallback = '—'): stri
     border-radius: 2px;
     display: flex;
     overflow: hidden;
+    min-width: 40px;
   }
+  /* Default fill — cyan + dim grey, used when team accents are missing. */
   .gc-xgbar .track .a { background: var(--status-live); }
   .gc-xgbar .track .b { background: #333; }
-  .gc-xgbar .v {
-    font-family: var(--font-mono);
-    color: #bbb;
-    font-size: 10px;
-    letter-spacing: 0;
-    text-transform: none;
-    min-width: 32px;
-    text-align: right;
-  }
+  /* When both teams supply an accent, use the team-color split fill —
+     mirrors the LiveHero stat-bar treatment. */
+  .gc-xgbar.has-accents .track .a { background: var(--gc-accent-h); }
+  .gc-xgbar.has-accents .track .b { background: var(--gc-accent-a); }
 
   /* ── Foot: chips + arena/notes ──────────────────────────────── */
   .gc-foot {
