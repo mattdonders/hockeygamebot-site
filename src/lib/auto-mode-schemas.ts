@@ -135,8 +135,6 @@ export const TomorrowPredictionSchema = z.object({
   /** Predicted goals — display strings ("3.2"), not floats. */
   home_xg: z.string().min(1),
   away_xg: z.string().min(1),
-  /** Vegas comparison line, e.g. "BOS −155 · O/U 6.5". Optional. */
-  vegas_line: z.string().optional(),
   /** Top scorer bot pick, e.g. "Pastrnak (BOS) — 0.55G". */
   top_scorer_pick: z.string().optional(),
   /** Tiny narrative blurb — "BOS at home off 2 days rest." */
