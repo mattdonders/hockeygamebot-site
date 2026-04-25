@@ -1,0 +1,197 @@
+---
+/**
+ * ArtifactShell — shared chrome for every artifact card on /home-v2.
+ *
+ * Provides the common card frame:
+ *   - Tag badge (top-left) — colored kind + label, optional
+ *   - Actions (top-right) — share + expand chrome, optional
+ *   - Byline (bottom) — "HOCKEYGAMEBOT.COM / KIND" + identifier, optional
+ *
+ * Visual language: sharp 0px corners (data-heavy = squarer per BRAND.md),
+ * `--site-card`-ish backgrounds per artifact, `--site-border` 1px frame,
+ * 320px default height (matches design references).
+ *
+ * Each concrete artifact (ArtifactGame, ArtifactHot, …) wraps its inner
+ * markup in <ArtifactShell …> and overrides background/border via its
+ * own `.art-{slug}` class on the host element.
+ *
+ * Dual-purpose contract
+ * ---------------------
+ * Same component renders the web tile AND the social-card PNG (via
+ * Python Playwright pipeline). Constraints:
+ *   - All content from props — no runtime fetches inside the component.
+ *   - No JS-driven layout (only static SVG + static CSS).
+ *   - Fonts limited to the site stack (Oswald, Space Grotesk, JetBrains Mono)
+ *     plus the card display fallbacks already in site-tokens.css.
+ */
+
+// Shared types live in ./_types.ts so concrete artifact components can
+// import them without esbuild parsing-issues against .astro frontmatter.
+import type { ArtifactTag, ArtifactByline } from './_types';
+export type { ArtifactTag, ArtifactByline, ArtifactTagKind } from './_types';
+
+interface Props {
+  /** CSS class on the .art element — used by concrete artifacts to scope styles. */
+  variantClass: string;
+  /**
+   * Optional top-left badge. Most cards leave this off; the eyebrow row
+   * already announces the card kind. Reserve `tag` for editorial framing
+   * the card type cannot infer (e.g. "★ Game of the night · OT").
+   */
+  tag?: ArtifactTag;
+  /**
+   * Render the top-right share/expand chrome (web only). Defaults to true.
+   *
+   * Python card-generator note: pass `showActions={false}` when rendering
+   * via the Playwright PNG pipeline — the share/expand affordances are
+   * web-only chrome and have no place in a posted social card. At rest
+   * on the web they are invisible (opacity 0) and fade in on hover or
+   * keyboard focus, so leaving the default `true` does NOT cause visual
+   * noise in production tiles either; this prop exists explicitly for
+   * the screenshotter.
+   */
+  showActions?: boolean;
+  /** Optional bottom-corner byline. */
+  byline?: ArtifactByline;
+  /** Override default 320px height. */
+  height?: number;
+}
+
+const {
+  variantClass,
+  tag,
+  showActions = true,
+  byline,
+  height,
+} = Astro.props;
+
+const styleAttr = height ? `height:${height}px;` : undefined;
+---
+<article class:list={['art', variantClass]} style={styleAttr}>
+  {tag && (
+    <span class:list={['art-tag', `art-tag--${tag.kind ?? 'red'}`]}>{tag.label}</span>
+  )}
+  {showActions && (
+    <div class="art-actions" aria-hidden="true">
+      <span class="art-btn" title="Share">↗</span>
+      <span class="art-btn" title="Expand">⎘</span>
+    </div>
+  )}
+
+  <slot />
+
+  {byline && (byline.left || byline.right) && (
+    <div class="art-byline">
+      <span>{byline.left ?? ''}</span>
+      <span>{byline.right ?? ''}</span>
+    </div>
+  )}
+</article>
+
+<style is:global>
+  /* Shared chrome for every artifact card. Scoped via `.art` + variant class. */
+  .art {
+    position: relative;
+    border-radius: 0; /* sharp corners — broadcast graphics */
+    overflow: hidden;
+    background: #0b0b0b;
+    border: 1px solid var(--site-border);
+    color: #eee;
+    height: 320px;
+  }
+
+  .art-tag {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 2;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #fff;
+    background: var(--hgb-red);
+    padding: 3px 8px;
+    border-radius: 1px;
+  }
+  /*
+   * Tag kind → color map. Each kind matches the accent color of the
+   * card variant it's typically rendered on, so a tag on a HOT card
+   * reads green, a tag on a MILESTONE card reads gold, etc. Pick the
+   * kind that matches the card's accent (or `neutral` if you want the
+   * tag to step out of the card's visual language).
+   *
+   *   kind        background           paired-card accent
+   *   ─────────── ─────────────────── ─────────────────────────────────
+   *   red         var(--hgb-red)       generic alert / urgent
+   *   hot         #00e676  green       ArtifactHot (player on a heater)
+   *   cold        var(--hgb-red)       ArtifactCold (slump = red alert)
+   *   game        #e5e5e5  white       ArtifactGame (broadcast neutral)
+   *   ot          var(--status-ot)     orange — OT/SO editorial framing
+   *   mile        #ffd54a  gold        ArtifactMilestone / hat trick
+   *   line        #7a67ff  violet      ArtifactLine (5v5 line combo)
+   *   matchup     #22d3ee  cyan        ArtifactMatchup (preview)
+   *   stars       #ffd54a  gold        ArtifactThreeStars
+   *   goalie      var(--status-intermission) blue  ArtifactGoalie
+   *   neutral     #2a2a2a  dark grey   step-out / tag-as-wordmark
+   */
+  .art-tag--red     { background: var(--hgb-red); color: #fff; }
+  .art-tag--hot     { background: #00e676; color: #041d0f; }
+  .art-tag--cold    { background: var(--hgb-red); color: #fff; }
+  .art-tag--game    { background: #e5e5e5; color: #111; }
+  .art-tag--ot      { background: var(--status-ot); color: #2b1500; }
+  .art-tag--mile    { background: #ffd54a; color: #2b1f00; }
+  .art-tag--line    { background: #7a67ff; color: #fff; }
+  .art-tag--matchup { background: #22d3ee; color: #042430; }
+  .art-tag--stars   { background: #ffd54a; color: #2b1f00; }
+  .art-tag--goalie  { background: var(--status-intermission); color: #041930; }
+  .art-tag--neutral { background: #2a2a2a; color: #d5d5d5; }
+
+  /* Actions chrome is invisible at rest. Reveals on pointer hover or
+     when any descendant takes keyboard focus (keyboard parity for the
+     hover affordance). PNG renders should pass showActions={false} from
+     the Python pipeline so the chrome is omitted from the DOM entirely. */
+  .art-actions {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .art:hover .art-actions,
+  .art:focus-within .art-actions { opacity: 1; }
+
+  .art-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 2px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #ddd;
+    letter-spacing: 0;
+  }
+
+  .art-byline {
+    position: absolute;
+    bottom: 10px;
+    left: 14px;
+    right: 14px;
+    z-index: 2;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.3);
+  }
+</style>
