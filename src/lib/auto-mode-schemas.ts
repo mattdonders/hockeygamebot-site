@@ -135,10 +135,10 @@ export const TomorrowPredictionSchema = z.object({
   /** Predicted goals — display strings ("3.2"), not floats. */
   home_xg: z.string().min(1),
   away_xg: z.string().min(1),
-  /** Top scorer bot pick, e.g. "Pastrnak (BOS) — 0.55G". */
-  top_scorer_pick: z.string().optional(),
-  /** Tiny narrative blurb — "BOS at home off 2 days rest." */
-  narrative: z.string().optional(),
+  // Layer 5.6: dropped `top_scorer_pick` (no model for it) and
+  // `narrative` (mini-essay was too noisy across a 3-up grid). The
+  // simplified card surfaces only logos + WP + xG — three rows tall,
+  // built for comparative scan.
 });
 export type TomorrowPrediction = z.infer<typeof TomorrowPredictionSchema>;
 
