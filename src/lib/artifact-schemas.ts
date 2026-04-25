@@ -186,14 +186,30 @@ const MatchupPairSchema = z.object({
   centerLabel: z.string().optional(),
 });
 
+/**
+ * Season-series summary line. `scope='current'` means the teams have
+ * already played this season; `scope='last_season'` means it's the first
+ * meeting and we're showing prior-season context as historical framing.
+ * The component picks the label ("SEASON SERIES" vs "LAST SEASON") based
+ * on `scope`.
+ */
+const SeasonSeriesSchema = z.object({
+  scope: z.enum(['current', 'last_season']),
+  summary: z.string().min(1),
+});
+
 export const ArtifactMatchupSchema = z.object({
   ...TagAndBylineFields,
   eyebrow: z.string(),
   home: MatchupSideSchema,
   away: MatchupSideSchema,
   timeLabel: z.string(),
+  /** Optional venue name — renders muted under the time in the center column. */
+  venue: z.string().optional(),
   keyMatchupTitle: z.string(),
   matchups: z.array(MatchupPairSchema).min(1).max(4),
+  /** Optional season-series summary (current-season or last-season fallback). */
+  season_series: SeasonSeriesSchema.optional(),
 });
 export type ArtifactMatchup = z.infer<typeof ArtifactMatchupSchema>;
 
