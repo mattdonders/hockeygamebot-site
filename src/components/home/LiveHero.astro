@@ -2,11 +2,12 @@
 /**
  * LiveHero — dense featured-game panel for /home-v2.
  *
- * Layer 1.8 pivots away from the horizontal-fill Latest Activity model.
- * The component now follows a vertical reading rhythm:
- *   • Right pane is split top/bottom — stats carousel (3 bars × 2 panels,
- *     toggled via tab pills) on top, vertical PBP feed (newest-first
- *     stack of 4–5 events) on bottom. A 1px hairline divides the two.
+ * Layer 1.9 collapses the 1.8 top/bottom split. The right pane is now a
+ * single carousel zone — the GAME tab fills the pane with 4 stat bars,
+ * the PBP tab fills it with the live play-by-play feed. Right-pane
+ * height shrinks naturally to match the left pane (no `min-height: 400px`,
+ * no hairline divider).
+ *
  *   • Game state (PP / EN / SO / 4v4 / 3v3) renders as the FIRST meta
  *     chip on the right side of the head row — color-coded per state
  *     type. 5v5 (or unset) suppresses the chip — the LIVE line stays
@@ -22,8 +23,8 @@
  *                broadcast/series chips).
  *   2. lh-body 1.2fr / 1fr grid:
  *      • lh-scoreblock: 3-col teams row + period-by-period table
- *      • lh-right: stats-zone (carousel, 3 bars per panel) + feed-zone
- *        (vertical PBP, ~4-5 events, newest at top).
+ *      • lh-right: single carousel zone — tabs row + active panel
+ *        (GAME = 4 stat bars, PBP = vertical play-by-play feed).
  *   3. footer-strip: goal chips only (collapses at 0 goals).
  *
  * Losing team gets dim abbrev + score + 0.4-opacity/0.5-grayscale logo.
@@ -87,14 +88,15 @@ export interface FeaturedGame {
   home: TeamPane;
   away: TeamPane;
   stats: {
-    /* Panel A — default carousel panel (Layer 1.8). */
+    /* GAME tab (Layer 1.9) — 4 stat bars at full pane height. */
     shots: StatPair;
     xg_5v5: StatPair;
-    wp: StatPair;
-    /* Panel B — secondary carousel panel (Layer 1.8). */
     xg_all: StatPair;
-    faceoff_pct: StatPair;
-    hits: StatPair;
+    wp: StatPair;
+    /* Reserved for future BOX SCORE / SHIFTS / TILT panels — see
+       extensibility comment near the carousel implementation below. */
+    faceoff_pct?: StatPair;
+    hits?: StatPair;
   };
   goal_feed: GoalEntry[];
   last_events?: LastEventEntry[];
@@ -133,14 +135,11 @@ function pct(a: number, b: number): [string, string] {
   if (sum <= 0) return ['50%', '50%'];
   return [`${(a / sum) * 100}%`, `${(b / sum) * 100}%`];
 }
-// Panel A bar widths
+// GAME-tab bar widths (4 bars — Layer 1.9)
 const [shotsL, shotsR] = pct(stats.shots.home, stats.shots.away);
 const [xg5L, xg5R] = pct(stats.xg_5v5.home, stats.xg_5v5.away);
-const [wpL, wpR] = pct(stats.wp.home, stats.wp.away);
-// Panel B bar widths
 const [xgAllL, xgAllR] = pct(stats.xg_all.home, stats.xg_all.away);
-const [foL, foR] = pct(stats.faceoff_pct.home, stats.faceoff_pct.away);
-const [hitsL, hitsR] = pct(stats.hits.home, stats.hits.away);
+const [wpL, wpR] = pct(stats.wp.home, stats.wp.away);
 
 function fmtClock(): string {
   return `Live · Period ${game.period} · ${game.clock}`;
@@ -200,7 +199,9 @@ const stateChip = resolveStrengthChip(game.strength_state);
  * bottom (`+ N earlier · open game →`) — wired to the Layer 3 modal via
  * `data-layer3-hook="open-game-modal"`.
  */
-const MAX_FEED_ROWS = 5;
+/* Layer 1.9 — full-pane PBP feed: 7-8 rows fit comfortably now that the
+   feed owns the entire right pane (was ~5 in 1.8 when split with stats). */
+const MAX_FEED_ROWS = 8;
 type FeedRow = {
   period: number;
   clock: string;
@@ -316,107 +317,92 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
       </div>
     </div>
 
-    <!--
-      Right pane (Layer 1.8) — top stats zone + bottom vertical PBP feed,
-      divided by a 1px hairline. Stats zone shows Panel A by default
-      (3 bars: SHOTS / 5V5 xG / WIN PROB); Layer 1.8 step 4 will add the
-      A/B carousel toggle. Feed zone is a newest-first vertical stack
-      (~4-5 events) with type-colored labels + a fade-in mask on the
-      newest row so it appears to slide in from above.
-    -->
-    <div class="lh-right">
-      <!-- stats zone (top) — A/B carousel with tab-pill toggle -->
-      <div class="lh-stats-zone" data-stats-active="a">
-        <div class="lh-stats-tabs" role="tablist" aria-label="Stats panel">
-          <button
-            type="button"
-            class="lh-stats-tab"
-            role="tab"
-            aria-selected="true"
-            data-stats-target="a"
-          >
-            Game
-          </button>
-          <button
-            type="button"
-            class="lh-stats-tab"
-            role="tab"
-            aria-selected="false"
-            data-stats-target="b"
-          >
-            Detail
-          </button>
-        </div>
+    {/*
+      Right pane (Layer 1.9) — single carousel zone. Two tabs:
+        • GAME  → 4 stat bars at full pane height
+        • PBP   → vertical play-by-play feed at full pane height
+      The active panel fills the entire pane; the right pane height
+      naturally matches the left pane (no min-height anchor, no top/bottom
+      split, no hairline divider). `data-stats-active` on `.lh-right`
+      drives the swap; CSS handles the 200ms fade.
 
-        <!-- Panel A · default · Shots / 5v5 xG / Win Prob -->
-        <div class="lh-stats-panel" data-panel="a" role="tabpanel">
-          <div class="lh-stat">
-            <div class:list={['vl', { dim: homeLoser }]}>{stats.shots.home}</div>
-            <div class="lbl">Shots on Goal</div>
-            <div class:list={['vr', { dim: awayLoser }]}>{stats.shots.away}</div>
-            <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
-              <div class="l" style={`width:${shotsL};`}></div>
-              <div class="r" style={`width:${shotsR};`}></div>
-            </div>
-          </div>
+      Carousel container is structured to support 3+ tabs without
+      restructuring. Future panels may include:
+        - BOX SCORE: faceoff %, hits, blocks, PIM, PP%
+        - SHIFTS: most-played this period, EV TOI leaders
+        - TILT: territorial possession (when data available)
 
-          <div class="lh-stat">
-            <div class:list={['vl', { dim: homeLoser }]}>{stats.xg_5v5.home.toFixed(2)}</div>
-            <div class="lbl">5v5 xG</div>
-            <div class:list={['vr', { dim: awayLoser }]}>{stats.xg_5v5.away.toFixed(2)}</div>
-            <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
-              <div class="l" style={`width:${xg5L};`}></div>
-              <div class="r" style={`width:${xg5R};`}></div>
-            </div>
-          </div>
+      To add a new panel: extend the panel field arrays in live.json with
+      _panel_c_fields, add a [data-stats-target="c"] pill, and the existing
+      sessionStorage + transition logic will handle the rest.
+    */}
+    <div class="lh-right" data-stats-active="a">
+      <div class="lh-stats-tabs" role="tablist" aria-label="Stats panel">
+        <button
+          type="button"
+          class="lh-stats-tab"
+          role="tab"
+          aria-selected="true"
+          data-stats-target="a"
+        >
+          Game
+        </button>
+        <button
+          type="button"
+          class="lh-stats-tab"
+          role="tab"
+          aria-selected="false"
+          data-stats-target="b"
+        >
+          PBP
+        </button>
+      </div>
 
-          <div class="lh-stat">
-            <div class:list={['vl', { dim: homeLoser }]}>{stats.wp.home}{stats.wp.unit ?? '%'}</div>
-            <div class="lbl">Win Probability</div>
-            <div class:list={['vr', { dim: awayLoser }]}>{stats.wp.away}{stats.wp.unit ?? '%'}</div>
-            <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
-              <div class="l" style={`width:${wpL};`}></div>
-              <div class="r" style={`width:${wpR};`}></div>
-            </div>
+      {/* GAME tab — 4 stat bars at full pane height */}
+      <div class="lh-stats-panel" data-panel="a" role="tabpanel">
+        <div class="lh-stat">
+          <div class:list={['vl', { dim: homeLoser }]}>{stats.shots.home}</div>
+          <div class="lbl">Shots on Goal</div>
+          <div class:list={['vr', { dim: awayLoser }]}>{stats.shots.away}</div>
+          <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+            <div class="l" style={`width:${shotsL};`}></div>
+            <div class="r" style={`width:${shotsR};`}></div>
           </div>
         </div>
 
-        <!-- Panel B · secondary · xG · All / Faceoff % / Hits -->
-        <div class="lh-stats-panel" data-panel="b" role="tabpanel">
-          <div class="lh-stat">
-            <div class:list={['vl', { dim: homeLoser }]}>{stats.xg_all.home.toFixed(2)}</div>
-            <div class="lbl">xG · All</div>
-            <div class:list={['vr', { dim: awayLoser }]}>{stats.xg_all.away.toFixed(2)}</div>
-            <div class="bar cyan">
-              <div class="l" style={`width:${xgAllL};`}></div>
-              <div class="r" style={`width:${xgAllR};`}></div>
-            </div>
+        <div class="lh-stat">
+          <div class:list={['vl', { dim: homeLoser }]}>{stats.xg_5v5.home.toFixed(2)}</div>
+          <div class="lbl">5v5 xG</div>
+          <div class:list={['vr', { dim: awayLoser }]}>{stats.xg_5v5.away.toFixed(2)}</div>
+          <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+            <div class="l" style={`width:${xg5L};`}></div>
+            <div class="r" style={`width:${xg5R};`}></div>
           </div>
+        </div>
 
-          <div class="lh-stat">
-            <div class:list={['vl', { dim: homeLoser }]}>{stats.faceoff_pct.home}{stats.faceoff_pct.unit ?? '%'}</div>
-            <div class="lbl">Faceoff %</div>
-            <div class:list={['vr', { dim: awayLoser }]}>{stats.faceoff_pct.away}{stats.faceoff_pct.unit ?? '%'}</div>
-            <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
-              <div class="l" style={`width:${foL};`}></div>
-              <div class="r" style={`width:${foR};`}></div>
-            </div>
+        <div class="lh-stat">
+          <div class:list={['vl', { dim: homeLoser }]}>{stats.xg_all.home.toFixed(2)}</div>
+          <div class="lbl">xG · All</div>
+          <div class:list={['vr', { dim: awayLoser }]}>{stats.xg_all.away.toFixed(2)}</div>
+          <div class="bar cyan">
+            <div class="l" style={`width:${xgAllL};`}></div>
+            <div class="r" style={`width:${xgAllR};`}></div>
           </div>
+        </div>
 
-          <div class="lh-stat">
-            <div class:list={['vl', { dim: homeLoser }]}>{stats.hits.home}</div>
-            <div class="lbl">Hits</div>
-            <div class:list={['vr', { dim: awayLoser }]}>{stats.hits.away}</div>
-            <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
-              <div class="l" style={`width:${hitsL};`}></div>
-              <div class="r" style={`width:${hitsR};`}></div>
-            </div>
+        <div class="lh-stat">
+          <div class:list={['vl', { dim: homeLoser }]}>{stats.wp.home}{stats.wp.unit ?? '%'}</div>
+          <div class="lbl">Win Probability</div>
+          <div class:list={['vr', { dim: awayLoser }]}>{stats.wp.away}{stats.wp.unit ?? '%'}</div>
+          <div class="bar" style={`--hc:${home.accent};--ac:${away.accent};`}>
+            <div class="l" style={`width:${wpL};`}></div>
+            <div class="r" style={`width:${wpR};`}></div>
           </div>
         </div>
       </div>
 
-      <!-- feed zone (bottom) — vertical PBP, newest at top -->
-      <div class="lh-feed-zone" aria-label="Live play-by-play feed">
+      {/* PBP tab — vertical play-by-play feed at full pane height */}
+      <div class="lh-stats-panel lh-feed-panel" data-panel="b" role="tabpanel" aria-label="Live play-by-play feed">
         <div class="lh-feed-head">
           <span class="lh-feed-head-l">
             <span class="dot" aria-hidden="true"></span>
@@ -733,39 +719,25 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
     font-size: 16px;
   }
 
-  /* ── right pane — stats zone (top) + feed zone (bottom) ──────── */
-  /* The right pane is a column flex with two children:
-       • .lh-stats-zone — top half, 3 stat bars
-       • .lh-feed-zone  — bottom half, vertical PBP feed
-     A 1px hairline (set via .lh-feed-zone border-top) divides them.
-     Both zones flex 1:1 so the right pane mirrors scoreblock height. */
-  /* min-height anchors the two zones so 3 stat bars + tabs + 5 feed
-     rows always fit without clipping the body. The grid row stretches
-     `.lh-scoreblock` to match. */
+  /* ── right pane (Layer 1.9) — single carousel zone ──────────────── */
+  /* The right pane is a column flex containing tabs + the active panel.
+     Each panel (GAME / PBP) fills the entire pane below the tab row.
+     No min-height anchor: the right pane shrinks to match left-pane
+     height naturally (~270-300px depending on `?goals=N`). The
+     `.lh-body` grid row uses `align-items: stretch` (default) so both
+     panes share the row's intrinsic height. */
   .lh-right {
     display: flex;
     flex-direction: column;
     background: #0c0c0c;
     min-width: 0;
-    min-height: 400px;
-  }
-
-  /* Stat bars distribute evenly across their zone — `space-evenly`
-     gives each row equal breathing room top and bottom so the zone
-     doesn't feel top-heavy. Padding mirrors the scoreblock's vertical
-     rhythm. */
-  .lh-stats-zone {
-    flex: 1 1 0;
-    min-height: 0;
     padding: 14px 24px 18px;
-    display: flex;
-    flex-direction: column;
     gap: 10px;
   }
 
   /* Tab pills — left-aligned row above the active panel. Uses the same
      chip aesthetic as `.chip` in the head row but with selected-state
-     emphasis. Sits in the natural document flow above the panel area. */
+     emphasis. */
   .lh-stats-tabs {
     display: flex;
     gap: 6px;
@@ -801,22 +773,22 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
     outline-offset: 2px;
   }
 
-  /* Panels: stack on top of one another within the zone — only the
-     active panel renders. 200ms fade keyed off `[data-stats-active]`
-     on the parent zone. Explicit gap (vs space-evenly) keeps the
-     last bar from kissing the divider underneath. */
+  /* Panels: stack on top of one another within the right pane — only
+     the active panel renders. 200ms fade keyed off `[data-stats-active]`
+     on `.lh-right`. The active panel grows to fill all remaining
+     vertical space below the tab row. */
   .lh-stats-panel {
     flex: 1 1 0;
     min-height: 0;
     display: none;
     flex-direction: column;
-    justify-content: space-around;
+    justify-content: space-evenly;
     gap: 4px;
     opacity: 0;
     transition: opacity 200ms ease;
   }
-  .lh-stats-zone[data-stats-active="a"] .lh-stats-panel[data-panel="a"],
-  .lh-stats-zone[data-stats-active="b"] .lh-stats-panel[data-panel="b"] {
+  .lh-right[data-stats-active="a"] .lh-stats-panel[data-panel="a"],
+  .lh-right[data-stats-active="b"] .lh-stats-panel[data-panel="b"] {
     display: flex;
     opacity: 1;
   }
@@ -869,20 +841,14 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
   .lh-stat .bar.cyan .l { background: var(--status-live); }
   .lh-stat .bar.cyan .r { background: #1a4050; }
 
-  /* ── feed zone (bottom of right pane) ─────────────────────────────
+  /* ── PBP-tab feed panel (Layer 1.9) ────────────────────────────────
      Vertical PBP feed — newest at top, color-coded labels, hairline
      row separators. Header carries the pulsing cyan dot to match the
-     LIVE badge in the head row. The zone height is anchored by flex 1
-     in .lh-right so the body never grows past its share even with
-     many events; CSS hides rows past MAX_FEED_ROWS. */
-  .lh-feed-zone {
-    flex: 1 1 0;
-    min-height: 0;
-    padding: 16px 24px 18px;
-    border-top: 1px solid #1a1a1a;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+     LIVE badge in the head row. Now occupies the full right pane (was
+     bottom-half in 1.8); 7-8 rows fit comfortably. */
+  .lh-feed-panel {
+    /* No padding override — inherits from .lh-right. Header + body
+       layout uses gap from the panel's own flex column. */
     overflow: hidden;
   }
 
@@ -924,9 +890,8 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
   }
 
   /* Each row: tstamp (mono, muted) + label (uppercase, color-coded) +
-     who (right-aligned, dim). One row = ~22px including padding so
-     5 rows fit in ~110px. flex: none so the body's flex column doesn't
-     squash them. */
+     who (right-aligned, dim). flex: none so the body's flex column
+     doesn't squash them. */
   .lh-feed-row {
     display: grid;
     grid-template-columns: 88px 1fr auto;
