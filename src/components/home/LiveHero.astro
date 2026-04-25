@@ -757,9 +757,12 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
   .lh-stat .bar.cyan .r { background: #1a4050; }
 
   /* ── footer strip (goal chips + Latest Activity) ──────────────── */
-  /* Flex row with no wrap. Goal chips have a fixed flex-basis (slot-share
-     model). Latest Activity is sized via flex-grow set by the page
-     script — it absorbs whatever room the goal chips leave. */
+  /* Flex row, no wrap. Goal chips have flex-basis 0 + min-width 0 (slot-
+     share via flex-grow). Latest Activity is sized via flex-grow set by
+     the page script — it absorbs whatever room the goal chips leave.
+     The strip has a stable min-height so the footer never visibly
+     stretches across `?goals=N` variants — goal chips center-align in
+     the row and Latest content overflows hidden if it tries to grow. */
   .goal-feed {
     grid-column: 1 / -1;
     border-top: 1px solid #1a1a1a;
@@ -768,6 +771,8 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     gap: 14px;
     overflow-x: hidden;
     background: #0a0a0a;
+    min-height: 152px;
+    align-items: stretch;
   }
 
   /* Honor the native `hidden` attribute even when a .goal-chip.more-chip
@@ -799,6 +804,16 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font-weight: 700;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .goal-chip .t > span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 
   /* Running-score pill on goal chips — cyan accent, top-right anchor. */
@@ -834,13 +849,22 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     color: var(--site-white);
     margin-top: 4px;
     letter-spacing: 0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
+  /* Single-line clamp on player + assists lines so the chip stays a
+     consistent 3-line height across viewport widths (no 1200px wrap to
+     a 4-line chip that would push the footer taller). */
   .goal-chip .a {
     color: #888;
     font-family: var(--font-site-body);
     font-size: 11px;
     margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .goal-chip.overturned {
@@ -892,18 +916,25 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
      Flex-grow is set by the inline page script via inline style based on
      remaining slot count (0..6). Internal layout adapts via the
      `data-density` attribute (narrow / medium / wide / very-wide / max).
-     Hidden entirely when goals + "+N more" already use all 6 slots. */
+     Hidden entirely when goals + "+N more" already use all 6 slots.
+
+     Height parity: goal chips set the footer's natural height (~95px for
+     a 3-line chip). The card's own height is capped by `goal-feed` since
+     all chips share a flex row — goal chips that grow taller than the
+     card's content force visual stretch onto the card; the card never
+     forces growth on goal chips because it overflows internally. */
   .latest-card {
     flex: 1 1 0;
     min-width: 0;
     border: 1px solid var(--site-border);
     border-radius: var(--radius-md);
-    padding: 10px 14px;
+    padding: 8px 14px;
     background: var(--site-card);
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    overflow: hidden; /* keep content from forcing parent flex to grow */
+    gap: 4px;
+    overflow: hidden;            /* card never forces parent flex to grow */
+    align-self: stretch;         /* match the row's natural height */
   }
 
   /* Header — label + dot. The summary span is hidden by default and only
@@ -944,33 +975,40 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     text-transform: none;
   }
 
-  /* Body grid. column count controlled by data-density. auto-rows so a
-     row's contents (which differ across densities) stay snug. */
+  /* Body grid. column count controlled by data-density. The card's
+     overall height is anchored to the goal-chip row height (~70px body);
+     overflow is hidden so additional rows don't force the footer taller.
+     `lh-latest-body` height is capped via height: 100% + min-height: 0 so
+     it claims whatever the parent .latest-card grants it (which is
+     determined by the flex row's tallest sibling, i.e. the goal chip). */
   .lh-latest-body {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
     grid-template-columns: 1fr;
+    grid-auto-rows: min-content;
     gap: 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
-  /* Row layout — by default a single line: timestamp + label aligned. The
-     `who` and `reason` lines are hidden in narrow/medium and reveal at
-     wider densities. */
+  /* Row layout — single tight line by default. `who` reveals inline (not
+     stacked) at wider densities so row height stays ~22px regardless of
+     mode. Default grid is 2-col so narrow has more room for the label;
+     wider modes opt in to a 3-col grid where `who` claims the right
+     column. */
   .lh-latest-row {
     display: grid;
     grid-template-columns: auto 1fr;
-    grid-template-areas:
-      "tstamp label"
-      "who    who"
-      "reason reason";
+    grid-template-areas: "tstamp label";
     column-gap: 10px;
     align-items: baseline;
-    padding: 5px 0;
+    padding: 4px 0;
     border-bottom: 1px solid #1a1a1a;
     font-family: var(--font-site-body);
     min-width: 0;
+    line-height: 1.3;
   }
   .lh-latest-row:last-child { border-bottom: none; padding-bottom: 0; }
   .lh-latest-row:first-child { padding-top: 0; }
@@ -983,6 +1021,7 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     letter-spacing: 0.06em;
     font-variant-numeric: tabular-nums;
     flex: none;
+    white-space: nowrap;
   }
 
   .lh-latest-row .label {
@@ -1000,29 +1039,26 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
     min-width: 0;
   }
 
+  /* `who` lives inline at the right of each row (after the label) at
+     densities ≥ medium. We pack TEAM · player into a single right-aligned
+     auto column so row height never grows beyond a single-line baseline. */
   .lh-latest-row .who {
     grid-area: who;
     display: none;
-    color: #aaa;
-    font-family: var(--font-site-display);
-    font-weight: 700;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    margin-top: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .lh-latest-row .reason {
-    grid-area: reason;
-    display: none;
-    color: #777;
+    color: #888;
     font-family: var(--font-site-body);
     font-size: 10px;
-    margin-top: 1px;
+    letter-spacing: 0.04em;
+    text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 140px;
+  }
+  /* Reason lives in its own column past the label. Hidden by default; the
+     wide+ modes reveal it inline as a third right-aligned cell. */
+  .lh-latest-row .reason {
+    display: none;
   }
 
   /* Label color keyed to event type. */
@@ -1062,54 +1098,70 @@ const maxSummary = `${stats.shots.home}-${stats.shots.away} SHOTS  ·  ${stats.x
   /* Hidden — page script sets when goals fill all 6 slots. */
   .latest-card[data-density="hidden"] { display: none; }
 
-  /* Narrow (1 slot) — 3 events, single column, terse. */
-  .latest-card[data-density="narrow"] .lh-latest-body {
-    grid-template-columns: 1fr;
-  }
-  .latest-card[data-density="narrow"] .lh-latest-row:nth-child(n+4) { display: none; }
+  /* Density rules — column count + visible-row count. Row height stays
+     ~22px across all modes; total card body height stays ≤ 3 rows worth
+     so the footer's overall height never grows beyond the goal-chip
+     row's natural height. */
 
-  /* Medium (2 slots) — 4 events, single column, reveal player line. */
+  /* Narrow (1 slot) — 3 events, single column. The 3rd row is what makes
+     the card occasionally taller than a 3-line goal chip; that's still
+     within the ~150px footer budget. */
+  .latest-card[data-density="narrow"] .lh-latest-body { grid-template-columns: 1fr; }
+  .latest-card[data-density="narrow"] .lh-latest-row:nth-child(n+4) { display: none; }
+  /* Tighten row spacing in narrow so 3 events fit within a goal-chip's
+     row height without forcing the row tall. */
+  .latest-card[data-density="narrow"] .lh-latest-row { padding: 3px 0; }
+
+  /* Medium (2 slots) — 4 events laid out 2-col × 2-row to keep card
+     height in step with narrow (3 rows × 1 col); inline `who` revealed. */
   .latest-card[data-density="medium"] .lh-latest-body {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 16px;
   }
   .latest-card[data-density="medium"] .lh-latest-row:nth-child(n+5) { display: none; }
+  .latest-card[data-density="medium"] .lh-latest-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "tstamp label who";
+  }
   .latest-card[data-density="medium"] .lh-latest-row .who { display: block; }
 
-  /* Wide (3 slots) — 6 events, 2-col, reveal player + reason. */
+  /* Wide (3 slots) — 6 events, 2-col grid, inline `who`. */
   .latest-card[data-density="wide"] .lh-latest-body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 18px;
   }
   .latest-card[data-density="wide"] .lh-latest-row:nth-child(n+7) { display: none; }
+  .latest-card[data-density="wide"] .lh-latest-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "tstamp label who";
+  }
   .latest-card[data-density="wide"] .lh-latest-row .who { display: block; }
-  .latest-card[data-density="wide"] .lh-latest-row .reason { display: block; }
 
-  /* Very-wide (4-5 slots) — 6-8 events, fluid auto-fill columns. */
+  /* Very-wide (5 slots) — 6 events, auto-fit grid (renders as 2-3 cols
+     depending on parent width). Inline `who` revealed. */
   .latest-card[data-density="very-wide"] .lh-latest-body {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     column-gap: 22px;
   }
   .latest-card[data-density="very-wide"] .lh-latest-row:nth-child(n+9) { display: none; }
+  .latest-card[data-density="very-wide"] .lh-latest-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "tstamp label who";
+  }
   .latest-card[data-density="very-wide"] .lh-latest-row .who { display: block; }
-  .latest-card[data-density="very-wide"] .lh-latest-row .reason { display: block; }
 
-  /* Max (6 slots, 0 goals) — 9 events, 3-col, full detail + summary line. */
+  /* Max (6 slots, 0 goals) — 9 events, 3-col, inline `who` + header
+     summary line revealed. */
   .latest-card[data-density="max"] .lh-latest-body {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     column-gap: 26px;
   }
-  .latest-card[data-density="max"] .lh-latest-row .who { display: block; }
-  .latest-card[data-density="max"] .lh-latest-row .reason { display: block; }
-  .latest-card[data-density="max"] .lh-latest-summary { display: inline; }
-
-  /* In multi-column densities, drop the per-row bottom border on the LAST
-     row of EACH column (not just the last DOM child). Visually balanced
-     either way; this is just a polish nit at boundary rows.  */
-  .latest-card[data-density="wide"] .lh-latest-row,
-  .latest-card[data-density="very-wide"] .lh-latest-row,
   .latest-card[data-density="max"] .lh-latest-row {
-    padding: 4px 0;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "tstamp label who";
   }
+  .latest-card[data-density="max"] .lh-latest-row .who { display: block; }
+  .latest-card[data-density="max"] .lh-latest-summary { display: inline; }
 
   /* ── responsive ──────────────────────────────────────────────── */
   @media (max-width: 960px) {
