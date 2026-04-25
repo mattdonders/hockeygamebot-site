@@ -1,0 +1,177 @@
+---
+/**
+ * ArtifactShell — shared chrome for every artifact card on /home-v2.
+ *
+ * Provides the common card frame:
+ *   - Tag badge (top-left) — colored kind + label, optional
+ *   - Actions (top-right) — share + expand chrome, optional
+ *   - Byline (bottom) — "HOCKEYGAMEBOT.COM / KIND" + identifier, optional
+ *
+ * Visual language: sharp 0px corners (data-heavy = squarer per BRAND.md),
+ * `--site-card`-ish backgrounds per artifact, `--site-border` 1px frame,
+ * 320px default height (matches design references).
+ *
+ * Each concrete artifact (ArtifactGame, ArtifactHot, …) wraps its inner
+ * markup in <ArtifactShell …> and overrides background/border via its
+ * own `.art-{slug}` class on the host element.
+ *
+ * Dual-purpose contract
+ * ---------------------
+ * Same component renders the web tile AND the social-card PNG (via
+ * Python Playwright pipeline). Constraints:
+ *   - All content from props — no runtime fetches inside the component.
+ *   - No JS-driven layout (only static SVG + static CSS).
+ *   - Fonts limited to the site stack (Oswald, Space Grotesk, JetBrains Mono)
+ *     plus the card display fallbacks already in site-tokens.css.
+ */
+
+export type ArtifactTagKind =
+  | 'red' /* default — playoff/clinch */
+  | 'hot' /* green — hot streak */
+  | 'cold' /* red — cold streak */
+  | 'game' /* white — game card */
+  | 'mile' /* gold — milestone */
+  | 'line' /* purple — line combo */
+  | 'matchup' /* cyan — matchup preview */
+  | 'stars' /* gold — three stars */
+  | 'goalie' /* blue — goalie */
+  | 'neutral'; /* grey — season card */
+
+export interface ArtifactTag {
+  /** Short label, shown UPPERCASE; emoji+text OK ("⚡ Game of night"). */
+  label: string;
+  /** Tag color kind — keys map to status colors in site-tokens.css. */
+  kind?: ArtifactTagKind;
+}
+
+export interface ArtifactByline {
+  /** Left side — usually "HOCKEYGAMEBOT.COM / SECTION" */
+  left?: string;
+  /** Right side — short identifier (player name, score, etc.) */
+  right?: string;
+}
+
+interface Props {
+  /** CSS class on the .art element — used by concrete artifacts to scope styles. */
+  variantClass: string;
+  /** Optional top-left badge. */
+  tag?: ArtifactTag;
+  /** Show top-right share/expand chrome. Defaults to true. */
+  showActions?: boolean;
+  /** Optional bottom-corner byline. */
+  byline?: ArtifactByline;
+  /** Override default 320px height. */
+  height?: number;
+}
+
+const {
+  variantClass,
+  tag,
+  showActions = true,
+  byline,
+  height,
+} = Astro.props;
+
+const styleAttr = height ? `height:${height}px;` : undefined;
+---
+<article class:list={['art', variantClass]} style={styleAttr}>
+  {tag && (
+    <span class:list={['art-tag', `art-tag--${tag.kind ?? 'red'}`]}>{tag.label}</span>
+  )}
+  {showActions && (
+    <div class="art-actions" aria-hidden="true">
+      <span class="art-btn" title="Share">↗</span>
+      <span class="art-btn" title="Expand">⎘</span>
+    </div>
+  )}
+
+  <slot />
+
+  {byline && (byline.left || byline.right) && (
+    <div class="art-byline">
+      <span>{byline.left ?? ''}</span>
+      <span>{byline.right ?? ''}</span>
+    </div>
+  )}
+</article>
+
+<style is:global>
+  /* Shared chrome for every artifact card. Scoped via `.art` + variant class. */
+  .art {
+    position: relative;
+    border-radius: 0; /* sharp corners — broadcast graphics */
+    overflow: hidden;
+    background: #0b0b0b;
+    border: 1px solid var(--site-border);
+    color: #eee;
+    height: 320px;
+  }
+
+  .art-tag {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 2;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #fff;
+    background: var(--hgb-red);
+    padding: 3px 8px;
+    border-radius: 1px;
+  }
+  .art-tag--red     { background: var(--hgb-red); color: #fff; }
+  .art-tag--hot     { background: #00e676; color: #041d0f; }
+  .art-tag--cold    { background: var(--hgb-red); color: #fff; }
+  .art-tag--game    { background: #e5e5e5; color: #111; }
+  .art-tag--mile    { background: #ffd54a; color: #2b1f00; }
+  .art-tag--line    { background: #7a67ff; color: #fff; }
+  .art-tag--matchup { background: #22d3ee; color: #042430; }
+  .art-tag--stars   { background: #ffd54a; color: #2b1f00; }
+  .art-tag--goalie  { background: var(--status-intermission); color: #041930; }
+  .art-tag--neutral { background: #2a2a2a; color: #d5d5d5; }
+
+  .art-actions {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+    display: flex;
+    gap: 4px;
+    opacity: 0.55;
+    transition: opacity 0.15s;
+  }
+  .art:hover .art-actions { opacity: 1; }
+
+  .art-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 2px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #ddd;
+    letter-spacing: 0;
+  }
+
+  .art-byline {
+    position: absolute;
+    bottom: 10px;
+    left: 14px;
+    right: 14px;
+    z-index: 2;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.3);
+  }
+</style>
