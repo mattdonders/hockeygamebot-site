@@ -269,6 +269,8 @@ export const ArtifactGoalieSchema = z.object({
   saves: z.number().int().nonnegative(),
   shotsAgainst: z.number().int().nonnegative(),
   gsax: z.string(),
+  /** High-danger save percentage display string, e.g. ".862". */
+  hdSvPct: z.string(),
   decision: z.enum(['W', 'L', 'OT', 'SO']),
   context: z.string(),
 });
