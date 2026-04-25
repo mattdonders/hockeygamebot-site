@@ -171,6 +171,13 @@ const MatchupSideSchema = z.object({
   name: z.string(),
   record: z.string(),
   accentColor: z.string().regex(/^#[0-9A-Fa-f]{3,8}$/),
+  /**
+   * Optional team logo URL (e.g. assets.nhle CDN _dark.svg). When present,
+   * the component renders the real SVG; when absent, falls through to the
+   * accent-colored circle placeholder. The Python card pipeline always
+   * supplies this in production; mocks should as well.
+   */
+  logo: z.string().min(1).optional(),
 });
 
 const MatchupPairSchema = z.object({
