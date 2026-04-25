@@ -1,0 +1,109 @@
+---
+/**
+ * ArtifactHot — green/celebratory player streak card.
+ *
+ * Data contract (matches design `art-hot`):
+ *   - eyebrow  — short qualifier, e.g. "8-GAME POINT STREAK · RISING"
+ *   - name     — player display name (BIG, Oswald 700)
+ *   - sub      — team/pos/window line, e.g. "MTL · R · THROUGH APR 23"
+ *   - stats    — exactly 3 stat tiles (k/v/note)
+ *   - sparkline — array of values 0..1 (height fractions)
+ *
+ * Python card-generator note: this is the "rolling HGB crossed threshold"
+ * card — fires from a scheduled job (not in real-time). Sparkline shows the
+ * trend that triggered the alert.
+ */
+
+import ArtifactShell, { type ArtifactTag, type ArtifactByline } from './ArtifactShell.astro';
+
+export interface HotStat {
+  /** Short label — UPPERCASE expected, e.g. "GOALS" */
+  k: string;
+  /** Big stat value — e.g. "+4.22" */
+  v: string;
+  /** Tiny supporting note — e.g. "season +1.67" */
+  note?: string;
+}
+
+export interface Props {
+  tag?: ArtifactTag;
+  byline?: ArtifactByline;
+  eyebrow: string;
+  name: string;
+  sub: string;
+  stats: [HotStat, HotStat, HotStat];
+  /** Each value 0..1 — bar heights. Recommended length 5-12. */
+  sparkline: number[];
+}
+
+const { tag, byline, eyebrow, name, sub, stats, sparkline } = Astro.props;
+---
+<ArtifactShell variantClass="art-hot" tag={tag} byline={byline}>
+  <div class="art-hot__ehead">{eyebrow}</div>
+  <div class="art-hot__name">{name}</div>
+  <div class="art-hot__sub">{sub}</div>
+  <div class="art-hot__stat-row">
+    {stats.map((s) => (
+      <div>
+        <div class="art-hot__k">{s.k}</div>
+        <div class="art-hot__v">{s.v}</div>
+        {s.note && <div class="art-hot__vs">{s.note}</div>}
+      </div>
+    ))}
+  </div>
+  <div class="art-hot__spark">
+    {sparkline.map((h) => (
+      <div class="art-hot__b" style={`height:${Math.max(4, Math.min(100, Math.round(h * 100)))}%;`}></div>
+    ))}
+  </div>
+</ArtifactShell>
+
+<style is:global>
+  .art-hot {
+    background:
+      radial-gradient(circle at 100% 0%, rgba(0, 230, 118, 0.14), transparent 60%),
+      #0b1810;
+    border: 1px solid #1e3b28;
+    padding: 22px 22px 40px;
+  }
+  .art-hot__ehead {
+    font-family: var(--font-site-display); font-weight: 700;
+    font-size: 9.5px; color: #00e676;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    margin-top: 14px; margin-bottom: 6px;
+  }
+  .art-hot__name {
+    font-family: var(--font-site-display); font-weight: 700;
+    font-size: 30px; color: #fff; letter-spacing: 0.01em;
+    line-height: 1; text-transform: uppercase;
+  }
+  .art-hot__sub {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: #6ea688; letter-spacing: 0.06em; margin-top: 5px;
+    text-transform: uppercase;
+  }
+  .art-hot__stat-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px; margin-top: 18px;
+  }
+  .art-hot__k {
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: #6ea688; letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .art-hot__v {
+    font-family: var(--font-site-display); font-weight: 700;
+    font-size: 22px; color: #00e676; letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums; margin-top: 2px;
+  }
+  .art-hot__vs {
+    font-family: var(--font-mono); font-size: 10px;
+    color: #aad9be; margin-top: 2px;
+  }
+  .art-hot__spark {
+    margin-top: 22px; height: 42px;
+    display: flex; align-items: flex-end; gap: 3px;
+  }
+  .art-hot__b {
+    background: #00e676; border-radius: 1px; width: 14px; flex: 0 0 14px;
+  }
+</style>
