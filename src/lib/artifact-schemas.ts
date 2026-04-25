@@ -125,6 +125,8 @@ export const ArtifactMilestoneSchema = z.object({
   }),
   what: z.string(),
   who: z.string(),
+  /** Optional "Nth in franchise" framing — renders muted under `who`. */
+  teamContext: z.string().optional(),
   rank: z.string(),
   dotsTotal: z.number().int().nonnegative(),
   dotsLit: z.number().int().nonnegative(),
