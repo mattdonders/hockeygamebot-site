@@ -159,6 +159,17 @@ const xgBarStyle = hasTeamAccents
   ? `--gc-accent-h:${home.accent};--gc-accent-a:${away.accent};`
   : undefined;
 
+// ── WP-bar visibility / treatment ─────────────────────────────────────────
+//
+// FINAL / OT-FINAL games hide the bar entirely — once the result is in,
+// a "win probability" reading is meaningless and just adds visual noise
+// to the grid. PRE games keep the bar but re-frame it as a PROJECTION
+// (model output, not a live in-game number) so users don't conflate the
+// two. LIVE / INTERMISSION renders the bar without an extra label.
+const isFinalState = state === 'final' || state === 'ot';
+const isPreState = state === 'pre';
+const showXgBar = !!xgBar && !isFinalState;
+
 // Score value renderer — em-dash for null/0 in pre-game state.
 function scoreFor(team: GameTileTeam): string {
   if (state === 'pre') return '—';
@@ -219,24 +230,32 @@ function valueFor(v: number | string | null | undefined, fallback = '—'): stri
     <span class="gc-xg">{valueFor(away.xg_5v5 ?? away.xg)}</span>
   </div>
 
-  {xgBar && (
-    <div
-      class:list={['gc-xgbar', { 'has-accents': hasTeamAccents }]}
-      style={xgBarStyle}
-    >
-      <span class:list={['gc-xgbar__side', 'side-home', { lead: homeLeads }]}>
-        <span class="abbr">{home.abbrev}</span>
-        <span class="pct">{xgLrounded}%</span>
-      </span>
-      <div class="track" aria-hidden="true">
-        <div class="a" style={`width:${xgL}%;`}></div>
-        <div class="b" style={`width:${xgR}%;`}></div>
+  {showXgBar && (
+    <>
+      {isPreState && (
+        <div class="gc-xgbar__projlabel" aria-hidden="true">Projection</div>
+      )}
+      <div
+        class:list={[
+          'gc-xgbar',
+          { 'has-accents': hasTeamAccents, 'is-pre': isPreState },
+        ]}
+        style={xgBarStyle}
+      >
+        <span class:list={['gc-xgbar__side', 'side-home', { lead: homeLeads }]}>
+          <span class="abbr">{home.abbrev}</span>
+          <span class="pct">{xgLrounded}%</span>
+        </span>
+        <div class="track" aria-hidden="true">
+          <div class="a" style={`width:${xgL}%;`}></div>
+          <div class="b" style={`width:${xgR}%;`}></div>
+        </div>
+        <span class:list={['gc-xgbar__side', 'side-away', { lead: awayLeads }]}>
+          <span class="pct">{xgRrounded}%</span>
+          <span class="abbr">{away.abbrev}</span>
+        </span>
       </div>
-      <span class:list={['gc-xgbar__side', 'side-away', { lead: awayLeads }]}>
-        <span class="pct">{xgRrounded}%</span>
-        <span class="abbr">{away.abbrev}</span>
-      </span>
-    </div>
+    </>
   )}
 
   {(chips.length > 0 || footNote) && (
@@ -494,6 +513,37 @@ function valueFor(v: number | string | null | undefined, fallback = '—'): stri
      mirrors the LiveHero stat-bar treatment. */
   .gc-xgbar.has-accents .track .a { background: var(--gc-accent-h); }
   .gc-xgbar.has-accents .track .b { background: var(--gc-accent-a); }
+
+  /* PRE-game state — gets a "PROJECTION" label above the bar and a
+     subtle dashed-overlay treatment so the model output can't be
+     confused for a live in-game number. */
+  .gc-xgbar__projlabel {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #151515;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #555;
+    line-height: 1;
+  }
+  /* When the projection label is rendered, the bar that follows skips
+     its own top border + spacing — the label already paid that cost. */
+  .gc-xgbar__projlabel + .gc-xgbar {
+    margin-top: 6px;
+    padding-top: 0;
+    border-top: none;
+  }
+  .gc-xgbar.is-pre .track {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.04) 0,
+      rgba(255, 255, 255, 0.04) 3px,
+      transparent 3px,
+      transparent 6px
+    );
+  }
 
   /* ── Foot: chips + arena/notes ──────────────────────────────── */
   .gc-foot {
