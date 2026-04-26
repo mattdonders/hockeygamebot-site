@@ -1,36 +1,39 @@
 ---
 /**
- * ModeBar — three-toggle bar that flips between Live / Recap / Tomorrow.
+ * ModeBar — four-toggle bar that flips between Live / Recap / Tomorrow / Offseason.
  *
- * Live  → ?mode=live
- * Recap → ?mode=recap
- * Tomorrow → disabled stub (href="#") until Layer 5
+ * Live      → ?mode=live       (auto-default candidate)
+ * Recap     → ?mode=recap      (auto-default candidate)
+ * Tomorrow  → ?mode=tomorrow   (manual-only — never auto)
+ * Offseason → ?mode=offseason  (manual-only — never auto)
  *
- * Right side: mono telemetry line — static placeholder this layer.
- * Layer 6 will wire real auto-refresh + artifact counts.
+ * SITE-HOME-05 changes:
+ *   - Added Tomorrow + Offseason as enabled toggles
+ *   - Click handler stamps the choice into sessionStorage so a refresh
+ *     keeps the same mode (until the user clicks "↻ AUTO" to reset)
+ *   - Right side telemetry now stamps `· AUTO MODE` when auto-detection
+ *     is active, `· MANUAL · ↻ AUTO` when an override is in effect.
+ *
+ * The actual override logic lives in `src/lib/auto-mode.ts` — this
+ * component just renders the chrome and exposes click hooks. The
+ * page-level script in home-v2.astro does the wiring.
  */
 
-type Mode = 'live' | 'recap' | 'tomorrow';
+import type { HomeMode } from '../../lib/auto-mode';
 
 interface Props {
-  mode: Mode;
-  /** Static telemetry copy; override when live data is wired. */
+  mode: HomeMode;
+  /** Static telemetry copy override (used by tests / dev fixtures). */
   telemetry?: string;
   /**
    * Number of artifacts fired tonight — drives the auto-built telemetry
    * line when an explicit `telemetry` prop isn't supplied. Layer 6+ will
-   * pass a live count from the polling service; for now this comes from
-   * `live_moments.length` in the mock fixture. Falls back to a static
-   * placeholder when undefined.
+   * pass a live count from the polling service.
    */
   artifactsCount?: number;
 }
 
-const {
-  mode,
-  telemetry,
-  artifactsCount,
-} = Astro.props;
+const { mode, telemetry, artifactsCount } = Astro.props;
 
 const refreshLine = 'AUTO-REFRESH · 02s';
 const computedTelemetry =
@@ -39,29 +42,53 @@ const computedTelemetry =
     ? `${refreshLine} · ${artifactsCount} ARTIFACT${artifactsCount === 1 ? '' : 'S'} FIRED TONIGHT`
     : `${refreshLine} · ARTIFACTS FIRED TONIGHT`);
 
-const toggles: Array<{ key: Mode; label: string; href: string; disabled: boolean }> = [
-  { key: 'live', label: 'Live now', href: '?mode=live', disabled: false },
-  { key: 'recap', label: "Last night's recap", href: '?mode=recap', disabled: false },
-  { key: 'tomorrow', label: "Tomorrow's slate", href: '#', disabled: true },
+const toggles: Array<{ key: HomeMode; label: string; href: string }> = [
+  { key: 'live', label: 'Live now', href: '?mode=live' },
+  { key: 'recap', label: "Last night's recap", href: '?mode=recap' },
+  { key: 'tomorrow', label: "Tomorrow's slate", href: '?mode=tomorrow' },
+  { key: 'offseason', label: 'Offseason', href: '?mode=offseason' },
 ];
 ---
-<div class="mode-bar" role="tablist" aria-label="Mode">
+<div class="mode-bar" role="tablist" aria-label="Mode" data-mode={mode}>
   <div class="toggles">
     {toggles.map((t) => (
       <a
-        class:list={['toggle', { active: t.key === mode, disabled: t.disabled }]}
-        href={t.disabled ? undefined : t.href}
+        class:list={['toggle', { active: t.key === mode }]}
+        href={t.href}
         role="tab"
         aria-selected={t.key === mode ? 'true' : 'false'}
-        aria-disabled={t.disabled ? 'true' : undefined}
-        tabindex={t.disabled ? -1 : 0}
+        data-mode-toggle={t.key}
       >
         <span class="dot" aria-hidden="true">{t.key === mode ? '●' : '○'}</span>
         <span>{t.label}</span>
       </a>
     ))}
   </div>
-  <span class="telemetry mono" aria-hidden="true">{computedTelemetry}</span>
+  <div class="rail">
+    <span class="telemetry mono" aria-hidden="true">
+      <span class="tel-base">{computedTelemetry}</span>
+      <!--
+        SSR ships a placeholder for the source stamp; the page script
+        replaces it with `· AUTO MODE` or `· MANUAL` after resolveMode()
+        runs. Hidden by default so SSR doesn't flash an inaccurate label.
+      -->
+      <span class="tel-source mono" data-mode-source-stamp aria-hidden="true"></span>
+    </span>
+    <!--
+      Reset link — only visible when the page script identifies an
+      override is active. Hidden via inline style + the `[hidden]` attr
+      so screen readers skip it until it's actually actionable.
+    -->
+    <button
+      type="button"
+      class="reset-auto"
+      data-mode-reset
+      hidden
+      aria-label="Clear manual override and resume auto-mode"
+    >
+      <span aria-hidden="true">↻</span> AUTO
+    </button>
+  </div>
 </div>
 
 <style>
@@ -99,10 +126,11 @@ const toggles: Array<{ key: Mode; label: string; href: string; disabled: boolean
     text-transform: uppercase;
     text-decoration: none;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
+    cursor: pointer;
   }
 
-  .toggle:hover:not(.disabled),
-  .toggle:focus-visible:not(.disabled) {
+  .toggle:hover,
+  .toggle:focus-visible {
     color: var(--site-white);
     border-color: #333;
     outline: none;
@@ -114,16 +142,18 @@ const toggles: Array<{ key: Mode; label: string; href: string; disabled: boolean
     background: #141414;
   }
 
-  .toggle.disabled {
-    color: #3a3a3a;
-    border-color: #151515;
-    cursor: not-allowed;
-    pointer-events: none;
-  }
+  /* Active dot tinted cyan to match the live-status accent. */
+  .toggle.active .dot { color: var(--status-live); }
 
   .toggle .dot {
     font-size: 10px;
     color: currentColor;
+  }
+
+  .rail {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
   }
 
   .telemetry {
@@ -134,9 +164,50 @@ const toggles: Array<{ key: Mode; label: string; href: string; disabled: boolean
     text-transform: uppercase;
   }
 
-  @media (max-width: 640px) {
-    .mode-bar { padding: 10px; }
-    .toggle { padding: 5px 8px; font-size: 10px; letter-spacing: 0.1em; }
+  .tel-source { color: #555; margin-left: 6px; }
+  .tel-source[data-source="auto"]   { color: #777; }
+  .tel-source[data-source="manual"] { color: var(--status-ot); }
+  .tel-source[data-source="url"]    { color: #999; }
+
+  .reset-auto {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid #2a2a2a;
+    color: #ccc;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .reset-auto:hover,
+  .reset-auto:focus-visible {
+    color: var(--site-white);
+    border-color: var(--status-live);
+    background: rgba(0, 229, 255, 0.06);
+    outline: none;
+  }
+  .reset-auto[hidden] { display: none; }
+
+  @media (max-width: 720px) {
+    .mode-bar {
+      padding: 10px;
+      gap: 12px;
+    }
+    /* Toggle pills stay on one row via flex-wrap; trim padding so the
+       4-pill row fits at typical mobile widths. */
+    .toggle {
+      padding: 5px 8px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+    }
     .telemetry { font-size: 9px; }
+    .reset-auto { font-size: 9px; padding: 3px 8px; }
   }
 </style>

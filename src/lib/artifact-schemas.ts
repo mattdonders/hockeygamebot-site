@@ -171,6 +171,13 @@ const MatchupSideSchema = z.object({
   name: z.string(),
   record: z.string(),
   accentColor: z.string().regex(/^#[0-9A-Fa-f]{3,8}$/),
+  /**
+   * Optional team logo URL (e.g. assets.nhle CDN _dark.svg). When present,
+   * the component renders the real SVG; when absent, falls through to the
+   * accent-colored circle placeholder. The Python card pipeline always
+   * supplies this in production; mocks should as well.
+   */
+  logo: z.string().min(1).optional(),
 });
 
 const MatchupPairSchema = z.object({
@@ -179,14 +186,42 @@ const MatchupPairSchema = z.object({
   centerLabel: z.string().optional(),
 });
 
+/**
+ * Season-series summary line. `scope='current'` means the teams have
+ * already played this season; `scope='last_season'` means it's the first
+ * meeting and we're showing prior-season context as historical framing.
+ * The component picks the label ("SEASON SERIES" vs "LAST SEASON") based
+ * on `scope`.
+ */
+const SeasonSeriesSchema = z.object({
+  scope: z.enum(['current', 'last_season']),
+  summary: z.string().min(1),
+});
+
 export const ArtifactMatchupSchema = z.object({
   ...TagAndBylineFields,
+  /**
+   * Optional game ID — used when the matchup preview is joined with
+   * predictions data (Layer 5.7+). Not rendered in the card itself.
+   */
+  gameId: z.string().optional(),
   eyebrow: z.string(),
   home: MatchupSideSchema,
   away: MatchupSideSchema,
   timeLabel: z.string(),
+  /** Optional venue name — renders muted under the time in the center column. */
+  venue: z.string().optional(),
   keyMatchupTitle: z.string(),
   matchups: z.array(MatchupPairSchema).min(1).max(4),
+  /** Optional season-series summary (current-season or last-season fallback). */
+  season_series: SeasonSeriesSchema.optional(),
+  /**
+   * Model win probability (0..1) for home team. When present the
+   * card renders WP next to the team name (variant A inline or
+   * variant B chip below). Absent on non-prediction cards.
+   */
+  home_wp: z.number().min(0).max(1).optional(),
+  away_wp: z.number().min(0).max(1).optional(),
 });
 export type ArtifactMatchup = z.infer<typeof ArtifactMatchupSchema>;
 

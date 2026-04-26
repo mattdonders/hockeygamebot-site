@@ -1,0 +1,334 @@
+---
+/**
+ * PredictionsGrid — per-game model projections for `?mode=tomorrow`.
+ *
+ * Replaces the dropped "predictions row" from live mode with a richer
+ * 3-column card grid. Each card shows:
+ *
+ *   ┌────────────────────────────────┐
+ *   │ MATCHUP TICKER (BOS @ TOR)     │
+ *   │ ─────────────────────────────  │
+ *   │  ▓▓▓▓▓▓▓▓░░ BOS 64%            │  ← bar
+ *   │  ░░░░░░░░░░ TOR 36%            │
+ *   │ ─────────────────────────────  │
+ *   │  3.2 xG      vs.      2.4 xG   │
+ *   └────────────────────────────────┘
+ *
+ * No top-scorer pick (we don't have a model for that) and no
+ * narrative copy — Layer 5.6 simplified the card to logos + WP + xG
+ * only so a 3-up grid reads as comparative scan, not 3 mini-essays.
+ *
+ * No Vegas / book odds row — HGB is editorial, not a sportsbook.
+ * The model's WP + xG convey the matchup framing on their own.
+ *
+ * Bar color: cyan (live status accent) for the home team's segment, dim
+ * grey for the away team's. The bot can choose to render team-color bars
+ * later — for V1 keep it brand-consistent with the rest of the page.
+ *
+ * Layout breaks: 3-col → 2-col at 900px → 1-col at 600px.
+ */
+
+import type { TomorrowPrediction } from '../../lib/auto-mode-schemas';
+
+interface Props {
+  predictions: TomorrowPrediction[];
+  /** Section heading override. */
+  heading?: string;
+}
+
+const { predictions, heading } = Astro.props;
+const total = predictions.length;
+const headingText = heading ?? 'Model projections';
+const countLabel = `${total} game${total === 1 ? '' : 's'} · HGB blended elo + xG`;
+
+// Pre-compute the "home wins by X" framing and bar widths so the
+// template stays declarative.
+function pct(n: number): string {
+  return `${Math.round(n * 100)}%`;
+}
+function widthHome(n: number): string {
+  return `${Math.max(2, Math.min(98, n * 100))}%`;
+}
+function widthAway(n: number): string {
+  return `${Math.max(2, Math.min(98, (1 - n) * 100))}%`;
+}
+/**
+ * NHL CDN logo URL — _dark.svg variant for dark surfaces. The mock
+ * predictions data only carries abbrevs so we synthesize the URL from
+ * the abbrev. When the Python pipeline starts shipping logos directly
+ * we can switch to a `home_logo`/`away_logo` field.
+ */
+function logoUrl(abbrev: string): string {
+  return `https://assets.nhle.com/logos/nhl/svg/${abbrev}_dark.svg`;
+}
+---
+<section class="predictions-grid" aria-label="Model projections">
+  <header class="pg-head">
+    <h2 class="pg-h2">{headingText}</h2>
+    <span class="pg-meta">{countLabel}</span>
+  </header>
+
+  <div class="pg-grid">
+    {predictions.map((p) => (
+      <article class="pg-card" data-game-id={p.gameId}>
+        <header class="pg-card-h">
+          <img class="pg-card-logo" src={logoUrl(p.away_abbrev)} alt={`${p.away_abbrev} logo`} loading="lazy" />
+          <span class="pg-match">
+            {p.away_abbrev}
+            <span class="pg-at">@</span>
+            {p.home_abbrev}
+          </span>
+          <img class="pg-card-logo" src={logoUrl(p.home_abbrev)} alt={`${p.home_abbrev} logo`} loading="lazy" />
+        </header>
+
+        <div class="pg-bars">
+          <div class="pg-bar-row">
+            <span class="pg-team">{p.home_abbrev}</span>
+            <div class="pg-bar pg-bar--home">
+              <span class="pg-bar-fill" style={`width:${widthHome(p.home_wp)};`}></span>
+            </div>
+            <span class="pg-pct">{pct(p.home_wp)}</span>
+          </div>
+          <div class="pg-bar-row">
+            <span class="pg-team">{p.away_abbrev}</span>
+            <div class="pg-bar pg-bar--away">
+              <span class="pg-bar-fill" style={`width:${widthAway(p.home_wp)};`}></span>
+            </div>
+            <span class="pg-pct">{pct(1 - p.home_wp)}</span>
+          </div>
+        </div>
+
+        <div class="pg-stats">
+          <div class="pg-stat">
+            <span class="pg-stat-k">{p.home_abbrev} xG</span>
+            <span class="pg-stat-v">{p.home_xg}</span>
+          </div>
+          <div class="pg-stat-vs" aria-hidden="true">vs</div>
+          <div class="pg-stat right">
+            <span class="pg-stat-k">{p.away_abbrev} xG</span>
+            <span class="pg-stat-v">{p.away_xg}</span>
+          </div>
+        </div>
+      </article>
+    ))}
+  </div>
+</section>
+
+<style>
+  /*
+   * Section bottom margin bumped 28→40 to give downstream sections
+   * (Storylines wall) more breathing room. The .pg-head's own margin-top:36px
+   * handles the spacing above; bottom margin is symmetric.
+   */
+  .predictions-grid {
+    margin: 0 0 40px;
+  }
+
+  /*
+   * Section header treatment unified with the page-level .home-sec-h
+   * (MATCHUP PREVIEWS / STORYLINES TO WATCH). Layer 5 originally styled
+   * MODEL PROJECTIONS as a small/muted secondary header, which read as
+   * subordinate to the surrounding sections. Re-aligning with the
+   * page-level treatment so all 3 main sections carry the same weight.
+   */
+  .pg-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 44px 0 12px;
+    flex-wrap: wrap;
+  }
+
+  .pg-h2 {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 22px;
+    color: var(--site-white);
+    margin: 0;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pg-tick {
+    /* Tick colour stays brand-red to match .home-sec-h on the rest of
+       the page. Layer 5 had this as cyan (status-live) which made the
+       header read as live-mode ornament rather than section anchor. */
+    color: var(--hgb-red);
+    font-size: 18px;
+    line-height: 1;
+  }
+  .pg-meta {
+    font-family: var(--font-site-body);
+    color: var(--site-muted);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .pg-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 900px) { .pg-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .pg-grid { grid-template-columns: 1fr; } }
+
+  .pg-card {
+    background: #0f0f0f;
+    border: 1px solid #1c1c1c;
+    border-radius: var(--radius-md);
+    padding: 14px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .pg-card-h {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .pg-card-logo {
+    width: 22px;
+    height: 22px;
+    flex: none;
+  }
+  .pg-match {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: 0.06em;
+    color: var(--site-white);
+    text-transform: uppercase;
+    flex: 1;
+    text-align: center;
+  }
+  .pg-at {
+    color: var(--site-muted);
+    font-weight: 500;
+    margin: 0 4px;
+  }
+
+  /* ── WP bars ─────────────────────────────────────────────────── */
+  .pg-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .pg-bar-row {
+    display: grid;
+    grid-template-columns: 36px 1fr 40px;
+    align-items: center;
+    gap: 8px;
+  }
+  .pg-team {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: #ccc;
+  }
+  .pg-bar {
+    height: 6px;
+    background: #1a1a1a;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  .pg-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+  }
+  .pg-bar--home .pg-bar-fill { background: var(--status-live); }
+  .pg-bar--away .pg-bar-fill { background: #4b4b4b; }
+  .pg-pct {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: #ccc;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── xG split row ────────────────────────────────────────────── */
+  .pg-stats {
+    display: grid;
+    grid-template-columns: 1fr 28px 1fr;
+    align-items: center;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px dashed #1c1c1c;
+  }
+  .pg-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pg-stat.right { text-align: right; }
+  .pg-stat-k {
+    font-family: var(--font-site-body);
+    font-size: 9.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #777;
+    font-weight: 700;
+  }
+  .pg-stat-v {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--site-white);
+    font-variant-numeric: tabular-nums;
+  }
+  .pg-stat-vs {
+    text-align: center;
+    color: #4a4a4a;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  /* ── Optional inline rows (vegas, top scorer) ────────────────── */
+  .pg-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    border-top: 1px dashed #1c1c1c;
+    padding-top: 8px;
+  }
+  .pg-row-k {
+    color: #777;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .pg-row-v {
+    color: #ddd;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * Hairline above narrative — solid 1px #1a1a1a separates "stats"
+   * (WP bar, xG, top scorer) from "story" (the editorial blurb). Layer 5
+   * had this as dashed which read as another row separator; the solid
+   * hairline reads as a stronger break between data and editorial.
+   * Top margin gives the divider its own breathing room above the copy.
+   */
+  .pg-narrative {
+    margin: 4px 0 0;
+    color: #888;
+    font-family: var(--font-site-body);
+    font-size: 11.5px;
+    line-height: 1.5;
+    border-top: 1px solid #1a1a1a;
+    padding-top: 12px;
+  }
+</style>

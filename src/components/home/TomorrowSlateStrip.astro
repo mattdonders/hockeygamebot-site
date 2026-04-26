@@ -1,0 +1,321 @@
+---
+/**
+ * TomorrowSlateStrip — grid of TOMORROW's scheduled games (SITE-HOME-05).
+ *
+ * Sits under TomorrowHero. Destination viewing — users are researching the
+ * slate, not glancing — so cells are sized for readability over density.
+ * Balanced grid — column count is computed server-side via optimalCols(n)
+ * and injected as an inline style. No orphans: 5→5, 6→3+3, 8→4+4, 9→3+3+3,
+ * etc. The minmax(210px,1fr) floor handles responsive collapse naturally.
+ *
+ * Why a separate component instead of swapping a `state="pre"` mode
+ * into RecapScoreStrip
+ * --------------------------------------------------------------------
+ * RecapScoreStrip is opinionated about the "did the game happen" framing
+ * — its tile renders score numerals as the visual anchor. Tomorrow tiles
+ * have no scores; the time + series context is the anchor. Forcing both
+ * into one component means a bunch of conditional layout rules that
+ * obscure intent. This is the same design decision that birthed
+ * RecapScoreTile vs GameTile in Layer 4.5.
+ *
+ * Click hook on each tile: `data-tomorrow-hook="open-preview-modal"`
+ * (no-op for now; Layer 5+ wires the modal).
+ *
+ * WP display: always shows chip pills (color-coded fav/dog) when
+ * home_wp/away_wp are present. Layer 5.9 — variant prop removed, chip-only.
+ */
+
+import TeamLogo from './TeamLogo.astro';
+
+export interface TomorrowSlateTile {
+  gameId: string;
+  start_time: string;
+  series_status?: string;
+  home: {
+    abbrev: string;
+    /** Logo URL — kept for back-compat with mock data; renderer uses
+     *  inline SVG via TeamLogo. */
+    logo?: string;
+    record?: string;
+    accentColor?: string;
+  };
+  away: {
+    abbrev: string;
+    /** Logo URL — kept for back-compat with mock data; renderer uses
+     *  inline SVG via TeamLogo. */
+    logo?: string;
+    record?: string;
+    accentColor?: string;
+  };
+  /** Home team win probability (0..1) — optional; from the blended model. */
+  home_wp?: number;
+  /** Away team win probability (0..1) — present iff home_wp is present. */
+  away_wp?: number;
+}
+
+export interface Props {
+  tiles: TomorrowSlateTile[];
+  heading?: string;
+}
+
+const { tiles, heading } = Astro.props;
+const total = tiles.length;
+const headingText = heading ?? `Tomorrow's slate · ${total} game${total === 1 ? '' : 's'}`;
+
+/**
+ * Compute the optimal column count for the slate grid so rows are balanced
+ * with no lonely orphans.
+ *
+ * Rules (n = number of games):
+ *   ≤4  → n      (single row — no orphan possible)
+ *   5   → 5      (single row, cells ~265px wide at 1440px — fine)
+ *   6   → 3      (3+3)
+ *   7   → 4      (4+3 — unavoidable orphan; 4-wide looks better than cramped 7)
+ *   8   → 4      (4+4)
+ *   9   → 3      (3+3+3)
+ *   10  → 5      (5+5)
+ *   11  → 4      (4+4+3 — unavoidable)
+ *   12  → 4      (4+4+4)
+ *   ≥13 → 4      (max 4 per row; non-multiples produce one short row)
+ */
+function optimalCols(n: number): number {
+  if (n <= 5) return n;
+  const lookup: Record<number, number> = { 6: 3, 7: 4, 8: 4, 9: 3, 10: 5, 11: 4, 12: 4 };
+  return lookup[n] ?? 4;
+}
+
+const cols = optimalCols(total);
+
+function fmtWp(v: number): string {
+  return `${Math.round(v * 100)}%`;
+}
+
+/**
+ * Determine which team in a row is the "favorite" (higher WP).
+ * Used to drive color-coding: favorite gets cyan-tint, underdog gets muted grey.
+ */
+function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boolean {
+  if (rowWp === undefined || otherWp === undefined) return false;
+  return rowWp >= otherWp;
+}
+---
+<section class="tomorrow-slate-strip" aria-label="Tomorrow's scheduled games">
+  <header class="tss-head">
+    <h2 class="tss-h2">
+      <span class="tss-tick" aria-hidden="true">▍</span>
+      {headingText}
+    </h2>
+  </header>
+
+  <div class="tss-frame">
+    <div class="tss-track" role="list" style={`grid-template-columns: repeat(${cols}, minmax(210px, 1fr))`}>
+      {tiles.map((t) => {
+        const showWp = t.home_wp !== undefined && t.away_wp !== undefined;
+        const awayIsFav = isFavorite(t.away_wp, t.home_wp);
+        const homeIsFav = isFavorite(t.home_wp, t.away_wp);
+
+        return (
+          <article
+            class="tss-tile"
+            role="listitem"
+            data-tomorrow-hook="open-preview-modal"
+            data-game-id={t.gameId}
+          >
+            <div class="tss-state">PRE · {t.start_time}</div>
+
+            {/* Away row */}
+            <div class="tss-row">
+              <TeamLogo abbr={t.away.abbrev} size={28} class="tss-logo" />
+              <span class="tss-abbr">{t.away.abbrev}</span>
+              {showWp && (
+                <span class:list={['tss-wp-chip', awayIsFav ? 'tss-wp-chip--fav' : 'tss-wp-chip--dog']}>
+                  {fmtWp(t.away_wp!)}
+                </span>
+              )}
+              {t.away.record && <span class="tss-rec">{t.away.record}</span>}
+            </div>
+
+            {/* Home row */}
+            <div class="tss-row">
+              <TeamLogo abbr={t.home.abbrev} size={28} class="tss-logo" />
+              <span class="tss-abbr">{t.home.abbrev}</span>
+              {showWp && (
+                <span class:list={['tss-wp-chip', homeIsFav ? 'tss-wp-chip--fav' : 'tss-wp-chip--dog']}>
+                  {fmtWp(t.home_wp!)}
+                </span>
+              )}
+              {t.home.record && <span class="tss-rec">{t.home.record}</span>}
+            </div>
+
+            {t.series_status && <div class="tss-meta">{t.series_status}</div>}
+          </article>
+        );
+      })}
+    </div>
+  </div>
+</section>
+
+<style>
+  .tomorrow-slate-strip {
+    margin: 0 0 24px;
+  }
+
+  .tss-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .tss-h2 {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: #999;
+    margin: 0;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tss-tick {
+    color: var(--status-live);
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .tss-frame {
+    position: relative;
+  }
+
+  /*
+   * Balanced grid — column count is computed server-side via optimalCols(n)
+   * and injected as an inline style so rows are always even (no orphaned
+   * single-cell rows). The minmax(210px, 1fr) floor handles responsive
+   * collapse naturally: at narrower viewports the 210px minimum bumps cells
+   * into fewer columns automatically without any media-query overrides needed.
+   * e.g. 5-game slate → 5 columns at 1440px → wraps to 2+3 at ~1100px.
+   */
+  .tss-track {
+    display: grid;
+    /* Fallback for SSR edge case — inline style wins when JS renders. */
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 8px;
+    padding: 2px 2px 8px;
+  }
+
+  .tss-tile {
+    background: #0f0f0f;
+    border: 1px solid #1c1c1c;
+    border-radius: var(--radius-md);
+    padding: 13px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tss-tile:hover {
+    border-color: #2a2a2a;
+    background: #131313;
+    transform: translateY(-1px);
+  }
+  .tss-tile:focus-visible {
+    outline: 2px solid var(--status-live);
+    outline-offset: 2px;
+  }
+
+  .tss-state {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--status-scheduled);
+  }
+
+  /*
+   * Team row grid — 4 columns:
+   *   28px  logo (bumped from 22px for legibility — Layer 5.9)
+   *   auto  abbrev
+   *   auto  WP chip (collapses to 0 when WP absent — no layout shift)
+   *   1fr   record (right-aligned, pushes to edge)
+   */
+  .tss-row {
+    display: grid;
+    grid-template-columns: 28px auto auto 1fr;
+    align-items: center;
+    gap: 6px;
+  }
+  /* TeamLogo wrapper — size locked via the `size` prop on the
+     component (28px desktop). */
+  .tss-row :global(.team-logo.tss-logo) {
+    flex: none;
+  }
+  .tss-abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0.06em;
+    color: #f5f5f5;
+  }
+  .tss-rec {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #666;
+    text-align: right;
+    letter-spacing: 0.04em;
+    grid-column: 4;
+  }
+
+  /*
+   * WP chip — pill between abbrev and record.
+   * Color-coded: favorite = cyan-tint bg + cyan text; underdog = grey bg + grey text.
+   * Bumped from 9px/2px×5px to 11px/4px×8px (Layer 5.9 — readability for
+   * destination viewing).
+   */
+  .tss-wp-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .tss-wp-chip--fav {
+    background: rgba(0, 229, 255, 0.14);
+    color: var(--status-live, #00e5ff);
+  }
+  .tss-wp-chip--dog {
+    background: rgba(255, 255, 255, 0.06);
+    color: #888;
+  }
+
+  .tss-meta {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: #666;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  @media (max-width: 600px) {
+    /*
+     * At narrow viewports the auto-fill grid naturally drops to 1-2 columns
+     * based on the 210px minimum. These overrides tighten internal padding
+     * slightly so cells still breathe at 320px+ widths.
+     */
+    .tss-tile { padding: 11px 13px; }
+    .tss-row { grid-template-columns: 26px auto auto 1fr; gap: 5px; }
+    .tss-row :global(.team-logo.tss-logo) { width: 26px !important; height: 26px !important; }
+    .tss-abbr { font-size: 15px; }
+    .tss-wp-chip { font-size: 10px; padding: 3px 6px; }
+  }
+</style>
