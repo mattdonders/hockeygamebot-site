@@ -21,9 +21,45 @@ import {
   ArtifactGameSchema,
 } from './artifact-schemas';
 
-// ── Schedule snapshot — feeds detectMode() ─────────────────────────────────
+// ── Schedule snapshot — feeds detectMode() + slate strip live state ───────
 
 const AutoModeGameStateSchema = z.enum(['pre', 'live', 'intermission', 'shootout', 'final']);
+
+/**
+ * Per-game live state — one entry per game on today's slate.
+ *
+ * Layer 1 (May 2026) replaced the old identity-less `games_states[]` array
+ * with this richer per-game shape. The slate strip needs to match snapshot
+ * data to slate tiles by `game_id` (an identity-less array can't do that),
+ * so the snapshot now carries identity + scores + clock per game.
+ *
+ * `detectMode()` derives its old `games_states` view via
+ * `today.games.map(g => g.state)` — same logic, slightly different access.
+ *
+ * Field semantics:
+ *  - `game_id`        — string (playoff IDs may have season encoding;
+ *                       always store as string to avoid JS Number precision
+ *                       issues on long IDs).
+ *  - `state`          — site 5-state vocab (pre/live/intermission/shootout/final).
+ *  - `home_score` /
+ *    `away_score`     — 0 when state === 'pre'.
+ *  - `period`         — null when state === 'pre' or 'final'.
+ *  - `time_remaining` — 'MM:SS' format; null when not in active period
+ *                       (pre-game, final, intermission).
+ *  - `start_time_utc` — ISO; useful for sorting + countdown to first puck.
+ */
+const GameLiveStateSchema = z.object({
+  game_id: z.string().min(1),
+  state: AutoModeGameStateSchema,
+  home_team_id: z.number().int().nonnegative(),
+  away_team_id: z.number().int().nonnegative(),
+  home_score: z.number().int().nonnegative(),
+  away_score: z.number().int().nonnegative(),
+  period: z.number().int().nonnegative().nullable(),
+  time_remaining: z.string().nullable(),
+  start_time_utc: z.string().datetime(),
+});
+export type GameLiveState = z.infer<typeof GameLiveStateSchema>;
 
 const ScheduleTodaySchema = z.object({
   hockey_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -34,12 +70,21 @@ const ScheduleTodaySchema = z.object({
    * paths at runtime.
    */
   first_game_start_iso: z.string().datetime().nullable(),
-  games_count: z.number().int().nonnegative(),
-  games_states: z.array(AutoModeGameStateSchema),
+  /**
+   * Per-game array — identity + state + live scores. `games_count` is
+   * derivable from `games.length`; intentionally NOT stored as a
+   * separate field to avoid two sources of truth that can drift.
+   */
+  games: z.array(GameLiveStateSchema),
 });
 
 const ScheduleYesterdaySchema = z.object({
   hockey_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /**
+   * Yesterday is count-only — the site's RECAP page reads its own slate
+   * from a different source. The snapshot just needs "did anything happen
+   * yesterday?" for the early-morning RECAP rollover decision.
+   */
   games_count: z.number().int().nonnegative(),
 });
 

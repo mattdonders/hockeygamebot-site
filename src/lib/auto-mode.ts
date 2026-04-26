@@ -66,26 +66,51 @@ export const MODE_OVERRIDE_KEY = 'hgb-mode-override';
 export type AutoModeGameState = 'pre' | 'live' | 'intermission' | 'shootout' | 'final';
 
 /**
- * Schedule snapshot consumed by detectMode(). Loose-typed so different
- * Python pipelines can produce it (production cron, dev fixture, QA
- * variant). Matches schedule.json mock — see auto-mode-schemas.ts.
+ * Per-game live state — one entry per game on today's slate.
+ *
+ * Layer 1 (May 2026) replaced the old identity-less `games_states[]` array
+ * with this richer per-game shape so the slate strip can match snapshot
+ * data to tiles by `game_id`. `detectMode()` still works the same — it
+ * derives the old states-array view via `today.games.map(g => g.state)`.
+ */
+export interface GameLiveState {
+  /** NHL game ID (string — playoff IDs may have season encoding). */
+  game_id: string;
+  state: AutoModeGameState;
+  home_team_id: number;
+  away_team_id: number;
+  /** 0 when state === 'pre'. */
+  home_score: number;
+  /** 0 when state === 'pre'. */
+  away_score: number;
+  /** null when state === 'pre' or 'final'. */
+  period: number | null;
+  /** 'MM:SS'; null when not in an active period. */
+  time_remaining: string | null;
+  /** ISO; useful for sorting + countdown to first puck. */
+  start_time_utc: string;
+}
+
+/**
+ * Schedule snapshot consumed by detectMode(). Matches schedule.json mock
+ * + GET /v1/schedule/snapshot from the Worker — see auto-mode-schemas.ts.
  */
 export interface ScheduleSnapshot {
   /**
    * "Today" — the games that should be displayed on /home-v2 right now.
    * Already disambiguated by the 6 AM ET hockey-day boundary. Empty
-   * games_states means "no games tonight".
+   * `games` array means "no games tonight".
    */
   today: {
     /** ISO yyyy-mm-dd; informational only, not used in math. */
     hockey_date: string;
     /**
      * UTC timestamp when the FIRST game of the night drops the puck.
-     * `null` when games_count is 0 (offseason, no games scheduled).
+     * `null` when games[] is empty (offseason, no games scheduled).
      */
     first_game_start_iso: string | null;
-    games_count: number;
-    games_states: AutoModeGameState[];
+    /** Per-game array with identity + live state. Length = games count. */
+    games: GameLiveState[];
   };
   /**
    * "Yesterday" — used for the early-morning RECAP rollover detection.
@@ -111,19 +136,25 @@ export interface ScheduleSnapshot {
 export function detectMode(schedule: ScheduleSnapshot, now: Date): 'live' | 'recap' {
   const today = schedule.today;
 
+  // Derive the legacy "states-only" view from the per-game array. Same
+  // logic as before — just a slightly different access pattern after the
+  // Layer 1 schema change (per-game shape with identity + scores).
+  const states: AutoModeGameState[] = today.games.map(g => g.state);
+  const gamesCount = today.games.length;
+
   // Rule 1: any game in-progress → LIVE (covers all states between puck
   // drop and final horn, including overtime → shootout).
   const liveLikeStates: ReadonlyArray<AutoModeGameState> = ['live', 'intermission', 'shootout'];
-  if (today.games_states.some(s => liveLikeStates.includes(s))) return 'live';
+  if (states.some(s => liveLikeStates.includes(s))) return 'live';
 
   // Rule 2: pre-game window — first game starts ≤ 60 min from now AND
-  // games_count > 0 AND no game has reached final yet (allow scheduling
-  // overlap where game 1 is final but a later game is in pre-window).
-  if (today.games_count > 0 && today.first_game_start_iso) {
+  // games > 0 AND no game has reached final yet (allow scheduling overlap
+  // where game 1 is final but a later game is in pre-window).
+  if (gamesCount > 0 && today.first_game_start_iso) {
     const firstStartMs = Date.parse(today.first_game_start_iso);
     if (Number.isFinite(firstStartMs)) {
       const windowOpensMs = firstStartMs - 60 * 60 * 1000;
-      const allFinal = today.games_states.every(s => s === 'final');
+      const allFinal = states.every(s => s === 'final');
       if (now.getTime() >= windowOpensMs && !allFinal) {
         return 'live';
       }
