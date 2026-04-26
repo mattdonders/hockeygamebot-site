@@ -452,7 +452,16 @@ const tomorrowEyebrow = tomorrowMock.hero_eyebrow;     // used for TODAY pre sub
 const offseasonEyebrow = offseasonMock.hero_eyebrow;
 // Date labels — today/yesterday/offseason map to their respective mock sources.
 const todayDate = liveMock.date_label;    // live mock == "tonight" date label
-const yesterdayDate = recapMock.date_label;
+// Layer 2.5: use real previous_day date when available; fall back to mock.
+const yesterdayDate = (() => {
+  const pd = realScoreboard?.previous_day?.hockey_date;
+  if (!pd) return recapMock.date_label;
+  const d = new Date(pd + 'T12:00:00Z');
+  const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase();
+  const day = d.getUTCDate();
+  const year = d.getUTCFullYear();
+  return `YESTERDAY · ${month} ${day} · ${year}`;
+})();
 const tomorrowDate = todayApiDateLabel;                 // TODAY pre sub-state label (real or mock)
 const offseasonDate = offseasonMock.date_label;
 
@@ -581,6 +590,27 @@ function buildGameTileProps(g: ScoreboardGame) {
 
 // Real game tiles for live/final grid — all today's games from scoreboard.
 const realGameTiles = realScoreboard?.games.map(buildGameTileProps) ?? [];
+
+// ── Layer 2.5: YESTERDAY mode — previous_day game tiles ───────────────────
+// Build final-score tiles from scoreboard.previous_day.games.
+// These are the same ScoreboardGame shape but all in `final` state.
+const previousDayGames = realScoreboard?.previous_day?.games ?? [];
+const previousDayDate = realScoreboard?.previous_day?.hockey_date ?? null;
+const previousDayDateLabel = previousDayDate
+  ? (() => {
+      const d = new Date(previousDayDate + 'T12:00:00Z');
+      const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase();
+      const day = d.getUTCDate();
+      return `${month} ${day}`;
+    })()
+  : 'Yesterday';
+const yesterdayEyebrowLine = previousDayGames.length > 0
+  ? `Yesterday · ${previousDayGames.length} game${previousDayGames.length !== 1 ? 's' : ''} · ${previousDayDateLabel}`
+  : previousDayDate
+    ? `Yesterday · No games · ${previousDayDateLabel}`
+    : 'Yesterday';
+// Build GameTile props for previous_day games (all final).
+const previousDayTiles = previousDayGames.map(buildGameTileProps);
 
 // Inline data the head + body scripts need. Serialised as JSON-strings
 // inside the <html> so the auto-mode resolver can run before first paint
@@ -1014,7 +1044,11 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
       />
     </div>
     <div data-mode-view="yesterday">
-      <PageHero eyebrow={recapEyebrow} />
+      <PageHero
+        eyebrow={yesterdayEyebrowLine}
+        title="Yesterday's recap."
+        sub="Final scores from last night's games. Full post-game analysis coming in a future update."
+      />
     </div>
     <div data-mode-view="offseason">
       <PageHero
@@ -1104,35 +1138,36 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
     </section>
 
     <!-- ════════════════════════════════════════════════════════════════
-         YESTERDAY MODE (was RECAP) — Layer 1.8
-         Same components, now wired to data-mode-view="yesterday"
+         YESTERDAY MODE — Layer 2.5
+         Wired to real scoreboard.previous_day.games.
+         Mock artifact wall, tweet echo, and model retrospective removed —
+         those will re-appear in Layer 3 when the bot writes recap fields
+         into daily_slate. For v1, we show real final scores only.
     ════════════════════════════════════════════════════════════════ -->
     <section data-mode-view="yesterday" aria-label="Yesterday's recap view">
-      <RecapHero
-        game={recapMock.game_of_night}
-        supporting={recapMock.supporting_hero ?? null}
-      />
-
-      {recapMock.final_scores && recapMock.final_scores.length > 0 && (
-        <RecapScoreStrip tiles={recapMock.final_scores} />
-      )}
-
-      <RecapFilterBar
-        target=".recap-wall"
-        initial="all"
-        initialSort="impact"
-        counts={recapCounts}
-      />
-
-      <RecapWall cards={recapMock.wall} defaultSort="impact" />
-
-      <TweetEcho tweets={recapMock.tweet_echo} />
-
-      {recapMock.model_retrospective && (
-        <ModelRetrospective
-          last_night={recapMock.model_retrospective.last_night}
-          season={recapMock.model_retrospective.season}
-        />
+      {previousDayTiles.length > 0 ? (
+        <>
+          <div class="home-sec-h">
+            <h2>Final Scores</h2>
+            <span class="count">
+              {previousDayTiles.length} game{previousDayTiles.length !== 1 ? 's' : ''} · {previousDayDateLabel}
+            </span>
+          </div>
+          <div class="home-grid">
+            {previousDayTiles.map(props => (
+              <GameTile {...props} />
+            ))}
+          </div>
+          <div class="hv2-placeholder" style="margin-top:24px;min-height:100px">
+            <span>Full game recap · coming in a future update</span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div class="hv2-placeholder" style="margin-top:24px">
+            <span>No games played yesterday</span>
+          </div>
+        </>
       )}
     </section>
 
