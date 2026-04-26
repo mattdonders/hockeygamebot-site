@@ -36,9 +36,19 @@ export type GameState = z.infer<typeof GameStateSchema>;
  * New bot (rewrite): '5v5', '5v4', '4v5', etc.
  * Old bot (production, transition): 'EV', 'PP', 'PK' — legacy strength codes.
  * Both sets accepted for compatibility during the old→new bot migration.
+ *
+ * Empty-net variants: EN_HOME means the home team has an empty net (away team
+ * pulled their goalie); EN_AWAY means the away team has an empty net (home team
+ * pulled their goalie). Same directional pattern applies to SO_HOME / SO_AWAY
+ * for shootout-situation variants. These suffixed forms are written by the new
+ * rewrite bot to game_state and may appear in scoreboard strength_state fields.
  */
 export const StrengthStateSchema = z.enum([
   '5v5', '5v4', '4v5', '5v3', '3v5', '4v4', '3v3', '6v5', '5v6', 'EN', 'SO', 'unknown',
+  // Directional empty-net variants (new rewrite bot — game_state field):
+  'EN_HOME', 'EN_AWAY',
+  // Directional shootout variants:
+  'SO_HOME', 'SO_AWAY',
   // Legacy old-bot strength codes (kept for backward compat during migration):
   'EV', 'PP', 'PK',
 ]);
