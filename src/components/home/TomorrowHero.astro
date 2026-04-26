@@ -1,48 +1,72 @@
 ---
 /**
- * TomorrowHero — hero card for `?mode=tomorrow`.
+ * TomorrowHero — hero card for TODAY pre-game state.
  *
- * Layout (mirrors RecapHero's "big card on the left, supporting on right"
- * skeleton — but tomorrow's "supporting" is the featured matchup itself
- * because there's no game-of-night hero to anchor against):
+ * Layer 2.1: Receives real API data when available:
+ *   - date_label  — e.g. "TODAY · APR 26 · 2026" (from real scoreboard date)
+ *   - firstGameUtc — UTC ISO string of first puck drop (for countdown timer)
+ *   - firstGameLabel — e.g. "BUF @ BOS · 2:00 PM ET" (from real scoreboard)
+ *   - featured   — ArtifactMatchup props (joined from slate + scoreboard)
  *
+ * Layout:
  *   ┌──────────────────────┬───────────────────────┐
- *   │ TOMORROW · APR 26    │  ┌─────────────────┐  │
- *   │ 8 GAMES SCHEDULED    │  │ ArtifactMatchup │  │
- *   │ 4 series in action   │  └─────────────────┘  │
- *   │                      │                       │
- *   │ Dim secondary copy:  │                       │
- *   │ "Predictions update  │                       │
- *   │ at 4 AM ET cron."    │                       │
+ *   │ UPCOMING · TODAY     │  ┌─────────────────┐  │
+ *   │ TODAY · APR 26 · …   │  │ ArtifactMatchup │  │
+ *   │ Next puck drop in    │  └─────────────────┘  │
+ *   │ H:MM:SS countdown    │                       │
+ *   │ BUF @ BOS · 2:00 PM  │                       │
  *   └──────────────────────┴───────────────────────┘
  *
- * The featured matchup is just a reused ArtifactMatchup card. The hero's
- * job is to set the date stamp + game count framing — the actual
- * matchup card carries the visual weight.
+ * The countdown is a client-side setInterval that reads `data-first-puck-utc`
+ * from the element, computes time-until, and ticks H:MM:SS once per second.
+ * When the countdown hits 0, the display switches to "Game starting now".
  */
 
 import ArtifactMatchup, { type Props as ArtifactMatchupProps } from './artifacts/ArtifactMatchup.astro';
 
 interface Props {
-  /** Big eyebrow line — "TOMORROW · APR 26 · 8 GAMES SCHEDULED". */
+  /** Big date line — "TODAY · APR 26 · 2026". */
   date_label: string;
-  /** Long-form blurb under the date — e.g. "Predictions update at 4am ET." */
+  /** Long-form blurb under the date — e.g. "Predictions update at 8am ET." */
   blurb?: string;
   /** Featured matchup data, passed straight to ArtifactMatchup. */
   featured: ArtifactMatchupProps;
+  /** UTC ISO string of the earliest game start for countdown. Null when unknown. */
+  firstGameUtc?: string | null;
+  /** Human label for first game — e.g. "BUF @ BOS · 2:00 PM ET". */
+  firstGameLabel?: string | null;
 }
 
 const {
   date_label,
-  blurb = 'Predictions refresh at 4 AM ET. Tap any game tile for the full preview.',
+  blurb = 'Predictions refresh at 8 AM ET. Tap any game tile for the full preview.',
   featured,
+  firstGameUtc = null,
+  firstGameLabel = null,
 } = Astro.props;
 ---
-<section class="tomorrow-hero" aria-label="Tomorrow's slate hero">
+<section class="tomorrow-hero" aria-label="Today's slate hero">
   <div class="th-left">
-    <span class="th-eyebrow-red">UPCOMING · TOMORROW</span>
+    <span class="th-eyebrow-red">UPCOMING · TODAY</span>
     <h2 class="th-date">{date_label}</h2>
-    <p class="th-blurb">{blurb}</p>
+    {firstGameUtc ? (
+      <div
+        class="th-countdown-wrap"
+        data-first-puck-utc={firstGameUtc}
+        data-first-game-label={firstGameLabel ?? ''}
+      >
+        <div class="th-countdown-label">Next puck drop in</div>
+        <div class="th-countdown" aria-live="polite" aria-label="Countdown to first puck drop">
+          {/* Populated by inline script below */}
+          <span class="th-countdown-time">--:--:--</span>
+        </div>
+        {firstGameLabel && (
+          <div class="th-first-game">{firstGameLabel}</div>
+        )}
+      </div>
+    ) : (
+      <p class="th-blurb">{blurb}</p>
+    )}
     <div class="th-microsign">
       <span class="th-tick" aria-hidden="true">▍</span>
       <span class="th-microsign-text">FEATURED MATCHUP</span>
@@ -52,6 +76,39 @@ const {
     <ArtifactMatchup {...featured} />
   </div>
 </section>
+
+<script>
+  // Live countdown to first puck drop.
+  // Reads data-first-puck-utc, ticks every second.
+  (function () {
+    var wrap = document.querySelector('.th-countdown-wrap') as HTMLElement | null;
+    if (!wrap) return;
+    var utcStr = wrap.getAttribute('data-first-puck-utc');
+    if (!utcStr) return;
+    var target = Date.parse(utcStr);
+    if (isNaN(target)) return;
+    var display = wrap.querySelector('.th-countdown-time') as HTMLElement | null;
+    if (!display) return;
+
+    function tick() {
+      var now = Date.now();
+      var diff = target - now;
+      if (diff <= 0) {
+        display!.textContent = 'Game starting now';
+        return;
+      }
+      var totalSec = Math.floor(diff / 1000);
+      var h = Math.floor(totalSec / 3600);
+      var m = Math.floor((totalSec % 3600) / 60);
+      var s = totalSec % 60;
+      display!.textContent =
+        h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    tick();
+    setInterval(tick, 1000);
+  })();
+</script>
 
 <style>
   .tomorrow-hero {
@@ -133,8 +190,44 @@ const {
     display: block;
   }
 
+  /* ── Countdown block ─────────────────────────────────────────────── */
+  .th-countdown-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .th-countdown-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #666;
+  }
+  .th-countdown {
+    display: flex;
+    align-items: baseline;
+  }
+  .th-countdown-time {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 42px;
+    letter-spacing: 0.04em;
+    color: var(--site-white);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .th-first-game {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: #888;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
   @media (max-width: 720px) {
     .th-date { font-size: 28px; }
     .th-blurb { font-size: 12.5px; }
+    .th-countdown-time { font-size: 32px; }
   }
 </style>

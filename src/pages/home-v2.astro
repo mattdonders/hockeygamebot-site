@@ -126,6 +126,206 @@ try {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Layer 2.1: Extract real API data for component consumption ─────────────
+//
+// The real slate doc is wrapped: { hockey_date, doc, generated_at, updated_at }
+// We extract doc.* fields here and build component-ready data from the join
+// of scoreboard + slate. Falls through to mock when API data is absent.
+
+/** Raw slate doc extracted from the API envelope. */
+type SlateDoc = {
+  hockey_date?: string;
+  predictions?: Array<{ game_id: string; home_wp: number; away_wp: number }>;
+  matchup_previews?: Array<{
+    game_id: string;
+    headline: string;
+    key_matchup?: { home_player: string; away_player: string; context: string };
+    x_factor?: string;
+  }>;
+  storylines?: Array<{
+    type: string;
+    player?: string;
+    team?: string;
+    headline: string;
+    context: string;
+  }>;
+  featured_matchup?: {
+    game_id: string;
+    tag?: { label: string; kind: string };
+    reasoning?: string;
+    byline?: { left: string; right: string };
+  };
+};
+
+const slateDoc: SlateDoc | null = (() => {
+  if (!realSlate || typeof realSlate !== 'object') return null;
+  const raw = realSlate as Record<string, unknown>;
+  // API returns { hockey_date, doc, generated_at, updated_at }
+  if (raw.doc && typeof raw.doc === 'object') return raw.doc as SlateDoc;
+  // Fallback: maybe already the flat doc
+  return raw as SlateDoc;
+})();
+
+/** Quick lookup: game_id → ScoreboardGame. */
+type ScoreboardGame = import('../lib/auto-mode-schemas').Scoreboard['games'][number];
+const gameById = new Map<string, ScoreboardGame>(
+  (realScoreboard?.games ?? []).map(g => [g.game_id, g])
+);
+
+/**
+ * Format a UTC ISO string as "H:MM PM ET" (Eastern Time).
+ * Used at build time (Node.js) where Intl.DateTimeFormat works.
+ */
+function fmtStartTimeET(utc: string | null): string {
+  if (!utc) return '';
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(utc)).replace(' ', ' ') + ' ET';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Build TomorrowSlateTile array from real scoreboard games, enriched with
+ * WP predictions from the slate doc if available.
+ */
+type SlateTileShape = {
+  gameId: string;
+  start_time: string;
+  series_status?: string;
+  home: { abbrev: string; logo?: string };
+  away: { abbrev: string; logo?: string };
+  home_wp?: number;
+  away_wp?: number;
+};
+
+function buildSlateTiles(): SlateTileShape[] {
+  if (!realScoreboard) return [];
+  const predMap = new Map(
+    (slateDoc?.predictions ?? []).map(p => [p.game_id, p])
+  );
+  return realScoreboard.games.map(g => {
+    const pred = predMap.get(g.game_id);
+    return {
+      gameId: g.game_id,
+      start_time: fmtStartTimeET(g.start_time_utc),
+      home: { abbrev: g.home_team.abbrev },
+      away: { abbrev: g.away_team.abbrev },
+      ...(pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : {}),
+    };
+  });
+}
+
+const realSlateTiles = buildSlateTiles();
+
+/**
+ * Build the TODAY pre-state hero data from real scoreboard.
+ * Finds the earliest game by start_time_utc.
+ */
+const firstGame = realScoreboard?.games.length
+  ? [...realScoreboard.games].sort((a, b) => {
+      const at = a.start_time_utc ? Date.parse(a.start_time_utc) : Infinity;
+      const bt = b.start_time_utc ? Date.parse(b.start_time_utc) : Infinity;
+      return at - bt;
+    })[0]
+  : null;
+
+const firstGameUtc = firstGame?.start_time_utc ?? null;
+const firstGameLabel = firstGame
+  ? `${firstGame.away_team.abbrev} @ ${firstGame.home_team.abbrev} · ${fmtStartTimeET(firstGame.start_time_utc)}`
+  : null;
+
+// Today label for the hero eyebrow (e.g. "TODAY · APR 26 · 2026")
+const todayApiDateLabel = realScoreboard
+  ? (() => {
+      const d = new Date(realScoreboard.date + 'T12:00:00Z');
+      const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase();
+      const day = d.getUTCDate();
+      const year = d.getUTCFullYear();
+      return `TODAY · ${month} ${day} · ${year}`;
+    })()
+  : tomorrowMock.date_label;
+
+// Game count label for eyebrow
+const todayGameCount = realScoreboard ? realScoreboard.games.length : 0;
+const todayEyebrowLine = realScoreboard
+  ? `Today · ${todayGameCount} game${todayGameCount !== 1 ? 's' : ''} scheduled`
+  : tomorrowMock.hero_eyebrow;
+
+/**
+ * Build featured matchup card props from slate.featured_matchup + scoreboard.
+ * The slate only has game_id + tag + byline + reasoning.
+ * We join with scoreboard for team identity and predictions for WP.
+ */
+function buildFeaturedMatchupProps(): (typeof tomorrowMock.featured_matchup) | null {
+  if (!slateDoc?.featured_matchup) return null;
+  const fm = slateDoc.featured_matchup;
+  const game = gameById.get(fm.game_id);
+  if (!game) return null;
+
+  const predMap = new Map(
+    (slateDoc?.predictions ?? []).map(p => [p.game_id, p])
+  );
+  const pred = predMap.get(fm.game_id);
+  const timeLabel = fmtStartTimeET(game.start_time_utc);
+  const venueUpper = game.venue ? game.venue.toUpperCase() : '';
+
+  // Find matchup preview for this game for key_matchup content
+  const preview = slateDoc?.matchup_previews?.find(p => p.game_id === fm.game_id);
+  const km = preview?.key_matchup;
+
+  return {
+    gameId: fm.game_id,
+    tag: fm.tag as { label: string; kind: string } | undefined,
+    byline: fm.byline as { left: string; right: string } | undefined,
+    eyebrow: `${fm.byline?.right ?? 'GAME OF THE NIGHT'} · ${venueUpper}`,
+    home: {
+      abbrev: game.home_team.abbrev,
+      name: game.home_team.short_name.toUpperCase(),
+      record: '',
+      accentColor: '#888888',
+    },
+    away: {
+      abbrev: game.away_team.abbrev,
+      name: game.away_team.short_name.toUpperCase(),
+      record: '',
+      accentColor: '#888888',
+    },
+    timeLabel,
+    venue: venueUpper,
+    keyMatchupTitle: km ? 'Key matchup · HGB edge' : (preview?.headline ?? 'Key matchup'),
+    matchups: km
+      ? [
+          {
+            left: { name: km.home_player, meta: game.home_team.abbrev },
+            right: { name: km.away_player, meta: game.away_team.abbrev },
+            centerLabel: 'vs',
+          },
+        ]
+      : [
+          {
+            left: { name: game.home_team.short_name, meta: game.home_team.abbrev },
+            right: { name: game.away_team.short_name, meta: game.away_team.abbrev },
+            centerLabel: 'vs',
+          },
+        ],
+    ...(pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : {}),
+  } as typeof tomorrowMock.featured_matchup;
+}
+
+const realFeaturedMatchup = buildFeaturedMatchupProps();
+
+// Decide which featured matchup and slate data to use (real or mock fallback)
+const activeFeatured = realFeaturedMatchup ?? tomorrowMock.featured_matchup;
+const activeSlateTiles = realSlateTiles.length > 0 ? realSlateTiles : tomorrowMock.slate;
+const activeGameCount = realScoreboard ? realScoreboard.games.length : tomorrowMock.slate.length;
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Build the scheduleVariants object used by the inline detectMode script.
 // When real API data is available, the `default` variant is replaced with
 // live data so the mode resolver reflects actual game states (pre/live/final).
@@ -198,7 +398,7 @@ const offseasonEyebrow = offseasonMock.hero_eyebrow;
 // Date labels — today/yesterday/offseason map to their respective mock sources.
 const todayDate = liveMock.date_label;    // live mock == "tonight" date label
 const yesterdayDate = recapMock.date_label;
-const tomorrowDate = tomorrowMock.date_label;           // TODAY pre sub-state label
+const tomorrowDate = todayApiDateLabel;                 // TODAY pre sub-state label (real or mock)
 const offseasonDate = offseasonMock.date_label;
 
 // ── Recap-mode body data (existing logic — unchanged) ───────────────────
@@ -245,9 +445,10 @@ const offseasonHeroCopy = {
   sub: "Until then — countdown, last season's wrap, and the moves shaping next year.",
 };
 // TODAY pre sub-state (was "tomorrow mode")
+// Layer 2.1: use real game count + "Today" copy when scoreboard data is live.
 const todayPreHeroCopy = {
-  eyebrow: tomorrowMock.hero_eyebrow,
-  title: 'Tonight, picked apart.',
+  eyebrow: todayEyebrowLine,
+  title: 'Today, picked apart.',
   sub: "Predictions, key matchups, milestone watches and the storylines we're tracking — refreshed at 8 AM ET.",
 };
 
@@ -546,6 +747,67 @@ const apiDataSourceJson = JSON.stringify({
       padding-top: 12px;
       border-top: 1px dashed #1a1a1a;
     }
+
+    /* ── Layer 2.1 — slate storyline card (real API shape) ───────── */
+    /*
+     * Renders the real slate.storylines[] which have a flat shape
+     * {type, player/team, headline, context} — not the rich structured
+     * data that ArtifactHot/Cold/Milestone need. This simpler card
+     * presents the same content legibly until the bot populates the
+     * full artifact-compatible structure.
+     */
+    .slate-storyline-card {
+      background: #0b0b0b;
+      border: 1px solid var(--site-border);
+      padding: 22px 22px 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 200px;
+    }
+    .ssc-type-badge {
+      font-family: var(--font-site-display);
+      font-weight: 700;
+      font-size: 9.5px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 1px;
+      display: inline-block;
+      width: fit-content;
+    }
+    .ssc-type--mile {
+      background: #ffd54a;
+      color: #2b1f00;
+    }
+    .ssc-type--hot {
+      background: #00e676;
+      color: #041d0f;
+    }
+    .ssc-who {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #888;
+      margin-top: 4px;
+    }
+    .ssc-headline {
+      font-family: var(--font-site-display);
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--site-white);
+      letter-spacing: 0.02em;
+      line-height: 1.2;
+      margin: 0;
+    }
+    .ssc-context {
+      font-family: var(--font-site-body);
+      font-size: 12.5px;
+      color: #888;
+      line-height: 1.5;
+      margin: 0;
+    }
   </style>
 </head>
 <body class="hgb-site">
@@ -570,38 +832,15 @@ const apiDataSourceJson = JSON.stringify({
   )}
 
   <!--
-    Playoff strip — today + yesterday modes carry it; offseason
-    explicitly omits it (per spec: "no playoffs in offseason"). Each
-    mode passes its own series array because round/series state evolves
-    night-to-night.
-
-    Layer 1.8: TODAY mode shows the same strip across all sub-states
-    (live/pre/final all show tonight's series status). YESTERDAY mode
-    shows the recap strip.
+    Playoff strip — Layer 2.1: TODAY mode strips removed entirely.
+    No real /v1/series-state endpoint exists yet; showing mock series data
+    alongside real scoreboard games would be confusing. Re-add when
+    a real series-state source is available.
+    YESTERDAY mode keeps its recap strip (mock data for that mode is fine).
   -->
-  {playoffStrip && (
-    <div data-mode-view="today" data-fixture-view="default">
-      <PlayoffStrip eyebrow={playoffStrip.eyebrow} series={playoffStrip.series} />
-    </div>
-  )}
-  {playoffStripSO && (
-    <div data-mode-view="today" data-fixture-view="shootout">
-      <PlayoffStrip eyebrow={playoffStripSO.eyebrow} series={playoffStripSO.series} />
-    </div>
-  )}
-  {playoffStripSOLong && (
-    <div data-mode-view="today" data-fixture-view="shootout-long">
-      <PlayoffStrip eyebrow={playoffStripSOLong.eyebrow} series={playoffStripSOLong.series} />
-    </div>
-  )}
   {recapPlayoffStrip && (
     <div data-mode-view="yesterday">
       <PlayoffStrip eyebrow={recapPlayoffStrip.eyebrow} series={recapPlayoffStrip.series} />
-    </div>
-  )}
-  {tomorrowPlayoffStrip && (
-    <div data-mode-view="today" data-today-view="pre">
-      <PlayoffStrip eyebrow={tomorrowPlayoffStrip.eyebrow} series={tomorrowPlayoffStrip.series} />
     </div>
   )}
 
@@ -768,14 +1007,68 @@ const apiDataSourceJson = JSON.stringify({
          Layer 1.8: mode-view="today" + today-view="pre"
     ════════════════════════════════════════════════════════════════ -->
     <section data-mode-view="today" data-today-view="pre" aria-label="Today's games — pre-game slate view">
+      {/*
+        Layer 2.1: TomorrowHero receives real date_label + featured matchup
+        (joined from slate.featured_matchup + scoreboard game). Falls back to
+        mock when API data is absent.
+      */}
       <TomorrowHero
-        date_label={tomorrowMock.date_label}
-        featured={tomorrowMock.featured_matchup}
+        date_label={todayApiDateLabel}
+        featured={activeFeatured}
+        firstGameUtc={firstGameUtc}
+        firstGameLabel={firstGameLabel}
       />
 
-      <TomorrowSlateStrip tiles={tomorrowMock.slate} />
+      {/*
+        Layer 2.1: Slate strip uses real scoreboard games + slate WP predictions.
+        heading prop overrides the default "Tomorrow's slate · N games" label.
+      */}
+      <TomorrowSlateStrip
+        tiles={activeSlateTiles}
+        heading={`Today's slate · ${activeGameCount} game${activeGameCount !== 1 ? 's' : ''}`}
+      />
 
-      {tomorrowMock.matchup_previews.length > 0 && (
+      {/*
+        Layer 2.1: Matchup previews — use real slate.matchup_previews when
+        available. Real shape is {game_id, headline, key_matchup, x_factor}
+        which differs from the full ArtifactMatchup props the mock used.
+        We build ArtifactMatchup-compatible props via joinRealMatchupPreviews().
+      */}
+      {slateDoc?.matchup_previews && slateDoc.matchup_previews.length > 0 ? (
+        <>
+          <div class="home-sec-h">
+            <h2>Matchup previews</h2>
+            <span class="count">{slateDoc.matchup_previews.length} games highlighted</span>
+          </div>
+          <div class="home-wall">
+            {slateDoc.matchup_previews.map((preview) => {
+              const game = gameById.get(preview.game_id);
+              if (!game) return null;
+              const predMap = new Map((slateDoc?.predictions ?? []).map(p => [p.game_id, p]));
+              const pred = predMap.get(preview.game_id);
+              const km = preview.key_matchup;
+              const timeLabel = fmtStartTimeET(game.start_time_utc);
+              const venueUpper = game.venue ? game.venue.toUpperCase() : '';
+              const matchupProps = {
+                gameId: preview.game_id,
+                eyebrow: `${game.away_team.abbrev} @ ${game.home_team.abbrev} · ${timeLabel}`,
+                home: { abbrev: game.home_team.abbrev, name: game.home_team.short_name.toUpperCase(), record: '', accentColor: '#888888' },
+                away: { abbrev: game.away_team.abbrev, name: game.away_team.short_name.toUpperCase(), record: '', accentColor: '#888888' },
+                timeLabel,
+                venue: venueUpper,
+                keyMatchupTitle: km ? 'Key matchup · HGB edge' : preview.headline,
+                matchups: km
+                  ? [{ left: { name: km.home_player, meta: game.home_team.abbrev }, right: { name: km.away_player, meta: game.away_team.abbrev }, centerLabel: 'vs' }]
+                  : [{ left: { name: game.home_team.short_name, meta: '' }, right: { name: game.away_team.short_name, meta: '' }, centerLabel: 'vs' }],
+                ...(pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : {}),
+                variant: 'chip' as const,
+              };
+              return <ArtifactMatchup {...matchupProps} />;
+            })}
+          </div>
+          <p class="model-attribution">MODEL · BLENDED ELO + XG · UPDATED 8 AM ET</p>
+        </>
+      ) : tomorrowMock.matchup_previews.length > 0 ? (
         <>
           <div class="home-sec-h">
             <h2>Matchup previews</h2>
@@ -786,13 +1079,46 @@ const apiDataSourceJson = JSON.stringify({
               <ArtifactMatchup {...m} variant="chip" />
             ))}
           </div>
-
-          {/* ── Model attribution footer ─────────────────────────── */}
           <p class="model-attribution">MODEL · BLENDED ELO + XG · UPDATED 8 AM ET</p>
         </>
-      )}
+      ) : null}
 
-      {tomorrowMock.storylines.length > 0 && (
+      {/*
+        Layer 2.1: Storylines — use real slate.storylines when available.
+        Real shape is {type, player/team, headline, context} — a flat narrative
+        format. Render via inline SlateStorylineCard style rather than the
+        full ArtifactHot/Cold/Milestone (which require rich structured data
+        the bot doesn't yet populate for the storylines array).
+        Falls back to mock when real data is absent.
+      */}
+      {slateDoc?.storylines && slateDoc.storylines.length > 0 ? (
+        <>
+          <div class="home-sec-h">
+            <h2>Storylines to watch</h2>
+            <span class="count">{slateDoc.storylines.length} to watch tonight</span>
+          </div>
+          <div class="home-wall">
+            {slateDoc.storylines.map((s) => (
+              <article class="slate-storyline-card">
+                <span class:list={[
+                  'ssc-type-badge',
+                  s.type === 'milestone-watch' ? 'ssc-type--mile' : 'ssc-type--hot',
+                ]}>
+                  {s.type === 'milestone-watch' ? '⌛ MILESTONE WATCH'
+                    : s.type === 'hot-streak' ? '🔥 HOT STREAK'
+                    : s.type === 'x-factor' ? '★ X-FACTOR'
+                    : s.type.toUpperCase()}
+                </span>
+                <div class="ssc-who">
+                  {s.player ?? s.team ?? ''}
+                </div>
+                <h3 class="ssc-headline">{s.headline}</h3>
+                <p class="ssc-context">{s.context}</p>
+              </article>
+            ))}
+          </div>
+        </>
+      ) : tomorrowMock.storylines.length > 0 ? (
         <>
           <div class="home-sec-h">
             <h2>Storylines to watch</h2>
@@ -807,7 +1133,7 @@ const apiDataSourceJson = JSON.stringify({
             })}
           </div>
         </>
-      )}
+      ) : null}
     </section>
 
     <!-- ════════════════════════════════════════════════════════════════
