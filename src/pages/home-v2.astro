@@ -1922,22 +1922,63 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
             <span class="th-last-event-desc">${g.last_event.description}</span>
             ${g.last_event.time_ago ? `<span class="th-last-event-when">${g.last_event.time_ago}</span>` : ''}
           </div>` : '';
+
+        // Box score — integrated inside the left card, no separate label
+        // TODO Layer 2.8: replace em-dashes with real score_by_period data.
+        const maxP = Math.max(period, 3);
+        const periodCols = [];
+        for (let p = 1; p <= maxP; p++) periodCols.push(p);
+        const pLabel = p => p <= 3 ? String(p) : p === 4 ? 'OT' : `OT${p - 3}`;
+        const inInt = clock.in_intermission ?? false;
+        const hc = pickTeamColor(home.abbrev);
+        const ac = pickTeamColor(away.abbrev);
+        const thCols = periodCols.map(p => {
+          const isCurrent = (p === period) && !inInt && subState === 'live';
+          return `<th class="th-bs-period-col${isCurrent ? ' th-bs-period-col--current' : ''}" scope="col">${pLabel(p)}</th>`;
+        }).join('');
+        const dashCols = periodCols.map(() => `<td class="th-bs-cell">—</td>`).join('');
+        const boxScoreHtml = `
+          <div class="th-bs-integrated">
+            <table class="th-bs-table" aria-label="Period-by-period score">
+              <thead><tr>
+                <th class="th-bs-team-col" scope="col"></th>
+                ${thCols}
+                <th class="th-bs-total-col" scope="col">T</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td class="th-bs-team-name" style="color:${hc}">${home.abbrev}</td>
+                  ${dashCols}
+                  <td class="th-bs-total">${home.score}</td>
+                </tr>
+                <tr>
+                  <td class="th-bs-team-name" style="color:${ac}">${away.abbrev}</td>
+                  ${dashCols}
+                  <td class="th-bs-total">${away.score}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>`;
+
         leftCard = `
           <div class="th-card th-card--left ${subState === 'live' ? 'th-card--live' : 'th-card--final'}">
             ${finalBadge}
-            <div class="th-score-row">
-              <div class="th-team-score${homeLoser ? ' loser' : ''}">
-                <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="60" height="60" alt="${home.abbrev}" loading="lazy" />
-                <div class="th-team-info"><span class="th-team-abbr">${home.abbrev}</span></div>
-                <span class="th-score-num">${home.score}</span>
+            <div class="th-scoreboard">
+              <div class="th-sb-team th-sb-team--home${homeLoser ? ' loser' : ''}">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="52" height="52" alt="${home.abbrev}" loading="lazy" class="team-logo" style="--logo-size:52px" />
+                <span class="th-sb-abbr">${home.abbrev}</span>
               </div>
-              <div class="th-score-sep">·</div>
-              <div class="th-team-score th-team-score--right${awayLoser ? ' loser' : ''}">
-                <span class="th-score-num">${away.score}</span>
-                <div class="th-team-info th-team-info--right"><span class="th-team-abbr">${away.abbrev}</span></div>
-                <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="60" height="60" alt="${away.abbrev}" loading="lazy" />
+              <div class="th-sb-scores">
+                <span class="th-sb-num${homeLoser ? ' loser' : ''}">${home.score}</span>
+                <span class="th-sb-sep">·</span>
+                <span class="th-sb-num${awayLoser ? ' loser' : ''}">${away.score}</span>
+              </div>
+              <div class="th-sb-team th-sb-team--away${awayLoser ? ' loser' : ''}">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="52" height="52" alt="${away.abbrev}" loading="lazy" class="team-logo" style="--logo-size:52px" />
+                <span class="th-sb-abbr">${away.abbrev}</span>
               </div>
             </div>
+            ${boxScoreHtml}
             ${lastEvHtml}
           </div>`;
       }
@@ -2069,48 +2110,12 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
           </div>`;
       }
 
-      // ── Box score placeholder (LIVE / FINAL) ────────────────────
-      // TODO Layer 2.7: replace em-dashes with real score_by_period data.
-      let boxScoreHtml = '';
-      if (subState === 'live' || subState === 'final') {
-        const maxP = Math.max(period, 3);
-        const periodCols = [];
-        for (let p = 1; p <= maxP; p++) periodCols.push(p);
-        const pLabel = p => p <= 3 ? String(p) : p === 4 ? 'OT' : `OT${p - 3}`;
-        const thCols = periodCols.map(p => `<th class="th-bs-period-col" scope="col">${pLabel(p)}</th>`).join('');
-        const hcBoxscore = pickTeamColor(home.abbrev);
-        const acBoxscore = pickTeamColor(away.abbrev);
-        const dashCols = periodCols.map(() => `<td class="th-bs-cell">—</td>`).join('');
-        boxScoreHtml = `
-          <div class="th-boxscore">
-            <div class="th-bs-label">Box Score</div>
-            <table class="th-bs-table" aria-label="Period-by-period score">
-              <thead><tr>
-                <th class="th-bs-team-col" scope="col"></th>
-                ${thCols}
-                <th class="th-bs-total-col" scope="col">T</th>
-              </tr></thead>
-              <tbody>
-                <tr>
-                  <td class="th-bs-team-name" style="color:${hcBoxscore}">${home.abbrev}</td>
-                  ${dashCols}
-                  <td class="th-bs-total">${home.score}</td>
-                </tr>
-                <tr>
-                  <td class="th-bs-team-name" style="color:${acBoxscore}">${away.abbrev}</td>
-                  ${dashCols}
-                  <td class="th-bs-total">${away.score}</td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="th-bs-pending">Per-period breakdown · coming in Layer 2.7</div>
-          </div>`;
-      }
+      // Box score is now integrated inside the left card (see leftCard construction above).
+      // No separate outer box score block.
 
       return `<section class="today-hero" data-sub-state="${subState}" data-game-id="${g.game_id}" aria-label="Featured game: ${away.abbrev} @ ${home.abbrev}">
         ${header}
         <div class="th-body">${leftCard}${rightCard}</div>
-        ${boxScoreHtml}
       </section>`;
     }
 
