@@ -33,6 +33,10 @@ import liveShootoutLongMockRaw from '../data/home-mock/live.shootout-long.json';
 import recapMockRaw from '../data/home-mock/recap.json';
 import tomorrowMockRaw from '../data/home-mock/tomorrow.json';
 import offseasonMockRaw from '../data/home-mock/offseason.json';
+// Layer 1.8: schedule.json drives auto-mode (TODAY/YESTERDAY/OFFSEASON detection).
+// Its variants (default/morning/afternoon/evening/night/yesterday/offseason) correspond
+// to real-world scoreboard states. The inline detectMode script picks 'today',
+// 'yesterday', or 'offseason' based on games[].length + previous_day.games[].length.
 import scheduleVariantsRaw from '../data/home-mock/schedule.json';
 
 import { parseLiveMockOrThrow } from '../lib/live-mock-schemas';
@@ -118,15 +122,18 @@ const playoffStripSOLong = liveShootoutLongMock.playoff_strip;
 const recapMock = parseRecapMockOrThrow(recapMockRaw, 'home-mock/recap.json');
 const recapPlayoffStrip = recapMock.playoff_strip;
 const tomorrowPlayoffStrip = tomorrowMock.playoff_strip;
+// Layer 1.8: TODAY mode has sub-states — live/pre/final sub-states reuse the
+// existing live + tomorrow eyebrows. YESTERDAY mode reuses the recap eyebrow.
 const liveEyebrow = liveMock.hero_eyebrow;
 const liveEyebrowSO = liveShootoutMock.hero_eyebrow;
 const liveEyebrowSOLong = liveShootoutLongMock.hero_eyebrow;
-const recapEyebrow = recapMock.hero_eyebrow;
-const tomorrowEyebrow = tomorrowMock.hero_eyebrow;
+const recapEyebrow = recapMock.hero_eyebrow;           // used for YESTERDAY mode
+const tomorrowEyebrow = tomorrowMock.hero_eyebrow;     // used for TODAY pre sub-state
 const offseasonEyebrow = offseasonMock.hero_eyebrow;
-const liveDate = liveMock.date_label;
-const recapDate = recapMock.date_label;
-const tomorrowDate = tomorrowMock.date_label;
+// Date labels — today/yesterday/offseason map to their respective mock sources.
+const todayDate = liveMock.date_label;    // live mock == "tonight" date label
+const yesterdayDate = recapMock.date_label;
+const tomorrowDate = tomorrowMock.date_label;           // TODAY pre sub-state label
 const offseasonDate = offseasonMock.date_label;
 
 // ── Recap-mode body data (existing logic — unchanged) ───────────────────
@@ -166,17 +173,17 @@ const gridSOLong = countByState(liveShootoutLongMock.games);
 
 const artifactsCount = (liveMock.live_moments ?? []).length;
 
-// Hero copy variants — eyebrow + h1 + sub vary by mode. All other modes
-// fall through to the existing default in PageHero.
+// Hero copy variants — eyebrow + h1 + sub vary by mode/sub-state.
 const offseasonHeroCopy = {
   eyebrow: offseasonMock.hero_eyebrow,
   title: 'Hockey returns Oct 8.',
   sub: "Until then — countdown, last season's wrap, and the moves shaping next year.",
 };
-const tomorrowHeroCopy = {
+// TODAY pre sub-state (was "tomorrow mode")
+const todayPreHeroCopy = {
   eyebrow: tomorrowMock.hero_eyebrow,
-  title: 'Tomorrow night, picked apart.',
-  sub: "Predictions, key matchups, milestone watches and the storylines we're tracking — refreshed at 4 AM ET.",
+  title: 'Tonight, picked apart.',
+  sub: "Predictions, key matchups, milestone watches and the storylines we're tracking — refreshed at 8 AM ET.",
 };
 
 // Inline data the head + body scripts need. Serialised as JSON-strings
@@ -186,7 +193,7 @@ const scheduleVariantsJson = JSON.stringify(scheduleVariants);
 const homeModesJson = JSON.stringify(HOME_MODES);
 ---
 <!DOCTYPE html>
-<html lang="en" data-home-mode="live" data-fixture="default">
+<html lang="en" data-home-mode="today" data-fixture="default" data-today-substate="live">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -196,18 +203,23 @@ const homeModesJson = JSON.stringify(HOME_MODES);
   <meta name="description" content="Rebuild preview of the HockeyGameBot home page. Not linked from the production scoreboard.">
 
   <!--
-    Mode swap (Layer 5 rewrite of the Layer 1 head script):
+    Mode swap (Layer 1.8 — collapsed from 4 to 3 modes):
 
     Resolution order (matches src/lib/auto-mode.ts/resolveMode):
       1. sessionStorage[hgb-mode-override] — sticky in-tab manual choice
       2. ?mode=<mode>                      — direct-link / share URL
-      3. detectMode(schedule, now)         — auto fallback (live | recap)
+      3. detectMode(schedule)              — auto fallback (today|yesterday|offseason)
 
     The schedule snapshot the resolver uses can be swapped via
-    `?schedule=morning|afternoon|evening|night|offseason` — falls back
+    `?schedule=morning|afternoon|evening|night|yesterday|offseason` — falls back
     to `default` when absent or unknown.
 
-    All four mode body sections render at build time; CSS rules below
+    New: for TODAY mode, data-today-substate is also stamped based on
+    the distribution of game_state values in games[]. The TODAY sections
+    in the body use [data-today-substate] CSS rules to show the right
+    sub-view (live | pre | final).
+
+    All mode body sections render at build time; CSS rules below
     show the active one only.
   -->
   <script is:inline define:vars={{ scheduleVariantsJson, homeModesJson }}>
@@ -220,32 +232,32 @@ const homeModesJson = JSON.stringify(HOME_MODES);
         var schedKey = params.get('schedule') || 'default';
         var schedule = variants[schedKey] || variants.default;
 
-        // Inline detectMode — keep this in sync with src/lib/auto-mode.ts.
-        // Pure JS so it can run before module hydration.
-        // Layer 1.5 (April 2026): scoreboard shape — top-level games[] (not
-        // today.games[]), field is game_state (not state), first_game_start_iso
-        // is derived from games[].map(g => g.start_time_utc) (not a precomputed field).
-        function detectMode(sched, now) {
-          var liveLike = ['live', 'intermission', 'shootout'];
+        // Inline detectMode — keep in sync with src/lib/auto-mode.ts.
+        // Layer 1.8: 3-rule collapse. `now` is no longer needed.
+        function detectMode(sched) {
           var games = (sched && sched.games) || [];
-          var states = games.map(function (g) { return g.game_state; });
-          var gamesCount = games.length;
-          for (var i = 0; i < states.length; i++) {
-            if (liveLike.indexOf(states[i]) !== -1) return 'live';
-          }
-          if (gamesCount > 0) {
-            var firstStart = Infinity;
-            for (var j = 0; j < games.length; j++) {
-              var t = games[j].start_time_utc ? Date.parse(games[j].start_time_utc) : NaN;
-              if (isFinite(t) && t < firstStart) firstStart = t;
-            }
-            if (isFinite(firstStart)) {
-              var windowOpens = firstStart - 60 * 60 * 1000;
-              var allFinal = states.every(function (s) { return s === 'final'; });
-              if (now.getTime() >= windowOpens && !allFinal) return 'live';
-            }
-          }
-          return 'recap';
+          var prevGames = (sched && sched.previous_day && sched.previous_day.games) || [];
+          if (games.length > 0) return 'today';
+          if (prevGames.length > 0) return 'yesterday';
+          return 'offseason';
+        }
+
+        // Compute TODAY sub-state for CSS gating of sub-views within today mode.
+        // live  — any game in {live, intermission, shootout} → live sub-state
+        // pre   — all games pre                             → pre sub-state
+        // final — all games final                           → final sub-state
+        // mixed — some live, some final, some pre           → live treatment
+        function detectTodaySubstate(sched) {
+          var games = (sched && sched.games) || [];
+          if (games.length === 0) return 'live'; // fallback — won't be shown
+          var liveLike = ['live', 'intermission', 'shootout'];
+          var hasLive = games.some(function (g) { return liveLike.indexOf(g.game_state) !== -1; });
+          if (hasLive) return 'live';
+          var allFinal = games.every(function (g) { return g.game_state === 'final'; });
+          if (allFinal) return 'final';
+          var allPre = games.every(function (g) { return g.game_state === 'pre'; });
+          if (allPre) return 'pre';
+          return 'live'; // mixed → live treatment
         }
 
         // 1. sessionStorage override
@@ -264,7 +276,7 @@ const homeModesJson = JSON.stringify(HOME_MODES);
             source = 'url';
           } else {
             // 3. Auto-detect
-            mode = detectMode(schedule, new Date());
+            mode = detectMode(schedule);
             source = 'auto';
           }
         }
@@ -272,6 +284,10 @@ const homeModesJson = JSON.stringify(HOME_MODES);
         document.documentElement.setAttribute('data-home-mode', mode);
         document.documentElement.setAttribute('data-mode-source', source);
         document.documentElement.setAttribute('data-schedule-variant', schedKey);
+
+        // TODAY sub-state stamp (only meaningful when mode === 'today').
+        var todaySubstate = detectTodaySubstate(schedule);
+        document.documentElement.setAttribute('data-today-substate', todaySubstate);
 
         // Fixture variant — unchanged from Layer 3.
         var fixture = params.get('fixture');
@@ -285,9 +301,10 @@ const homeModesJson = JSON.stringify(HOME_MODES);
           document.documentElement.setAttribute('data-strip-empty', '1');
         }
       } catch (e) {
-        document.documentElement.setAttribute('data-home-mode', 'live');
+        document.documentElement.setAttribute('data-home-mode', 'today');
         document.documentElement.setAttribute('data-mode-source', 'auto');
         document.documentElement.setAttribute('data-fixture', 'default');
+        document.documentElement.setAttribute('data-today-substate', 'live');
       }
     })();
   </script>
@@ -315,14 +332,24 @@ const homeModesJson = JSON.stringify(HOME_MODES);
 
     /* ── Mode-gated views ───────────────────────────────────────── */
     /*
-      Each [data-mode-view] block renders at build time and is hidden
-      via CSS when the active mode doesn't match. This keeps SSR clean
-      and avoids hydration flicker.
+      Layer 1.8: 3 top-level modes (today/yesterday/offseason). Each
+      [data-mode-view] block renders at build time and is hidden via CSS
+      when the active mode doesn't match. This keeps SSR clean and avoids
+      hydration flicker.
+
+      TODAY mode further gates sub-views via [data-today-substate] on <html>:
+        live  — games in-progress or mixed states
+        pre   — all games pre-game (slate written)
+        final — all games final
     */
-    html[data-home-mode="live"]      [data-mode-view]:not([data-mode-view~="live"])      { display: none; }
-    html[data-home-mode="recap"]     [data-mode-view]:not([data-mode-view~="recap"])     { display: none; }
-    html[data-home-mode="tomorrow"]  [data-mode-view]:not([data-mode-view~="tomorrow"])  { display: none; }
+    html[data-home-mode="today"]     [data-mode-view]:not([data-mode-view~="today"])     { display: none; }
+    html[data-home-mode="yesterday"] [data-mode-view]:not([data-mode-view~="yesterday"]) { display: none; }
     html[data-home-mode="offseason"] [data-mode-view]:not([data-mode-view~="offseason"]) { display: none; }
+
+    /* TODAY sub-state gating — within today mode, show only the matching sub-view */
+    html[data-home-mode="today"][data-today-substate="live"]  [data-today-view]:not([data-today-view~="live"])  { display: none; }
+    html[data-home-mode="today"][data-today-substate="pre"]   [data-today-view]:not([data-today-view~="pre"])   { display: none; }
+    html[data-home-mode="today"][data-today-substate="final"] [data-today-view]:not([data-today-view~="final"]) { display: none; }
 
     /* Playoff strip is hidden in offseason mode — handled via the same
        per-mode rules (the strip lives inside [data-mode-view] containers). */
@@ -438,64 +465,75 @@ const homeModesJson = JSON.stringify(HOME_MODES);
   </style>
 </head>
 <body class="hgb-site">
-  <Topbar active="scores" dateLabel={liveDate} />
+  <Topbar active="scores" dateLabel={todayDate} />
 
   <!--
-    Playoff strip — live + recap + tomorrow modes carry it; offseason
+    Playoff strip — today + yesterday modes carry it; offseason
     explicitly omits it (per spec: "no playoffs in offseason"). Each
     mode passes its own series array because round/series state evolves
     night-to-night.
+
+    Layer 1.8: TODAY mode shows the same strip across all sub-states
+    (live/pre/final all show tonight's series status). YESTERDAY mode
+    shows the recap strip.
   -->
   {playoffStrip && (
-    <div data-mode-view="live" data-fixture-view="default">
+    <div data-mode-view="today" data-fixture-view="default">
       <PlayoffStrip eyebrow={playoffStrip.eyebrow} series={playoffStrip.series} />
     </div>
   )}
   {playoffStripSO && (
-    <div data-mode-view="live" data-fixture-view="shootout">
+    <div data-mode-view="today" data-fixture-view="shootout">
       <PlayoffStrip eyebrow={playoffStripSO.eyebrow} series={playoffStripSO.series} />
     </div>
   )}
   {playoffStripSOLong && (
-    <div data-mode-view="live" data-fixture-view="shootout-long">
+    <div data-mode-view="today" data-fixture-view="shootout-long">
       <PlayoffStrip eyebrow={playoffStripSOLong.eyebrow} series={playoffStripSOLong.series} />
     </div>
   )}
   {recapPlayoffStrip && (
-    <div data-mode-view="recap">
+    <div data-mode-view="yesterday">
       <PlayoffStrip eyebrow={recapPlayoffStrip.eyebrow} series={recapPlayoffStrip.series} />
     </div>
   )}
   {tomorrowPlayoffStrip && (
-    <div data-mode-view="tomorrow">
+    <div data-mode-view="today" data-today-view="pre">
       <PlayoffStrip eyebrow={tomorrowPlayoffStrip.eyebrow} series={tomorrowPlayoffStrip.series} />
     </div>
   )}
 
   <main class="home-page">
     <!--
-      PageHero — eyebrow + h1 + sub vary by mode. Live + recap use the
-      page-default copy (same baseline as Layer 1). Tomorrow + offseason
-      get their own framing.
+      PageHero — eyebrow + h1 + sub vary by mode/sub-state.
+
+      Layer 1.8:
+        - TODAY mode live/final sub-states use the live eyebrow (fixtures)
+        - TODAY mode pre sub-state uses todayPreHeroCopy (was "tomorrow")
+        - YESTERDAY mode uses the recap eyebrow
+        - OFFSEASON uses its own copy
     -->
-    <div data-mode-view="live" data-fixture-view="default">
+    <div data-mode-view="today" data-today-view="live" data-fixture-view="default">
       <PageHero eyebrow={liveEyebrow} />
     </div>
-    <div data-mode-view="live" data-fixture-view="shootout">
+    <div data-mode-view="today" data-today-view="live" data-fixture-view="shootout">
       <PageHero eyebrow={liveEyebrowSO} />
     </div>
-    <div data-mode-view="live" data-fixture-view="shootout-long">
+    <div data-mode-view="today" data-today-view="live" data-fixture-view="shootout-long">
       <PageHero eyebrow={liveEyebrowSOLong} />
     </div>
-    <div data-mode-view="recap">
-      <PageHero eyebrow={recapEyebrow} />
+    <div data-mode-view="today" data-today-view="final">
+      <PageHero eyebrow={liveEyebrow} />
     </div>
-    <div data-mode-view="tomorrow">
+    <div data-mode-view="today" data-today-view="pre">
       <PageHero
-        eyebrow={tomorrowHeroCopy.eyebrow}
-        title={tomorrowHeroCopy.title}
-        sub={tomorrowHeroCopy.sub}
+        eyebrow={todayPreHeroCopy.eyebrow}
+        title={todayPreHeroCopy.title}
+        sub={todayPreHeroCopy.sub}
       />
+    </div>
+    <div data-mode-view="yesterday">
+      <PageHero eyebrow={recapEyebrow} />
     </div>
     <div data-mode-view="offseason">
       <PageHero
@@ -506,26 +544,28 @@ const homeModesJson = JSON.stringify(HOME_MODES);
     </div>
 
     <!--
-      ModeBar — Astro renders it once with `mode="live"` because the
+      ModeBar — Astro renders it once with `mode="today"` because the
       page is statically built. The page script below patches the active
       pill + telemetry source stamp after resolveMode() runs. This
-      avoids needing 4 ModeBar SSR copies.
+      avoids needing 3 ModeBar SSR copies.
     -->
-    <ModeBar mode="live" artifactsCount={artifactsCount} />
+    <ModeBar mode="today" artifactsCount={artifactsCount} />
 
     <!-- ════════════════════════════════════════════════════════════════
-         LIVE MODE (existing — unchanged structurally)
+         TODAY MODE — LIVE sub-state (any game in-progress or mixed)
+         Layer 1.8: data-mode-view="today" + data-today-view="live"
     ════════════════════════════════════════════════════════════════ -->
     <section
-      data-mode-view="live"
+      data-mode-view="today"
+      data-today-view="live final"
       data-fixture-view="default"
-      aria-label="Live view"
+      aria-label="Today's games — live view"
     >
       <LiveHero game={featured} />
       <LiveMomentStrip moments={liveMock.live_moments ?? []} />
 
       <div class="home-sec-h">
-        <h2>Tonight's Games</h2>
+        <h2>Today's Games</h2>
         <span class="count">
           {grid.total} games · {grid.live} live · {grid.final} final · {grid.pre} upcoming
         </span>
@@ -538,15 +578,16 @@ const homeModesJson = JSON.stringify(HOME_MODES);
     </section>
 
     <section
-      data-mode-view="live"
+      data-mode-view="today"
+      data-today-view="live final"
       data-fixture-view="shootout"
-      aria-label="Live view (shootout fixture)"
+      aria-label="Today's games — live view (shootout fixture)"
     >
       <LiveHero game={featuredSO} />
       <LiveMomentStrip moments={liveShootoutMock.live_moments ?? []} />
 
       <div class="home-sec-h">
-        <h2>Tonight's Games</h2>
+        <h2>Today's Games</h2>
         <span class="count">
           {gridSO.total} games · {gridSO.live} live · {gridSO.final} final · {gridSO.pre} upcoming
         </span>
@@ -559,15 +600,16 @@ const homeModesJson = JSON.stringify(HOME_MODES);
     </section>
 
     <section
-      data-mode-view="live"
+      data-mode-view="today"
+      data-today-view="live final"
       data-fixture-view="shootout-long"
-      aria-label="Live view (long shootout fixture)"
+      aria-label="Today's games — live view (long shootout fixture)"
     >
       <LiveHero game={featuredSOLong} />
       <LiveMomentStrip moments={liveShootoutLongMock.live_moments ?? []} />
 
       <div class="home-sec-h">
-        <h2>Tonight's Games</h2>
+        <h2>Today's Games</h2>
         <span class="count">
           {gridSOLong.total} games · {gridSOLong.live} live · {gridSOLong.final} final · {gridSOLong.pre} upcoming
         </span>
@@ -580,9 +622,10 @@ const homeModesJson = JSON.stringify(HOME_MODES);
     </section>
 
     <!-- ════════════════════════════════════════════════════════════════
-         RECAP MODE (existing — unchanged)
+         YESTERDAY MODE (was RECAP) — Layer 1.8
+         Same components, now wired to data-mode-view="yesterday"
     ════════════════════════════════════════════════════════════════ -->
-    <section data-mode-view="recap" aria-label="Recap view">
+    <section data-mode-view="yesterday" aria-label="Yesterday's recap view">
       <RecapHero
         game={recapMock.game_of_night}
         supporting={recapMock.supporting_hero ?? null}
@@ -612,17 +655,17 @@ const homeModesJson = JSON.stringify(HOME_MODES);
     </section>
 
     <!-- ════════════════════════════════════════════════════════════════
-         TOMORROW MODE (Layer 5 / Layer 5.9 polish)
+         TODAY MODE — PRE sub-state (was TOMORROW MODE, Layer 5 / Layer 5.9)
+         Shown when all games are pre-game and slate doc is available.
          Section order:
            1. TomorrowHero          — date + featured matchup
-           2. TomorrowSlateStrip    — all scheduled games, chip WP (chip-only, Layer 5.9)
-           3. Matchup previews wall — chip WP (finalized in Layer 5.9)
+           2. TomorrowSlateStrip    — all scheduled games, chip WP
+           3. Matchup previews wall — chip WP
            4. Model attribution footer
-           5. Storylines wall       — Hot/Cold/Milestone "could fire tomorrow"
-         Note: PredictionsGrid dropped in 5.7 — WP folded into matchup cards.
-               Variant A/B A/B compare dropped in 5.9 — chip selected.
+           5. Storylines wall       — Hot/Cold/Milestone "could fire tonight"
+         Layer 1.8: mode-view="today" + today-view="pre"
     ════════════════════════════════════════════════════════════════ -->
-    <section data-mode-view="tomorrow" aria-label="Tomorrow's slate view">
+    <section data-mode-view="today" data-today-view="pre" aria-label="Today's games — pre-game slate view">
       <TomorrowHero
         date_label={tomorrowMock.date_label}
         featured={tomorrowMock.featured_matchup}
@@ -643,7 +686,7 @@ const homeModesJson = JSON.stringify(HOME_MODES);
           </div>
 
           {/* ── Model attribution footer ─────────────────────────── */}
-          <p class="model-attribution">MODEL · BLENDED ELO + XG · UPDATED 6 AM ET</p>
+          <p class="model-attribution">MODEL · BLENDED ELO + XG · UPDATED 8 AM ET</p>
         </>
       )}
 
@@ -651,7 +694,7 @@ const homeModesJson = JSON.stringify(HOME_MODES);
         <>
           <div class="home-sec-h">
             <h2>Storylines to watch</h2>
-            <span class="count">{tomorrowMock.storylines.length} could fire tomorrow</span>
+            <span class="count">{tomorrowMock.storylines.length} could fire tonight</span>
           </div>
           <div class="home-wall">
             {tomorrowMock.storylines.map((s) => {
@@ -690,7 +733,7 @@ const homeModesJson = JSON.stringify(HOME_MODES);
       <footer class="oh-footer">
         <span class="oh-footer-tick" aria-hidden="true">▍</span>
         <span class="oh-footer-text">
-          We'll be back. <a href="?mode=live">Live mode →</a> when the puck drops.
+          We'll be back. <a href="?mode=today">Today's games →</a> when the puck drops.
         </span>
       </footer>
     </section>
@@ -742,20 +785,21 @@ const homeModesJson = JSON.stringify(HOME_MODES);
   </script>
 
   <!--
-    Page-level hydration script (Layer 5 rewrite of Layer 1 binding):
+    Page-level hydration script (Layer 1.8 update):
 
     1. Sync ModeBar pills + source stamp + reset button to the resolved
        mode + source attrs the head script wrote.
     2. Wire ModeBar pill clicks → setOverride() → reload.
     3. Wire ↻ AUTO reset button → clearOverride() → reload (drops
        ?mode= from URL on the way so auto-detect runs clean).
-    4. Topbar date pill swap (per-mode date label).
+    4. Topbar date pill swap (per-mode / sub-state date label).
     5. Hydrate the existing LiveHero stats carousel + goal-chip clamp
        (unchanged from Layer 1.9 / Layer 3).
   -->
-  <script is:inline define:vars={{ liveDate, recapDate, tomorrowDate, offseasonDate }}>
+  <script is:inline define:vars={{ todayDate, yesterdayDate, tomorrowDate, offseasonDate }}>
     (function () {
-      var mode = document.documentElement.getAttribute('data-home-mode') || 'live';
+      // Layer 1.8: 3 modes — today/yesterday/offseason
+      var mode = document.documentElement.getAttribute('data-home-mode') || 'today';
       var source = document.documentElement.getAttribute('data-mode-source') || 'auto';
 
       // ── ModeBar active pill ──────────────────────────────────────
@@ -820,13 +864,16 @@ const homeModesJson = JSON.stringify(HOME_MODES);
       }
 
       // ── Topbar date ──────────────────────────────────────────────
+      // Layer 1.8: today uses todayDate (live/final sub-states),
+      // pre sub-state uses tomorrowDate as "tonight" label.
       var dateEl = document.querySelector('.hgb-topbar .date');
       if (dateEl) {
+        var todaySubstate = document.documentElement.getAttribute('data-today-substate') || 'live';
         dateEl.textContent =
-          mode === 'recap'     ? recapDate
-        : mode === 'tomorrow'  ? tomorrowDate
-        : mode === 'offseason' ? offseasonDate
-        :                        liveDate;
+          mode === 'yesterday'  ? yesterdayDate
+        : mode === 'offseason'  ? offseasonDate
+        : (todaySubstate === 'pre') ? tomorrowDate
+        :                         todayDate;
       }
 
       // ── LiveHero stats carousel (unchanged from Layer 1.9) ──────

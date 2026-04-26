@@ -1,11 +1,16 @@
 /**
  * auto-mode.ts — client-side mode resolver for /home-v2 (SITE-HOME-05).
  *
- * Picks LIVE or RECAP based on time of day + tonight's schedule. TOMORROW
- * and OFFSEASON are ALWAYS manual-click — they never auto-default. This is
- * intentional: most fans want to know what's happening RIGHT NOW (live) or
- * what just happened (recap). Tomorrow + offseason are deliberate
- * "step out of tonight" destinations.
+ * Layer 1.8 (April 2026): collapsed from 4 modes (live/recap/tomorrow/offseason)
+ * to 3 modes (today/yesterday/offseason). The mode bar now reflects TIME (today
+ * vs yesterday vs offseason), NOT game state (live vs final). TODAY mode is a
+ * stateful canvas that internally adapts based on game data:
+ *
+ *   - Any live/intermission/shootout games → live sub-state hero
+ *   - All games final → recap wall sub-state
+ *   - All games pre (slate available) → preview + predictions sub-state
+ *   - All games pre (no slate yet) → schedule-only + "Predictions coming soon"
+ *   - Mixed states → live treatment (live games bubble to hero)
  *
  * Resolution order on every page load
  * -----------------------------------
@@ -15,7 +20,7 @@
  *      Order is: sessionStorage > URL param > auto-detect.
  *   2. sessionStorage[hgb-mode-override]  — sticky across reloads in-tab.
  *      Set when the user clicks a ModeBar pill. Cleared by clearOverride().
- *   3. detectMode(scheduleData, now)      — auto-default fallback.
+ *   3. detectMode(scoreboardData)         — auto-default fallback.
  *
  * Hockey-day boundary
  * -------------------
@@ -25,29 +30,20 @@
  * local on April 25, "today" is still April 24's slate. The Python
  * pipeline handles this when it produces the schedule mock.
  *
- * detectMode() rules — applied in order:
- *   1. Any game today is in {live, intermission, shootout} → 'live'
- *   2. Now ≥ first_game_start − 60min AND first game not yet final → 'live'
- *   3. All games today are final AND it's still hockey-today      → 'recap'
- *   4. We're in the early-morning "post-late-game" window         → 'recap'
- *   5. Otherwise (offseason, no games at all)                     → 'recap'
+ * detectMode() rules — applied in order (Layer 1.8):
+ *   1. today has games (any state) → 'today'
+ *   2. today empty AND yesterday has games → 'yesterday'
+ *   3. both empty → 'offseason'
  *
- * Why RECAP is the default offseason fallback (rule 5)
- * ----------------------------------------------------
- * Per the spec: even when there are no games today and no games yesterday,
- * RECAP shows "the most recent slate with games" (could be the Stanley Cup
- * Final wrap-up or last preseason game). The recap PAGE owns the
- * fallback-to-most-recent-slate logic; auto-mode just picks recap.
- *
- * `?mode=offseason` exists as a manual destination for the dedicated
- * "we're in the offseason" countdown page — that's a deliberate click,
- * not an auto-default.
+ * That's it. No 60-min-before-puck-drop flip — TODAY mode handles all
+ * sub-states internally. YESTERDAY and OFFSEASON are always reachable via
+ * manual ModeBar click.
  */
 
-export type HomeMode = 'live' | 'recap' | 'tomorrow' | 'offseason';
+export type HomeMode = 'today' | 'yesterday' | 'offseason';
 
-/** All four modes the resolver knows about. */
-export const HOME_MODES: ReadonlyArray<HomeMode> = ['live', 'recap', 'tomorrow', 'offseason'] as const;
+/** All three modes the resolver knows about. */
+export const HOME_MODES: ReadonlyArray<HomeMode> = ['today', 'yesterday', 'offseason'] as const;
 
 /** sessionStorage key used by the ModeBar override (read by /home-v2). */
 export const MODE_OVERRIDE_KEY = 'hgb-mode-override';
@@ -125,59 +121,29 @@ export interface Scoreboard {
 export type ScheduleSnapshot = Scoreboard;
 
 /**
- * Pure function — given a scoreboard and a `now` timestamp, return
- * the mode that auto-detection should default to.
+ * Pure function — given a scoreboard snapshot, return the mode that
+ * auto-detection should default to.
  *
- * Uses millisecond UTC math throughout so the function is timezone-
- * independent (the Worker is responsible for ET-aware disambiguation;
- * this function just compares two epoch values).
- *
- * The function never returns 'tomorrow' or 'offseason' — those are
- * manual-only destinations.
+ * Layer 1.8 (April 2026): simplified from 5 rules to 3. The `now`
+ * parameter is intentionally dropped — time-of-day no longer influences
+ * the mode; only the presence/absence of games does. TODAY mode is a
+ * stateful canvas that renders differently based on `games[].game_state`
+ * distribution (handled client-side in home-v2.astro).
  *
  * detectMode() rules:
- *   1. Any game in {live, intermission, shootout} → LIVE
- *   2. Now ≥ first puck − 60min AND first game not yet final → LIVE
- *   3. Otherwise → RECAP (recap page handles "no games today" fallback)
+ *   1. today has games (any state: pre/live/intermission/shootout/final) → 'today'
+ *   2. today empty AND previous_day has games → 'yesterday'
+ *   3. both empty (true offseason) → 'offseason'
  */
-export function detectMode(scoreboard: Scoreboard, now: Date): 'live' | 'recap' {
-  const games = scoreboard.games;
+export function detectMode(scoreboard: Scoreboard): 'today' | 'yesterday' | 'offseason' {
+  // Rule 1: any games today → TODAY (sub-state branching happens in the page layer).
+  if (scoreboard.games.length > 0) return 'today';
 
-  // Derive states array from the per-game array.
-  const states: AutoModeGameState[] = games.map(g => g.game_state);
-  const gamesCount = games.length;
+  // Rule 2: today empty but yesterday has games → YESTERDAY.
+  if (scoreboard.previous_day.games.length > 0) return 'yesterday';
 
-  // Rule 1: any game in-progress → LIVE (covers all states between puck
-  // drop and final horn, including overtime → shootout).
-  const liveLikeStates: ReadonlyArray<AutoModeGameState> = ['live', 'intermission', 'shootout'];
-  if (states.some(s => liveLikeStates.includes(s))) return 'live';
-
-  // Rule 2: pre-game window — first game starts ≤ 60 min from now AND
-  // games > 0 AND no game has reached final yet (allow scheduling overlap
-  // where game 1 is final but a later game is in pre-window).
-  //
-  // Layer 1.5: first_game_start_iso is now derived from games[] instead of
-  // being a precomputed field in the envelope. We take the minimum start_time_utc.
-  if (gamesCount > 0) {
-    let firstStartMs = Infinity;
-    for (const g of games) {
-      if (g.start_time_utc) {
-        const ms = Date.parse(g.start_time_utc);
-        if (Number.isFinite(ms) && ms < firstStartMs) firstStartMs = ms;
-      }
-    }
-    if (Number.isFinite(firstStartMs)) {
-      const windowOpensMs = firstStartMs - 60 * 60 * 1000;
-      const allFinal = states.every(s => s === 'final');
-      if (now.getTime() >= windowOpensMs && !allFinal) {
-        return 'live';
-      }
-    }
-  }
-
-  // Rule 3-5 collapse to RECAP. The recap page itself handles
-  // "no games today, fall back to most recent slate".
-  return 'recap';
+  // Rule 3: both empty → OFFSEASON.
+  return 'offseason';
 }
 
 /**
@@ -191,7 +157,8 @@ export interface ResolveModeContext {
   url: URL;
   /** Layer 1.5: Scoreboard (was ScheduleSnapshot). ScheduleSnapshot is now an alias. */
   schedule: Scoreboard;
-  now: Date;
+  /** Layer 1.8: `now` is no longer used by detectMode() — kept for API compatibility. */
+  now?: Date;
   /** Reads sessionStorage; injected for testability. */
   readOverride?: () => string | null;
 }
@@ -232,7 +199,7 @@ export function resolveMode(ctx: ResolveModeContext): ResolvedMode {
   }
 
   // 3. Auto-detect
-  return { mode: detectMode(ctx.schedule, ctx.now), source: 'auto' };
+  return { mode: detectMode(ctx.schedule), source: 'auto' };
 }
 
 function defaultOverrideReader(): string | null {
