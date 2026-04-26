@@ -30,9 +30,17 @@ import {
 export const GameStateSchema = z.enum(['pre', 'live', 'intermission', 'shootout', 'final']);
 export type GameState = z.infer<typeof GameStateSchema>;
 
-/** Strength state strings produced by hgb-bot. */
+/**
+ * Strength state strings produced by hgb-bot.
+ *
+ * New bot (rewrite): '5v5', '5v4', '4v5', etc.
+ * Old bot (production, transition): 'EV', 'PP', 'PK' — legacy strength codes.
+ * Both sets accepted for compatibility during the old→new bot migration.
+ */
 export const StrengthStateSchema = z.enum([
   '5v5', '5v4', '4v5', '5v3', '3v5', '4v4', '3v3', '6v5', '5v6', 'EN', 'SO', 'unknown',
+  // Legacy old-bot strength codes (kept for backward compat during migration):
+  'EV', 'PP', 'PK',
 ]);
 export type StrengthState = z.infer<typeof StrengthStateSchema>;
 
@@ -79,15 +87,35 @@ export const StatsSchema = z.object({
 });
 export type Stats = z.infer<typeof StatsSchema>;
 
-/** A single recent event entry (last_event or element of recent_events[]). */
+/**
+ * A single recent event entry (last_event or element of recent_events[]).
+ *
+ * Field compatibility notes (transition period):
+ *  - `description` vs `desc`: API currently uses both; schema accepts either.
+ *    `desc` is the compact form for recent_events[]; `description` for last_event.
+ *  - `time_ago`: optional/nullable — may be absent in older API responses.
+ *  - `occurred_at`: may appear instead of time_ago on last_event.
+ */
 export const EventSchema = z.object({
   type: z.string(),
-  description: z.string(),
-  time_ago: z.string().nullable(),
+  description: z.string().optional().default(''),
+  /** Compact form in recent_events[]. */
+  desc: z.string().optional(),
+  time_ago: z.string().nullable().optional(),
+  /** ISO timestamp — appears on last_event in current API. */
+  occurred_at: z.string().optional(),
   /** Only present in recent_events[]; absent on last_event. */
   period: z.number().int().nonnegative().nullable().optional(),
   time: z.string().nullable().optional(),
-});
+  /** 'at' field in recent_events[] — ISO timestamp variant. */
+  at: z.string().optional(),
+}).transform(d => ({
+  type: d.type,
+  description: d.description || d.desc || '',
+  time_ago: d.time_ago ?? d.occurred_at ?? null,
+  period: d.period ?? null,
+  time: d.time ?? null,
+}));
 export type ScoreboardEvent = z.infer<typeof EventSchema>;
 
 /**
