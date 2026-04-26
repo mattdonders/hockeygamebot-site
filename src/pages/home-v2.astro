@@ -40,7 +40,7 @@ import { parseRecapMockOrThrow } from '../lib/recap-mock-schemas';
 import {
   parseTomorrowMockOrThrow,
   parseOffseasonMockOrThrow,
-  parseScheduleVariantsOrThrow,
+  parseScoreboardVariantsOrThrow,
 } from '../lib/auto-mode-schemas';
 import { pickHero } from '../lib/excitement';
 import { HOME_MODES } from '../lib/auto-mode';
@@ -65,7 +65,7 @@ const offseasonMock = parseOffseasonMockOrThrow(
   offseasonMockRaw,
   'home-mock/offseason.json',
 );
-const scheduleVariants = parseScheduleVariantsOrThrow(
+const scheduleVariants = parseScoreboardVariantsOrThrow(
   scheduleVariantsRaw,
   'home-mock/schedule.json',
 );
@@ -222,24 +222,23 @@ const homeModesJson = JSON.stringify(HOME_MODES);
 
         // Inline detectMode — keep this in sync with src/lib/auto-mode.ts.
         // Pure JS so it can run before module hydration.
-        // Layer 1 (May 2026): snapshot now carries per-game array
-        // `today.games[]` with identity + state, instead of the old
-        // identity-less `today.games_states[]`. Derive states + count
-        // from the array; same rules below.
+        // Layer 1.5 (April 2026): scoreboard shape — top-level games[] (not
+        // today.games[]), field is game_state (not state), first_game_start_iso
+        // is derived from games[].map(g => g.start_time_utc) (not a precomputed field).
         function detectMode(sched, now) {
           var liveLike = ['live', 'intermission', 'shootout'];
-          var games = (sched && sched.today && sched.today.games) || [];
-          var states = games.map(function (g) { return g.state; });
+          var games = (sched && sched.games) || [];
+          var states = games.map(function (g) { return g.game_state; });
           var gamesCount = games.length;
           for (var i = 0; i < states.length; i++) {
             if (liveLike.indexOf(states[i]) !== -1) return 'live';
           }
-          if (
-            sched && sched.today &&
-            gamesCount > 0 &&
-            sched.today.first_game_start_iso
-          ) {
-            var firstStart = Date.parse(sched.today.first_game_start_iso);
+          if (gamesCount > 0) {
+            var firstStart = Infinity;
+            for (var j = 0; j < games.length; j++) {
+              var t = games[j].start_time_utc ? Date.parse(games[j].start_time_utc) : NaN;
+              if (isFinite(t) && t < firstStart) firstStart = t;
+            }
             if (isFinite(firstStart)) {
               var windowOpens = firstStart - 60 * 60 * 1000;
               var allFinal = states.every(function (s) { return s === 'final'; });

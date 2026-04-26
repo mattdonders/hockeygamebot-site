@@ -5,11 +5,14 @@
  * the JSON fixtures at build time so a typo or shape drift in any of the
  * mocks fails the build with a path-aware error.
  *
- * Cross-repo contract: when the Python pipeline ships, it produces JSON
- * matching these shapes. The "schedule snapshot" is the most likely first
- * production handoff — it's a tiny payload (today + yesterday game count
- * + first puck-drop) that Python computes once at the 6 AM ET rollover
- * and stores in KV / D1.
+ * Cross-repo contract: the Worker serves GET /v1/scoreboard producing JSON
+ * matching ScoreboardSchema. The site mock files in src/data/home-mock/ must
+ * also validate against this schema for build-time correctness guarantees.
+ *
+ * Layer 1.5 (April 2026): ScheduleSnapshotSchema replaced by ScoreboardSchema.
+ * The old `{today, yesterday}` envelope is superseded by `{date, games[],
+ * previous_day: {hockey_date, games[]}, cached}` — richer per-game shape,
+ * full previous_day data (no second fetch needed for RECAP mode).
  */
 
 import { z } from 'zod';
@@ -21,98 +24,140 @@ import {
   ArtifactGameSchema,
 } from './artifact-schemas';
 
-// ── Schedule snapshot — feeds detectMode() + slate strip live state ───────
+// ── Scoreboard schema — feeds detectMode() + slate strip + RECAP ──────────
 
-const AutoModeGameStateSchema = z.enum(['pre', 'live', 'intermission', 'shootout', 'final']);
+/** Site 5-state game vocabulary. */
+export const GameStateSchema = z.enum(['pre', 'live', 'intermission', 'shootout', 'final']);
+export type GameState = z.infer<typeof GameStateSchema>;
+
+/** Strength state strings produced by hgb-bot. */
+export const StrengthStateSchema = z.enum([
+  '5v5', '5v4', '4v5', '5v3', '3v5', '4v4', '3v3', '6v5', '5v6', 'EN', 'SO', 'unknown',
+]);
+export type StrengthState = z.infer<typeof StrengthStateSchema>;
+
+/** Home/away numeric pair — used for shots, xG, and win probability stats. */
+export const MetricPairSchema = z.object({
+  home: z.number().nullable(),
+  away: z.number().nullable(),
+});
+export type MetricPair = z.infer<typeof MetricPairSchema>;
+
+/** Team info with current score. */
+export const TeamSchema = z.object({
+  id: z.number().int().nonnegative(),
+  abbrev: z.string().min(2).max(4),
+  name: z.string().min(1),
+  short_name: z.string().min(1),
+  score: z.number().int().nonnegative(),
+});
+export type Team = z.infer<typeof TeamSchema>;
+
+/** Clock state — period, time, intermission flag, server timestamp. */
+export const ClockSchema = z.object({
+  /** null when game_state is 'pre' or 'final'. */
+  period: z.number().int().nonnegative().nullable(),
+  /** 'MM:SS'; '00:00' for final; null for pre/intermission. */
+  time_remaining: z.string().nullable(),
+  in_intermission: z.boolean(),
+  /** ISO timestamp when the clock snapshot was captured (for client-side countdown). null when not live. */
+  clock_at: z.string().nullable(),
+});
+export type Clock = z.infer<typeof ClockSchema>;
+
+/** Live game stats — all metrics null for pre-game. */
+export const StatsSchema = z.object({
+  shots_on_goal: MetricPairSchema,
+  xg: MetricPairSchema,
+  xg_5v5: MetricPairSchema,
+  win_probability: MetricPairSchema,
+});
+export type Stats = z.infer<typeof StatsSchema>;
+
+/** A single recent event entry (last_event or element of recent_events[]). */
+export const EventSchema = z.object({
+  type: z.string(),
+  description: z.string(),
+  time_ago: z.string().nullable(),
+  /** Only present in recent_events[]; absent on last_event. */
+  period: z.number().int().nonnegative().nullable().optional(),
+  time: z.string().nullable().optional(),
+});
+export type ScoreboardEvent = z.infer<typeof EventSchema>;
 
 /**
- * Per-game live state — one entry per game on today's slate.
- *
- * Layer 1 (May 2026) replaced the old identity-less `games_states[]` array
- * with this richer per-game shape. The slate strip needs to match snapshot
- * data to slate tiles by `game_id` (an identity-less array can't do that),
- * so the snapshot now carries identity + scores + clock per game.
- *
- * `detectMode()` derives its old `games_states` view via
- * `today.games.map(g => g.state)` — same logic, slightly different access.
+ * Full per-game scoreboard shape — returned in both games[] and
+ * previous_day.games[]. This is the LOCKED schema from Layer 1.5.
  *
  * Field semantics:
- *  - `game_id`        — string (playoff IDs may have season encoding;
- *                       always store as string to avoid JS Number precision
- *                       issues on long IDs).
- *  - `state`          — site 5-state vocab (pre/live/intermission/shootout/final).
- *  - `home_score` /
- *    `away_score`     — 0 when state === 'pre'.
- *  - `period`         — null when state === 'pre' or 'final'.
- *  - `time_remaining` — 'MM:SS' format; null when not in active period
- *                       (pre-game, final, intermission).
- *  - `start_time_utc` — ISO; useful for sorting + countdown to first puck.
+ *  - `game_state`      — 5-state site vocab (pre/live/intermission/shootout/final)
+ *  - `strength_state`  — top-level, NOT nested inside clock
+ *  - `stats.*`         — all metrics use {home, away} shape; null pair for pre
+ *  - `win_probability` — home-relative float, converted to {home, away} by Worker
+ *  - `previous_day`    — semantically "date − 1 day", not "yesterday"
  */
-const GameLiveStateSchema = z.object({
+export const ScoreboardGameSchema = z.object({
   game_id: z.string().min(1),
-  state: AutoModeGameStateSchema,
-  home_team_id: z.number().int().nonnegative(),
-  away_team_id: z.number().int().nonnegative(),
-  home_score: z.number().int().nonnegative(),
-  away_score: z.number().int().nonnegative(),
-  period: z.number().int().nonnegative().nullable(),
-  time_remaining: z.string().nullable(),
-  start_time_utc: z.string().datetime(),
+  game_state: GameStateSchema,
+  strength_state: StrengthStateSchema.nullable(),
+  venue: z.string().nullable(),
+  start_time_utc: z.string().datetime().nullable(),
+  home_team: TeamSchema,
+  away_team: TeamSchema,
+  clock: ClockSchema,
+  stats: StatsSchema,
+  last_event: EventSchema.nullable(),
+  recent_events: z.array(EventSchema).max(5),
+  three_stars: z.array(z.record(z.string(), z.unknown())).nullable(),
 });
-export type GameLiveState = z.infer<typeof GameLiveStateSchema>;
+export type ScoreboardGame = z.infer<typeof ScoreboardGameSchema>;
 
-const ScheduleTodaySchema = z.object({
+/** The previous_day block — full game data for the calendar day before the requested date. */
+const ScoreboardPreviousDaySchema = z.object({
   hockey_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  /**
-   * `null` is meaningful (offseason / no games). The schema rejects
-   * arbitrary strings here so a Python bug emitting "" instead of null
-   * fails the build instead of silently triggering "no first game" code
-   * paths at runtime.
-   */
-  first_game_start_iso: z.string().datetime().nullable(),
-  /**
-   * Per-game array — identity + state + live scores. `games_count` is
-   * derivable from `games.length`; intentionally NOT stored as a
-   * separate field to avoid two sources of truth that can drift.
-   */
-  games: z.array(GameLiveStateSchema),
+  /** FULL game shape — not a count. RECAP mode hydrates from this without a second fetch. */
+  games: z.array(ScoreboardGameSchema),
 });
-
-const ScheduleYesterdaySchema = z.object({
-  hockey_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  /**
-   * Yesterday is count-only — the site's RECAP page reads its own slate
-   * from a different source. The snapshot just needs "did anything happen
-   * yesterday?" for the early-morning RECAP rollover decision.
-   */
-  games_count: z.number().int().nonnegative(),
-});
-
-export const ScheduleSnapshotSchema = z.object({
-  today: ScheduleTodaySchema,
-  yesterday: ScheduleYesterdaySchema,
-});
-export type ScheduleSnapshotMock = z.infer<typeof ScheduleSnapshotSchema>;
 
 /**
- * Multi-variant schedule mock — one root keyed by scenario name. The
+ * Root scoreboard envelope — response shape of GET /v1/scoreboard.
+ *
+ * `detectMode()` uses:
+ *   - `games.map(g => g.game_state)` — for today's active states
+ *   - `games.length` — for today's game count
+ *   - `Math.min(...games.map(g => Date.parse(g.start_time_utc)))` — for first puck
+ *   - `previous_day.games.length` — for "anything yesterday?" RECAP rollover
+ */
+export const ScoreboardSchema = z.object({
+  /** Hockey date for this scoreboard (YYYY-MM-DD). */
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** All games on this hockey date. Empty array when no games scheduled. */
+  games: z.array(ScoreboardGameSchema),
+  previous_day: ScoreboardPreviousDaySchema,
+  /** True when data was served from games_cache; false when cache was empty. */
+  cached: z.boolean(),
+});
+export type Scoreboard = z.infer<typeof ScoreboardSchema>;
+
+/**
+ * Multi-variant scoreboard mock — one root keyed by scenario name. The
  * /home-v2 page reads `?schedule=morning|afternoon|evening|night|offseason`
  * and picks the matching variant. Default = `default`.
  *
  * Allowing extra keys via `.passthrough()` so we can add more scenarios
  * without bumping the schema (e.g. `playoff-clincher-night`).
  */
-export const ScheduleVariantsSchema = z
+export const ScoreboardVariantsSchema = z
   .object({
-    default: ScheduleSnapshotSchema,
-    morning: ScheduleSnapshotSchema.optional(),
-    afternoon: ScheduleSnapshotSchema.optional(),
-    evening: ScheduleSnapshotSchema.optional(),
-    night: ScheduleSnapshotSchema.optional(),
-    offseason: ScheduleSnapshotSchema.optional(),
+    default: ScoreboardSchema,
+    morning: ScoreboardSchema.optional(),
+    afternoon: ScoreboardSchema.optional(),
+    evening: ScoreboardSchema.optional(),
+    night: ScoreboardSchema.optional(),
+    offseason: ScoreboardSchema.optional(),
   })
   .passthrough();
-export type ScheduleVariants = z.infer<typeof ScheduleVariantsSchema>;
+export type ScoreboardVariants = z.infer<typeof ScoreboardVariantsSchema>;
 
 // ── Playoff strip (mirror of live/recap mocks) ─────────────────────────────
 
@@ -293,12 +338,22 @@ function formatIssues(issues: z.ZodIssue[]): string {
   return lines.join('\n') + more;
 }
 
-export function parseScheduleVariantsOrThrow(data: unknown, sourceLabel: string): ScheduleVariants {
-  const result = ScheduleVariantsSchema.safeParse(data);
+export function parseScoreboardVariantsOrThrow(data: unknown, sourceLabel: string): ScoreboardVariants {
+  const result = ScoreboardVariantsSchema.safeParse(data);
   if (result.success) return result.data;
   throw new Error(
     `[auto-mode-schemas] ${sourceLabel} failed runtime validation:\n${formatIssues(result.error.issues)}`,
   );
+}
+
+/**
+ * @deprecated Use parseScoreboardVariantsOrThrow — ScheduleVariants was the Layer 1 name.
+ * Kept as alias during the transition so callers that haven't migrated yet don't break the build.
+ */
+export const ScheduleVariantsSchema = ScoreboardVariantsSchema;
+export type ScheduleVariants = ScoreboardVariants;
+export function parseScheduleVariantsOrThrow(data: unknown, sourceLabel: string): ScoreboardVariants {
+  return parseScoreboardVariantsOrThrow(data, sourceLabel);
 }
 
 export function parseTomorrowMockOrThrow(data: unknown, sourceLabel: string): TomorrowMock {
