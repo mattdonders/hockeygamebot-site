@@ -154,6 +154,8 @@ export const ScoreboardVariantsSchema = z
     afternoon: ScoreboardSchema.optional(),
     evening: ScoreboardSchema.optional(),
     night: ScoreboardSchema.optional(),
+    /** Layer 1.8: today empty + previous_day has games → auto-triggers YESTERDAY mode. */
+    yesterday: ScoreboardSchema.optional(),
     offseason: ScoreboardSchema.optional(),
   })
   .passthrough();
