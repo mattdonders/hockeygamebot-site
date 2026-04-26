@@ -604,8 +604,13 @@ function buildGameTileProps(g: ScoreboardGame) {
   };
 }
 
-// Real game tiles for live/final grid — all today's games from scoreboard.
-const realGameTiles = realScoreboard?.games.map(buildGameTileProps) ?? [];
+// Real game tiles for live/final grid — excludes the hero game to avoid
+// showing the same game twice (hero + first grid tile). The hero game ID
+// is re-computed on each hydration poll so this filter stays in sync.
+const heroGameId = heroPick23?.game?.game_id ?? null;
+const realGameTiles = (realScoreboard?.games ?? [])
+  .filter(g => g.game_id !== heroGameId)
+  .map(buildGameTileProps);
 
 // ── Layer 2.5: YESTERDAY mode — previous_day game tiles ───────────────────
 // Build final-score tiles from scoreboard.previous_day.games.
@@ -1127,30 +1132,33 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
       data-mode-view="today"
       data-today-view="live final"
       aria-label="Today's games — live/final view"
+      id="today-games-section"
     >
-      {/* Real games grid — all today's games from /v1/scoreboard */}
-      {realGameTiles.length > 0 ? (
-        <>
-          <div class="home-sec-h">
-            <h2>Today's Games</h2>
-            <span class="count">
-              {realGameTiles.length} game{realGameTiles.length !== 1 ? 's' : ''} ·{' '}
-              {realGameTiles.filter(t => t.state === 'live' || t.state === 'intermission').length} live ·{' '}
-              {realGameTiles.filter(t => t.state === 'final').length} final ·{' '}
-              {realGameTiles.filter(t => t.state === 'pre').length} upcoming
-            </span>
+      {/* Real games grid — today's games from /v1/scoreboard, hero excluded */}
+      <div id="today-games-mount">
+        {realGameTiles.length > 0 ? (
+          <>
+            <div class="home-sec-h">
+              <h2>Today's Games</h2>
+              <span class="count">
+                {realGameTiles.length} game{realGameTiles.length !== 1 ? 's' : ''} ·{' '}
+                {realGameTiles.filter(t => t.state === 'live' || t.state === 'intermission').length} live ·{' '}
+                {realGameTiles.filter(t => t.state === 'final').length} final ·{' '}
+                {realGameTiles.filter(t => t.state === 'pre').length} upcoming
+              </span>
+            </div>
+            <div class="home-grid" id="today-games-grid">
+              {realGameTiles.map(props => (
+                <GameTile {...props} />
+              ))}
+            </div>
+          </>
+        ) : (
+          <div class="hv2-placeholder" style="margin-top:24px">
+            <span>No game data available</span>
           </div>
-          <div class="home-grid">
-            {realGameTiles.map(props => (
-              <GameTile {...props} />
-            ))}
-          </div>
-        </>
-      ) : (
-        <div class="hv2-placeholder" style="margin-top:24px">
-          <span>No game data available</span>
-        </div>
-      )}
+        )}
+      </div>
     </section>
 
     <!-- ════════════════════════════════════════════════════════════════
