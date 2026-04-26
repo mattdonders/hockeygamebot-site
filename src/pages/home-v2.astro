@@ -1172,30 +1172,32 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
          into daily_slate. For v1, we show real final scores only.
     ════════════════════════════════════════════════════════════════ -->
     <section data-mode-view="yesterday" aria-label="Yesterday's recap view">
-      {previousDayTiles.length > 0 ? (
-        <>
-          <div class="home-sec-h">
-            <h2>Final Scores</h2>
-            <span class="count">
-              {previousDayTiles.length} game{previousDayTiles.length !== 1 ? 's' : ''} · {previousDayDateLabel}
-            </span>
-          </div>
-          <div class="home-grid">
-            {previousDayTiles.map(props => (
-              <GameTile {...props} />
-            ))}
-          </div>
-          <div class="hv2-placeholder" style="margin-top:24px;min-height:100px">
-            <span>Full game recap · coming in a future update</span>
-          </div>
-        </>
-      ) : (
-        <>
-          <div class="hv2-placeholder" style="margin-top:24px">
-            <span>No games played yesterday</span>
-          </div>
-        </>
-      )}
+      <div id="yesterday-games-mount">
+        {previousDayTiles.length > 0 ? (
+          <>
+            <div class="home-sec-h">
+              <h2>Final Scores</h2>
+              <span class="count">
+                {previousDayTiles.length} game{previousDayTiles.length !== 1 ? 's' : ''} · {previousDayDateLabel}
+              </span>
+            </div>
+            <div class="home-grid">
+              {previousDayTiles.map(props => (
+                <GameTile {...props} />
+              ))}
+            </div>
+            <div class="hv2-placeholder" style="margin-top:24px;min-height:100px">
+              <span>Full game recap · coming in a future update</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div class="hv2-placeholder" style="margin-top:24px">
+              <span>No games played yesterday</span>
+            </div>
+          </>
+        )}
+      </div>
     </section>
 
     <!-- ════════════════════════════════════════════════════════════════
@@ -1686,6 +1688,150 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
       return l < 0.15 ? colors[1] : primary;
     }
 
+    // ── Render a single GameTile as HTML string ───────────────────
+    // Minimal version: mimics buildGameTileProps + GameTile markup.
+    // Used for hydration updates to the yesterday and today grids.
+    function renderGameTileHtml(g) {
+      const gs = g.game_state;
+      const isLive = gs === 'live' || gs === 'intermission' || gs === 'shootout';
+      const isFinal = gs === 'final';
+      const tileState =
+        gs === 'intermission' ? 'intermission'
+        : gs === 'shootout' ? 'live'
+        : gs === 'final' ? 'final'
+        : gs === 'live' ? 'live' : 'pre';
+      const period = g.clock.period ?? null;
+      const timeR = g.clock.time_remaining ?? '';
+      const inInt = g.clock.in_intermission ?? false;
+
+      // State badge
+      let stateBadge = '';
+      let stateClass = `gc-state state-${tileState}`;
+      if (tileState === 'live' || tileState === 'intermission') {
+        const p = period ? `P${period}` : 'Live';
+        const cl = timeR ? ` · ${timeR}` : '';
+        const badge = inInt ? `INT · P${period}` : (timeR ? `Live · ${p}${cl}` : `Live · ${p}`);
+        stateBadge = badge;
+        stateClass = 'gc-state state-live';
+      } else if (tileState === 'final') {
+        stateBadge = 'Final';
+      } else {
+        stateBadge = fmtStartTimeET(g.start_time_utc) || 'Tonight';
+        stateClass = 'gc-state state-pre';
+      }
+
+      const hScore = (isLive || isFinal) ? g.home_team.score : '—';
+      const aScore = (isLive || isFinal) ? g.away_team.score : '—';
+      const hSog = g.stats.shots_on_goal.home ?? '—';
+      const aSog = g.stats.shots_on_goal.away ?? '—';
+      const hXg = g.stats.xg_5v5.home !== null ? g.stats.xg_5v5.home.toFixed(2) : '—';
+      const aXg = g.stats.xg_5v5.away !== null ? g.stats.xg_5v5.away.toFixed(2) : '—';
+
+      const showFinal = tileState === 'final' || tileState === 'ot';
+      const hLoses = showFinal && (g.home_team.score ?? 0) < (g.away_team.score ?? 0);
+      const aLoses = showFinal && (g.away_team.score ?? 0) < (g.home_team.score ?? 0);
+
+      // WP bar for LIVE only (same source as hero)
+      const wp = g.stats.win_probability;
+      let wpBarHtml = '';
+      if (isLive && (wp.home !== null || wp.away !== null)) {
+        const [wpl, wpr] = (() => {
+          const av = wp.home ?? 0, bv = wp.away ?? 0, sum = av + bv;
+          if (sum <= 0) return [50, 50];
+          return [(av/sum)*100, (bv/sum)*100];
+        })();
+        const wplr = Math.round(wpl);
+        const wprr = 100 - wplr;
+        const hWins = wplr > wprr;
+        const aWins = wprr > wplr;
+        const hc = pickTeamColor(g.home_team.abbrev);
+        const ac = pickTeamColor(g.away_team.abbrev);
+        wpBarHtml = `
+          <div class="gc-xgbar ${isLive && tileState !== 'final' ? '' : 'is-pre'}">
+            <span class="gc-xgbar__side side-home ${hWins ? 'lead' : ''}">
+              <span class="abbr">${g.home_team.abbrev}</span>
+              <span class="pct">${wplr}%</span>
+            </span>
+            <div class="track" aria-hidden="true">
+              <div class="a" style="width:${wpl}%;background:${hc}"></div>
+              <div class="b" style="width:${wpr}%;background:${ac}"></div>
+            </div>
+            <span class="gc-xgbar__side side-away ${aWins ? 'lead' : ''}">
+              <span class="pct">${wprr}%</span>
+              <span class="abbr">${g.away_team.abbrev}</span>
+            </span>
+          </div>`;
+      }
+
+      const logoBase = 'https://assets.nhle.com/logos/nhl/svg';
+      return `
+        <article class="gc gc--${tileState}" data-layer3-hook="open-game-modal" data-game-id="${g.game_id}">
+          <div class="gc-top">
+            <span class="gc-top-l">${g.venue || ' '}</span>
+            <span class="${stateClass}"><span class="gc-dot" aria-hidden="true"></span>${stateBadge}</span>
+          </div>
+          <div class="gc-colhead">
+            <span>Team</span>
+            <span class="c">G</span>
+            <span class="c">${tileState === 'pre' ? 'W%' : 'SOG'}</span>
+            <span class="c">${tileState === 'pre' ? 'xG/G' : '5V5 xG'}</span>
+          </div>
+          <div class="gc-row${hLoses ? ' loser' : ''}">
+            <div class="gc-tm">
+              <img src="${logoBase}/${g.home_team.abbrev}_dark.svg" width="34" height="34" alt="${g.home_team.abbrev}" loading="lazy" style="flex:none" />
+              <div class="gc-tm-tl">
+                <span class="gc-abbr">${g.home_team.abbrev}</span>
+              </div>
+            </div>
+            <span class="gc-sc">${hScore}</span>
+            <span class="gc-sog">${hSog}</span>
+            <span class="gc-xg">${hXg}</span>
+          </div>
+          <div class="gc-row${aLoses ? ' loser' : ''}">
+            <div class="gc-tm">
+              <img src="${logoBase}/${g.away_team.abbrev}_dark.svg" width="34" height="34" alt="${g.away_team.abbrev}" loading="lazy" style="flex:none" />
+              <div class="gc-tm-tl">
+                <span class="gc-abbr">${g.away_team.abbrev}</span>
+              </div>
+            </div>
+            <span class="gc-sc">${aScore}</span>
+            <span class="gc-sog">${aSog}</span>
+            <span class="gc-xg">${aXg}</span>
+          </div>
+          ${wpBarHtml}
+        </article>`;
+    }
+
+    // ── Render yesterday games HTML ───────────────────────────────
+    function renderYesterdayHtml(scoreboard) {
+      const pdGames = (scoreboard.previous_day && scoreboard.previous_day.games) || [];
+      if (pdGames.length === 0) {
+        return `<div class="hv2-placeholder" style="margin-top:24px"><span>No games played yesterday</span></div>`;
+      }
+      const pd = scoreboard.previous_day;
+      let dateLabel = 'Yesterday';
+      try {
+        const d = new Date(pd.hockey_date + 'T12:00:00Z');
+        const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase();
+        dateLabel = `${month} ${d.getUTCDate()}`;
+      } catch (e) { /* use fallback */ }
+
+      const tilesHtml = pdGames
+        .map(g => renderGameTileHtml(g))
+        .join('');
+      const count = pdGames.length;
+
+      return `
+        <div class="home-sec-h">
+          <h2>Final Scores</h2>
+          <span class="count">${count} game${count !== 1 ? 's' : ''} · ${dateLabel}</span>
+        </div>
+        <div class="home-grid">${tilesHtml}</div>
+        <div class="hv2-placeholder" style="margin-top:24px;min-height:100px">
+          <span>Full game recap · coming in a future update</span>
+        </div>`;
+    }
+
     // ── Render hero HTML ──────────────────────────────────────────
     function renderHeroHtml(scoreboard, slate) {
       const pick = pickHeroGame(scoreboard, slate, window._hgbHeroId || null);
@@ -1990,7 +2136,7 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
       if (mode === 'today') {
         updateSubState(scoreboard.games);
       }
-      // 2. Re-render TodayHero if in today mode + pre sub-state (or live)
+      // 2. Re-render TodayHero if in today mode
       const mount = document.getElementById('today-hero-mount');
       if (mount && mode === 'today') {
         const html = renderHeroHtml(scoreboard, _currentSlate);
@@ -1999,7 +2145,15 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
           wireCountdown();
         }
       }
-      // 3. Update stamp
+      // 3. Update YESTERDAY mode when previous_day data is populated.
+      // This keeps the yesterday grid live without requiring a CF Pages rebuild
+      // after the bot seeds previous_day data mid-day (e.g. noon recap seeding).
+      const ydMount = document.getElementById('yesterday-games-mount');
+      if (ydMount && mode === 'yesterday') {
+        const html = renderYesterdayHtml(scoreboard);
+        ydMount.innerHTML = html;
+      }
+      // 4. Update stamp
       const stamp = document.getElementById('hgb-hydration-stamp');
       if (stamp) stamp.textContent = 'Updated just now';
     }
@@ -2023,9 +2177,11 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
       console.warn('[hydration] Bootstrap parse error:', e);
     }
 
-    // ── Start the loop (only in today mode, or when mode changes) ─
+    // ── Start the loop (today + yesterday modes both poll for updates) ─
+    // YESTERDAY mode polls so that previous_day data can populate in place
+    // when the bot seeds it mid-day — no CF Pages rebuild required.
     const currentMode = document.documentElement.getAttribute('data-home-mode');
-    if (currentMode === 'today') {
+    if (currentMode === 'today' || currentMode === 'yesterday') {
       startHydrationLoop({ onScoreboardUpdate, onSlateUpdate });
     }
   </script>
