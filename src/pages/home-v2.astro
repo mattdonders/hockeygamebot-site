@@ -1731,8 +1731,9 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
       const hLoses = showFinal && (g.home_team.score ?? 0) < (g.away_team.score ?? 0);
       const aLoses = showFinal && (g.away_team.score ?? 0) < (g.home_team.score ?? 0);
 
-      // WP bar for LIVE only (same source as hero)
+      // Stat bar — WP for LIVE, total xG for FINAL (shows who dominated)
       const wp = g.stats.win_probability;
+      const xgAll = g.stats.xg;
       let wpBarHtml = '';
       if (isLive && (wp.home !== null || wp.away !== null)) {
         const [wpl, wpr] = (() => {
@@ -1747,7 +1748,7 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
         const hc = pickTeamColor(g.home_team.abbrev);
         const ac = pickTeamColor(g.away_team.abbrev);
         wpBarHtml = `
-          <div class="gc-xgbar ${isLive && tileState !== 'final' ? '' : 'is-pre'}">
+          <div class="gc-xgbar">
             <span class="gc-xgbar__side side-home ${hWins ? 'lead' : ''}">
               <span class="abbr">${g.home_team.abbrev}</span>
               <span class="pct">${wplr}%</span>
@@ -1758,6 +1759,31 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
             </div>
             <span class="gc-xgbar__side side-away ${aWins ? 'lead' : ''}">
               <span class="pct">${wprr}%</span>
+              <span class="abbr">${g.away_team.abbrev}</span>
+            </span>
+          </div>`;
+      } else if (isFinal && (xgAll.home !== null || xgAll.away !== null)) {
+        const hXgV = xgAll.home ?? 0, aXgV = xgAll.away ?? 0;
+        const xgSum = hXgV + aXgV;
+        const [xgl, xgr] = xgSum > 0 ? [(hXgV/xgSum)*100, (aXgV/xgSum)*100] : [50, 50];
+        const xglr = Math.round(xgl);
+        const xgrr = 100 - xglr;
+        const hDom = xglr > xgrr;
+        const aDom = xgrr > xglr;
+        const hc = pickTeamColor(g.home_team.abbrev);
+        const ac = pickTeamColor(g.away_team.abbrev);
+        wpBarHtml = `
+          <div class="gc-xgbar">
+            <span class="gc-xgbar__side side-home ${hDom ? 'lead' : ''}">
+              <span class="abbr">${g.home_team.abbrev}</span>
+              <span class="pct">${hXgV.toFixed(1)} xG</span>
+            </span>
+            <div class="track" aria-hidden="true">
+              <div class="a" style="width:${xgl}%;background:${hc}"></div>
+              <div class="b" style="width:${xgr}%;background:${ac}"></div>
+            </div>
+            <span class="gc-xgbar__side side-away ${aDom ? 'lead' : ''}">
+              <span class="pct">${aXgV.toFixed(1)} xG</span>
               <span class="abbr">${g.away_team.abbrev}</span>
             </span>
           </div>`;
@@ -1960,22 +1986,25 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
             </table>
           </div>`;
 
+        const logoSize = subState === 'live' ? 60 : 56;
         leftCard = `
           <div class="th-card th-card--left ${subState === 'live' ? 'th-card--live' : 'th-card--final'}">
             ${finalBadge}
-            <div class="th-scoreboard">
-              <div class="th-sb-team th-sb-team--home${homeLoser ? ' loser' : ''}">
-                <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="52" height="52" alt="${home.abbrev}" loading="lazy" class="team-logo" style="--logo-size:52px" />
-                <span class="th-sb-abbr">${home.abbrev}</span>
+            <div class="th-score-row">
+              <div class="th-team-score${homeLoser ? ' loser' : ''}">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="${logoSize}" height="${logoSize}" alt="${home.abbrev}" loading="lazy" class="team-logo" style="--logo-size:${logoSize}px;flex:none" />
+                <div class="th-team-info">
+                  <span class="th-team-abbr">${home.abbrev}</span>
+                </div>
+                <span class="th-score-num">${home.score}</span>
               </div>
-              <div class="th-sb-scores">
-                <span class="th-sb-num${homeLoser ? ' loser' : ''}">${home.score}</span>
-                <span class="th-sb-sep">·</span>
-                <span class="th-sb-num${awayLoser ? ' loser' : ''}">${away.score}</span>
-              </div>
-              <div class="th-sb-team th-sb-team--away${awayLoser ? ' loser' : ''}">
-                <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="52" height="52" alt="${away.abbrev}" loading="lazy" class="team-logo" style="--logo-size:52px" />
-                <span class="th-sb-abbr">${away.abbrev}</span>
+              <div class="th-score-sep">·</div>
+              <div class="th-team-score th-team-score--right${awayLoser ? ' loser' : ''}">
+                <span class="th-score-num">${away.score}</span>
+                <div class="th-team-info th-team-info--right">
+                  <span class="th-team-abbr">${away.abbrev}</span>
+                </div>
+                <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="${logoSize}" height="${logoSize}" alt="${away.abbrev}" loading="lazy" class="team-logo" style="--logo-size:${logoSize}px;flex:none" />
               </div>
             </div>
             ${boxScoreHtml}
