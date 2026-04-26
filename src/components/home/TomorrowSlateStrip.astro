@@ -1,12 +1,12 @@
 ---
 /**
- * TomorrowSlateStrip — horizontal-scroll strip of TOMORROW's scheduled
- * games (SITE-HOME-05).
+ * TomorrowSlateStrip — grid of TOMORROW's scheduled games (SITE-HOME-05).
  *
- * Sits under TomorrowHero. Same horizontal-scroll pattern as
- * RecapScoreStrip — including the chevron buttons and overflow-detect
- * script — but tile content swaps "scores" for "scheduled start time +
- * series context". No winner-loser dim because no game has happened yet.
+ * Sits under TomorrowHero. Destination viewing — users are researching the
+ * slate, not glancing — so cells are sized for readability over density.
+ * Flows naturally into 2+ rows via CSS auto-fill grid (no fixed column
+ * count). No horizontal scroll — at 1440px this gives 2 rows of 4 for an
+ * 8-game slate.
  *
  * Why a separate component instead of swapping a `state="pre"` mode
  * into RecapScoreStrip
@@ -21,15 +21,11 @@
  * Click hook on each tile: `data-tomorrow-hook="open-preview-modal"`
  * (no-op for now; Layer 5+ wires the modal).
  *
- * WP display variants (Layer 5.8) — controlled by `variant` prop:
- *   'chip'   — tiny pill between abbrev and record; color-coded fav/dog
- *   'inline' — mono text with "·" separator; fav = white, underdog = muted
- *   'none'   — no WP shown even if home_wp/away_wp are present (default)
+ * WP display: always shows chip pills (color-coded fav/dog) when
+ * home_wp/away_wp are present. Layer 5.9 — variant prop removed, chip-only.
  */
 
 import TeamLogo from './TeamLogo.astro';
-
-export type SlateWpVariant = 'chip' | 'inline' | 'none';
 
 export interface TomorrowSlateTile {
   gameId: string;
@@ -60,17 +56,9 @@ export interface TomorrowSlateTile {
 export interface Props {
   tiles: TomorrowSlateTile[];
   heading?: string;
-  /**
-   * WP display variant. Defaults to 'none' so existing render sites without
-   * the prop remain unaffected.
-   *   'chip'   — Variant 1: tiny pill, color-coded (fav = cyan-tint, dog = grey)
-   *   'inline' — Variant 2: mono "· 55%" inline text, no background
-   *   'none'   — no WP display
-   */
-  variant?: SlateWpVariant;
 }
 
-const { tiles, heading, variant = 'none' } = Astro.props;
+const { tiles, heading } = Astro.props;
 const total = tiles.length;
 const headingText = heading ?? `Tomorrow's slate · ${total} game${total === 1 ? '' : 's'}`;
 
@@ -96,17 +84,9 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
   </header>
 
   <div class="tss-frame">
-    <button
-      type="button"
-      class="tss-chev tss-chev--l"
-      aria-label="Scroll slate left"
-      data-tss-dir="-1"
-      hidden
-    >‹</button>
-
     <div class="tss-track" role="list">
       {tiles.map((t) => {
-        const showWp = variant !== 'none' && t.home_wp !== undefined && t.away_wp !== undefined;
+        const showWp = t.home_wp !== undefined && t.away_wp !== undefined;
         const awayIsFav = isFavorite(t.away_wp, t.home_wp);
         const homeIsFav = isFavorite(t.home_wp, t.away_wp);
 
@@ -121,16 +101,11 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
 
             {/* Away row */}
             <div class="tss-row">
-              <TeamLogo abbr={t.away.abbrev} size={36} class="tss-logo" />
+              <TeamLogo abbr={t.away.abbrev} size={28} class="tss-logo" />
               <span class="tss-abbr">{t.away.abbrev}</span>
-              {showWp && variant === 'chip' && (
+              {showWp && (
                 <span class:list={['tss-wp-chip', awayIsFav ? 'tss-wp-chip--fav' : 'tss-wp-chip--dog']}>
                   {fmtWp(t.away_wp!)}
-                </span>
-              )}
-              {showWp && variant === 'inline' && (
-                <span class:list={['tss-wp-inline', awayIsFav ? 'tss-wp-inline--fav' : 'tss-wp-inline--dog']}>
-                  · {fmtWp(t.away_wp!)}
                 </span>
               )}
               {t.away.record && <span class="tss-rec">{t.away.record}</span>}
@@ -138,16 +113,11 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
 
             {/* Home row */}
             <div class="tss-row">
-              <TeamLogo abbr={t.home.abbrev} size={36} class="tss-logo" />
+              <TeamLogo abbr={t.home.abbrev} size={28} class="tss-logo" />
               <span class="tss-abbr">{t.home.abbrev}</span>
-              {showWp && variant === 'chip' && (
+              {showWp && (
                 <span class:list={['tss-wp-chip', homeIsFav ? 'tss-wp-chip--fav' : 'tss-wp-chip--dog']}>
                   {fmtWp(t.home_wp!)}
-                </span>
-              )}
-              {showWp && variant === 'inline' && (
-                <span class:list={['tss-wp-inline', homeIsFav ? 'tss-wp-inline--fav' : 'tss-wp-inline--dog']}>
-                  · {fmtWp(t.home_wp!)}
                 </span>
               )}
               {t.home.record && <span class="tss-rec">{t.home.record}</span>}
@@ -158,67 +128,8 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
         );
       })}
     </div>
-
-    <button
-      type="button"
-      class="tss-chev tss-chev--r"
-      aria-label="Scroll slate right"
-      data-tss-dir="1"
-      hidden
-    >›</button>
   </div>
 </section>
-
-<script is:inline>
-  /*
-   * Hydrate horizontal-scroll chevrons. Mirrors the pattern in
-   * RecapScoreStrip — no shared dep because the selectors are scoped to
-   * the component's own classes (avoiding accidental cross-component
-   * coupling).
-   */
-  function hgbHydrateTomorrowSlateStrip() {
-    var strips = document.querySelectorAll('.tomorrow-slate-strip');
-    strips.forEach(function (strip) {
-      var track = strip.querySelector('.tss-track');
-      var chevL = strip.querySelector('.tss-chev--l');
-      var chevR = strip.querySelector('.tss-chev--r');
-      if (!track) return;
-
-      function updateChevrons() {
-        var hasOverflow = track.scrollWidth > track.clientWidth + 4;
-        if (!hasOverflow) {
-          if (chevL) chevL.hidden = true;
-          if (chevR) chevR.hidden = true;
-          return;
-        }
-        var atStart = track.scrollLeft <= 4;
-        var atEnd = track.scrollLeft + track.clientWidth >= track.scrollWidth - 4;
-        if (chevL) chevL.hidden = atStart;
-        if (chevR) chevR.hidden = atEnd;
-      }
-
-      track.addEventListener('scroll', updateChevrons, { passive: true });
-      window.addEventListener('resize', updateChevrons);
-
-      [chevL, chevR].forEach(function (btn) {
-        if (!btn) return;
-        btn.addEventListener('click', function () {
-          var dir = parseInt(btn.getAttribute('data-tss-dir') || '1', 10);
-          track.scrollBy({ left: dir * 300, behavior: 'smooth' });
-        });
-      });
-
-      updateChevrons();
-      requestAnimationFrame(updateChevrons);
-    });
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', hgbHydrateTomorrowSlateStrip);
-  } else {
-    hgbHydrateTomorrowSlateStrip();
-  }
-</script>
 
 <style>
   .tomorrow-slate-strip {
@@ -254,31 +165,25 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
     position: relative;
   }
 
+  /*
+   * Auto-fill grid — no fixed column count. At 1440px a minmax of 210px
+   * gives ~6-7 columns max per row; with 8-game slates this naturally
+   * wraps to 2 rows of 4. At 1024px tablet it gives 3-4 per row; at
+   * 768px it gives 2. This is preferred over horizontal scroll for
+   * destination viewing where users are researching, not glancing.
+   */
   .tss-track {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
     gap: 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scroll-behavior: smooth;
     padding: 2px 2px 8px;
-    scrollbar-width: thin;
-    scrollbar-color: #2a2a2a transparent;
   }
-  .tss-track::-webkit-scrollbar { height: 6px; }
-  .tss-track::-webkit-scrollbar-track { background: transparent; }
-  .tss-track::-webkit-scrollbar-thumb {
-    background: #2a2a2a;
-    border-radius: 3px;
-  }
-  .tss-track::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
 
   .tss-tile {
-    flex: 0 0 168px;
-    min-width: 168px;
     background: #0f0f0f;
     border: 1px solid #1c1c1c;
     border-radius: var(--radius-md);
-    padding: 12px 14px;
+    padding: 13px 16px;
     cursor: pointer;
     transition: border-color 0.15s, transform 0.15s, background 0.15s;
     display: flex;
@@ -306,53 +211,52 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
 
   /*
    * Team row grid — 4 columns:
-   *   36px  logo
+   *   28px  logo (bumped from 22px for legibility — Layer 5.9)
    *   auto  abbrev
-   *   auto  WP chip or inline (hidden when variant=none)
+   *   auto  WP chip (collapses to 0 when WP absent — no layout shift)
    *   1fr   record (right-aligned, pushes to edge)
-   *
-   * When WP is absent the auto column collapses to 0 — no layout shift.
    */
   .tss-row {
     display: grid;
-    grid-template-columns: 36px auto auto 1fr;
+    grid-template-columns: 28px auto auto 1fr;
     align-items: center;
     gap: 6px;
   }
   /* TeamLogo wrapper — size locked via the `size` prop on the
-     component (36px desktop). */
+     component (28px desktop). */
   .tss-row :global(.team-logo.tss-logo) {
     flex: none;
   }
   .tss-abbr {
     font-family: var(--font-site-display);
     font-weight: 700;
-    font-size: 14px;
+    font-size: 16px;
     letter-spacing: 0.06em;
     color: #f5f5f5;
   }
   .tss-rec {
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: 11px;
     color: #666;
     text-align: right;
     letter-spacing: 0.04em;
     grid-column: 4;
   }
 
-  /* ── Variant 1: chip ─────────────────────────────────────────────── */
   /*
-   * Tiny pill, tighter than the matchup card chip (slate cells are tight).
+   * WP chip — pill between abbrev and record.
    * Color-coded: favorite = cyan-tint bg + cyan text; underdog = grey bg + grey text.
+   * Bumped from 9px/2px×5px to 11px/4px×8px (Layer 5.9 — readability for
+   * destination viewing).
    */
   .tss-wp-chip {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 2px 5px;
+    padding: 4px 8px;
     border-radius: 999px;
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
     white-space: nowrap;
@@ -367,26 +271,6 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
     color: #888;
   }
 
-  /* ── Variant 2: inline mono ──────────────────────────────────────── */
-  /*
-   * "· 55%" inline mono text. No background. Reads as a stat column.
-   * Favorite = white; underdog = muted grey (#999).
-   */
-  .tss-wp-inline {
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    line-height: 1;
-  }
-  .tss-wp-inline--fav {
-    color: var(--site-white, #f5f5f5);
-  }
-  .tss-wp-inline--dog {
-    color: #888;
-  }
-
   .tss-meta {
     font-family: var(--font-mono);
     font-size: 9px;
@@ -396,46 +280,16 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
     margin-top: 2px;
   }
 
-  .tss-chev {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 28px;
-    height: 56px;
-    border: 1px solid #232323;
-    background: linear-gradient(90deg, #0a0a0a 70%, rgba(10, 10, 10, 0.4) 100%);
-    color: #ccc;
-    font-family: var(--font-site-display);
-    font-size: 24px;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    z-index: 2;
-    transition: opacity 0.15s, background 0.15s, border-color 0.15s;
-  }
-  .tss-chev:hover {
-    background: #161616;
-    border-color: #3a3a3a;
-    color: #fff;
-  }
-  .tss-chev:focus-visible {
-    outline: 2px solid var(--status-live);
-    outline-offset: 2px;
-  }
-  .tss-chev--l { left: -2px; }
-  .tss-chev--r {
-    right: -2px;
-    background: linear-gradient(270deg, #0a0a0a 70%, rgba(10, 10, 10, 0.4) 100%);
-  }
-  .tss-chev[hidden] { display: none; }
-
-  @media (max-width: 720px) {
-    .tss-chev { display: none; }
-    .tss-tile { flex: 0 0 148px; min-width: 148px; padding: 10px 12px; }
-    .tss-row { grid-template-columns: 30px auto auto 1fr; gap: 5px; }
-    .tss-row :global(.team-logo.tss-logo) { width: 30px !important; height: 30px !important; }
+  @media (max-width: 600px) {
+    /*
+     * At narrow viewports the auto-fill grid naturally drops to 1-2 columns
+     * based on the 210px minimum. These overrides tighten internal padding
+     * slightly so cells still breathe at 320px+ widths.
+     */
+    .tss-tile { padding: 11px 13px; }
+    .tss-row { grid-template-columns: 26px auto auto 1fr; gap: 5px; }
+    .tss-row :global(.team-logo.tss-logo) { width: 26px !important; height: 26px !important; }
+    .tss-abbr { font-size: 15px; }
+    .tss-wp-chip { font-size: 10px; padding: 3px 6px; }
   }
 </style>
