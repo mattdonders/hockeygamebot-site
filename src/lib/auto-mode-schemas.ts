@@ -59,7 +59,12 @@ export const ClockSchema = z.object({
   period: z.number().int().nonnegative().nullable(),
   /** 'MM:SS'; '00:00' for final; null for pre/intermission. */
   time_remaining: z.string().nullable(),
-  in_intermission: z.boolean(),
+  /**
+   * null when game hasn't started (pre state) — the API returns null before
+   * first puck drop since there's no clock state to interrogate yet.
+   * false during live play, true during intermission breaks.
+   */
+  in_intermission: z.boolean().nullable(),
   /** ISO timestamp when the clock snapshot was captured (for client-side countdown). null when not live. */
   clock_at: z.string().nullable(),
 });
