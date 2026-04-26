@@ -1,0 +1,1008 @@
+---
+/**
+ * TodayHero — unified two-card hero for TODAY mode (Layer 2.3).
+ *
+ * Replaces the competing TomorrowHero + ArtifactMatchup (pre-game) and
+ * LiveHero (live) heroes with a single component that handles all three
+ * TODAY sub-states:
+ *
+ *   PRE-GAME  → LEFT: countdown card  |  RIGHT: matchup preview
+ *   LIVE      → LEFT: scoreboard card |  RIGHT: stats card
+ *   FINAL     → LEFT: final score     |  RIGHT: recap notes (three stars)
+ *
+ * Both cards ALWAYS show the SAME heroGame. If the hero changes between polls
+ * (excitement scores shifted), the entire hero block is swapped in one DOM
+ * innerHTML update by the hydration loop.
+ *
+ * Props:
+ *   heroGame   — the chosen hero ScoreboardGame
+ *   subState   — 'pre' | 'live' | 'final'
+ *   slate      — SlateDoc (null pre-8 AM ET or on fetch failure)
+ *   isFeaturedMatchup — true when heroGame === slate.featured_matchup
+ *
+ * Star badge:
+ *   When isFeaturedMatchup is true, a small ★ "Game of the Night" badge
+ *   appears in the hero header.
+ *
+ * LIVE FEED card is a separate component — not folded in here.
+ */
+
+import TeamLogo from './TeamLogo.astro';
+
+export type TodaySubState = 'pre' | 'live' | 'final';
+
+export interface SlateMatchupDetails {
+  headline?: string;
+  key_matchup?: { home_player: string; away_player: string; context: string };
+  x_factor?: string;
+  reasoning?: string;
+}
+
+export interface HeroPrediction {
+  home_wp: number;
+  away_wp: number;
+}
+
+interface Props {
+  /** The chosen hero game. */
+  heroGame: {
+    game_id: string;
+    game_state: string;
+    venue: string | null;
+    start_time_utc: string | null;
+    home_team: { id: number; abbrev: string; name: string; short_name: string; score: number };
+    away_team: { id: number; abbrev: string; name: string; short_name: string; score: number };
+    clock: {
+      period: number | null;
+      time_remaining: string | null;
+      in_intermission: boolean | null;
+      clock_at: string | null;
+    };
+    stats: {
+      shots_on_goal: { home: number | null; away: number | null };
+      xg: { home: number | null; away: number | null };
+      xg_5v5: { home: number | null; away: number | null };
+      win_probability: { home: number | null; away: number | null };
+    };
+    last_event: { type: string; description: string; time_ago: string | null } | null;
+    recent_events: Array<{ type: string; description: string; time_ago: string | null }>;
+    three_stars: Array<Record<string, unknown>> | null;
+  };
+  /** TODAY sub-state — controls which cards render. */
+  subState: TodaySubState;
+  /** True when this game is the editorial Game of the Night pick. */
+  isFeaturedMatchup?: boolean;
+  /** Slate matchup details for PRE sub-state right card. Null when no slate. */
+  slateMatchup?: SlateMatchupDetails | null;
+  /** Model WP prediction for PRE sub-state. Null when no slate/predictions. */
+  prediction?: HeroPrediction | null;
+  /** UTC countdown target (start_time_utc) for PRE left card. */
+  countdownUtc?: string | null;
+}
+
+const {
+  heroGame,
+  subState,
+  isFeaturedMatchup = false,
+  slateMatchup = null,
+  prediction = null,
+  countdownUtc = null,
+} = Astro.props;
+
+const { home_team: home, away_team: away, clock, stats } = heroGame;
+
+// Helpers
+function fmtWp(v: number | null): string {
+  if (v === null) return '–';
+  return `${Math.round(v * 100)}%`;
+}
+
+function pct(a: number | null, b: number | null): [string, string] {
+  const av = a ?? 0;
+  const bv = b ?? 0;
+  const sum = av + bv;
+  if (sum <= 0) return ['50%', '50%'];
+  return [`${(av / sum) * 100}%`, `${(bv / sum) * 100}%`];
+}
+
+function fmtStartTimeET(utc: string | null): string {
+  if (!utc) return '';
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(utc)) + ' ET';
+  } catch {
+    return '';
+  }
+}
+
+// Derived values
+const isLive = subState === 'live';
+const isFinal = subState === 'final';
+const isPre = subState === 'pre';
+
+const period = clock.period ?? 0;
+const timeRemaining = clock.time_remaining ?? '';
+const inIntermission = clock.in_intermission ?? false;
+
+// Score display
+const gameIsOver = isFinal;
+const homeLoser = gameIsOver && home.score < away.score;
+const awayLoser = gameIsOver && away.score < home.score;
+
+// Live header label
+function fmtLiveLine(): string {
+  if (inIntermission) {
+    return `INTERMISSION · After P${period}`;
+  }
+  if (period === 0) return 'PRE-GAME';
+  const periodLabel = period <= 3 ? `PERIOD ${period}` : period === 4 ? 'OVERTIME' : `OT${period - 3}`;
+  return `LIVE · ${periodLabel} · ${timeRemaining}`;
+}
+
+// Stat bars
+const [shotsL, shotsR] = pct(stats.shots_on_goal.home, stats.shots_on_goal.away);
+const [xgL, xgR] = pct(stats.xg.home, stats.xg.away);
+const [xg5L, xg5R] = pct(stats.xg_5v5.home, stats.xg_5v5.away);
+const [wpL, wpR] = pct(stats.win_probability.home, stats.win_probability.away);
+
+// Three stars
+const threeStars = (heroGame.three_stars ?? []).slice(0, 3) as Array<Record<string, unknown>>;
+
+// Time + venue
+const timeLabel = fmtStartTimeET(heroGame.start_time_utc);
+const venueLabel = heroGame.venue ? heroGame.venue.toUpperCase() : '';
+
+// Key matchup
+const km = slateMatchup?.key_matchup ?? null;
+const keyMatchupTitle = km ? 'Key matchup · HGB edge' : (slateMatchup?.headline ?? 'Featured matchup');
+---
+
+<section
+  class="today-hero"
+  data-sub-state={subState}
+  data-game-id={heroGame.game_id}
+  aria-label={`Featured game: ${away.abbrev} @ ${home.abbrev}`}
+>
+  {/* ── Header row ──────────────────────────────────────────── */}
+  <div class="th-header">
+    <div class="th-header-left">
+      {isPre && (
+        <span class="th-eyebrow-badge th-eyebrow-badge--pre">UPCOMING · TODAY</span>
+      )}
+      {isLive && (
+        <span class="th-eyebrow-badge th-eyebrow-badge--live">
+          <span class="th-live-dot" aria-hidden="true"></span>
+          {fmtLiveLine()}
+        </span>
+      )}
+      {isFinal && (
+        <span class="th-eyebrow-badge th-eyebrow-badge--final">FINAL</span>
+      )}
+    </div>
+    <div class="th-header-right">
+      {isFeaturedMatchup && (
+        <span class="th-gotn-badge" title="Game of the Night">
+          ★ GAME OF THE NIGHT
+        </span>
+      )}
+      <span class="th-matchup-label">{away.abbrev} @ {home.abbrev}</span>
+    </div>
+  </div>
+
+  {/* ── Two-card body ────────────────────────────────────────── */}
+  <div class="th-body">
+
+    {/* ── LEFT CARD: per sub-state ─────────────────────────── */}
+    {isPre && (
+      <div class="th-card th-card--left th-card--pre">
+        {/* PRE: countdown + venue */}
+        <div class="th-pre-teams">
+          <div class="th-pre-team">
+            <TeamLogo abbr={away.abbrev} size={64} class="th-pre-logo" />
+            <span class="th-pre-abbr">{away.abbrev}</span>
+          </div>
+          <div class="th-pre-vs">VS</div>
+          <div class="th-pre-team">
+            <TeamLogo abbr={home.abbrev} size={64} class="th-pre-logo" />
+            <span class="th-pre-abbr">{home.abbrev}</span>
+          </div>
+        </div>
+
+        {countdownUtc ? (
+          <div
+            class="th-countdown-block"
+            data-hero-countdown-utc={countdownUtc}
+          >
+            <div class="th-countdown-lbl">Next puck drop in</div>
+            <div class="th-countdown-time" aria-live="polite">–:––:––</div>
+          </div>
+        ) : (
+          <div class="th-time-block">
+            <span class="th-time-lbl">Start time</span>
+            <span class="th-time-val">{timeLabel}</span>
+          </div>
+        )}
+
+        {venueLabel && (
+          <div class="th-venue">{venueLabel}</div>
+        )}
+      </div>
+    )}
+
+    {isLive && (
+      <div class="th-card th-card--left th-card--live">
+        {/* LIVE: large score + period line */}
+        <div class="th-score-row">
+          <div class:list={['th-team-score', { loser: homeLoser }]}>
+            <TeamLogo abbr={home.abbrev} size={60} class="th-score-logo" />
+            <div class="th-team-info">
+              <span class="th-team-abbr">{home.abbrev}</span>
+            </div>
+            <span class="th-score-num">{home.score}</span>
+          </div>
+          <div class="th-score-sep">·</div>
+          <div class:list={['th-team-score th-team-score--right', { loser: awayLoser }]}>
+            <span class="th-score-num">{away.score}</span>
+            <div class="th-team-info th-team-info--right">
+              <span class="th-team-abbr">{away.abbrev}</span>
+            </div>
+            <TeamLogo abbr={away.abbrev} size={60} class="th-score-logo" />
+          </div>
+        </div>
+
+        {heroGame.last_event && (
+          <div class="th-last-event">
+            <span class="th-last-event-type">{heroGame.last_event.type}</span>
+            <span class="th-last-event-desc">{heroGame.last_event.description}</span>
+            {heroGame.last_event.time_ago && (
+              <span class="th-last-event-when">{heroGame.last_event.time_ago}</span>
+            )}
+          </div>
+        )}
+      </div>
+    )}
+
+    {isFinal && (
+      <div class="th-card th-card--left th-card--final">
+        {/* FINAL: final score display */}
+        <div class="th-final-badge">FINAL{period >= 4 ? (period === 4 ? ' · OT' : ' · SO') : ''}</div>
+        <div class="th-score-row">
+          <div class:list={['th-team-score', { loser: homeLoser }]}>
+            <TeamLogo abbr={home.abbrev} size={56} class="th-score-logo" />
+            <div class="th-team-info">
+              <span class="th-team-abbr">{home.abbrev}</span>
+            </div>
+            <span class="th-score-num">{home.score}</span>
+          </div>
+          <div class="th-score-sep">·</div>
+          <div class:list={['th-team-score th-team-score--right', { loser: awayLoser }]}>
+            <span class="th-score-num">{away.score}</span>
+            <div class="th-team-info th-team-info--right">
+              <span class="th-team-abbr">{away.abbrev}</span>
+            </div>
+            <TeamLogo abbr={away.abbrev} size={56} class="th-score-logo" />
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── RIGHT CARD: per sub-state ────────────────────────── */}
+    {isPre && (
+      <div class="th-card th-card--right th-card--pre-r">
+        {/* PRE: matchup details */}
+        <div class="th-r-eyebrow">{venueLabel ? `${venueLabel} · ${timeLabel}` : timeLabel}</div>
+
+        {slateMatchup ? (
+          <>
+            <div class="th-r-km-label">{keyMatchupTitle}</div>
+            {km && (
+              <div class="th-r-km-pair">
+                <span class="th-r-km-side">
+                  {km.home_player}
+                  <span class="th-r-km-team">{home.abbrev}</span>
+                </span>
+                <span class="th-r-km-vs">vs</span>
+                <span class="th-r-km-side th-r-km-side--right">
+                  <span class="th-r-km-team">{away.abbrev}</span>
+                  {km.away_player}
+                </span>
+              </div>
+            )}
+            {slateMatchup.x_factor && (
+              <div class="th-r-xfactor">
+                <span class="th-r-xfactor-label">X-FACTOR</span>
+                <span class="th-r-xfactor-val">{slateMatchup.x_factor}</span>
+              </div>
+            )}
+            {prediction && (
+              <div class="th-r-wp-row">
+                <div class="th-r-wp-team">
+                  <span class="th-r-wp-abbr">{home.abbrev}</span>
+                  <span class="th-r-wp-pct">{fmtWp(prediction.home_wp)}</span>
+                </div>
+                <div class="th-r-wp-bar">
+                  <div class="th-r-wp-bar-fill" style={`width:${wpL}`}></div>
+                </div>
+                <div class="th-r-wp-team th-r-wp-team--right">
+                  <span class="th-r-wp-pct">{fmtWp(prediction.away_wp)}</span>
+                  <span class="th-r-wp-abbr">{away.abbrev}</span>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div class="th-r-no-slate">
+            <div class="th-r-team-row">
+              <TeamLogo abbr={away.abbrev} size={72} class="th-r-logo" />
+              <span class="th-r-vs-label">@</span>
+              <TeamLogo abbr={home.abbrev} size={72} class="th-r-logo" />
+            </div>
+            <div class="th-r-pending">Predictions coming after 8 AM ET</div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {isLive && (
+      <div class="th-card th-card--right th-card--live-r">
+        {/* LIVE: stats bars */}
+        <div class="th-r-stat">
+          <div class="th-r-stat-val">{stats.shots_on_goal.home ?? '–'}</div>
+          <div class="th-r-stat-lbl">Shots on Goal</div>
+          <div class="th-r-stat-val">{stats.shots_on_goal.away ?? '–'}</div>
+          <div class="th-r-stat-bar">
+            <div class="th-r-bar-l" style={`width:${shotsL}`}></div>
+            <div class="th-r-bar-r" style={`width:${shotsR}`}></div>
+          </div>
+        </div>
+        <div class="th-r-stat">
+          <div class="th-r-stat-val">{stats.xg_5v5.home !== null ? stats.xg_5v5.home.toFixed(2) : '–'}</div>
+          <div class="th-r-stat-lbl">5v5 xG</div>
+          <div class="th-r-stat-val">{stats.xg_5v5.away !== null ? stats.xg_5v5.away.toFixed(2) : '–'}</div>
+          <div class="th-r-stat-bar">
+            <div class="th-r-bar-l" style={`width:${xg5L}`}></div>
+            <div class="th-r-bar-r" style={`width:${xg5R}`}></div>
+          </div>
+        </div>
+        <div class="th-r-stat">
+          <div class="th-r-stat-val">{stats.xg.home !== null ? stats.xg.home.toFixed(2) : '–'}</div>
+          <div class="th-r-stat-lbl">xG · All</div>
+          <div class="th-r-stat-val">{stats.xg.away !== null ? stats.xg.away.toFixed(2) : '–'}</div>
+          <div class="th-r-stat-bar th-r-stat-bar--cyan">
+            <div class="th-r-bar-l" style={`width:${xgL}`}></div>
+            <div class="th-r-bar-r" style={`width:${xgR}`}></div>
+          </div>
+        </div>
+        <div class="th-r-stat">
+          <div class="th-r-stat-val">{fmtWp(stats.win_probability.home)}</div>
+          <div class="th-r-stat-lbl">Win Probability</div>
+          <div class="th-r-stat-val">{fmtWp(stats.win_probability.away)}</div>
+          <div class="th-r-stat-bar">
+            <div class="th-r-bar-l" style={`width:${wpL}`}></div>
+            <div class="th-r-bar-r" style={`width:${wpR}`}></div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {isFinal && (
+      <div class="th-card th-card--right th-card--final-r">
+        {/* FINAL: three stars + WP recap */}
+        {threeStars.length > 0 ? (
+          <>
+            <div class="th-r-stars-label">Three Stars</div>
+            <ol class="th-r-stars-list">
+              {threeStars.map((star, idx) => (
+                <li class="th-r-star-row">
+                  <span class="th-r-star-num">{idx + 1}</span>
+                  <span class="th-r-star-name">
+                    {(star.name as string) || (star.player as string) || '—'}
+                  </span>
+                  {star.team_abbrev && (
+                    <span class="th-r-star-team">{star.team_abbrev as string}</span>
+                  )}
+                  {star.stat_line && (
+                    <span class="th-r-star-stat">{star.stat_line as string}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </>
+        ) : (
+          <div class="th-r-no-stars">Three stars pending</div>
+        )}
+
+        {/* WP recap bar */}
+        {(stats.win_probability.home !== null || stats.win_probability.away !== null) && (
+          <div class="th-r-final-wp">
+            <div class="th-r-wp-row">
+              <div class="th-r-wp-team">
+                <span class="th-r-wp-abbr">{home.abbrev}</span>
+                <span class="th-r-wp-pct">{fmtWp(stats.win_probability.home)}</span>
+              </div>
+              <div class="th-r-wp-bar">
+                <div class="th-r-wp-bar-fill" style={`width:${wpL}`}></div>
+              </div>
+              <div class="th-r-wp-team th-r-wp-team--right">
+                <span class="th-r-wp-pct">{fmtWp(stats.win_probability.away)}</span>
+                <span class="th-r-wp-abbr">{away.abbrev}</span>
+              </div>
+            </div>
+            <div class="th-r-wp-caption">Final win probability</div>
+          </div>
+        )}
+      </div>
+    )}
+
+  </div>
+</section>
+
+<style>
+  /* ── Shell ─────────────────────────────────────────────────────── */
+  .today-hero {
+    margin-bottom: 22px;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--site-border);
+    background: var(--site-card);
+  }
+
+  /* ── Header ────────────────────────────────────────────────────── */
+  .th-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 22px;
+    background: #0b0b0b;
+    border-bottom: 1px solid #1a1a1a;
+    flex-wrap: wrap;
+  }
+
+  .th-header-left,
+  .th-header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* Sub-state eyebrow badges */
+  .th-eyebrow-badge {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .th-eyebrow-badge--pre  { color: var(--hgb-red); }
+  .th-eyebrow-badge--live { color: var(--status-live); }
+  .th-eyebrow-badge--final { color: #888; }
+
+  .th-live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--status-live);
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: liveRing 1.8s ease-out infinite;
+    flex: none;
+  }
+  @keyframes liveRing {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
+    70%  { box-shadow: 0 0 0 8px rgba(0, 229, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+  }
+
+  .th-gotn-badge {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #ffd54a;
+    padding: 3px 9px;
+    border: 1px solid rgba(255, 213, 74, 0.3);
+    border-radius: 2px;
+    background: rgba(255, 213, 74, 0.05);
+  }
+
+  .th-matchup-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    color: #666;
+    text-transform: uppercase;
+  }
+
+  /* ── Body: two-card grid ────────────────────────────────────────── */
+  .th-body {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr;
+    min-height: 280px;
+  }
+
+  @media (max-width: 1024px) {
+    .th-body { grid-template-columns: 1fr; }
+  }
+
+  /* ── Card base ──────────────────────────────────────────────────── */
+  .th-card {
+    padding: 26px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .th-card--right {
+    border-left: 1px solid #1a1a1a;
+    background: #0c0c0c;
+  }
+  @media (max-width: 1024px) {
+    .th-card--right {
+      border-left: none;
+      border-top: 1px solid #1a1a1a;
+    }
+  }
+
+  /* ── PRE left: countdown ────────────────────────────────────────── */
+  .th-pre-teams {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+  }
+  .th-pre-team {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .th-pre-abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.06em;
+    color: var(--site-white);
+  }
+  .th-pre-vs {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    color: #22d3ee;
+  }
+
+  .th-countdown-block {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+  }
+  .th-countdown-lbl {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #666;
+  }
+  .th-countdown-time {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 40px;
+    letter-spacing: 0.04em;
+    color: var(--site-white);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .th-time-block {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .th-time-lbl {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #666;
+  }
+  .th-time-val {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 22px;
+    color: var(--site-white);
+  }
+
+  .th-venue {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: #555;
+    text-transform: uppercase;
+  }
+
+  /* ── LIVE / FINAL left: score block ─────────────────────────────── */
+  .th-final-badge {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #888;
+  }
+
+  .th-score-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 14px;
+  }
+  .th-team-score {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .th-team-score--right {
+    justify-content: flex-end;
+  }
+  .th-team-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .th-team-info--right {
+    text-align: right;
+  }
+  .th-team-abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.06em;
+    color: var(--site-white);
+  }
+  .th-score-num {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 68px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    color: var(--site-white);
+  }
+  .th-score-sep {
+    color: #333;
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 36px;
+    text-align: center;
+  }
+  .loser .th-team-abbr,
+  .loser .th-score-num { color: var(--site-muted); }
+  .loser :global(.team-logo) { opacity: 0.4; filter: grayscale(0.5); }
+
+  .th-last-event {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: #0e0e0e;
+    border-radius: var(--radius-sm);
+    border: 1px solid #1a1a1a;
+  }
+  .th-last-event-type {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 9.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--status-live);
+    flex: none;
+  }
+  .th-last-event-desc {
+    font-family: var(--font-site-body);
+    font-size: 12px;
+    color: #ccc;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .th-last-event-when {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #666;
+    flex: none;
+  }
+
+  /* ── PRE right: matchup details ─────────────────────────────────── */
+  .th-r-eyebrow {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 10.5px;
+    color: #22d3ee;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .th-r-km-label {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 9.5px;
+    color: #22d3ee;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #0d3037;
+  }
+  .th-r-km-pair {
+    display: grid;
+    grid-template-columns: 1fr 40px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px dashed #0d3037;
+  }
+  .th-r-km-side {
+    font-family: var(--font-site-display);
+    font-weight: 600;
+    font-size: 12px;
+    color: #eee;
+    letter-spacing: 0.01em;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .th-r-km-side--right {
+    text-align: right;
+    align-items: flex-end;
+  }
+  .th-r-km-team {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: #6ca5ad;
+    font-weight: 400;
+  }
+  .th-r-km-vs {
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #22d3ee;
+    letter-spacing: 0.08em;
+  }
+  .th-r-xfactor {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 0;
+  }
+  .th-r-xfactor-label {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #22d3ee;
+  }
+  .th-r-xfactor-val {
+    font-family: var(--font-site-body);
+    font-size: 12.5px;
+    color: #ccc;
+    line-height: 1.4;
+  }
+
+  .th-r-no-slate {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 0;
+  }
+  .th-r-team-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .th-r-vs-label {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 14px;
+    color: #22d3ee;
+  }
+  .th-r-pending {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: #666;
+    text-transform: uppercase;
+  }
+
+  /* ── WP bar (shared: pre predictions + final WP) ─────────────────── */
+  .th-r-wp-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+  }
+  .th-r-wp-team {
+    display: flex;
+    gap: 5px;
+    align-items: baseline;
+  }
+  .th-r-wp-team--right {
+    justify-content: flex-end;
+  }
+  .th-r-wp-abbr {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: #ccc;
+    letter-spacing: 0.06em;
+  }
+  .th-r-wp-pct {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 13px;
+    color: #22d3ee;
+    letter-spacing: 0.04em;
+  }
+  .th-r-wp-bar {
+    height: 4px;
+    background: #1a1a1a;
+    border-radius: 999px;
+    overflow: hidden;
+    display: flex;
+  }
+  .th-r-wp-bar-fill {
+    height: 100%;
+    background: #22d3ee;
+    border-radius: 999px;
+  }
+
+  /* ── LIVE right: stat bars ──────────────────────────────────────── */
+  .th-r-stat {
+    display: grid;
+    grid-template-columns: 52px 1fr 52px;
+    align-items: center;
+    row-gap: 4px;
+    column-gap: 10px;
+    flex: 1 1 0;
+  }
+  .th-r-stat-val {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    font-size: 16px;
+    color: var(--site-white);
+  }
+  .th-r-stat-val:first-child { text-align: left; }
+  .th-r-stat-val:nth-child(3) { text-align: right; }
+  .th-r-stat-lbl {
+    text-align: center;
+    color: #666;
+    font-family: var(--font-site-body);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .th-r-stat-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    height: 5px;
+    background: #151515;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .th-r-stat-bar--cyan .th-r-bar-l { background: var(--status-live); }
+  .th-r-stat-bar--cyan .th-r-bar-r { background: #1a4050; }
+  .th-r-bar-l { background: var(--hgb-red); }
+  .th-r-bar-r { background: #2a2a2a; }
+
+  /* ── FINAL right: three stars ────────────────────────────────────── */
+  .th-r-stars-label {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #ffd54a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .th-r-stars-label::before {
+    content: '★';
+    font-size: 12px;
+  }
+  .th-r-stars-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .th-r-star-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto auto;
+    gap: 8px;
+    align-items: baseline;
+    padding: 6px 0;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .th-r-star-row:last-child { border-bottom: none; }
+  .th-r-star-num {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #ffd54a;
+    font-weight: 700;
+  }
+  .th-r-star-name {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--site-white);
+    letter-spacing: 0.01em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .th-r-star-team {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: #666;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    flex: none;
+  }
+  .th-r-star-stat {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: #888;
+    flex: none;
+  }
+
+  .th-r-no-stars {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: #555;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-align: center;
+    padding: 16px 0;
+  }
+
+  .th-r-final-wp {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 14px;
+    border-top: 1px solid #1a1a1a;
+    margin-top: auto;
+  }
+  .th-r-wp-caption {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #555;
+    text-align: center;
+  }
+
+  /* ── Card: live-r — stat card fills height ───────────────────────── */
+  .th-card--live-r {
+    justify-content: space-evenly;
+  }
+
+  /* ── Mobile ─────────────────────────────────────────────────────── */
+  @media (max-width: 720px) {
+    .th-countdown-time { font-size: 30px; }
+    .th-score-num { font-size: 52px; }
+    .th-card { padding: 20px 18px; }
+  }
+</style>
