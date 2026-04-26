@@ -507,6 +507,81 @@ const todayPreHeroCopy = {
   sub: "Predictions, key matchups, milestone watches and the storylines we're tracking — refreshed at 8 AM ET.",
 };
 
+// TODAY live/final sub-state hero copy — real eyebrow from scoreboard.
+// Layer 2.4: replaces the mock liveEyebrow for live/final sub-states.
+const liveGameCount = realScoreboard
+  ? realScoreboard.games.filter(g => ['live', 'intermission', 'shootout'].includes(g.game_state)).length
+  : 0;
+const todayLiveHeroCopy = {
+  eyebrow: realScoreboard
+    ? liveGameCount > 0
+      ? `Live Now · ${liveGameCount} game${liveGameCount !== 1 ? 's' : ''} in progress · ${todayGameCount} total`
+      : `Final · ${todayGameCount} game${todayGameCount !== 1 ? 's' : ''} today`
+    : liveEyebrow,
+  title: 'Today, picked apart.',
+  sub: "Real-time scores with shots on goal, expected goals (xG) and win probability — updated on every poll.",
+};
+
+/**
+ * Layer 2.4: Build GameTile props from a ScoreboardGame.
+ * Maps the rich scoreboard shape to the compact GameTile interface.
+ */
+function buildGameTileProps(g: ScoreboardGame) {
+  const gs = g.game_state;
+  const isLive = gs === 'live' || gs === 'intermission' || gs === 'shootout';
+  const isFinal = gs === 'final';
+  const state: 'live' | 'final' | 'ot' | 'pre' | 'intermission' =
+    gs === 'intermission' ? 'intermission'
+    : gs === 'shootout' ? 'live'
+    : gs === 'final' ? 'final'
+    : gs === 'live' ? 'live'
+    : 'pre';
+
+  const homeScore = g.home_team.score ?? 0;
+  const awayScore = g.away_team.score ?? 0;
+  const period = g.clock.period ?? undefined;
+  const timeRemaining = g.clock.time_remaining ?? undefined;
+
+  const xgBar = (isLive || isFinal) && (g.stats.xg_5v5.home !== null || g.stats.xg_5v5.away !== null)
+    ? { home: g.stats.xg_5v5.home ?? 0, away: g.stats.xg_5v5.away ?? 0, label: '5v5 xG' }
+    : (gs === 'pre' && (g.stats.win_probability.home !== null || g.stats.win_probability.away !== null))
+    ? { home: g.stats.win_probability.home ?? 0.5, away: g.stats.win_probability.away ?? 0.5, label: 'Win%' }
+    : undefined;
+
+  const chips = [];
+  if (g.strength_state && g.strength_state !== '5v5' && g.strength_state !== 'unknown' && isLive) {
+    chips.push({ label: g.strength_state.toUpperCase(), kind: 'pp' });
+  }
+
+  return {
+    gameId: g.game_id,
+    state,
+    period,
+    clock: timeRemaining ?? undefined,
+    startTime: fmtStartTimeET(g.start_time_utc),
+    home: {
+      abbrev: g.home_team.abbrev,
+      score: (isLive || isFinal) ? g.home_team.score : null,
+      sog: g.stats.shots_on_goal.home ?? undefined,
+      xg_5v5: g.stats.xg_5v5.home ?? undefined,
+      record: '',
+    },
+    away: {
+      abbrev: g.away_team.abbrev,
+      score: (isLive || isFinal) ? g.away_team.score : null,
+      sog: g.stats.shots_on_goal.away ?? undefined,
+      xg_5v5: g.stats.xg_5v5.away ?? undefined,
+      record: '',
+    },
+    chips,
+    xgBar,
+    footNote: g.venue ?? undefined,
+  };
+}
+
+// Real game tiles for live/final grid — all today's games from scoreboard.
+const realGameTiles = realScoreboard?.games.map(buildGameTileProps) ?? [];
+
 // Inline data the head + body scripts need. Serialised as JSON-strings
 // inside the <html> so the auto-mode resolver can run before first paint
 // without an extra fetch.
@@ -923,17 +998,13 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
         - YESTERDAY mode uses the recap eyebrow
         - OFFSEASON uses its own copy
     -->
-    <div data-mode-view="today" data-today-view="live" data-fixture-view="default">
-      <PageHero eyebrow={liveEyebrow} />
-    </div>
-    <div data-mode-view="today" data-today-view="live" data-fixture-view="shootout">
-      <PageHero eyebrow={liveEyebrowSO} />
-    </div>
-    <div data-mode-view="today" data-today-view="live" data-fixture-view="shootout-long">
-      <PageHero eyebrow={liveEyebrowSOLong} />
-    </div>
-    <div data-mode-view="today" data-today-view="final">
-      <PageHero eyebrow={liveEyebrow} />
+    {/* Layer 2.4: live/final sub-states — real eyebrow + "Today, picked apart." title */}
+    <div data-mode-view="today" data-today-view="live final">
+      <PageHero
+        eyebrow={todayLiveHeroCopy.eyebrow}
+        title={todayLiveHeroCopy.title}
+        sub={todayLiveHeroCopy.sub}
+      />
     </div>
     <div data-mode-view="today" data-today-view="pre">
       <PageHero
@@ -961,81 +1032,62 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
     -->
     <ModeBar mode="today" artifactsCount={artifactsCount} />
 
+    <!--
+      Layer 2.4: Unified TodayHero mount — shown in TODAY mode for ALL sub-states.
+      A single #today-hero-mount div ensures the hydration loop always has one
+      clean target regardless of which sub-state (live/pre/final) is active.
+      The hero content adapts to the sub-state via TodayHero's internal logic.
+    -->
+    <div data-mode-view="today" id="today-hero-mount">
+      {todayHeroProps ? (
+        <TodayHero
+          heroGame={todayHeroProps.heroGame}
+          subState={todayHeroProps.subState}
+          isFeaturedMatchup={todayHeroProps.isFeaturedMatchup}
+          slateMatchup={todayHeroProps.slateMatchup}
+          prediction={todayHeroProps.prediction}
+          countdownUtc={todayHeroProps.countdownUtc}
+        />
+      ) : (
+        <div class="hv2-placeholder" style="min-height:280px">
+          <span>Loading game data…</span>
+        </div>
+      )}
+    </div>
+
     <!-- ════════════════════════════════════════════════════════════════
-         TODAY MODE — LIVE sub-state (any game in-progress or mixed)
-         Layer 1.8: data-mode-view="today" + data-today-view="live"
+         TODAY MODE — LIVE + FINAL sub-states: real games grid
+         Layer 2.4: mock-driven LiveHero + LiveMomentStrip + GameTile
+         sections removed. Now uses real games from /v1/scoreboard.
     ════════════════════════════════════════════════════════════════ -->
     <section
       data-mode-view="today"
       data-today-view="live final"
-      data-fixture-view="default"
-      aria-label="Today's games — live view"
+      aria-label="Today's games — live/final view"
     >
-      <LiveHero game={featured} />
-      {/* Layer 2.3: LIVE FEED card gated on live sub-state only (not final). */}
-      <div data-today-view="live">
-        <LiveMomentStrip moments={liveMock.live_moments ?? []} />
-      </div>
-
-      <div class="home-sec-h">
-        <h2>Today's Games</h2>
-        <span class="count">
-          {grid.total} games · {grid.live} live · {grid.final} final · {grid.pre} upcoming
-        </span>
-      </div>
-      <div class="home-grid">
-        {subgridGames.map(g => (
-          <GameTile {...g} />
-        ))}
-      </div>
-    </section>
-
-    <section
-      data-mode-view="today"
-      data-today-view="live final"
-      data-fixture-view="shootout"
-      aria-label="Today's games — live view (shootout fixture)"
-    >
-      <LiveHero game={featuredSO} />
-      <div data-today-view="live">
-        <LiveMomentStrip moments={liveShootoutMock.live_moments ?? []} />
-      </div>
-
-      <div class="home-sec-h">
-        <h2>Today's Games</h2>
-        <span class="count">
-          {gridSO.total} games · {gridSO.live} live · {gridSO.final} final · {gridSO.pre} upcoming
-        </span>
-      </div>
-      <div class="home-grid">
-        {subgridSO.map(g => (
-          <GameTile {...g} />
-        ))}
-      </div>
-    </section>
-
-    <section
-      data-mode-view="today"
-      data-today-view="live final"
-      data-fixture-view="shootout-long"
-      aria-label="Today's games — live view (long shootout fixture)"
-    >
-      <LiveHero game={featuredSOLong} />
-      <div data-today-view="live">
-        <LiveMomentStrip moments={liveShootoutLongMock.live_moments ?? []} />
-      </div>
-
-      <div class="home-sec-h">
-        <h2>Today's Games</h2>
-        <span class="count">
-          {gridSOLong.total} games · {gridSOLong.live} live · {gridSOLong.final} final · {gridSOLong.pre} upcoming
-        </span>
-      </div>
-      <div class="home-grid">
-        {subgridSOLong.map(g => (
-          <GameTile {...g} />
-        ))}
-      </div>
+      {/* Real games grid — all today's games from /v1/scoreboard */}
+      {realGameTiles.length > 0 ? (
+        <>
+          <div class="home-sec-h">
+            <h2>Today's Games</h2>
+            <span class="count">
+              {realGameTiles.length} game{realGameTiles.length !== 1 ? 's' : ''} ·{' '}
+              {realGameTiles.filter(t => t.state === 'live' || t.state === 'intermission').length} live ·{' '}
+              {realGameTiles.filter(t => t.state === 'final').length} final ·{' '}
+              {realGameTiles.filter(t => t.state === 'pre').length} upcoming
+            </span>
+          </div>
+          <div class="home-grid">
+            {realGameTiles.map(props => (
+              <GameTile {...props} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <div class="hv2-placeholder" style="margin-top:24px">
+          <span>No game data available</span>
+        </div>
+      )}
     </section>
 
     <!-- ════════════════════════════════════════════════════════════════
@@ -1085,23 +1137,13 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
     ════════════════════════════════════════════════════════════════ -->
     <section data-mode-view="today" data-today-view="pre" aria-label="Today's games — pre-game slate view">
       {/*
-        Layer 2.3: TodayHero — unified two-card hero.
-        When real scoreboard data is available, uses the computed heroGame
-        (next chronological game in pre state).
-        Falls back to TomorrowHero when no real scoreboard data.
+        Layer 2.4: TodayHero is rendered in the shared #today-hero-mount above
+        (visible across all TODAY sub-states). The PRE section provides the
+        slate strip, matchup previews, and storylines wall below the hero.
+        TomorrowHero is kept as fallback when no real scoreboard data
+        (pre-8AM ET before first API fetch builds scoreboard).
       */}
-      {todayHeroProps ? (
-        <div id="today-hero-mount">
-          <TodayHero
-            heroGame={todayHeroProps.heroGame}
-            subState={todayHeroProps.subState}
-            isFeaturedMatchup={todayHeroProps.isFeaturedMatchup}
-            slateMatchup={todayHeroProps.slateMatchup}
-            prediction={todayHeroProps.prediction}
-            countdownUtc={todayHeroProps.countdownUtc}
-          />
-        </div>
-      ) : (
+      {!todayHeroProps && (
         <TomorrowHero
           date_label={todayApiDateLabel}
           featured={activeFeatured}
