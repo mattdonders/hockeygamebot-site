@@ -28,6 +28,7 @@
  */
 
 import TeamLogo from './TeamLogo.astro';
+import { pickTeamColor } from '../../lib/team-colors';
 
 export type TodaySubState = 'pre' | 'live' | 'final';
 
@@ -159,6 +160,11 @@ const venueLabel = heroGame.venue ? heroGame.venue.toUpperCase() : '';
 // Key matchup
 const km = slateMatchup?.key_matchup ?? null;
 const keyMatchupTitle = km ? 'Key matchup · HGB edge' : (slateMatchup?.headline ?? 'Featured matchup');
+
+// Team primary colors for stat bars — uses luminance-adjusted pick
+// (falls back to secondary for near-black teams: PIT, WSH, LAK, SEA, FLA, WPG).
+const homeColor = pickTeamColor(home.abbrev);
+const awayColor = pickTeamColor(away.abbrev);
 ---
 
 <section
@@ -349,14 +355,14 @@ const keyMatchupTitle = km ? 'Key matchup · HGB edge' : (slateMatchup?.headline
 
     {isLive && (
       <div class="th-card th-card--right th-card--live-r">
-        {/* LIVE: stats bars */}
+        {/* LIVE: stats bars — home bars use home team primary color, away use away team color */}
         <div class="th-r-stat">
           <div class="th-r-stat-val">{stats.shots_on_goal.home ?? '–'}</div>
           <div class="th-r-stat-lbl">Shots on Goal</div>
           <div class="th-r-stat-val">{stats.shots_on_goal.away ?? '–'}</div>
           <div class="th-r-stat-bar">
-            <div class="th-r-bar-l" style={`width:${shotsL}`}></div>
-            <div class="th-r-bar-r" style={`width:${shotsR}`}></div>
+            <div class="th-r-bar-l" style={`width:${shotsL};background:${homeColor}`}></div>
+            <div class="th-r-bar-r" style={`width:${shotsR};background:${awayColor}`}></div>
           </div>
         </div>
         <div class="th-r-stat">
@@ -364,17 +370,17 @@ const keyMatchupTitle = km ? 'Key matchup · HGB edge' : (slateMatchup?.headline
           <div class="th-r-stat-lbl">5v5 xG</div>
           <div class="th-r-stat-val">{stats.xg_5v5.away !== null ? stats.xg_5v5.away.toFixed(2) : '–'}</div>
           <div class="th-r-stat-bar">
-            <div class="th-r-bar-l" style={`width:${xg5L}`}></div>
-            <div class="th-r-bar-r" style={`width:${xg5R}`}></div>
+            <div class="th-r-bar-l" style={`width:${xg5L};background:${homeColor}`}></div>
+            <div class="th-r-bar-r" style={`width:${xg5R};background:${awayColor}`}></div>
           </div>
         </div>
         <div class="th-r-stat">
           <div class="th-r-stat-val">{stats.xg.home !== null ? stats.xg.home.toFixed(2) : '–'}</div>
           <div class="th-r-stat-lbl">xG · All</div>
           <div class="th-r-stat-val">{stats.xg.away !== null ? stats.xg.away.toFixed(2) : '–'}</div>
-          <div class="th-r-stat-bar th-r-stat-bar--cyan">
-            <div class="th-r-bar-l" style={`width:${xgL}`}></div>
-            <div class="th-r-bar-r" style={`width:${xgR}`}></div>
+          <div class="th-r-stat-bar">
+            <div class="th-r-bar-l" style={`width:${xgL};background:${homeColor}`}></div>
+            <div class="th-r-bar-r" style={`width:${xgR};background:${awayColor}`}></div>
           </div>
         </div>
         <div class="th-r-stat">
@@ -382,8 +388,8 @@ const keyMatchupTitle = km ? 'Key matchup · HGB edge' : (slateMatchup?.headline
           <div class="th-r-stat-lbl">Win Probability</div>
           <div class="th-r-stat-val">{fmtWp(stats.win_probability.away)}</div>
           <div class="th-r-stat-bar">
-            <div class="th-r-bar-l" style={`width:${wpL}`}></div>
-            <div class="th-r-bar-r" style={`width:${wpR}`}></div>
+            <div class="th-r-bar-l" style={`width:${wpL};background:${homeColor}`}></div>
+            <div class="th-r-bar-r" style={`width:${wpR};background:${awayColor}`}></div>
           </div>
         </div>
       </div>
@@ -897,8 +903,13 @@ const keyMatchupTitle = km ? 'Key matchup · HGB edge' : (slateMatchup?.headline
     border-radius: var(--radius-sm);
     overflow: hidden;
   }
+  /* Bar fills: defaults used when no inline style is stamped.
+     Live/final stat bars override via inline style="background:..." using team
+     primary colors (pickTeamColor in TodayHero.astro). The --cyan variant is
+     kept as a legacy class but the real color comes from inline styles now. */
   .th-r-stat-bar--cyan .th-r-bar-l { background: var(--status-live); }
   .th-r-stat-bar--cyan .th-r-bar-r { background: #1a4050; }
+  /* Default fallback — only shows when inline color is absent */
   .th-r-bar-l { background: var(--hgb-red); }
   .th-r-bar-r { background: #2a2a2a; }
 
