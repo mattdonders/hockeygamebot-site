@@ -165,6 +165,22 @@ const keyMatchupTitle = km ? 'Key matchup · HGB edge' : (slateMatchup?.headline
 // (falls back to secondary for near-black teams: PIT, WSH, LAK, SEA, FLA, WPG).
 const homeColor = pickTeamColor(home.abbrev);
 const awayColor = pickTeamColor(away.abbrev);
+
+// Box score: period columns (LIVE / FINAL sub-states only)
+// Build columns for the periods that have elapsed (min 3; adds OT/SO when applicable).
+const boxScorePeriodCols = (isLive || isFinal)
+  ? (() => {
+      const maxP = Math.max(period, 3);
+      const cols: number[] = [];
+      for (let p = 1; p <= maxP; p++) cols.push(p);
+      return cols;
+    })()
+  : [];
+function fmtPeriodLabel(p: number): string {
+  if (p <= 3) return String(p);
+  if (p === 4) return 'OT';
+  return `OT${p - 3}`;
+}
 ---
 
 <section
@@ -445,6 +461,44 @@ const awayColor = pickTeamColor(away.abbrev);
     )}
 
   </div>
+
+  {/* ── Box Score (LIVE / FINAL sub-states) ─────────────────── */}
+  {/* TODO Layer 2.7: replace placeholder dashes with real score_by_period
+       from game.score_by_period when bot writes it. See ticket: per-period
+       scoring breakdown. */}
+  {(isLive || isFinal) && (
+    <div class="th-boxscore">
+      <div class="th-bs-label">Box Score</div>
+      <table class="th-bs-table" aria-label="Period-by-period score">
+        <thead>
+          <tr>
+            <th class="th-bs-team-col" scope="col"></th>
+            {boxScorePeriodCols.map(p => (
+              <th class="th-bs-period-col" scope="col">{fmtPeriodLabel(p)}</th>
+            ))}
+            <th class="th-bs-total-col" scope="col">T</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="th-bs-team-name" style={`color:${homeColor}`}>{home.abbrev}</td>
+            {boxScorePeriodCols.map(() => (
+              <td class="th-bs-cell">—</td>
+            ))}
+            <td class="th-bs-total">{home.score}</td>
+          </tr>
+          <tr>
+            <td class="th-bs-team-name" style={`color:${awayColor}`}>{away.abbrev}</td>
+            {boxScorePeriodCols.map(() => (
+              <td class="th-bs-cell">—</td>
+            ))}
+            <td class="th-bs-total">{away.score}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="th-bs-pending">Per-period breakdown · coming in Layer 2.7</div>
+    </div>
+  )}
 </section>
 
 <style is:global>
@@ -1010,10 +1064,94 @@ const awayColor = pickTeamColor(away.abbrev);
     justify-content: space-evenly;
   }
 
+  /* ── Box Score (LIVE / FINAL) ────────────────────────────────── */
+  .th-boxscore {
+    border-top: 1px solid #1a1a1a;
+    padding: 16px 28px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: #070707;
+  }
+  .th-bs-label {
+    font-family: var(--font-site-body);
+    font-weight: 700;
+    font-size: 9.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #555;
+  }
+  .th-bs-table {
+    border-collapse: collapse;
+    width: 100%;
+    max-width: 480px;
+  }
+  .th-bs-table th,
+  .th-bs-table td {
+    padding: 5px 10px;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .th-bs-table thead th {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #444;
+    border-bottom: 1px solid #1a1a1a;
+    font-weight: 700;
+  }
+  .th-bs-team-col {
+    min-width: 52px;
+    text-align: left !important;
+  }
+  .th-bs-period-col {
+    min-width: 32px;
+  }
+  .th-bs-total-col {
+    min-width: 36px;
+    border-left: 1px solid #1a1a1a;
+  }
+  .th-bs-team-name {
+    font-family: var(--font-site-display) !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    letter-spacing: 0.06em;
+    text-align: left !important;
+    /* color is stamped inline via team primary color */
+  }
+  .th-bs-cell {
+    font-size: 13px;
+    color: #444;
+    /* Em-dash signals "data not yet available" — feels like loading, not broken */
+  }
+  .th-bs-total {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--site-white);
+    border-left: 1px solid #1a1a1a;
+  }
+  .th-bs-table tbody tr:first-child td {
+    padding-top: 8px;
+  }
+  .th-bs-table tbody tr:last-child td {
+    border-top: 1px solid #111;
+    padding-bottom: 4px;
+  }
+  .th-bs-pending {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #2a2a2a;
+    margin-top: 2px;
+  }
+
   /* ── Mobile ─────────────────────────────────────────────────────── */
   @media (max-width: 720px) {
     .th-countdown-time { font-size: 30px; }
     .th-score-num { font-size: 52px; }
     .th-card { padding: 20px 18px; }
+    .th-boxscore { padding: 14px 18px 16px; }
   }
 </style>
