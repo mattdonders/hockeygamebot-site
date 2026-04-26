@@ -206,6 +206,12 @@ type SlateTileShape = {
   away: { abbrev: string; logo?: string };
   home_wp?: number;
   away_wp?: number;
+  game_state?: 'pre' | 'live' | 'intermission' | 'shootout' | 'final';
+  home_score?: number;
+  away_score?: number;
+  period?: number | null;
+  time_remaining?: string | null;
+  in_intermission?: boolean | null;
 };
 
 function buildSlateTiles(): SlateTileShape[] {
@@ -215,12 +221,22 @@ function buildSlateTiles(): SlateTileShape[] {
   );
   return realScoreboard.games.map(g => {
     const pred = predMap.get(g.game_id);
+    const gs = g.game_state; // 'pre' | 'live' | 'intermission' | 'shootout' | 'final'
+    const isPre = gs === 'pre';
     return {
       gameId: g.game_id,
       start_time: fmtStartTimeET(g.start_time_utc),
       home: { abbrev: g.home_team.abbrev },
       away: { abbrev: g.away_team.abbrev },
-      ...(pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : {}),
+      // WP chip only when pre-game — replaced by live scores otherwise
+      ...(isPre && pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : {}),
+      // Game state for state-aware rendering in TomorrowSlateStrip
+      game_state: gs,
+      home_score: g.home_team.score,
+      away_score: g.away_team.score,
+      period: g.clock.period ?? null,
+      time_remaining: g.clock.time_remaining ?? null,
+      in_intermission: g.clock.in_intermission ?? null,
     };
   });
 }

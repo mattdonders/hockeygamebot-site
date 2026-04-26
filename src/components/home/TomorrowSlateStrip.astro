@@ -51,6 +51,23 @@ export interface TomorrowSlateTile {
   home_wp?: number;
   /** Away team win probability (0..1) — present iff home_wp is present. */
   away_wp?: number;
+  /**
+   * Live/final game state — when present, the tile renders state-aware content
+   * instead of the pre-game WP chip / start time.
+   *   'pre'          → start time + WP chip (default behavior)
+   *   'live'/'intermission'/'shootout' → scores + period/clock + LIVE badge
+   *   'final'        → final scores + FINAL badge
+   */
+  game_state?: 'pre' | 'live' | 'intermission' | 'shootout' | 'final';
+  /** Current score — present when game_state is live/intermission/shootout/final. */
+  home_score?: number;
+  away_score?: number;
+  /** Clock period (1-5+) — present when live/intermission. */
+  period?: number | null;
+  /** Time remaining "MM:SS" — present when live. */
+  time_remaining?: string | null;
+  /** True when in intermission. */
+  in_intermission?: boolean | null;
 }
 
 export interface Props {
@@ -103,6 +120,19 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
   if (rowWp === undefined || otherWp === undefined) return false;
   return rowWp >= otherWp;
 }
+
+/**
+ * Format a live clock line for the tile state badge.
+ * e.g. "P2 · 14:33", "INTERMISSION", "OT · 03:22"
+ */
+function fmtLiveClock(t: TomorrowSlateTile): string {
+  const period = t.period ?? 0;
+  if (t.in_intermission) return `INT · P${period}`;
+  if (period === 0) return 'LIVE';
+  if (period <= 3) return `P${period}${t.time_remaining ? ` · ${t.time_remaining}` : ''}`;
+  if (period === 4) return `OT${t.time_remaining ? ` · ${t.time_remaining}` : ''}`;
+  return `OT${period - 3}${t.time_remaining ? ` · ${t.time_remaining}` : ''}`;
+}
 ---
 <section class="tomorrow-slate-strip" aria-label="Tomorrow's scheduled games">
   <header class="tss-head">
@@ -115,9 +145,28 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
   <div class="tss-frame">
     <div class="tss-track" role="list" style={`grid-template-columns: repeat(${cols}, minmax(210px, 1fr))`}>
       {tiles.map((t) => {
-        const showWp = t.home_wp !== undefined && t.away_wp !== undefined;
+        const gs = t.game_state ?? 'pre';
+        const isLive = gs === 'live' || gs === 'intermission' || gs === 'shootout';
+        const isFinal = gs === 'final';
+        const isPre = !isLive && !isFinal;
+
+        const showWp = isPre && t.home_wp !== undefined && t.away_wp !== undefined;
         const awayIsFav = isFavorite(t.away_wp, t.home_wp);
         const homeIsFav = isFavorite(t.home_wp, t.away_wp);
+
+        // State badge text
+        let stateBadge: string;
+        let stateBadgeClass: string;
+        if (isLive) {
+          stateBadge = fmtLiveClock(t);
+          stateBadgeClass = 'tss-state tss-state--live';
+        } else if (isFinal) {
+          stateBadge = 'FINAL';
+          stateBadgeClass = 'tss-state tss-state--final';
+        } else {
+          stateBadge = `PRE · ${t.start_time}`;
+          stateBadgeClass = 'tss-state';
+        }
 
         return (
           <article
@@ -127,7 +176,10 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
             data-game-id={t.gameId}
           >
             <div class="tss-tile-top">
-              <div class="tss-state">PRE · {t.start_time}</div>
+              <span class={stateBadgeClass}>
+                {isLive && <span class="tss-live-dot" aria-hidden="true"></span>}
+                {stateBadge}
+              </span>
               {featuredMatchupId && t.gameId === featuredMatchupId && (
                 <span class="tss-gotn-star" title="Game of the Night" aria-label="Game of the Night">★</span>
               )}
@@ -137,24 +189,36 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
             <div class="tss-row">
               <TeamLogo abbr={t.away.abbrev} size={28} class="tss-logo" />
               <span class="tss-abbr">{t.away.abbrev}</span>
-              {showWp && (
+              {/* PRE: WP chip. LIVE/FINAL: score numeral */}
+              {isPre && showWp && (
                 <span class:list={['tss-wp-chip', awayIsFav ? 'tss-wp-chip--fav' : 'tss-wp-chip--dog']}>
                   {fmtWp(t.away_wp!)}
                 </span>
               )}
-              {t.away.record && <span class="tss-rec">{t.away.record}</span>}
+              {(isLive || isFinal) && (
+                <span class:list={['tss-score', { 'tss-score--leader': (t.away_score ?? 0) > (t.home_score ?? 0) }]}>
+                  {t.away_score ?? 0}
+                </span>
+              )}
+              {t.away.record && isPre && <span class="tss-rec">{t.away.record}</span>}
             </div>
 
             {/* Home row */}
             <div class="tss-row">
               <TeamLogo abbr={t.home.abbrev} size={28} class="tss-logo" />
               <span class="tss-abbr">{t.home.abbrev}</span>
-              {showWp && (
+              {/* PRE: WP chip. LIVE/FINAL: score numeral */}
+              {isPre && showWp && (
                 <span class:list={['tss-wp-chip', homeIsFav ? 'tss-wp-chip--fav' : 'tss-wp-chip--dog']}>
                   {fmtWp(t.home_wp!)}
                 </span>
               )}
-              {t.home.record && <span class="tss-rec">{t.home.record}</span>}
+              {(isLive || isFinal) && (
+                <span class:list={['tss-score', { 'tss-score--leader': (t.home_score ?? 0) > (t.away_score ?? 0) }]}>
+                  {t.home_score ?? 0}
+                </span>
+              )}
+              {t.home.record && isPre && <span class="tss-rec">{t.home.record}</span>}
             </div>
 
             {t.series_status && <div class="tss-meta">{t.series_status}</div>}
@@ -251,6 +315,45 @@ function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boo
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--status-scheduled);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .tss-state--live {
+    color: var(--status-live, #00e5ff);
+  }
+  .tss-state--final {
+    color: var(--status-final, #888);
+  }
+
+  /* Animated live dot — matches TodayHero's th-live-dot style */
+  .tss-live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--status-live, #00e5ff);
+    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
+    animation: tssLiveRing 1.8s ease-out infinite;
+    flex: none;
+  }
+  @keyframes tssLiveRing {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
+    70%  { box-shadow: 0 0 0 6px rgba(0, 229, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+  }
+
+  /* Score numeral — replaces WP chip in live/final cells */
+  .tss-score {
+    font-family: var(--font-site-display);
+    font-weight: 700;
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    color: #999;
+    line-height: 1;
+    margin-left: auto; /* push to the right side of the row */
+  }
+  .tss-score--leader {
+    color: var(--site-white, #f5f5f5);
   }
 
   /* ★ Game of the Night badge — small, subtle, top-right of tile */
