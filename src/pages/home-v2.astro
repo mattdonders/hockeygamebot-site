@@ -45,6 +45,7 @@ import {
   parseTomorrowMockOrThrow,
   parseOffseasonMockOrThrow,
   parseScoreboardVariantsOrThrow,
+  ScoreboardSchema,
 } from '../lib/auto-mode-schemas';
 import { pickHero } from '../lib/excitement';
 import { HOME_MODES } from '../lib/auto-mode';
@@ -69,10 +70,74 @@ const offseasonMock = parseOffseasonMockOrThrow(
   offseasonMockRaw,
   'home-mock/offseason.json',
 );
-const scheduleVariants = parseScoreboardVariantsOrThrow(
+
+// ── Layer 2.0: Build-time fetch from real API ──────────────────────────────
+// Fetches /v1/scoreboard at Astro build time to bake real game data into the
+// static HTML. CF Pages rebuilds on deployment (or can be triggered via webhook)
+// so the baked data is fresh-as-of-last-build.
+//
+// Fallback: if fetch fails (network issue, API down), falls back to the
+// mock schedule so the build never breaks. A data-api-error banner is shown
+// to users when running on stale mock data.
+const SCOREBOARD_URL = 'https://api.hockeygamebot.com/v1/scoreboard';
+const SLATE_URL = 'https://api.hockeygamebot.com/v1/slate';
+
+let realScoreboard: import('../lib/auto-mode-schemas').Scoreboard | null = null;
+let realSlate: unknown = null;
+let apiFetchError: string | null = null;
+
+try {
+  const scoreboardRes = await fetch(SCOREBOARD_URL);
+  if (scoreboardRes.ok) {
+    const raw = await scoreboardRes.json();
+    const parsed = ScoreboardSchema.safeParse(raw);
+    if (parsed.success) {
+      realScoreboard = parsed.data;
+      console.log(`[home-v2] Scoreboard: ${realScoreboard.games.length} game(s) for ${realScoreboard.date}`);
+    } else {
+      const issueCount = parsed.error.issues.length;
+      apiFetchError = `Scoreboard schema validation failed (${issueCount} issue(s)): ${parsed.error.issues[0]?.message}`;
+      console.warn('[home-v2] Scoreboard schema validation failed:', parsed.error.issues);
+    }
+  } else {
+    apiFetchError = `Scoreboard fetch failed: HTTP ${scoreboardRes.status}`;
+    console.warn('[home-v2]', apiFetchError);
+  }
+} catch (e) {
+  apiFetchError = `Scoreboard fetch threw: ${e instanceof Error ? e.message : String(e)}`;
+  console.warn('[home-v2]', apiFetchError);
+}
+
+try {
+  const slateRes = await fetch(SLATE_URL);
+  if (slateRes.ok) {
+    realSlate = await slateRes.json();
+    console.log('[home-v2] Slate: fetched successfully');
+  } else if (slateRes.status === 404) {
+    console.log('[home-v2] Slate: 404 — not yet written for today (pre-8 AM ET cron)');
+    realSlate = null;
+  } else {
+    console.warn(`[home-v2] Slate fetch failed: HTTP ${slateRes.status}`);
+    realSlate = null;
+  }
+} catch (e) {
+  console.warn('[home-v2] Slate fetch threw:', e);
+  realSlate = null;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Build the scheduleVariants object used by the inline detectMode script.
+// When real API data is available, the `default` variant is replaced with
+// live data so the mode resolver reflects actual game states (pre/live/final).
+// All other variant keys (morning/afternoon/evening/night/yesterday/offseason)
+// remain as mock data for QA testing via ?schedule= param.
+const scheduleVariantsMockBase = parseScoreboardVariantsOrThrow(
   scheduleVariantsRaw,
   'home-mock/schedule.json',
 );
+const scheduleVariants = realScoreboard
+  ? { ...scheduleVariantsMockBase, default: realScoreboard }
+  : scheduleVariantsMockBase;
 
 // ── Hero selection (existing live-mode logic — unchanged) ──────────────────
 const PRIOR_HERO_ID = '2026030124'; // BOS @ BUF
@@ -191,6 +256,15 @@ const todayPreHeroCopy = {
 // without an extra fetch.
 const scheduleVariantsJson = JSON.stringify(scheduleVariants);
 const homeModesJson = JSON.stringify(HOME_MODES);
+// Layer 2.0: real slate doc (null when not yet written — pre-8 AM ET cron).
+// Serialised for inline access by the body script if needed.
+const realSlateJson = realSlate ? JSON.stringify(realSlate) : 'null';
+const apiDataSourceJson = JSON.stringify({
+  scoreboard: realScoreboard ? 'live' : 'mock',
+  slate: realSlate ? 'live' : 'none',
+  scoreboard_date: realScoreboard?.date ?? null,
+  fetch_error: apiFetchError,
+});
 ---
 <!DOCTYPE html>
 <html lang="en" data-home-mode="today" data-fixture="default" data-today-substate="live">
@@ -222,7 +296,7 @@ const homeModesJson = JSON.stringify(HOME_MODES);
     All mode body sections render at build time; CSS rules below
     show the active one only.
   -->
-  <script is:inline define:vars={{ scheduleVariantsJson, homeModesJson }}>
+  <script is:inline define:vars={{ scheduleVariantsJson, homeModesJson, apiDataSourceJson }}>
     (function () {
       try {
         var modes = JSON.parse(homeModesJson);
@@ -284,6 +358,16 @@ const homeModesJson = JSON.stringify(HOME_MODES);
         document.documentElement.setAttribute('data-home-mode', mode);
         document.documentElement.setAttribute('data-mode-source', source);
         document.documentElement.setAttribute('data-schedule-variant', schedKey);
+
+        // Layer 2.0: stamp API data source info for debugging + analytics.
+        try {
+          var apiSource = JSON.parse(apiDataSourceJson);
+          document.documentElement.setAttribute('data-api-scoreboard', apiSource.scoreboard || 'unknown');
+          document.documentElement.setAttribute('data-api-slate', apiSource.slate || 'none');
+          if (apiSource.scoreboard_date) {
+            document.documentElement.setAttribute('data-api-date', apiSource.scoreboard_date);
+          }
+        } catch (e) { /* non-fatal */ }
 
         // TODAY sub-state stamp (only meaningful when mode === 'today').
         var todaySubstate = detectTodaySubstate(schedule);
@@ -466,6 +550,24 @@ const homeModesJson = JSON.stringify(HOME_MODES);
 </head>
 <body class="hgb-site">
   <Topbar active="scores" dateLabel={todayDate} />
+
+  <!--
+    Layer 2.0: API data status banner.
+    Shown only when build-time fetch failed and we fell back to mock data.
+    Hidden when real API data rendered successfully (apiFetchError === null).
+  -->
+  {apiFetchError && (
+    <div style="background:#1a0a0a;border-bottom:1px solid #8b1a1a;padding:8px 20px;font-family:var(--font-mono,monospace);font-size:11px;color:#e07070;letter-spacing:0.12em;text-transform:uppercase;">
+      Data temporarily unavailable — showing preview data. ({apiFetchError})
+    </div>
+  )}
+  {!apiFetchError && realScoreboard && (
+    <div style="background:#0a1a0a;border-bottom:1px solid #1a4a1a;padding:6px 20px;font-family:var(--font-mono,monospace);font-size:10px;color:#4a9a4a;letter-spacing:0.12em;text-transform:uppercase;display:flex;justify-content:space-between;">
+      <span>Live data — {realScoreboard.games.length} game{realScoreboard.games.length !== 1 ? 's' : ''} · {realScoreboard.date}</span>
+      {realSlate && <span>Slate: ready</span>}
+      {!realSlate && <span style="color:#6a6a4a;">Slate: pending (pre-8 AM ET)</span>}
+    </div>
+  )}
 
   <!--
     Playoff strip — today + yesterday modes carry it; offseason
