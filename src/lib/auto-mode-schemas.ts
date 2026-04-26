@@ -117,6 +117,16 @@ export const TomorrowSlateTileSchema = z.object({
       .regex(/^#[0-9A-Fa-f]{3,8}$/)
       .optional(),
   }),
+  /**
+   * Home team win probability (0..1) from the blended model. Optional —
+   * slate strip degrades gracefully when absent (no WP shown). Added
+   * Layer 5.8 for WP chip/inline variants on the slate strip.
+   */
+  home_wp: z.number().min(0).max(1).optional(),
+  /**
+   * Away team win probability (0..1). Present iff home_wp is present.
+   */
+  away_wp: z.number().min(0).max(1).optional(),
 });
 export type TomorrowSlateTile = z.infer<typeof TomorrowSlateTileSchema>;
 

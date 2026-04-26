@@ -20,9 +20,16 @@
  *
  * Click hook on each tile: `data-tomorrow-hook="open-preview-modal"`
  * (no-op for now; Layer 5+ wires the modal).
+ *
+ * WP display variants (Layer 5.8) — controlled by `variant` prop:
+ *   'chip'   — tiny pill between abbrev and record; color-coded fav/dog
+ *   'inline' — mono text with "·" separator; fav = white, underdog = muted
+ *   'none'   — no WP shown even if home_wp/away_wp are present (default)
  */
 
 import TeamLogo from './TeamLogo.astro';
+
+export type SlateWpVariant = 'chip' | 'inline' | 'none';
 
 export interface TomorrowSlateTile {
   gameId: string;
@@ -44,16 +51,41 @@ export interface TomorrowSlateTile {
     record?: string;
     accentColor?: string;
   };
+  /** Home team win probability (0..1) — optional; from the blended model. */
+  home_wp?: number;
+  /** Away team win probability (0..1) — present iff home_wp is present. */
+  away_wp?: number;
 }
 
 export interface Props {
   tiles: TomorrowSlateTile[];
   heading?: string;
+  /**
+   * WP display variant. Defaults to 'none' so existing render sites without
+   * the prop remain unaffected.
+   *   'chip'   — Variant 1: tiny pill, color-coded (fav = cyan-tint, dog = grey)
+   *   'inline' — Variant 2: mono "· 55%" inline text, no background
+   *   'none'   — no WP display
+   */
+  variant?: SlateWpVariant;
 }
 
-const { tiles, heading } = Astro.props;
+const { tiles, heading, variant = 'none' } = Astro.props;
 const total = tiles.length;
 const headingText = heading ?? `Tomorrow's slate · ${total} game${total === 1 ? '' : 's'}`;
+
+function fmtWp(v: number): string {
+  return `${Math.round(v * 100)}%`;
+}
+
+/**
+ * Determine which team in a row is the "favorite" (higher WP).
+ * Used to drive color-coding: favorite gets cyan-tint, underdog gets muted grey.
+ */
+function isFavorite(rowWp: number | undefined, otherWp: number | undefined): boolean {
+  if (rowWp === undefined || otherWp === undefined) return false;
+  return rowWp >= otherWp;
+}
 ---
 <section class="tomorrow-slate-strip" aria-label="Tomorrow's scheduled games">
   <header class="tss-head">
@@ -73,29 +105,58 @@ const headingText = heading ?? `Tomorrow's slate · ${total} game${total === 1 ?
     >‹</button>
 
     <div class="tss-track" role="list">
-      {tiles.map((t) => (
-        <article
-          class="tss-tile"
-          role="listitem"
-          data-tomorrow-hook="open-preview-modal"
-          data-game-id={t.gameId}
-        >
-          <div class="tss-state">PRE · {t.start_time}</div>
+      {tiles.map((t) => {
+        const showWp = variant !== 'none' && t.home_wp !== undefined && t.away_wp !== undefined;
+        const awayIsFav = isFavorite(t.away_wp, t.home_wp);
+        const homeIsFav = isFavorite(t.home_wp, t.away_wp);
 
-          <div class="tss-row">
-            <TeamLogo abbr={t.away.abbrev} size={36} class="tss-logo" />
-            <span class="tss-abbr">{t.away.abbrev}</span>
-            {t.away.record && <span class="tss-rec">{t.away.record}</span>}
-          </div>
-          <div class="tss-row">
-            <TeamLogo abbr={t.home.abbrev} size={36} class="tss-logo" />
-            <span class="tss-abbr">{t.home.abbrev}</span>
-            {t.home.record && <span class="tss-rec">{t.home.record}</span>}
-          </div>
+        return (
+          <article
+            class="tss-tile"
+            role="listitem"
+            data-tomorrow-hook="open-preview-modal"
+            data-game-id={t.gameId}
+          >
+            <div class="tss-state">PRE · {t.start_time}</div>
 
-          {t.series_status && <div class="tss-meta">{t.series_status}</div>}
-        </article>
-      ))}
+            {/* Away row */}
+            <div class="tss-row">
+              <TeamLogo abbr={t.away.abbrev} size={36} class="tss-logo" />
+              <span class="tss-abbr">{t.away.abbrev}</span>
+              {showWp && variant === 'chip' && (
+                <span class:list={['tss-wp-chip', awayIsFav ? 'tss-wp-chip--fav' : 'tss-wp-chip--dog']}>
+                  {fmtWp(t.away_wp!)}
+                </span>
+              )}
+              {showWp && variant === 'inline' && (
+                <span class:list={['tss-wp-inline', awayIsFav ? 'tss-wp-inline--fav' : 'tss-wp-inline--dog']}>
+                  · {fmtWp(t.away_wp!)}
+                </span>
+              )}
+              {t.away.record && <span class="tss-rec">{t.away.record}</span>}
+            </div>
+
+            {/* Home row */}
+            <div class="tss-row">
+              <TeamLogo abbr={t.home.abbrev} size={36} class="tss-logo" />
+              <span class="tss-abbr">{t.home.abbrev}</span>
+              {showWp && variant === 'chip' && (
+                <span class:list={['tss-wp-chip', homeIsFav ? 'tss-wp-chip--fav' : 'tss-wp-chip--dog']}>
+                  {fmtWp(t.home_wp!)}
+                </span>
+              )}
+              {showWp && variant === 'inline' && (
+                <span class:list={['tss-wp-inline', homeIsFav ? 'tss-wp-inline--fav' : 'tss-wp-inline--dog']}>
+                  · {fmtWp(t.home_wp!)}
+                </span>
+              )}
+              {t.home.record && <span class="tss-rec">{t.home.record}</span>}
+            </div>
+
+            {t.series_status && <div class="tss-meta">{t.series_status}</div>}
+          </article>
+        );
+      })}
     </div>
 
     <button
@@ -243,11 +304,20 @@ const headingText = heading ?? `Tomorrow's slate · ${total} game${total === 1 ?
     color: var(--status-scheduled);
   }
 
+  /*
+   * Team row grid — 4 columns:
+   *   36px  logo
+   *   auto  abbrev
+   *   auto  WP chip or inline (hidden when variant=none)
+   *   1fr   record (right-aligned, pushes to edge)
+   *
+   * When WP is absent the auto column collapses to 0 — no layout shift.
+   */
   .tss-row {
     display: grid;
-    grid-template-columns: 36px auto 1fr;
+    grid-template-columns: 36px auto auto 1fr;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
   }
   /* TeamLogo wrapper — size locked via the `size` prop on the
      component (36px desktop). */
@@ -267,6 +337,54 @@ const headingText = heading ?? `Tomorrow's slate · ${total} game${total === 1 ?
     color: #666;
     text-align: right;
     letter-spacing: 0.04em;
+    grid-column: 4;
+  }
+
+  /* ── Variant 1: chip ─────────────────────────────────────────────── */
+  /*
+   * Tiny pill, tighter than the matchup card chip (slate cells are tight).
+   * Color-coded: favorite = cyan-tint bg + cyan text; underdog = grey bg + grey text.
+   */
+  .tss-wp-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 5px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .tss-wp-chip--fav {
+    background: rgba(0, 229, 255, 0.14);
+    color: var(--status-live, #00e5ff);
+  }
+  .tss-wp-chip--dog {
+    background: rgba(255, 255, 255, 0.06);
+    color: #888;
+  }
+
+  /* ── Variant 2: inline mono ──────────────────────────────────────── */
+  /*
+   * "· 55%" inline mono text. No background. Reads as a stat column.
+   * Favorite = white; underdog = muted grey (#999).
+   */
+  .tss-wp-inline {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .tss-wp-inline--fav {
+    color: var(--site-white, #f5f5f5);
+  }
+  .tss-wp-inline--dog {
+    color: #888;
   }
 
   .tss-meta {
@@ -317,7 +435,7 @@ const headingText = heading ?? `Tomorrow's slate · ${total} game${total === 1 ?
   @media (max-width: 720px) {
     .tss-chev { display: none; }
     .tss-tile { flex: 0 0 148px; min-width: 148px; padding: 10px 12px; }
-    .tss-row { grid-template-columns: 30px auto 1fr; gap: 8px; }
+    .tss-row { grid-template-columns: 30px auto auto 1fr; gap: 5px; }
     .tss-row :global(.team-logo.tss-logo) { width: 30px !important; height: 30px !important; }
   }
 </style>
