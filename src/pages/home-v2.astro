@@ -15,7 +15,9 @@ import RecapWall from '../components/home/RecapWall.astro';
 import TweetEcho from '../components/home/TweetEcho.astro';
 import ModelRetrospective from '../components/home/ModelRetrospective.astro';
 
-// Layer 5 additions — tomorrow + offseason chrome.
+// Layer 2.3 — unified TodayHero replaces the competing TomorrowHero + ArtifactMatchup.
+import TodayHero from '../components/home/TodayHero.astro';
+// TomorrowHero kept for now as a fallback path (pre-2.3 QA only — will be removed post-merge).
 import TomorrowHero from '../components/home/TomorrowHero.astro';
 import TomorrowSlateStrip from '../components/home/TomorrowSlateStrip.astro';
 // PredictionsGrid import removed in Layer 5.7 — predictions inlined into matchup cards.
@@ -49,6 +51,8 @@ import {
 } from '../lib/auto-mode-schemas';
 import { pickHero } from '../lib/excitement';
 import { HOME_MODES } from '../lib/auto-mode';
+// Layer 2.3 — hero selection
+import { pickHeroGame, detectSubState } from '../lib/hero-selection';
 
 // Validate all live fixtures at build time.
 const liveMock = parseLiveMockOrThrow(liveMockRaw, 'home-mock/live.json');
@@ -126,6 +130,258 @@ try {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Layer 2.1: Extract real API data for component consumption ─────────────
+//
+// The real slate doc is wrapped: { hockey_date, doc, generated_at, updated_at }
+// We extract doc.* fields here and build component-ready data from the join
+// of scoreboard + slate. Falls through to mock when API data is absent.
+
+/** Raw slate doc extracted from the API envelope. */
+type SlateDoc = {
+  hockey_date?: string;
+  predictions?: Array<{ game_id: string; home_wp: number; away_wp: number }>;
+  matchup_previews?: Array<{
+    game_id: string;
+    headline: string;
+    key_matchup?: { home_player: string; away_player: string; context: string };
+    x_factor?: string;
+  }>;
+  storylines?: Array<{
+    type: string;
+    player?: string;
+    team?: string;
+    headline: string;
+    context: string;
+  }>;
+  featured_matchup?: {
+    game_id: string;
+    tag?: { label: string; kind: string };
+    reasoning?: string;
+    byline?: { left: string; right: string };
+  };
+};
+
+const slateDoc: SlateDoc | null = (() => {
+  if (!realSlate || typeof realSlate !== 'object') return null;
+  const raw = realSlate as Record<string, unknown>;
+  // API returns { hockey_date, doc, generated_at, updated_at }
+  if (raw.doc && typeof raw.doc === 'object') return raw.doc as SlateDoc;
+  // Fallback: maybe already the flat doc
+  return raw as SlateDoc;
+})();
+
+/** Quick lookup: game_id → ScoreboardGame. */
+type ScoreboardGame = import('../lib/auto-mode-schemas').Scoreboard['games'][number];
+const gameById = new Map<string, ScoreboardGame>(
+  (realScoreboard?.games ?? []).map(g => [g.game_id, g])
+);
+
+/**
+ * Format a UTC ISO string as "H:MM PM ET" (Eastern Time).
+ * Used at build time (Node.js) where Intl.DateTimeFormat works.
+ */
+function fmtStartTimeET(utc: string | null): string {
+  if (!utc) return '';
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(utc)) + ' ET';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Build TomorrowSlateTile array from real scoreboard games, enriched with
+ * WP predictions from the slate doc if available.
+ */
+type SlateTileShape = {
+  gameId: string;
+  start_time: string;
+  series_status?: string;
+  home: { abbrev: string; logo?: string };
+  away: { abbrev: string; logo?: string };
+  home_wp?: number;
+  away_wp?: number;
+};
+
+function buildSlateTiles(): SlateTileShape[] {
+  if (!realScoreboard) return [];
+  const predMap = new Map(
+    (slateDoc?.predictions ?? []).map(p => [p.game_id, p])
+  );
+  return realScoreboard.games.map(g => {
+    const pred = predMap.get(g.game_id);
+    return {
+      gameId: g.game_id,
+      start_time: fmtStartTimeET(g.start_time_utc),
+      home: { abbrev: g.home_team.abbrev },
+      away: { abbrev: g.away_team.abbrev },
+      ...(pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : {}),
+    };
+  });
+}
+
+const realSlateTiles = buildSlateTiles();
+
+/**
+ * Build the TODAY pre-state hero data from real scoreboard.
+ * Finds the earliest game by start_time_utc.
+ */
+const firstGame = realScoreboard?.games.length
+  ? [...realScoreboard.games].sort((a, b) => {
+      const at = a.start_time_utc ? Date.parse(a.start_time_utc) : Infinity;
+      const bt = b.start_time_utc ? Date.parse(b.start_time_utc) : Infinity;
+      return at - bt;
+    })[0]
+  : null;
+
+const firstGameUtc = firstGame?.start_time_utc ?? null;
+const firstGameLabel = firstGame
+  ? `${firstGame.away_team.abbrev} @ ${firstGame.home_team.abbrev} · ${fmtStartTimeET(firstGame.start_time_utc)}`
+  : null;
+
+// Today label for the hero eyebrow (e.g. "TODAY · APR 26 · 2026")
+const todayApiDateLabel = realScoreboard
+  ? (() => {
+      const d = new Date(realScoreboard.date + 'T12:00:00Z');
+      const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }).toUpperCase();
+      const day = d.getUTCDate();
+      const year = d.getUTCFullYear();
+      return `TODAY · ${month} ${day} · ${year}`;
+    })()
+  : tomorrowMock.date_label;
+
+// Game count label for eyebrow
+const todayGameCount = realScoreboard ? realScoreboard.games.length : 0;
+const todayEyebrowLine = realScoreboard
+  ? `Today · ${todayGameCount} game${todayGameCount !== 1 ? 's' : ''} scheduled`
+  : tomorrowMock.hero_eyebrow;
+
+/**
+ * Build featured matchup card props from slate.featured_matchup + scoreboard.
+ * The slate only has game_id + tag + byline + reasoning.
+ * We join with scoreboard for team identity and predictions for WP.
+ */
+function buildFeaturedMatchupProps(): (typeof tomorrowMock.featured_matchup) | null {
+  if (!slateDoc?.featured_matchup) return null;
+  const fm = slateDoc.featured_matchup;
+  const game = gameById.get(fm.game_id);
+  if (!game) return null;
+
+  const predMap = new Map(
+    (slateDoc?.predictions ?? []).map(p => [p.game_id, p])
+  );
+  const pred = predMap.get(fm.game_id);
+  const timeLabel = fmtStartTimeET(game.start_time_utc);
+  const venueUpper = game.venue ? game.venue.toUpperCase() : '';
+
+  // Find matchup preview for this game for key_matchup content
+  const preview = slateDoc?.matchup_previews?.find(p => p.game_id === fm.game_id);
+  const km = preview?.key_matchup;
+
+  return {
+    gameId: fm.game_id,
+    tag: fm.tag as { label: string; kind: string } | undefined,
+    byline: fm.byline as { left: string; right: string } | undefined,
+    eyebrow: `${fm.byline?.right ?? 'GAME OF THE NIGHT'} · ${venueUpper}`,
+    home: {
+      abbrev: game.home_team.abbrev,
+      name: game.home_team.short_name.toUpperCase(),
+      record: '',
+      accentColor: '#888888',
+    },
+    away: {
+      abbrev: game.away_team.abbrev,
+      name: game.away_team.short_name.toUpperCase(),
+      record: '',
+      accentColor: '#888888',
+    },
+    timeLabel,
+    venue: venueUpper,
+    keyMatchupTitle: km ? 'Key matchup · HGB edge' : (preview?.headline ?? 'Key matchup'),
+    matchups: km
+      ? [
+          {
+            left: { name: km.home_player, meta: game.home_team.abbrev },
+            right: { name: km.away_player, meta: game.away_team.abbrev },
+            centerLabel: 'vs',
+          },
+        ]
+      : [
+          {
+            left: { name: game.home_team.short_name, meta: game.home_team.abbrev },
+            right: { name: game.away_team.short_name, meta: game.away_team.abbrev },
+            centerLabel: 'vs',
+          },
+        ],
+    ...(pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : {}),
+  } as typeof tomorrowMock.featured_matchup;
+}
+
+const realFeaturedMatchup = buildFeaturedMatchupProps();
+
+// Decide which featured matchup and slate data to use (real or mock fallback)
+const activeFeatured = realFeaturedMatchup ?? tomorrowMock.featured_matchup;
+const activeSlateTiles = realSlateTiles.length > 0 ? realSlateTiles : tomorrowMock.slate;
+const activeGameCount = realScoreboard ? realScoreboard.games.length : tomorrowMock.slate.length;
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Layer 2.3: TodayHero selection — unified hero game + sub-state ─────────
+//
+// pickHeroGame() selects the hero game based on TODAY sub-state:
+//   PRE  → next chronological game
+//   LIVE → highest excitement-scored live game (with stickiness)
+//   FINAL → highest narrative-scored finished game
+//
+// The result is rendered once at build time (SSR bake-in). After page load,
+// the hydration loop re-runs this logic client-side and swaps the hero block
+// when the selected game changes.
+
+// Detect TODAY sub-state from real scoreboard data.
+const todaySubState = realScoreboard?.games.length
+  ? detectSubState(realScoreboard.games)
+  : 'pre';
+
+// Pick hero game (null when no real scoreboard data).
+const heroPick23 = realScoreboard
+  ? pickHeroGame(realScoreboard, slateDoc, null)
+  : null;
+
+// Build TodayHero props from the picked game + slate.
+function buildTodayHeroProps() {
+  if (!heroPick23) return null;
+  const g = heroPick23.game;
+  const fm = slateDoc?.featured_matchup;
+  const preview = slateDoc?.matchup_previews?.find(p => p.game_id === g.game_id);
+  const predMap = new Map((slateDoc?.predictions ?? []).map(p => [p.game_id, p]));
+  const pred = predMap.get(g.game_id);
+
+  return {
+    heroGame: g,
+    subState: heroPick23.subState,
+    isFeaturedMatchup: heroPick23.isFeaturedMatchup,
+    slateMatchup: preview
+      ? {
+          headline: preview.headline,
+          key_matchup: preview.key_matchup,
+          x_factor: preview.x_factor,
+          reasoning: fm?.reasoning,
+        }
+      : null,
+    prediction: pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : null,
+    countdownUtc: heroPick23.subState === 'pre' ? (g.start_time_utc ?? null) : null,
+  };
+}
+const todayHeroProps = buildTodayHeroProps();
+
+// Game of the Night ID for slate strip star badge.
+const featuredMatchupId = slateDoc?.featured_matchup?.game_id ?? undefined;
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Build the scheduleVariants object used by the inline detectMode script.
 // When real API data is available, the `default` variant is replaced with
 // live data so the mode resolver reflects actual game states (pre/live/final).
@@ -198,7 +454,7 @@ const offseasonEyebrow = offseasonMock.hero_eyebrow;
 // Date labels — today/yesterday/offseason map to their respective mock sources.
 const todayDate = liveMock.date_label;    // live mock == "tonight" date label
 const yesterdayDate = recapMock.date_label;
-const tomorrowDate = tomorrowMock.date_label;           // TODAY pre sub-state label
+const tomorrowDate = todayApiDateLabel;                 // TODAY pre sub-state label (real or mock)
 const offseasonDate = offseasonMock.date_label;
 
 // ── Recap-mode body data (existing logic — unchanged) ───────────────────
@@ -245,9 +501,10 @@ const offseasonHeroCopy = {
   sub: "Until then — countdown, last season's wrap, and the moves shaping next year.",
 };
 // TODAY pre sub-state (was "tomorrow mode")
+// Layer 2.1: use real game count + "Today" copy when scoreboard data is live.
 const todayPreHeroCopy = {
-  eyebrow: tomorrowMock.hero_eyebrow,
-  title: 'Tonight, picked apart.',
+  eyebrow: todayEyebrowLine,
+  title: 'Today, picked apart.',
   sub: "Predictions, key matchups, milestone watches and the storylines we're tracking — refreshed at 8 AM ET.",
 };
 
@@ -265,6 +522,11 @@ const apiDataSourceJson = JSON.stringify({
   scoreboard_date: realScoreboard?.date ?? null,
   fetch_error: apiFetchError,
 });
+// Layer 2.2: build-time scoreboard + slate serialised for hydration bootstrap.
+// The client-side hydration loop reads this as the initial state, then polls
+// for updates. Embedding at build time avoids a blank-flash on first load.
+const initScoreboardJson = realScoreboard ? JSON.stringify(realScoreboard) : 'null';
+const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
 ---
 <!DOCTYPE html>
 <html lang="en" data-home-mode="today" data-fixture="default" data-today-substate="live">
@@ -546,6 +808,67 @@ const apiDataSourceJson = JSON.stringify({
       padding-top: 12px;
       border-top: 1px dashed #1a1a1a;
     }
+
+    /* ── Layer 2.1 — slate storyline card (real API shape) ───────── */
+    /*
+     * Renders the real slate.storylines[] which have a flat shape
+     * {type, player/team, headline, context} — not the rich structured
+     * data that ArtifactHot/Cold/Milestone need. This simpler card
+     * presents the same content legibly until the bot populates the
+     * full artifact-compatible structure.
+     */
+    .slate-storyline-card {
+      background: #0b0b0b;
+      border: 1px solid var(--site-border);
+      padding: 22px 22px 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 200px;
+    }
+    .ssc-type-badge {
+      font-family: var(--font-site-display);
+      font-weight: 700;
+      font-size: 9.5px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 1px;
+      display: inline-block;
+      width: fit-content;
+    }
+    .ssc-type--mile {
+      background: #ffd54a;
+      color: #2b1f00;
+    }
+    .ssc-type--hot {
+      background: #00e676;
+      color: #041d0f;
+    }
+    .ssc-who {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #888;
+      margin-top: 4px;
+    }
+    .ssc-headline {
+      font-family: var(--font-site-display);
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--site-white);
+      letter-spacing: 0.02em;
+      line-height: 1.2;
+      margin: 0;
+    }
+    .ssc-context {
+      font-family: var(--font-site-body);
+      font-size: 12.5px;
+      color: #888;
+      line-height: 1.5;
+      margin: 0;
+    }
   </style>
 </head>
 <body class="hgb-site">
@@ -562,46 +885,32 @@ const apiDataSourceJson = JSON.stringify({
     </div>
   )}
   {!apiFetchError && realScoreboard && (
-    <div style="background:#0a1a0a;border-bottom:1px solid #1a4a1a;padding:6px 20px;font-family:var(--font-mono,monospace);font-size:10px;color:#4a9a4a;letter-spacing:0.12em;text-transform:uppercase;display:flex;justify-content:space-between;">
+    <div
+      id="hgb-live-banner"
+      style="background:#0a1a0a;border-bottom:1px solid #1a4a1a;padding:6px 20px;font-family:var(--font-mono,monospace);font-size:10px;color:#4a9a4a;letter-spacing:0.12em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;"
+    >
       <span>Live data — {realScoreboard.games.length} game{realScoreboard.games.length !== 1 ? 's' : ''} · {realScoreboard.date}</span>
-      {realSlate && <span>Slate: ready</span>}
-      {!realSlate && <span style="color:#6a6a4a;">Slate: pending (pre-8 AM ET)</span>}
+      <span style="display:flex;gap:12px;align-items:center;">
+        {realSlate && <span>Slate: ready</span>}
+        {!realSlate && <span style="color:#6a6a4a;">Slate: pending (pre-8 AM ET)</span>}
+        {/* Layer 2.2: hydration last-updated indicator (ticked by client-side script) */}
+        <span id="hgb-hydration-stamp" style="color:#2a5a2a;" title="Client-side poll cadence: scoreboard 60s / slate 5min">
+          Hydration: starting…
+        </span>
+      </span>
     </div>
   )}
 
   <!--
-    Playoff strip — today + yesterday modes carry it; offseason
-    explicitly omits it (per spec: "no playoffs in offseason"). Each
-    mode passes its own series array because round/series state evolves
-    night-to-night.
-
-    Layer 1.8: TODAY mode shows the same strip across all sub-states
-    (live/pre/final all show tonight's series status). YESTERDAY mode
-    shows the recap strip.
+    Playoff strip — Layer 2.1: TODAY mode strips removed entirely.
+    No real /v1/series-state endpoint exists yet; showing mock series data
+    alongside real scoreboard games would be confusing. Re-add when
+    a real series-state source is available.
+    YESTERDAY mode keeps its recap strip (mock data for that mode is fine).
   -->
-  {playoffStrip && (
-    <div data-mode-view="today" data-fixture-view="default">
-      <PlayoffStrip eyebrow={playoffStrip.eyebrow} series={playoffStrip.series} />
-    </div>
-  )}
-  {playoffStripSO && (
-    <div data-mode-view="today" data-fixture-view="shootout">
-      <PlayoffStrip eyebrow={playoffStripSO.eyebrow} series={playoffStripSO.series} />
-    </div>
-  )}
-  {playoffStripSOLong && (
-    <div data-mode-view="today" data-fixture-view="shootout-long">
-      <PlayoffStrip eyebrow={playoffStripSOLong.eyebrow} series={playoffStripSOLong.series} />
-    </div>
-  )}
   {recapPlayoffStrip && (
     <div data-mode-view="yesterday">
       <PlayoffStrip eyebrow={recapPlayoffStrip.eyebrow} series={recapPlayoffStrip.series} />
-    </div>
-  )}
-  {tomorrowPlayoffStrip && (
-    <div data-mode-view="today" data-today-view="pre">
-      <PlayoffStrip eyebrow={tomorrowPlayoffStrip.eyebrow} series={tomorrowPlayoffStrip.series} />
     </div>
   )}
 
@@ -664,7 +973,10 @@ const apiDataSourceJson = JSON.stringify({
       aria-label="Today's games — live view"
     >
       <LiveHero game={featured} />
-      <LiveMomentStrip moments={liveMock.live_moments ?? []} />
+      {/* Layer 2.3: LIVE FEED card gated on live sub-state only (not final). */}
+      <div data-today-view="live">
+        <LiveMomentStrip moments={liveMock.live_moments ?? []} />
+      </div>
 
       <div class="home-sec-h">
         <h2>Today's Games</h2>
@@ -686,7 +998,9 @@ const apiDataSourceJson = JSON.stringify({
       aria-label="Today's games — live view (shootout fixture)"
     >
       <LiveHero game={featuredSO} />
-      <LiveMomentStrip moments={liveShootoutMock.live_moments ?? []} />
+      <div data-today-view="live">
+        <LiveMomentStrip moments={liveShootoutMock.live_moments ?? []} />
+      </div>
 
       <div class="home-sec-h">
         <h2>Today's Games</h2>
@@ -708,7 +1022,9 @@ const apiDataSourceJson = JSON.stringify({
       aria-label="Today's games — live view (long shootout fixture)"
     >
       <LiveHero game={featuredSOLong} />
-      <LiveMomentStrip moments={liveShootoutLongMock.live_moments ?? []} />
+      <div data-today-view="live">
+        <LiveMomentStrip moments={liveShootoutLongMock.live_moments ?? []} />
+      </div>
 
       <div class="home-sec-h">
         <h2>Today's Games</h2>
@@ -760,22 +1076,93 @@ const apiDataSourceJson = JSON.stringify({
          TODAY MODE — PRE sub-state (was TOMORROW MODE, Layer 5 / Layer 5.9)
          Shown when all games are pre-game and slate doc is available.
          Section order:
-           1. TomorrowHero          — date + featured matchup
-           2. TomorrowSlateStrip    — all scheduled games, chip WP
+           1. TodayHero (unified)   — Layer 2.3: countdown LEFT + matchup RIGHT
+                                     (replaces TomorrowHero + separate ArtifactMatchup hero)
+           2. TomorrowSlateStrip    — all scheduled games, chip WP + ★ GOTN badge
            3. Matchup previews wall — chip WP
            4. Model attribution footer
            5. Storylines wall       — Hot/Cold/Milestone "could fire tonight"
          Layer 1.8: mode-view="today" + today-view="pre"
     ════════════════════════════════════════════════════════════════ -->
     <section data-mode-view="today" data-today-view="pre" aria-label="Today's games — pre-game slate view">
-      <TomorrowHero
-        date_label={tomorrowMock.date_label}
-        featured={tomorrowMock.featured_matchup}
+      {/*
+        Layer 2.3: TodayHero — unified two-card hero.
+        When real scoreboard data is available, uses the computed heroGame
+        (next chronological game in pre state).
+        Falls back to TomorrowHero when no real scoreboard data.
+      */}
+      {todayHeroProps ? (
+        <div id="today-hero-mount">
+          <TodayHero
+            heroGame={todayHeroProps.heroGame}
+            subState={todayHeroProps.subState}
+            isFeaturedMatchup={todayHeroProps.isFeaturedMatchup}
+            slateMatchup={todayHeroProps.slateMatchup}
+            prediction={todayHeroProps.prediction}
+            countdownUtc={todayHeroProps.countdownUtc}
+          />
+        </div>
+      ) : (
+        <TomorrowHero
+          date_label={todayApiDateLabel}
+          featured={activeFeatured}
+          firstGameUtc={firstGameUtc}
+          firstGameLabel={firstGameLabel}
+        />
+      )}
+
+      {/*
+        Layer 2.3: Slate strip now receives featuredMatchupId for ★ star badge.
+        Layer 2.1: also uses real scoreboard games + slate WP predictions.
+        heading prop overrides the default "Tomorrow's slate · N games" label.
+      */}
+      <TomorrowSlateStrip
+        tiles={activeSlateTiles}
+        heading={`Today's slate · ${activeGameCount} game${activeGameCount !== 1 ? 's' : ''}`}
+        featuredMatchupId={featuredMatchupId}
       />
 
-      <TomorrowSlateStrip tiles={tomorrowMock.slate} />
-
-      {tomorrowMock.matchup_previews.length > 0 && (
+      {/*
+        Layer 2.1: Matchup previews — use real slate.matchup_previews when
+        available. Real shape is {game_id, headline, key_matchup, x_factor}
+        which differs from the full ArtifactMatchup props the mock used.
+        We build ArtifactMatchup-compatible props via joinRealMatchupPreviews().
+      */}
+      {slateDoc?.matchup_previews && slateDoc.matchup_previews.length > 0 ? (
+        <>
+          <div class="home-sec-h">
+            <h2>Matchup previews</h2>
+            <span class="count">{slateDoc.matchup_previews.length} games highlighted</span>
+          </div>
+          <div class="home-wall">
+            {slateDoc.matchup_previews.map((preview) => {
+              const game = gameById.get(preview.game_id);
+              if (!game) return null;
+              const predMap = new Map((slateDoc?.predictions ?? []).map(p => [p.game_id, p]));
+              const pred = predMap.get(preview.game_id);
+              const km = preview.key_matchup;
+              const timeLabel = fmtStartTimeET(game.start_time_utc);
+              const venueUpper = game.venue ? game.venue.toUpperCase() : '';
+              const matchupProps = {
+                gameId: preview.game_id,
+                eyebrow: `${game.away_team.abbrev} @ ${game.home_team.abbrev} · ${timeLabel}`,
+                home: { abbrev: game.home_team.abbrev, name: game.home_team.short_name.toUpperCase(), record: '', accentColor: '#888888' },
+                away: { abbrev: game.away_team.abbrev, name: game.away_team.short_name.toUpperCase(), record: '', accentColor: '#888888' },
+                timeLabel,
+                venue: venueUpper,
+                keyMatchupTitle: km ? 'Key matchup · HGB edge' : preview.headline,
+                matchups: km
+                  ? [{ left: { name: km.home_player, meta: game.home_team.abbrev }, right: { name: km.away_player, meta: game.away_team.abbrev }, centerLabel: 'vs' }]
+                  : [{ left: { name: game.home_team.short_name, meta: '' }, right: { name: game.away_team.short_name, meta: '' }, centerLabel: 'vs' }],
+                ...(pred ? { home_wp: pred.home_wp, away_wp: pred.away_wp } : {}),
+                variant: 'chip' as const,
+              };
+              return <ArtifactMatchup {...matchupProps} />;
+            })}
+          </div>
+          <p class="model-attribution">MODEL · BLENDED ELO + XG · UPDATED 8 AM ET</p>
+        </>
+      ) : tomorrowMock.matchup_previews.length > 0 ? (
         <>
           <div class="home-sec-h">
             <h2>Matchup previews</h2>
@@ -786,13 +1173,46 @@ const apiDataSourceJson = JSON.stringify({
               <ArtifactMatchup {...m} variant="chip" />
             ))}
           </div>
-
-          {/* ── Model attribution footer ─────────────────────────── */}
           <p class="model-attribution">MODEL · BLENDED ELO + XG · UPDATED 8 AM ET</p>
         </>
-      )}
+      ) : null}
 
-      {tomorrowMock.storylines.length > 0 && (
+      {/*
+        Layer 2.1: Storylines — use real slate.storylines when available.
+        Real shape is {type, player/team, headline, context} — a flat narrative
+        format. Render via inline SlateStorylineCard style rather than the
+        full ArtifactHot/Cold/Milestone (which require rich structured data
+        the bot doesn't yet populate for the storylines array).
+        Falls back to mock when real data is absent.
+      */}
+      {slateDoc?.storylines && slateDoc.storylines.length > 0 ? (
+        <>
+          <div class="home-sec-h">
+            <h2>Storylines to watch</h2>
+            <span class="count">{slateDoc.storylines.length} to watch tonight</span>
+          </div>
+          <div class="home-wall">
+            {slateDoc.storylines.map((s) => (
+              <article class="slate-storyline-card">
+                <span class:list={[
+                  'ssc-type-badge',
+                  s.type === 'milestone-watch' ? 'ssc-type--mile' : 'ssc-type--hot',
+                ]}>
+                  {s.type === 'milestone-watch' ? '⌛ MILESTONE WATCH'
+                    : s.type === 'hot-streak' ? '🔥 HOT STREAK'
+                    : s.type === 'x-factor' ? '★ X-FACTOR'
+                    : s.type.toUpperCase()}
+                </span>
+                <div class="ssc-who">
+                  {s.player ?? s.team ?? ''}
+                </div>
+                <h3 class="ssc-headline">{s.headline}</h3>
+                <p class="ssc-context">{s.context}</p>
+              </article>
+            ))}
+          </div>
+        </>
+      ) : tomorrowMock.storylines.length > 0 ? (
         <>
           <div class="home-sec-h">
             <h2>Storylines to watch</h2>
@@ -807,7 +1227,7 @@ const apiDataSourceJson = JSON.stringify({
             })}
           </div>
         </>
-      )}
+      ) : null}
     </section>
 
     <!-- ════════════════════════════════════════════════════════════════
@@ -869,6 +1289,22 @@ const apiDataSourceJson = JSON.stringify({
     }
     .oh-footer-text a:hover { color: var(--status-live); }
   </style>
+
+  <!--
+    Layer 2.2: Hydration bootstrap data.
+    Build-time scoreboard + slate serialised as JSON in hidden elements.
+    The hydration module script reads these as the initial state.
+  -->
+  <script
+    id="hgb-init-scoreboard"
+    type="application/json"
+    set:html={initScoreboardJson}
+  ></script>
+  <script
+    id="hgb-init-slate"
+    type="application/json"
+    set:html={initSlateJson}
+  ></script>
 
   <!--
     Hero-pick debug stamp — useful for screenshotting the stickiness
@@ -1041,7 +1477,424 @@ const apiDataSourceJson = JSON.stringify({
           feed.setAttribute('data-rendered-goals', String(visibleGoals));
         });
       })();
+
+      // ── TodayHero countdown ticker (Layer 2.3) ──────────────────
+      // Ticks any [data-hero-countdown-utc] element on the page.
+      // The TodayHero component stamps this attribute on the countdown block.
+      (function heroCountdownTick() {
+        var el = document.querySelector('[data-hero-countdown-utc]');
+        if (!el) return;
+        var utcStr = el.getAttribute('data-hero-countdown-utc');
+        if (!utcStr) return;
+        var target = Date.parse(utcStr);
+        if (isNaN(target)) return;
+        var display = el.querySelector('.th-countdown-time');
+        if (!display) return;
+
+        function tick() {
+          var now = Date.now();
+          var diff = target - now;
+          if (diff <= 0) {
+            display.textContent = 'Game starting now';
+            return;
+          }
+          var totalSec = Math.floor(diff / 1000);
+          var h = Math.floor(totalSec / 3600);
+          var m = Math.floor((totalSec % 3600) / 60);
+          var s = totalSec % 60;
+          display.textContent = h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        }
+        tick();
+        setInterval(tick, 1000);
+      })();
+
     })();
+  </script>
+
+  <!--
+    Layer 2.2: Client-side hydration loop.
+
+    This module script imports the hydration helpers and wires them to
+    the page. After the SSR bake-in renders at build time, this script
+    polls /v1/scoreboard every 60s and /v1/slate every 5min, then
+    re-renders the TodayHero section when data changes.
+
+    Strategy: innerHTML-rebuild of #today-hero-mount on each poll
+    (simpler than data-hydrate-key targeted updates; hero section is
+    self-contained and cheap to rebuild).
+
+    Visibility gating: polling pauses when the tab is hidden.
+  -->
+  <script>
+    // Layer 2.2: Hydration loop wire-up
+    // Uses bundled module imports (Astro compiles this).
+    import { startHydrationLoop } from '../lib/hydration';
+    import { pickHeroGame } from '../lib/hero-selection';
+
+    // ── Helpers ────────────────────────────────────────────────────
+    function fmtStartTimeET(utc) {
+      if (!utc) return '';
+      try {
+        return new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/New_York',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        }).format(new Date(utc)) + ' ET';
+      } catch { return ''; }
+    }
+
+    function fmtWp(v) {
+      if (v === null || v === undefined) return '–';
+      return `${Math.round(v * 100)}%`;
+    }
+
+    function pct(a, b) {
+      const av = a ?? 0, bv = b ?? 0, sum = av + bv;
+      if (sum <= 0) return ['50%', '50%'];
+      return [`${(av / sum) * 100}%`, `${(bv / sum) * 100}%`];
+    }
+
+    // ── Render hero HTML ──────────────────────────────────────────
+    function renderHeroHtml(scoreboard, slate) {
+      const pick = pickHeroGame(scoreboard, slate, window._hgbHeroId || null);
+      if (!pick) return null;
+      window._hgbHeroId = pick.game.game_id;
+
+      const g = pick.game;
+      const subState = pick.subState;
+      const home = g.home_team, away = g.away_team;
+      const clock = g.clock, stats = g.stats;
+      const isFeatured = pick.isFeaturedMatchup;
+      const period = clock.period ?? 0;
+      const inIntermission = clock.in_intermission ?? false;
+
+      // Sub-state header
+      let eyebrowHtml = '';
+      if (subState === 'pre') {
+        eyebrowHtml = `<span class="th-eyebrow-badge th-eyebrow-badge--pre">UPCOMING · TODAY</span>`;
+      } else if (subState === 'live') {
+        let liveLine = '';
+        if (inIntermission) liveLine = `INTERMISSION · After P${period}`;
+        else if (period === 0) liveLine = 'PRE-GAME';
+        else {
+          const pl = period <= 3 ? `PERIOD ${period}` : period === 4 ? 'OVERTIME' : `OT${period-3}`;
+          liveLine = `LIVE · ${pl} · ${clock.time_remaining ?? ''}`;
+        }
+        eyebrowHtml = `<span class="th-eyebrow-badge th-eyebrow-badge--live"><span class="th-live-dot" aria-hidden="true"></span>${liveLine}</span>`;
+      } else {
+        eyebrowHtml = `<span class="th-eyebrow-badge th-eyebrow-badge--final">FINAL</span>`;
+      }
+
+      const gotnBadge = isFeatured
+        ? `<span class="th-gotn-badge" title="Game of the Night">★ GAME OF THE NIGHT</span>`
+        : '';
+
+      const header = `
+        <div class="th-header">
+          <div class="th-header-left">${eyebrowHtml}</div>
+          <div class="th-header-right">
+            ${gotnBadge}
+            <span class="th-matchup-label">${away.abbrev} @ ${home.abbrev}</span>
+          </div>
+        </div>`;
+
+      // LEFT card
+      const timeLabel = fmtStartTimeET(g.start_time_utc);
+      const venue = g.venue ? g.venue.toUpperCase() : '';
+      let leftCard = '';
+
+      if (subState === 'pre') {
+        const countdownUtc = g.start_time_utc || '';
+        leftCard = `
+          <div class="th-card th-card--left th-card--pre">
+            <div class="th-pre-teams">
+              <div class="th-pre-team">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="64" height="64" alt="${away.abbrev}" loading="lazy" />
+                <span class="th-pre-abbr">${away.abbrev}</span>
+              </div>
+              <div class="th-pre-vs">VS</div>
+              <div class="th-pre-team">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="64" height="64" alt="${home.abbrev}" loading="lazy" />
+                <span class="th-pre-abbr">${home.abbrev}</span>
+              </div>
+            </div>
+            ${countdownUtc ? `
+              <div class="th-countdown-block" data-hero-countdown-utc="${countdownUtc}">
+                <div class="th-countdown-lbl">Next puck drop in</div>
+                <div class="th-countdown-time" aria-live="polite">–:––:––</div>
+              </div>
+            ` : `
+              <div class="th-time-block">
+                <span class="th-time-lbl">Start time</span>
+                <span class="th-time-val">${timeLabel}</span>
+              </div>
+            `}
+            ${venue ? `<div class="th-venue">${venue}</div>` : ''}
+          </div>`;
+      } else {
+        const gameIsOver = subState === 'final';
+        const homeLoser = gameIsOver && home.score < away.score;
+        const awayLoser = gameIsOver && away.score < home.score;
+        const finalBadge = subState === 'final'
+          ? `<div class="th-final-badge">FINAL${period >= 4 ? (period === 4 ? ' · OT' : ' · SO') : ''}</div>`
+          : '';
+        const lastEvHtml = g.last_event && subState === 'live' ? `
+          <div class="th-last-event">
+            <span class="th-last-event-type">${g.last_event.type}</span>
+            <span class="th-last-event-desc">${g.last_event.description}</span>
+            ${g.last_event.time_ago ? `<span class="th-last-event-when">${g.last_event.time_ago}</span>` : ''}
+          </div>` : '';
+        leftCard = `
+          <div class="th-card th-card--left ${subState === 'live' ? 'th-card--live' : 'th-card--final'}">
+            ${finalBadge}
+            <div class="th-score-row">
+              <div class="th-team-score${homeLoser ? ' loser' : ''}">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="60" height="60" alt="${home.abbrev}" loading="lazy" />
+                <div class="th-team-info"><span class="th-team-abbr">${home.abbrev}</span></div>
+                <span class="th-score-num">${home.score}</span>
+              </div>
+              <div class="th-score-sep">·</div>
+              <div class="th-team-score th-team-score--right${awayLoser ? ' loser' : ''}">
+                <span class="th-score-num">${away.score}</span>
+                <div class="th-team-info th-team-info--right"><span class="th-team-abbr">${away.abbrev}</span></div>
+                <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="60" height="60" alt="${away.abbrev}" loading="lazy" />
+              </div>
+            </div>
+            ${lastEvHtml}
+          </div>`;
+      }
+
+      // RIGHT card
+      let rightCard = '';
+      if (subState === 'pre') {
+        // Find slate details for this game
+        const preview = slate?.matchup_previews?.find(p => p.game_id === g.game_id);
+        const pred = slate?.predictions?.find(p => p.game_id === g.game_id);
+        const km = preview?.key_matchup;
+        const eyebrow = venue ? `${venue} · ${timeLabel}` : timeLabel;
+        const [wpL] = pct(pred?.home_wp ?? null, pred?.away_wp ?? null);
+
+        rightCard = `
+          <div class="th-card th-card--right th-card--pre-r">
+            <div class="th-r-eyebrow">${eyebrow}</div>
+            ${preview ? `
+              <div class="th-r-km-label">${km ? 'Key matchup · HGB edge' : (preview.headline || 'Featured matchup')}</div>
+              ${km ? `
+                <div class="th-r-km-pair">
+                  <span class="th-r-km-side">
+                    ${km.home_player}
+                    <span class="th-r-km-team">${home.abbrev}</span>
+                  </span>
+                  <span class="th-r-km-vs">vs</span>
+                  <span class="th-r-km-side th-r-km-side--right">
+                    <span class="th-r-km-team">${away.abbrev}</span>
+                    ${km.away_player}
+                  </span>
+                </div>
+              ` : ''}
+              ${preview.x_factor ? `
+                <div class="th-r-xfactor">
+                  <span class="th-r-xfactor-label">X-FACTOR</span>
+                  <span class="th-r-xfactor-val">${preview.x_factor}</span>
+                </div>
+              ` : ''}
+              ${pred ? `
+                <div class="th-r-wp-row">
+                  <div class="th-r-wp-team">
+                    <span class="th-r-wp-abbr">${home.abbrev}</span>
+                    <span class="th-r-wp-pct">${fmtWp(pred.home_wp)}</span>
+                  </div>
+                  <div class="th-r-wp-bar">
+                    <div class="th-r-wp-bar-fill" style="width:${wpL}"></div>
+                  </div>
+                  <div class="th-r-wp-team th-r-wp-team--right">
+                    <span class="th-r-wp-pct">${fmtWp(pred.away_wp)}</span>
+                    <span class="th-r-wp-abbr">${away.abbrev}</span>
+                  </div>
+                </div>
+              ` : ''}
+            ` : `
+              <div class="th-r-no-slate">
+                <div class="th-r-team-row">
+                  <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="72" height="72" alt="${away.abbrev}" loading="lazy" />
+                  <span class="th-r-vs-label">@</span>
+                  <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="72" height="72" alt="${home.abbrev}" loading="lazy" />
+                </div>
+                <div class="th-r-pending">Predictions coming after 8 AM ET</div>
+              </div>
+            `}
+          </div>`;
+      } else if (subState === 'live') {
+        const [shotsL, shotsR] = pct(stats.shots_on_goal.home, stats.shots_on_goal.away);
+        const [xg5L, xg5R] = pct(stats.xg_5v5.home, stats.xg_5v5.away);
+        const [xgL, xgR] = pct(stats.xg.home, stats.xg.away);
+        const [wpL2, wpR2] = pct(stats.win_probability.home, stats.win_probability.away);
+        rightCard = `
+          <div class="th-card th-card--right th-card--live-r">
+            <div class="th-r-stat">
+              <div class="th-r-stat-val">${stats.shots_on_goal.home ?? '–'}</div>
+              <div class="th-r-stat-lbl">Shots on Goal</div>
+              <div class="th-r-stat-val">${stats.shots_on_goal.away ?? '–'}</div>
+              <div class="th-r-stat-bar"><div class="th-r-bar-l" style="width:${shotsL}"></div><div class="th-r-bar-r" style="width:${shotsR}"></div></div>
+            </div>
+            <div class="th-r-stat">
+              <div class="th-r-stat-val">${stats.xg_5v5.home !== null ? stats.xg_5v5.home.toFixed(2) : '–'}</div>
+              <div class="th-r-stat-lbl">5v5 xG</div>
+              <div class="th-r-stat-val">${stats.xg_5v5.away !== null ? stats.xg_5v5.away.toFixed(2) : '–'}</div>
+              <div class="th-r-stat-bar"><div class="th-r-bar-l" style="width:${xg5L}"></div><div class="th-r-bar-r" style="width:${xg5R}"></div></div>
+            </div>
+            <div class="th-r-stat">
+              <div class="th-r-stat-val">${stats.xg.home !== null ? stats.xg.home.toFixed(2) : '–'}</div>
+              <div class="th-r-stat-lbl">xG · All</div>
+              <div class="th-r-stat-val">${stats.xg.away !== null ? stats.xg.away.toFixed(2) : '–'}</div>
+              <div class="th-r-stat-bar th-r-stat-bar--cyan"><div class="th-r-bar-l" style="width:${xgL}"></div><div class="th-r-bar-r" style="width:${xgR}"></div></div>
+            </div>
+            <div class="th-r-stat">
+              <div class="th-r-stat-val">${fmtWp(stats.win_probability.home)}</div>
+              <div class="th-r-stat-lbl">Win Probability</div>
+              <div class="th-r-stat-val">${fmtWp(stats.win_probability.away)}</div>
+              <div class="th-r-stat-bar"><div class="th-r-bar-l" style="width:${wpL2}"></div><div class="th-r-bar-r" style="width:${wpR2}"></div></div>
+            </div>
+          </div>`;
+      } else {
+        // Final
+        const stars = (g.three_stars || []).slice(0, 3);
+        const starsHtml = stars.length > 0
+          ? `<div class="th-r-stars-label">Three Stars</div>
+             <ol class="th-r-stars-list">
+               ${stars.map((s, i) => `
+                 <li class="th-r-star-row">
+                   <span class="th-r-star-num">${i+1}</span>
+                   <span class="th-r-star-name">${s.name || s.player || '—'}</span>
+                   ${s.team_abbrev ? `<span class="th-r-star-team">${s.team_abbrev}</span>` : ''}
+                   ${s.stat_line ? `<span class="th-r-star-stat">${s.stat_line}</span>` : ''}
+                 </li>`).join('')}
+             </ol>`
+          : `<div class="th-r-no-stars">Three stars pending</div>`;
+        const [wpLf, wpRf] = pct(stats.win_probability.home, stats.win_probability.away);
+        const wpHtml = (stats.win_probability.home !== null || stats.win_probability.away !== null)
+          ? `<div class="th-r-final-wp">
+               <div class="th-r-wp-row">
+                 <div class="th-r-wp-team"><span class="th-r-wp-abbr">${home.abbrev}</span><span class="th-r-wp-pct">${fmtWp(stats.win_probability.home)}</span></div>
+                 <div class="th-r-wp-bar"><div class="th-r-wp-bar-fill" style="width:${wpLf}"></div></div>
+                 <div class="th-r-wp-team th-r-wp-team--right"><span class="th-r-wp-pct">${fmtWp(stats.win_probability.away)}</span><span class="th-r-wp-abbr">${away.abbrev}</span></div>
+               </div>
+               <div class="th-r-wp-caption">Final win probability</div>
+             </div>`
+          : '';
+        rightCard = `
+          <div class="th-card th-card--right th-card--final-r">
+            ${starsHtml}
+            ${wpHtml}
+          </div>`;
+      }
+
+      return `<section class="today-hero" data-sub-state="${subState}" data-game-id="${g.game_id}" aria-label="Featured game: ${away.abbrev} @ ${home.abbrev}">
+        ${header}
+        <div class="th-body">${leftCard}${rightCard}</div>
+      </section>`;
+    }
+
+    // ── Update sub-state CSS attribute on <html> ──────────────────
+    function updateSubState(games) {
+      if (!games || games.length === 0) return;
+      const liveLike = new Set(['live', 'intermission', 'shootout']);
+      const hasLive = games.some(g => liveLike.has(g.game_state));
+      if (hasLive) {
+        document.documentElement.setAttribute('data-today-substate', 'live');
+        return;
+      }
+      const allFinal = games.every(g => g.game_state === 'final');
+      document.documentElement.setAttribute(
+        'data-today-substate',
+        allFinal ? 'final' : 'pre'
+      );
+    }
+
+    // ── Countdown ticker after innerHTML swap ─────────────────────
+    function wireCountdown() {
+      const el = document.querySelector('[data-hero-countdown-utc]');
+      if (!el) return;
+      if (el._countdownWired) return;
+      el._countdownWired = true;
+      const utcStr = el.getAttribute('data-hero-countdown-utc');
+      if (!utcStr) return;
+      const target = Date.parse(utcStr);
+      if (isNaN(target)) return;
+      const display = el.querySelector('.th-countdown-time');
+      if (!display) return;
+      function tick() {
+        const diff = target - Date.now();
+        if (diff <= 0) { display.textContent = 'Game starting now'; return; }
+        const ts = Math.floor(diff / 1000);
+        const h = Math.floor(ts / 3600);
+        const m = Math.floor((ts % 3600) / 60);
+        const s = ts % 60;
+        display.textContent = h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      }
+      tick();
+      setInterval(tick, 1000);
+    }
+
+    // ── Last-updated stamp ─────────────────────────────────────────
+    let _lastScoreboardUpdate = null;
+    function updateStamp() {
+      const stamp = document.getElementById('hgb-hydration-stamp');
+      if (!stamp || !_lastScoreboardUpdate) return;
+      const ageSec = Math.round((Date.now() - _lastScoreboardUpdate) / 1000);
+      stamp.textContent = ageSec < 5 ? 'Updated just now' : `Updated ${ageSec}s ago`;
+    }
+    setInterval(updateStamp, 5000);
+
+    // ── Main update handler ───────────────────────────────────────
+    let _currentSlate = null;
+
+    function onScoreboardUpdate(scoreboard) {
+      _lastScoreboardUpdate = Date.now();
+      // 1. Update sub-state gating
+      const mode = document.documentElement.getAttribute('data-home-mode');
+      if (mode === 'today') {
+        updateSubState(scoreboard.games);
+      }
+      // 2. Re-render TodayHero if in today mode + pre sub-state (or live)
+      const mount = document.getElementById('today-hero-mount');
+      if (mount && mode === 'today') {
+        const html = renderHeroHtml(scoreboard, _currentSlate);
+        if (html) {
+          mount.innerHTML = html;
+          wireCountdown();
+        }
+      }
+      // 3. Update stamp
+      const stamp = document.getElementById('hgb-hydration-stamp');
+      if (stamp) stamp.textContent = 'Updated just now';
+    }
+
+    function onSlateUpdate(slate) {
+      _currentSlate = slate;
+    }
+
+    // ── Bootstrap: load initial data from embedded JSON ──────────
+    try {
+      const initSb = JSON.parse(document.getElementById('hgb-init-scoreboard')?.textContent || 'null');
+      const initSl = JSON.parse(document.getElementById('hgb-init-slate')?.textContent || 'null');
+      if (initSl) _currentSlate = initSl;
+      // Don't call onScoreboardUpdate here — SSR already rendered correctly.
+      // Just store for hero-id tracking.
+      if (initSb && document.getElementById('today-hero-mount')) {
+        const pick = initSb && pickHeroGame ? pickHeroGame(initSb, initSl, null) : null;
+        if (pick) window._hgbHeroId = pick.game.game_id;
+      }
+    } catch (e) {
+      console.warn('[hydration] Bootstrap parse error:', e);
+    }
+
+    // ── Start the loop (only in today mode, or when mode changes) ─
+    const currentMode = document.documentElement.getAttribute('data-home-mode');
+    if (currentMode === 'today') {
+      startHydrationLoop({ onScoreboardUpdate, onSlateUpdate });
+    }
   </script>
 </body>
 </html>
