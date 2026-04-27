@@ -34,6 +34,35 @@ const TEAM_META: Record<string, { name: string; color: string; conf: string; see
   ANA: { name: 'Anaheim Ducks',          color: '#FCD116', conf: 'West', seed: 'Pac · 3',    seedFull: 'Pacific · 3rd' },
 };
 
+// ── Round-aware labels ───────────────────────────────────────────────────────
+const ROUND_LABELS: Record<number, string> = {
+  1: 'First Round',
+  2: 'Conference Semifinals',
+  3: 'Conference Finals',
+  4: 'Stanley Cup Final',
+};
+
+// Per-matchup color overrides. TEAM_META already shifts OTT/ANA preemptively
+// for R1 clashes. For R2, when two teams' default colors are too similar, we
+// override one team's color *just for that matchup*. Keys are sorted abbrev
+// pairs ("ABC|XYZ") so lookup is order-independent.
+const MATCHUP_COLOR_OVERRIDES: Record<string, { team: string; color: string }[]> = {
+  // Both red — push MTL toward its alternate light-blue.
+  'CAR|MTL': [{ team: 'MTL', color: '#192168' }],
+  // Both gold — push PIT toward its alternate black/white. Use a deep gold-leaning
+  // gray so it stays visually distinct from BOS gold.
+  'BOS|PIT': [{ team: 'PIT', color: '#CFC493' }],
+};
+function matchupKey(a: string, b: string) {
+  return [a, b].sort().join('|');
+}
+function colorFor(abbr: string, opponent: string): string {
+  const base = TEAM_META[abbr]?.color ?? '#888888';
+  const overrides = MATCHUP_COLOR_OVERRIDES[matchupKey(abbr, opponent)];
+  const hit = overrides?.find(o => o.team === abbr);
+  return hit ? hit.color : base;
+}
+
 // ── BUILD-TIME FETCH: hgb-api is the source of truth for everything dynamic ──
 // distributions, win %, per-game winners, next-game times, staleness. No
 // hardcoded placeholder numbers — the page renders with real data on first
@@ -49,7 +78,19 @@ type ApiSeries = {
   updated_at: string;
 };
 
+// Carousel R2 series — used to seed R2 placeholder cards when hgb-api hasn't
+// yet generated model data for round 2 (CAR + COL lock in first via division
+// winners). Shape: NHL playoff-series/carousel response.
+type CarouselSeries = {
+  seriesLetter: string;
+  topSeed: { abbrev: string };
+  bottomSeed: { abbrev: string };
+};
+
 let apiSeries: ApiSeries[] = [];
+let apiSeriesR2: ApiSeries[] = [];
+let carouselR2: CarouselSeries[] = [];
+let currentRound = 1;
 let latestUpdate: string | null = null;
 try {
   const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
@@ -62,6 +103,22 @@ try {
   // If hgb-api is unreachable at build time, the page still renders. Client-side
   // loadModelData() will fill in later.
 }
+try {
+  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/2');
+  if (res.ok) {
+    const data = await res.json();
+    apiSeriesR2 = data.series ?? [];
+  }
+} catch (_) { /* ok if R2 not seeded */ }
+try {
+  const res = await fetch('https://api-web.nhle.com/v1/playoff-series/carousel/20252026');
+  if (res.ok) {
+    const data = await res.json();
+    currentRound = data.currentRound ?? 1;
+    const r2 = (data.rounds ?? []).find((r: any) => r.roundNumber === 2);
+    if (r2) carouselR2 = r2.series ?? [];
+  }
+} catch (_) { /* fall back to round 1 only */ }
 
 // Derive a UI-ready SERIES array. Team metadata comes from TEAM_META; dynamic
 // state from the API payload. Series_id pattern is `hs-ls` lowercased (Elo order).
@@ -69,8 +126,11 @@ const SERIES = apiSeries.map(s => {
   const a = TEAM_META[s.team_a] ?? null;
   const b = TEAM_META[s.team_b] ?? null;
   if (!a || !b) return null;
+  const colorA = colorFor(s.team_a, s.team_b);
+  const colorB = colorFor(s.team_b, s.team_a);
   return {
     id: s.series_id,
+    round: 1,
     conf: a.conf,
     miniBadge: `${a.conf === 'East' ? 'East' : 'West'} · ${a.seed.split(' · ')[1] ?? a.seed} vs ${b.seed.split(' · ')[1] ?? b.seed}`,
     games: s.games,
@@ -78,15 +138,146 @@ const SERIES = apiSeries.map(s => {
     winner: s.winner,
     winner_in: s.winner_in,
     nextGameUTC: s.next_game_utc,
-    a: { abbr: s.team_a, name: a.name, color: a.color, seed: a.seed, seedFull: a.seedFull,
+    tbd: false,
+    a: { abbr: s.team_a, name: a.name, color: colorA, seed: a.seed, seedFull: a.seedFull,
          dist: s.dist_a, winPct: s.win_pct_a },
-    b: { abbr: s.team_b, name: b.name, color: b.color, seed: b.seed, seedFull: b.seedFull,
+    b: { abbr: s.team_b, name: b.name, color: colorB, seed: b.seed, seedFull: b.seedFull,
          dist: s.dist_b, winPct: s.win_pct_b },
   };
 }).filter((x): x is NonNullable<typeof x> => x !== null);
 
+// ── R2 SERIES ─────────────────────────────────────────────────────────────────
+// Build the R2 series list. Prefer hgb-api model data; fall back to the NHL
+// carousel (which exposes which teams have locked in via series letters J/K/L/M
+// before the model has had a chance to spin a prediction). TBD slots render as
+// pull-quote placeholder cards.
+type R2Card = {
+  id: string;
+  round: 2;
+  conf: 'East' | 'West';
+  miniBadge: string;
+  games: (string | null)[];
+  is_complete: boolean;
+  winner: string | null;
+  winner_in: number | null;
+  nextGameUTC: string | null;
+  tbd: boolean;
+  awaitingFromLetter?: string;  // "Winner of A" placeholder anchor when team_b is TBD
+  a: { abbr: string; name: string; color: string; seed: string; seedFull: string; dist: number[]; winPct: number };
+  b: { abbr: string; name: string; color: string; seed: string; seedFull: string; dist: number[]; winPct: number };
+};
+
+const TBD_META = {
+  abbr: 'TBD', name: 'To Be Determined', color: '#3a3a48',
+  seed: 'TBD', seedFull: 'To Be Determined',
+};
+
+function buildR2FromApi(s: ApiSeries): R2Card | null {
+  const a = TEAM_META[s.team_a];
+  const b = TEAM_META[s.team_b];
+  // If either is "TBD" or unknown, treat as carousel-style placeholder.
+  if (!a || !b) return null;
+  const colorA = colorFor(s.team_a, s.team_b);
+  const colorB = colorFor(s.team_b, s.team_a);
+  return {
+    id: s.series_id,
+    round: 2,
+    conf: a.conf as 'East' | 'West',
+    miniBadge: `${a.conf === 'East' ? 'East' : 'West'} · R2`,
+    games: s.games,
+    is_complete: s.is_complete,
+    winner: s.winner,
+    winner_in: s.winner_in,
+    nextGameUTC: s.next_game_utc,
+    tbd: false,
+    a: { abbr: s.team_a, name: a.name, color: colorA, seed: a.seed, seedFull: a.seedFull,
+         dist: s.dist_a, winPct: s.win_pct_a },
+    b: { abbr: s.team_b, name: b.name, color: colorB, seed: b.seed, seedFull: b.seedFull,
+         dist: s.dist_b, winPct: s.win_pct_b },
+  };
+}
+
+function buildR2FromCarousel(c: CarouselSeries): R2Card | null {
+  // The carousel exposes topSeed + bottomSeed. Either may be TBD. Pick the
+  // locked team as `a` (so single-color matchups always show the locked team
+  // on the left); the placeholder occupies `b`.
+  const top = c.topSeed.abbrev, bot = c.bottomSeed.abbrev;
+  const topMeta = TEAM_META[top];
+  const botMeta = TEAM_META[bot];
+  // Determine conference from whichever side is locked.
+  const conf = (topMeta?.conf ?? botMeta?.conf ?? 'East') as 'East' | 'West';
+  // Build the card. Awaiting-side metadata uses the placeholder.
+  const aLocked = !!topMeta;
+  const bLocked = !!botMeta;
+  if (!aLocked && !bLocked) {
+    // Both TBD — render double placeholder.
+    return {
+      id: `tbd-tbd-${c.seriesLetter.toLowerCase()}`,
+      round: 2,
+      conf,
+      miniBadge: `R2 · Series ${c.seriesLetter}`,
+      games: [null, null, null, null, null, null, null],
+      is_complete: false, winner: null, winner_in: null, nextGameUTC: null,
+      tbd: true,
+      awaitingFromLetter: c.seriesLetter,
+      a: { ...TBD_META, dist: [0,0,0,0], winPct: 0 },
+      b: { ...TBD_META, dist: [0,0,0,0], winPct: 0 },
+    };
+  }
+  const lockedAbbr = aLocked ? top : bot;
+  const lockedMeta = aLocked ? topMeta! : botMeta!;
+  const id = `${lockedAbbr.toLowerCase()}-tbd-${c.seriesLetter.toLowerCase()}`;
+  return {
+    id,
+    round: 2,
+    conf: lockedMeta.conf as 'East' | 'West',
+    miniBadge: `${lockedMeta.conf === 'East' ? 'East' : 'West'} · Series ${c.seriesLetter}`,
+    games: [null, null, null, null, null, null, null],
+    is_complete: false, winner: null, winner_in: null, nextGameUTC: null,
+    tbd: true,
+    awaitingFromLetter: c.seriesLetter,
+    a: { abbr: lockedAbbr, name: lockedMeta.name, color: lockedMeta.color,
+         seed: lockedMeta.seed, seedFull: lockedMeta.seedFull, dist: [0,0,0,0], winPct: 0 },
+    b: { ...TBD_META, dist: [0,0,0,0], winPct: 0 },
+  };
+}
+
+let SERIES_R2: R2Card[] = [];
+if (apiSeriesR2.length > 0) {
+  // Have model data — use it. For any API entry with team_b === "TBD" or unknown,
+  // fall back to carousel placeholder for that letter.
+  SERIES_R2 = apiSeriesR2.map(s => {
+    const built = buildR2FromApi(s);
+    if (built) return built;
+    // API entry exists but one side is TBD — try to find a matching carousel entry
+    // (match by locked team) and synthesize a placeholder.
+    const locked = TEAM_META[s.team_a] ? s.team_a : (TEAM_META[s.team_b] ? s.team_b : null);
+    if (!locked) return null;
+    const car = carouselR2.find(c => c.topSeed.abbrev === locked || c.bottomSeed.abbrev === locked);
+    if (!car) return null;
+    return buildR2FromCarousel(car);
+  }).filter((x): x is R2Card => x !== null);
+} else if (carouselR2.length > 0) {
+  // No model data yet — derive placeholders from NHL carousel.
+  SERIES_R2 = carouselR2.map(buildR2FromCarousel).filter((x): x is R2Card => x !== null);
+}
+
+const r1AllComplete = SERIES.length > 0 && SERIES.every(s => s.is_complete);
+const showR2 = SERIES_R2.length > 0;
+// Eyebrow round indicator shows whenever any R2 series has BOTH seeds locked
+// (or NHL has officially advanced currentRound). Strictly waiting for
+// currentRound > 1 misses the window between conference-final-game-7 and the
+// carousel update, when a fully-set R2 matchup is already known.
+const r2HasFullMatchup = SERIES_R2.some(s => !s.tbd);
+const showRoundIndicator = currentRound > 1 || (showR2 && r2HasFullMatchup);
+const indicatorRound = currentRound > 1 ? currentRound : 2;
+const currentRoundLabel = ROUND_LABELS[currentRound] ?? 'Stanley Cup Playoffs';
+const indicatorLabel = ROUND_LABELS[indicatorRound] ?? currentRoundLabel;
+
 // ── card helpers (server-side) ────────────────────────────────────────────────
-function buildCardSegs(s: typeof SERIES[0]) {
+type AnyCard = (typeof SERIES)[0] | R2Card;
+
+function buildCardSegs(s: AnyCard) {
   if (!s.a.dist.length) return [];
   const [a4,a5,a6,a7] = s.a.dist;
   const [b4,b5,b6,b7] = s.b.dist;
@@ -105,7 +296,7 @@ function buildCardSegs(s: typeof SERIES[0]) {
   return raw.filter(sg => sg.w > 0).map(sg => ({ ...sg, isSmall: sg.w <= 6, isMax: sg.w === maxW }));
 }
 
-function mostLikely(s: typeof SERIES[0]) {
+function mostLikely(s: AnyCard) {
   if (!s.a.dist.length) return null;
   const all = [
     ...s.a.dist.map((v: number, i: number) => ({ label:`${s.a.abbr} in ${i+4}`, v })),
@@ -259,6 +450,46 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .series-tbd-teams { font: 700 16px/1 var(--hgb-font-display); color: rgba(255,255,255,0.18); letter-spacing: 0.06em; }
 .series-tbd-sep { color: var(--hgb-text-4); font: 500 10px/1 var(--hgb-font-mono); }
 .series-tbd-label { font: 600 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; border: 1px solid var(--hgb-border-strong); padding: 3px 7px; border-radius: 2px; }
+
+/* ── R2 placeholder card (TBD opponent) ──
+   Same outer shell as the live card but with dashed border, dimmed numerals,
+   and a pull-quote in place of the distribution bar. */
+.hgb-card--placeholder {
+  background: linear-gradient(180deg, #15151d 0%, #0f0f17 100%);
+  border-style: dashed;
+  cursor: default;
+}
+.hgb-card--placeholder:hover { transform: none; box-shadow: none; border-color: var(--hgb-border-strong); }
+.hgb-card--placeholder .hgb-card__pct,
+.hgb-card--placeholder .hgb-card__abbr,
+.hgb-card--placeholder .hgb-card__seed { color: var(--hgb-text-4); }
+.hgb-card--placeholder .hgb-card__team--tbd .hgb-card__logo { opacity: 0.18; filter: grayscale(1); }
+.hgb-card-pull {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 12px; margin-bottom: 14px; min-height: 52px;
+  background: rgba(255,255,255,0.015); border: 1px solid var(--hgb-border); border-radius: 6px;
+  text-align: center;
+}
+.hgb-card-pull__lead { font: 500 11px/1 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.18em; text-transform: uppercase; }
+.hgb-card-pull__main { font: 500 14px/1.2 var(--hgb-font-display); color: var(--hgb-text-2); letter-spacing: 0.04em; }
+.hgb-card-pull__main strong { color: var(--team-color, var(--hgb-text)); font-weight: 600; }
+
+/* Round-complete dimming: applied to the R1 grid wrapper once every R1 series
+   has a winner — softens it visually so attention falls on the active round. */
+.conf-block--complete .conf-block__inner { opacity: 0.85; }
+.section-label__badge {
+  display: inline-flex; align-items: center; padding: 3px 7px; border: 1px solid rgba(74,222,128,0.35);
+  border-radius: 2px; font: 600 9px/1 var(--hgb-font-mono); color: #4ade80; letter-spacing: 0.18em;
+  background: rgba(74,222,128,0.06); margin-left: auto;
+}
+.section-label__round {
+  font: 600 10px/1 var(--hgb-font-mono); color: var(--hgb-text-2); letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+/* Override the auto-rule when a badge is present so the rule sits between
+   label and badge instead of after both. */
+.section-label--has-badge::after { display: none; }
+.section-label--has-badge .section-label__rule { flex: 1; height: 1px; background: var(--hgb-border); }
 
 /* ── Modal ── */
 .hgb-modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; }
@@ -498,11 +729,15 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 
 <div class="page-head">
   <div class="page-head__title">
-    <span class="page-head__eyebrow">HockeyGameBot · Model Projections</span>
+    <span class="page-head__eyebrow">{
+      showRoundIndicator
+        ? `ROUND ${indicatorRound} · ${indicatorLabel.toUpperCase()}`
+        : 'HockeyGameBot · Model Projections'
+    }</span>
     <h1 class="page-head__h1">2026 Stanley Cup Playoffs</h1>
   </div>
   <div class="page-head__meta">
-    <small>Round 1 · Monte Carlo, 10,000 sims each</small>
+    <small>{currentRoundLabel} · Monte Carlo, 10,000 sims each</small>
     <strong id="page-meta-strong">{latestUpdate ? `Updated ${new Date(latestUpdate).toISOString().slice(0,10)}` : 'Blended model'}</strong>
   </div>
 </div>
@@ -513,9 +748,160 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
       Predictions loading — please refresh in a moment.
     </div>
   )}
-  {([['East', eastSeries], ['West', westSeries]] as const).map(([label, series]) => (
+
+  {/* ── ROUND 2 — Conference Semifinals ───────────────────────────────────── */}
+  {showR2 && (
     <div class="conf-block">
-      <div class="section-label">{label}ern Conference · Round 1</div>
+      <div class="section-label section-label--has-badge">
+        <span class="section-label__round">Conference Semifinals · Round 2</span>
+        <span class="section-label__rule"></span>
+      </div>
+      <div class="series-grid">
+        {SERIES_R2.map(s => {
+          if (s.tbd) {
+            // Placeholder card: locked side on the left, "Winner of {Letter}" on the right.
+            const lockedAbbr = s.a.abbr !== 'TBD' ? s.a.abbr : (s.b.abbr !== 'TBD' ? s.b.abbr : null);
+            const locked = lockedAbbr ? (s.a.abbr === lockedAbbr ? s.a : s.b) : null;
+            const otherSide = locked === s.a ? s.b : s.a;
+            const lockedColor = locked?.color ?? '#888';
+            return (
+              <div
+                class="hgb-card hgb-card--placeholder"
+                data-id={s.id}
+                aria-label={`${lockedAbbr ?? 'TBD'} vs winner of Series ${s.awaitingFromLetter ?? '?'} — awaiting opponent`}
+                style={`--hgb-team-a: ${lockedColor}; --hgb-team-b: var(--hgb-border-strong);`}
+              >
+                <header class="hgb-card__meta">
+                  <span class="hgb-mini-badge">{s.miniBadge}</span>
+                  <span class="hgb-card__state" style={`--team-color: ${lockedColor}`}>Awaiting</span>
+                </header>
+
+                <div class="hgb-card__teams">
+                  <div class="hgb-card__team" style={`--team-color: ${lockedColor}`}>
+                    {locked ? (
+                      <>
+                        <img src={`https://assets.nhle.com/logos/nhl/svg/${locked.abbr}_light.svg`} alt={locked.abbr} class="hgb-card__logo" loading="lazy" />
+                        <div class="hgb-card__ids">
+                          <span class="hgb-card__seed">{locked.seed}</span>
+                          <span class="hgb-card__abbr">{locked.abbr}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div class="hgb-card__ids">
+                        <span class="hgb-card__seed">TBD</span>
+                        <span class="hgb-card__abbr">TBD</span>
+                      </div>
+                    )}
+                  </div>
+                  <span class="hgb-card__vs">vs</span>
+                  <div class="hgb-card__team hgb-card__team--b hgb-card__team--tbd" style="--team-color: var(--hgb-text-4)">
+                    <img src="https://assets.nhle.com/logos/nhl/svg/team-tbd-light.svg" alt="TBD" class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids">
+                      <span class="hgb-card__seed">Series {s.awaitingFromLetter ?? '?'}</span>
+                      <span class="hgb-card__abbr">TBD</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="hgb-card-pull">
+                  <span class="hgb-card-pull__lead">Awaiting Opponent</span>
+                  <span class="hgb-card-pull__main" style={`--team-color: ${lockedColor}`}>
+                    {locked ? (
+                      <><strong>{locked.abbr}</strong> vs winner of Series {s.awaitingFromLetter ?? '?'}</>
+                    ) : (
+                      <>Winners of Series {s.awaitingFromLetter ?? '?'}</>
+                    )}
+                  </span>
+                </div>
+
+                <footer class="hgb-card__foot">
+                  <div class="hgb-card__foot-col">
+                    <span class="hgb-card__foot-label">Next Game</span>
+                    <span class="hgb-card__foot-val">TBD</span>
+                  </div>
+                  <div class="hgb-card__foot-col hgb-card__foot-col--right">
+                    <span class="hgb-card__foot-label">Prediction</span>
+                    <span class="hgb-card__foot-val">Pending</span>
+                  </div>
+                </footer>
+              </div>
+            );
+          }
+          // Live R2 card — same shape as R1.
+          const segs = buildCardSegs(s);
+          const ml = mostLikely(s);
+          return (
+            <button
+              class="hgb-card"
+              data-id={s.id}
+              style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`}
+              aria-label={`${s.a.abbr} vs ${s.b.abbr} — click to open series details`}
+            >
+              <header class="hgb-card__meta">
+                <span class="hgb-mini-badge">{s.miniBadge}</span>
+              </header>
+
+              <div class="hgb-card__teams">
+                <div class="hgb-card__team" style={`--team-color: ${s.a.color}`}>
+                  <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
+                  <div class="hgb-card__ids">
+                    <span class="hgb-card__seed">{s.a.seed}</span>
+                    <span class="hgb-card__abbr">{s.a.abbr}</span>
+                  </div>
+                  <span class="hgb-card__pct" style="margin-left: auto">{s.a.winPct}<small>%</small></span>
+                </div>
+                <span class="hgb-card__vs">vs</span>
+                <div class="hgb-card__team hgb-card__team--b" style={`--team-color: ${s.b.color}`}>
+                  <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
+                  <div class="hgb-card__ids">
+                    <span class="hgb-card__seed">{s.b.seed}</span>
+                    <span class="hgb-card__abbr">{s.b.abbr}</span>
+                  </div>
+                  <span class="hgb-card__pct" style="margin-right: auto">{s.b.winPct}<small>%</small></span>
+                </div>
+              </div>
+
+              <div class="hgb-card__bar">
+                {segs.map(seg => (
+                  <span
+                    class={`hgb-card__seg${seg.isSmall ? ' hgb-card__seg--small' : ''}`}
+                    style={`--c: ${seg.c}; --w: ${seg.w}`}
+                    data-boundary={seg.boundary ? 'true' : undefined}
+                    title={`${seg.label} · ${seg.w}%`}
+                  >
+                    <span class="hgb-card__seg-val">{seg.w}</span>
+                  </span>
+                ))}
+              </div>
+
+              <footer class="hgb-card__foot">
+                <div class="hgb-card__foot-col">
+                  <span class="hgb-card__foot-label">Next Game</span>
+                  <span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span>
+                </div>
+                <div class="hgb-card__foot-col hgb-card__foot-col--right">
+                  <span class="hgb-card__foot-label">Most Likely</span>
+                  <span class="hgb-card__foot-val">
+                    <strong>{ml?.label.split(' in ')[0]}</strong> in {ml?.label.split(' in ')[1]} · {ml?.v}%
+                  </span>
+                </div>
+              </footer>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  )}
+
+  {/* ── ROUND 1 — First Round ───────────────────────────────────────────── */}
+  {([['East', eastSeries], ['West', westSeries]] as const).map(([label, series]) => (
+    <div class={`conf-block${r1AllComplete ? ' conf-block--complete' : ''}`}>
+      <div class="section-label section-label--has-badge">
+        <span class="section-label__round">{label}ern Conference · First Round</span>
+        <span class="section-label__rule"></span>
+        {r1AllComplete && <span class="section-label__badge">Complete</span>}
+      </div>
+      <div class="conf-block__inner">
       <div class="series-grid">
         {series.map(s => {
           const segs = buildCardSegs(s);
@@ -581,6 +967,7 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
             </button>
           );
         })}
+      </div>
       </div>
 
     </div>
@@ -711,8 +1098,10 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
   </section>
 </div>
 
-<!-- Series data for client-side modal population -->
-<script id="hgb-series-json" type="application/json" set:html={JSON.stringify(SERIES)}></script>
+<!-- Series data for client-side modal population — R1 + R2 in one array.
+     R2 placeholder cards are included so deep-links by id resolve, but
+     openModal() bails early on `tbd: true` so they never actually open. -->
+<script id="hgb-series-json" type="application/json" set:html={JSON.stringify([...SERIES, ...SERIES_R2])}></script>
 
 <script>
 // ── Data ──────────────────────────────────────────────────────────────────────
