@@ -1828,6 +1828,29 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
         </article>`;
     }
 
+    // ── Render today's games grid HTML ───────────────────────────
+    function renderTodaysGamesHtml(scoreboard) {
+      const heroId = window._hgbHeroId || null;
+      const otherGames = (scoreboard.games || []).filter(g => g.game_id !== heroId);
+      if (otherGames.length === 0) {
+        return `<div class="hv2-placeholder" style="margin-top:24px"><span>No additional games today</span></div>`;
+      }
+      const live = otherGames.filter(g => g.game_state === 'live' || g.game_state === 'intermission' || g.game_state === 'shootout').length;
+      const final = otherGames.filter(g => g.game_state === 'final').length;
+      const upcoming = otherGames.length - live - final;
+      const countParts = [];
+      if (live > 0) countParts.push(`${live} live`);
+      if (final > 0) countParts.push(`${final} final`);
+      if (upcoming > 0) countParts.push(`${upcoming} upcoming`);
+      const countStr = countParts.join(' · ') || `${otherGames.length} games`;
+      return `
+        <div class="home-sec-h">
+          <h2>Today's Games</h2>
+          <span class="count">${otherGames.length} game${otherGames.length !== 1 ? 's' : ''} · ${countStr}</span>
+        </div>
+        <div class="home-grid">${otherGames.map(g => renderGameTileHtml(g)).join('')}</div>`;
+    }
+
     // ── Render yesterday games HTML ───────────────────────────────
     function renderYesterdayHtml(scoreboard) {
       const pdGames = (scoreboard.previous_day && scoreboard.previous_day.games) || [];
@@ -1949,8 +1972,9 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
             ${g.last_event.time_ago ? `<span class="th-last-event-when">${g.last_event.time_ago}</span>` : ''}
           </div>` : '';
 
-        // Box score — integrated inside the left card, no separate label
-        // TODO Layer 2.8: replace em-dashes with real score_by_period data.
+        // Box score — integrated inside the left card.
+        // Uses score_by_period[] when available; falls back to em-dashes.
+        const sbp = g.score_by_period || null;
         const maxP = Math.max(period, 3);
         const periodCols = [];
         for (let p = 1; p <= maxP; p++) periodCols.push(p);
@@ -1962,7 +1986,18 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
           const isCurrent = (p === period) && !inInt && subState === 'live';
           return `<th class="th-bs-period-col${isCurrent ? ' th-bs-period-col--current' : ''}" scope="col">${pLabel(p)}</th>`;
         }).join('');
-        const dashCols = periodCols.map(() => `<td class="th-bs-cell">—</td>`).join('');
+        // Build per-period cells from score_by_period lookup
+        const sbpMap = sbp ? Object.fromEntries(sbp.map(r => [r.period, r])) : {};
+        const hCells = periodCols.map(p => {
+          const row = sbpMap[p];
+          const val = row != null ? row.home : '—';
+          return `<td class="th-bs-cell">${val}</td>`;
+        }).join('');
+        const aCells = periodCols.map(p => {
+          const row = sbpMap[p];
+          const val = row != null ? row.away : '—';
+          return `<td class="th-bs-cell">${val}</td>`;
+        }).join('');
         const boxScoreHtml = `
           <div class="th-bs-integrated">
             <table class="th-bs-table" aria-label="Period-by-period score">
@@ -1974,12 +2009,12 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
               <tbody>
                 <tr>
                   <td class="th-bs-team-name" style="color:${hc}">${home.abbrev}</td>
-                  ${dashCols}
+                  ${hCells}
                   <td class="th-bs-total">${home.score}</td>
                 </tr>
                 <tr>
                   <td class="th-bs-team-name" style="color:${ac}">${away.abbrev}</td>
-                  ${dashCols}
+                  ${aCells}
                   <td class="th-bs-total">${away.score}</td>
                 </tr>
               </tbody>
@@ -2218,7 +2253,12 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
           wireCountdown();
         }
       }
-      // 3. Update YESTERDAY mode when previous_day data is populated.
+      // 3. Re-render Today's Games grid (excludes hero game) so scores + states stay live.
+      const gamesMount = document.getElementById('today-games-mount');
+      if (gamesMount && mode === 'today') {
+        gamesMount.innerHTML = renderTodaysGamesHtml(scoreboard);
+      }
+      // 4. Update YESTERDAY mode when previous_day data is populated.
       // This keeps the yesterday grid live without requiring a CF Pages rebuild
       // after the bot seeds previous_day data mid-day (e.g. noon recap seeding).
       const ydMount = document.getElementById('yesterday-games-mount');

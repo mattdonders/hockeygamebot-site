@@ -152,6 +152,11 @@ export const ScoreboardGameSchema = z.object({
   last_event: EventSchema.nullable(),
   recent_events: z.array(EventSchema).max(5),
   three_stars: z.array(z.record(z.string(), z.unknown())).nullable(),
+  score_by_period: z.array(z.object({
+    period: z.number().int().positive(),
+    home: z.number().int().nonnegative(),
+    away: z.number().int().nonnegative(),
+  })).nullable().optional(),
 });
 export type ScoreboardGame = z.infer<typeof ScoreboardGameSchema>;
 
