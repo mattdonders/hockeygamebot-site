@@ -51,7 +51,10 @@ export const StrengthStateSchema = z.enum([
   'SO_HOME', 'SO_AWAY',
   // Legacy old-bot strength codes (kept for backward compat during migration):
   'EV', 'PP', 'PK',
-]);
+  // Uppercase variants from old bot (4V4, 5V5, etc.) — caught by .catch() below
+  // but listing common ones keeps Zod error messages informative.
+  '4V4', '3V3', '5V5', '5V4', '4V5',
+]).catch('unknown');
 export type StrengthState = z.infer<typeof StrengthStateSchema>;
 
 /** Home/away numeric pair — used for shots, xG, and win probability stats. */
