@@ -30,10 +30,31 @@ import {
 export const GameStateSchema = z.enum(['pre', 'live', 'intermission', 'shootout', 'final']);
 export type GameState = z.infer<typeof GameStateSchema>;
 
-/** Strength state strings produced by hgb-bot. */
+/**
+ * Strength state strings produced by hgb-bot.
+ *
+ * New bot (rewrite): '5v5', '5v4', '4v5', etc.
+ * Old bot (production, transition): 'EV', 'PP', 'PK' — legacy strength codes.
+ * Both sets accepted for compatibility during the old→new bot migration.
+ *
+ * Empty-net variants: EN_HOME means the home team has an empty net (away team
+ * pulled their goalie); EN_AWAY means the away team has an empty net (home team
+ * pulled their goalie). Same directional pattern applies to SO_HOME / SO_AWAY
+ * for shootout-situation variants. These suffixed forms are written by the new
+ * rewrite bot to game_state and may appear in scoreboard strength_state fields.
+ */
 export const StrengthStateSchema = z.enum([
   '5v5', '5v4', '4v5', '5v3', '3v5', '4v4', '3v3', '6v5', '5v6', 'EN', 'SO', 'unknown',
-]);
+  // Directional empty-net variants (new rewrite bot — game_state field):
+  'EN_HOME', 'EN_AWAY',
+  // Directional shootout variants:
+  'SO_HOME', 'SO_AWAY',
+  // Legacy old-bot strength codes (kept for backward compat during migration):
+  'EV', 'PP', 'PK',
+  // Uppercase variants from old bot (4V4, 5V5, etc.) — caught by .catch() below
+  // but listing common ones keeps Zod error messages informative.
+  '4V4', '3V3', '5V5', '5V4', '4V5',
+]).catch('unknown');
 export type StrengthState = z.infer<typeof StrengthStateSchema>;
 
 /** Home/away numeric pair — used for shots, xG, and win probability stats. */
@@ -79,15 +100,35 @@ export const StatsSchema = z.object({
 });
 export type Stats = z.infer<typeof StatsSchema>;
 
-/** A single recent event entry (last_event or element of recent_events[]). */
+/**
+ * A single recent event entry (last_event or element of recent_events[]).
+ *
+ * Field compatibility notes (transition period):
+ *  - `description` vs `desc`: API currently uses both; schema accepts either.
+ *    `desc` is the compact form for recent_events[]; `description` for last_event.
+ *  - `time_ago`: optional/nullable — may be absent in older API responses.
+ *  - `occurred_at`: may appear instead of time_ago on last_event.
+ */
 export const EventSchema = z.object({
   type: z.string(),
-  description: z.string(),
-  time_ago: z.string().nullable(),
+  description: z.string().optional().default(''),
+  /** Compact form in recent_events[]. */
+  desc: z.string().optional(),
+  time_ago: z.string().nullable().optional(),
+  /** ISO timestamp — appears on last_event in current API. */
+  occurred_at: z.string().optional(),
   /** Only present in recent_events[]; absent on last_event. */
   period: z.number().int().nonnegative().nullable().optional(),
   time: z.string().nullable().optional(),
-});
+  /** 'at' field in recent_events[] — ISO timestamp variant. */
+  at: z.string().optional(),
+}).transform(d => ({
+  type: d.type,
+  description: d.description || d.desc || '',
+  time_ago: d.time_ago ?? d.occurred_at ?? null,
+  period: d.period ?? null,
+  time: d.time ?? null,
+}));
 export type ScoreboardEvent = z.infer<typeof EventSchema>;
 
 /**
@@ -114,6 +155,11 @@ export const ScoreboardGameSchema = z.object({
   last_event: EventSchema.nullable(),
   recent_events: z.array(EventSchema).max(5),
   three_stars: z.array(z.record(z.string(), z.unknown())).nullable(),
+  score_by_period: z.array(z.object({
+    period: z.number().int().positive(),
+    home: z.number().int().nonnegative(),
+    away: z.number().int().nonnegative(),
+  })).nullable().optional(),
 });
 export type ScoreboardGame = z.infer<typeof ScoreboardGameSchema>;
 
