@@ -1881,9 +1881,312 @@ const initSlateJson = slateDoc ? JSON.stringify(slateDoc) : 'null';
         </div>`;
     }
 
+    // ── 2-col hero: excitement score for picking top-2 games ─────
+    // Higher = more exciting. LIVE > intermission > pre/final.
+    // Tiebreakers: closer score, later period.
+    function _gameExcitement(g) {
+      const gs = g.game_state;
+      let score = 0;
+      if (gs === 'live') score += 1000;
+      else if (gs === 'intermission') score += 800;
+      else if (gs === 'shootout') score += 900;
+      else if (gs === 'final') score += 200;
+      // closer score = higher excitement
+      const diff = Math.abs((g.home_team.score ?? 0) - (g.away_team.score ?? 0));
+      score += Math.max(0, 10 - diff) * 20;
+      // later period = higher excitement
+      score += (g.clock.period ?? 0) * 10;
+      return score;
+    }
+
+    function pickTopTwoGames(scoreboard) {
+      const games = (scoreboard.games || []).slice();
+      if (games.length < 2) return null;
+      games.sort((a, b) => _gameExcitement(b) - _gameExcitement(a));
+      return [games[0], games[1]];
+    }
+
+    // ── Render one mini-card for the 2-col layout ─────────────────
+    // Returns { headerHtml, scoreHtml, statsHtml } for the card.
+    function renderMiniCardParts(g, isSecondary) {
+      const home = g.home_team, away = g.away_team;
+      const clock = g.clock, stats = g.stats;
+      const subState = g.game_state === 'final' ? 'final'
+        : (g.game_state === 'live' || g.game_state === 'intermission' || g.game_state === 'shootout') ? 'live'
+        : 'pre';
+      const period = clock.period ?? 0;
+      const inIntermission = clock.in_intermission ?? false;
+
+      // Header badge
+      let badgeHtml = '';
+      if (subState === 'live') {
+        let liveLine = '';
+        if (inIntermission) liveLine = `INT · P${period}`;
+        else if (period === 0) liveLine = 'PRE-GAME';
+        else {
+          const pl = period <= 3 ? `P${period}` : period === 4 ? 'OT' : `OT${period-3}`;
+          liveLine = `LIVE · ${pl} · ${clock.time_remaining ?? ''}`;
+        }
+        badgeHtml = `<span class="th-eyebrow-badge th-eyebrow-badge--live"><span class="th-live-dot" aria-hidden="true"></span>${liveLine}</span>`;
+      } else if (subState === 'final') {
+        badgeHtml = `<span class="th-eyebrow-badge th-eyebrow-badge--final">FINAL${period >= 4 ? (period === 4 ? ' · OT' : ' · SO') : ''}</span>`;
+      } else {
+        const timeLabel = fmtStartTimeET(g.start_time_utc);
+        badgeHtml = `<span class="th-eyebrow-badge th-eyebrow-badge--pre">${timeLabel || 'UPCOMING'}</span>`;
+      }
+
+      const headerHtml = `
+        <div class="th-2col-card-header">
+          ${badgeHtml}
+          <span class="th-2col-card-matchup">${away.abbrev} @ ${home.abbrev}</span>
+        </div>`;
+
+      // Score pane (left)
+      let scoreHtml = '';
+      if (subState === 'pre') {
+        // PRE: just logos + VS
+        scoreHtml = `
+          <div class="th-2col-score">
+            <div class="th-pre-teams" style="flex-direction:column;gap:12px">
+              <div class="th-pre-team">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="48" height="48" alt="${away.abbrev}" loading="lazy" />
+                <span class="th-pre-abbr" style="font-size:16px">${away.abbrev}</span>
+              </div>
+              <div class="th-pre-vs">VS</div>
+              <div class="th-pre-team">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="48" height="48" alt="${home.abbrev}" loading="lazy" />
+                <span class="th-pre-abbr" style="font-size:16px">${home.abbrev}</span>
+              </div>
+            </div>
+          </div>`;
+      } else {
+        const gameIsOver = subState === 'final';
+        const homeLoser = gameIsOver && home.score < away.score;
+        const awayLoser = gameIsOver && away.score < home.score;
+        const hc = pickTeamColor(home.abbrev);
+        const ac = pickTeamColor(away.abbrev);
+
+        // Compact box score
+        const sbp = g.score_by_period || null;
+        const maxP = Math.max(period, 3);
+        const periodCols = [];
+        for (let p = 1; p <= maxP; p++) periodCols.push(p);
+        const pLabel = p => p <= 3 ? String(p) : p === 4 ? 'OT' : `OT${p-3}`;
+        const inInt = clock.in_intermission ?? false;
+        const sbpMap = sbp ? Object.fromEntries(sbp.map(r => [r.period, r])) : {};
+        const thCols = periodCols.map(p => {
+          const isCurrent = (p === period) && !inInt && subState === 'live';
+          return `<th class="th-bs-period-col${isCurrent ? ' th-bs-period-col--current' : ''}" scope="col">${pLabel(p)}</th>`;
+        }).join('');
+        const hCells = periodCols.map(p => {
+          const row = sbpMap[p]; return `<td class="th-bs-cell">${row != null ? row.home : '—'}</td>`;
+        }).join('');
+        const aCells = periodCols.map(p => {
+          const row = sbpMap[p]; return `<td class="th-bs-cell">${row != null ? row.away : '—'}</td>`;
+        }).join('');
+
+        scoreHtml = `
+          <div class="th-2col-score">
+            <div class="th-score-row">
+              <div class="th-team-score${awayLoser ? ' loser' : ''}">
+                <img src="https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_dark.svg" width="48" height="48" alt="${away.abbrev}" loading="lazy" class="team-logo" style="--logo-size:48px;flex:none" />
+                <span class="th-score-num">${away.score}</span>
+              </div>
+              <div class="th-score-sep">·</div>
+              <div class="th-team-score th-team-score--right${homeLoser ? ' loser' : ''}">
+                <span class="th-score-num">${home.score}</span>
+                <img src="https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_dark.svg" width="48" height="48" alt="${home.abbrev}" loading="lazy" class="team-logo" style="--logo-size:48px;flex:none" />
+              </div>
+            </div>
+            <div class="th-bs-integrated">
+              <table class="th-bs-table" aria-label="Period-by-period score">
+                <thead><tr>
+                  <th class="th-bs-team-col" scope="col"></th>
+                  ${thCols}
+                  <th class="th-bs-total-col" scope="col">T</th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="th-bs-team-name" style="color:${hc}">${home.abbrev}</td>
+                    ${hCells}
+                    <td class="th-bs-total">${home.score}</td>
+                  </tr>
+                  <tr>
+                    <td class="th-bs-team-name" style="color:${ac}">${away.abbrev}</td>
+                    ${aCells}
+                    <td class="th-bs-total">${away.score}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+
+      // Stats pane (right)
+      let statsHtml = '';
+      if (subState === 'live' || subState === 'final') {
+        const [shotsL, shotsR] = pct(stats.shots_on_goal.home, stats.shots_on_goal.away);
+        const [xg5L, xg5R] = pct(stats.xg_5v5.home, stats.xg_5v5.away);
+        const [xgL, xgR] = pct(stats.xg.home, stats.xg.away);
+        const [wpL, wpR] = pct(stats.win_probability.home, stats.win_probability.away);
+        const hc = pickTeamColor(home.abbrev);
+        const ac = pickTeamColor(away.abbrev);
+
+        // WP stat row is hidden via CSS for secondary card in variant B
+        const wpClass = 'th-r-stat th-2col-stat--wp';
+
+        statsHtml = `
+          <div class="th-2col-stats">
+            <div class="th-r-stat">
+              <div class="th-r-stat-val">${stats.shots_on_goal.away ?? '–'}</div>
+              <div class="th-r-stat-lbl">SOG</div>
+              <div class="th-r-stat-val">${stats.shots_on_goal.home ?? '–'}</div>
+              <div class="th-r-stat-bar"><div class="th-r-bar-l" style="width:${shotsR};background:${ac}"></div><div class="th-r-bar-r" style="width:${shotsL};background:${hc}"></div></div>
+            </div>
+            <div class="th-r-stat">
+              <div class="th-r-stat-val">${stats.xg_5v5.away !== null ? stats.xg_5v5.away.toFixed(2) : '–'}</div>
+              <div class="th-r-stat-lbl">5v5 xG</div>
+              <div class="th-r-stat-val">${stats.xg_5v5.home !== null ? stats.xg_5v5.home.toFixed(2) : '–'}</div>
+              <div class="th-r-stat-bar"><div class="th-r-bar-l" style="width:${xg5R};background:${ac}"></div><div class="th-r-bar-r" style="width:${xg5L};background:${hc}"></div></div>
+            </div>
+            <div class="th-r-stat">
+              <div class="th-r-stat-val">${stats.xg.away !== null ? stats.xg.away.toFixed(2) : '–'}</div>
+              <div class="th-r-stat-lbl">xG All</div>
+              <div class="th-r-stat-val">${stats.xg.home !== null ? stats.xg.home.toFixed(2) : '–'}</div>
+              <div class="th-r-stat-bar"><div class="th-r-bar-l" style="width:${xgR};background:${ac}"></div><div class="th-r-bar-r" style="width:${xgL};background:${hc}"></div></div>
+            </div>
+            <div class="${wpClass}">
+              <div class="th-r-stat-val">${fmtWp(stats.win_probability.away)}</div>
+              <div class="th-r-stat-lbl">Win%</div>
+              <div class="th-r-stat-val">${fmtWp(stats.win_probability.home)}</div>
+              <div class="th-r-stat-bar"><div class="th-r-bar-l" style="width:${wpR};background:${ac}"></div><div class="th-r-bar-r" style="width:${wpL};background:${hc}"></div></div>
+            </div>
+          </div>`;
+      } else {
+        // PRE: show prediction WP if available (no live stats yet)
+        statsHtml = `
+          <div class="th-2col-stats" style="justify-content:center;align-items:center">
+            <div class="th-r-no-feed" style="padding:0">Predictions after 8 AM ET</div>
+          </div>`;
+      }
+
+      return { headerHtml, scoreHtml, statsHtml };
+    }
+
+    // ── Render two-column hero HTML ───────────────────────────────
+    function renderTwoColHeroHtml(gameA, gameB, variant) {
+      const isPrimary = variant === 'primary';
+      const gridClass = isPrimary ? 'th-2col-grid th-2col-grid--primary' : 'th-2col-grid';
+
+      const partsA = renderMiniCardParts(gameA, false);
+      const partsB = renderMiniCardParts(gameB, isPrimary);
+
+      const cardAClass = isPrimary ? 'th-2col-card th-2col-card--primary' : 'th-2col-card';
+      const cardBClass = isPrimary ? 'th-2col-card th-2col-card--secondary' : 'th-2col-card';
+
+      const cardA = `
+        <div class="${cardAClass}" data-game-id="${gameA.game_id}">
+          ${partsA.headerHtml}
+          ${partsA.scoreHtml}
+          ${partsA.statsHtml}
+        </div>`;
+
+      const cardB = `
+        <div class="${cardBClass}" data-game-id="${gameB.game_id}">
+          ${partsB.headerHtml}
+          ${partsB.scoreHtml}
+          ${partsB.statsHtml}
+        </div>`;
+
+      return `<section class="today-hero" data-hero-variant="${isPrimary ? 'primary' : 'equal'}" aria-label="Featured games">
+        <div class="th-header">
+          <div class="th-header-left">
+            <span class="th-eyebrow-badge th-eyebrow-badge--live"><span class="th-live-dot" aria-hidden="true"></span>TOP GAMES</span>
+          </div>
+          <div class="th-header-right">
+            <span class="th-matchup-label">${isPrimary ? 'FEATURED + WATCH' : 'SIDE BY SIDE'}</span>
+          </div>
+        </div>
+        <div class="${gridClass}">${cardA}${cardB}</div>
+      </section>`;
+    }
+
+    // ── Mock scoreboard for ?mock=2col design exploration ────────
+    // Two fake LIVE games: MTL vs TOR (P2, 2-1) and EDM vs VGK (P3, 3-3)
+    const _MOCK_2COL_SCOREBOARD = {
+      date: new Date().toISOString().slice(0,10),
+      games: [
+        {
+          game_id: '9990000001',
+          game_state: 'live',
+          venue: 'Bell Centre',
+          start_time_utc: new Date(Date.now() - 75 * 60000).toISOString(),
+          strength_state: '5v5',
+          home_team: { id: 8, abbrev: 'MTL', name: 'Montreal Canadiens', short_name: 'Canadiens', score: 2 },
+          away_team: { id: 10, abbrev: 'TOR', name: 'Toronto Maple Leafs', short_name: 'Maple Leafs', score: 1 },
+          clock: { period: 2, time_remaining: '8:42', in_intermission: false, clock_at: null },
+          stats: {
+            shots_on_goal: { home: 18, away: 22 },
+            xg: { home: 1.32, away: 1.71 },
+            xg_5v5: { home: 1.10, away: 1.52 },
+            win_probability: { home: 0.61, away: 0.39 },
+          },
+          last_event: { type: 'goal', description: 'Caufield (14) — PP — 11:18 P2', time_ago: '3 min ago' },
+          recent_events: [
+            { type: 'goal', description: 'Caufield (14) — PP', time_ago: '3 min ago', period: 2, time: '11:18' },
+            { type: 'penalty', description: 'Marner — Hooking', time_ago: '5 min ago', period: 2, time: '9:44' },
+          ],
+          three_stars: null,
+          score_by_period: [{ period: 1, home: 1, away: 1 }, { period: 2, home: 1, away: 0 }],
+        },
+        {
+          game_id: '9990000002',
+          game_state: 'live',
+          venue: 'T-Mobile Arena',
+          start_time_utc: new Date(Date.now() - 140 * 60000).toISOString(),
+          strength_state: '5v5',
+          home_team: { id: 54, abbrev: 'VGK', name: 'Vegas Golden Knights', short_name: 'Golden Knights', score: 3 },
+          away_team: { id: 22, abbrev: 'EDM', name: 'Edmonton Oilers', short_name: 'Oilers', score: 3 },
+          clock: { period: 3, time_remaining: '4:11', in_intermission: false, clock_at: null },
+          stats: {
+            shots_on_goal: { home: 28, away: 31 },
+            xg: { home: 2.14, away: 2.53 },
+            xg_5v5: { home: 1.88, away: 2.21 },
+            win_probability: { home: 0.48, away: 0.52 },
+          },
+          last_event: { type: 'shot-on-goal', description: 'Draisaitl — wrist shot', time_ago: '1 min ago' },
+          recent_events: [
+            { type: 'shot-on-goal', description: 'Draisaitl — wrist shot', time_ago: '1 min ago', period: 3, time: '15:49' },
+            { type: 'goal', description: 'Eichel (28) — even strength', time_ago: '7 min ago', period: 3, time: '9:22' },
+          ],
+          three_stars: null,
+          score_by_period: [{ period: 1, home: 1, away: 2 }, { period: 2, home: 1, away: 1 }, { period: 3, home: 1, away: 0 }],
+        },
+      ],
+      previous_day: { hockey_date: null, games: [] },
+    };
+
     // ── Render hero HTML ──────────────────────────────────────────
     function renderHeroHtml(scoreboard, slate) {
-      const pick = pickHeroGame(scoreboard, slate, window._hgbHeroId || null);
+      // ?mock=2col injects the two-game mock regardless of real scoreboard
+      const params = new URLSearchParams(window.location.search);
+      const isMock2col = params.get('mock') === '2col';
+      const activeScoreboard = isMock2col ? _MOCK_2COL_SCOREBOARD : scoreboard;
+      const variant = params.get('variant') || 'equal';
+
+      // Route to 2-col layout when ?mock=2col or when ≥2 live/active games exist
+      const shouldUse2col = isMock2col || (
+        (activeScoreboard.games || []).filter(g =>
+          g.game_state === 'live' || g.game_state === 'intermission' || g.game_state === 'shootout'
+        ).length >= 2
+      );
+
+      if (shouldUse2col) {
+        const top2 = pickTopTwoGames(activeScoreboard);
+        if (top2) return renderTwoColHeroHtml(top2[0], top2[1], variant);
+      }
+
+      const pick = pickHeroGame(activeScoreboard, slate, window._hgbHeroId || null);
       if (!pick) return null;
       window._hgbHeroId = pick.game.game_id;
 
