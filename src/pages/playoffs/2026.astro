@@ -89,6 +89,7 @@ type CarouselSeries = {
 
 let apiSeries: ApiSeries[] = [];
 let apiSeriesR2: ApiSeries[] = [];
+let carouselR1: CarouselSeries[] = [];
 let carouselR2: CarouselSeries[] = [];
 let currentRound = 1;
 let latestUpdate: string | null = null;
@@ -115,10 +116,66 @@ try {
   if (res.ok) {
     const data = await res.json();
     currentRound = data.currentRound ?? 1;
+    const r1 = (data.rounds ?? []).find((r: any) => r.roundNumber === 1);
+    if (r1) carouselR1 = r1.series ?? [];
     const r2 = (data.rounds ?? []).find((r: any) => r.roundNumber === 2);
     if (r2) carouselR2 = r2.series ?? [];
   }
 } catch (_) { /* fall back to round 1 only */ }
+
+// ── R2 → R1 feeder mapping ─────────────────────────────────────────────────
+// Standard NHL bracket; the API does not expose feeder fields so hardcode.
+//   I → A (1-vs-WC1) winner vs D (2-vs-3 Metro) winner    (East)
+//   J → B (1-vs-WC2) winner vs C (2-vs-3 Atlantic) winner (East)
+//   K → E (1-vs-WC1) winner vs H (2-vs-3 Pacific) winner  (West)
+//   L → F (1-vs-WC2) winner vs G (2-vs-3 Central) winner  (West)
+const R2_FEEDERS: Record<string, [string, string]> = {
+  I: ['A', 'D'],
+  J: ['B', 'C'],
+  K: ['E', 'H'],
+  L: ['F', 'G'],
+};
+
+// Find the R1 series for a given letter; return its two team abbrevs and
+// whether the series is already complete (winner known) per hgb-api data.
+function r1FeederFor(letter: string): { a: string; b: string; winner: string | null } | null {
+  const car = carouselR1.find(c => c.seriesLetter === letter);
+  if (!car) return null;
+  const a = car.topSeed.abbrev;
+  const b = car.bottomSeed.abbrev;
+  // Cross-reference hgb-api R1 to detect winner. Match by team set so we
+  // don't depend on team_a/team_b ordering.
+  const api = apiSeries.find(s =>
+    (s.team_a === a && s.team_b === b) || (s.team_a === b && s.team_b === a)
+  );
+  const winner = api?.is_complete ? api.winner : null;
+  return { a, b, winner };
+}
+
+// Render label for the TBD slot in an R2 placeholder.
+// - If we can't resolve feeders, fall back to "Series {letter}".
+// - If the OTHER R1 feeder is already complete, just show the winner.
+// - Otherwise, "Winner of {A}/{B}".
+function feederLabel(r2Letter: string, lockedAbbr: string | null): string {
+  const feeders = R2_FEEDERS[r2Letter];
+  if (!feeders) return `Series ${r2Letter}`;
+  const [letterA, letterB] = feeders;
+  const feedA = r1FeederFor(letterA);
+  const feedB = r1FeederFor(letterB);
+  // Pick the feeder that does NOT contain the locked R2 team.
+  let other: { a: string; b: string; winner: string | null } | null = null;
+  if (lockedAbbr && feedA && (feedA.a === lockedAbbr || feedA.b === lockedAbbr)) {
+    other = feedB;
+  } else if (lockedAbbr && feedB && (feedB.a === lockedAbbr || feedB.b === lockedAbbr)) {
+    other = feedA;
+  } else {
+    // No locked side — return both feeders if we have them, else generic.
+    other = feedA ?? feedB;
+  }
+  if (!other) return `Series ${r2Letter}`;
+  if (other.winner) return other.winner;
+  return `Winner of ${other.a}/${other.b}`;
+}
 
 // Derive a UI-ready SERIES array. Team metadata comes from TEAM_META; dynamic
 // state from the API payload. Series_id pattern is `hs-ls` lowercased (Elo order).
@@ -764,11 +821,23 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
             const locked = lockedAbbr ? (s.a.abbr === lockedAbbr ? s.a : s.b) : null;
             const otherSide = locked === s.a ? s.b : s.a;
             const lockedColor = locked?.color ?? '#888';
+            // Resolve the OTHER R1 feeder so we can show "Winner of TBL/MTL"
+            // instead of "Series J". If the feeder is already complete, the
+            // label will be just the winner's abbrev (locks momentarily anyway).
+            const feederTxt = s.awaitingFromLetter
+              ? feederLabel(s.awaitingFromLetter, lockedAbbr)
+              : 'TBD';
+            const feederIsLetterFallback = feederTxt.startsWith('Series ');
+            // For the TBD slot, prefer just naming the feeders ("TBL/MTL") and
+            // putting the verbose "Winner of" copy in the pull-quote band.
+            const tbdSlotLabel = feederTxt.startsWith('Winner of ')
+              ? feederTxt.slice('Winner of '.length)
+              : feederTxt;
             return (
               <div
                 class="hgb-card hgb-card--placeholder"
                 data-id={s.id}
-                aria-label={`${lockedAbbr ?? 'TBD'} vs winner of Series ${s.awaitingFromLetter ?? '?'} — awaiting opponent`}
+                aria-label={`${lockedAbbr ?? 'TBD'} vs ${feederTxt.toLowerCase()} — awaiting opponent`}
                 style={`--hgb-team-a: ${lockedColor}; --hgb-team-b: var(--hgb-border-strong);`}
               >
                 <header class="hgb-card__meta">
@@ -797,7 +866,7 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
                   <div class="hgb-card__team hgb-card__team--b hgb-card__team--tbd" style="--team-color: var(--hgb-text-4)">
                     <img src="https://assets.nhle.com/logos/nhl/svg/team-tbd-light.svg" alt="TBD" class="hgb-card__logo" loading="lazy" />
                     <div class="hgb-card__ids">
-                      <span class="hgb-card__seed">Series {s.awaitingFromLetter ?? '?'}</span>
+                      <span class="hgb-card__seed">{tbdSlotLabel}</span>
                       <span class="hgb-card__abbr">TBD</span>
                     </div>
                   </div>
@@ -807,9 +876,19 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
                   <span class="hgb-card-pull__lead">Awaiting Opponent</span>
                   <span class="hgb-card-pull__main" style={`--team-color: ${lockedColor}`}>
                     {locked ? (
-                      <><strong>{locked.abbr}</strong> vs winner of Series {s.awaitingFromLetter ?? '?'}</>
+                      feederIsLetterFallback ? (
+                        <><strong>{locked.abbr}</strong> vs winner of {feederTxt.toLowerCase()}</>
+                      ) : feederTxt.startsWith('Winner of ') ? (
+                        <><strong>{locked.abbr}</strong> vs {feederTxt.toLowerCase()}</>
+                      ) : (
+                        <><strong>{locked.abbr}</strong> vs <strong>{feederTxt}</strong></>
+                      )
                     ) : (
-                      <>Winners of Series {s.awaitingFromLetter ?? '?'}</>
+                      feederIsLetterFallback ? (
+                        <>Winners of {feederTxt}</>
+                      ) : (
+                        <>{feederTxt}</>
+                      )
                     )}
                   </span>
                 </div>
