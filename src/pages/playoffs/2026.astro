@@ -301,24 +301,28 @@ function buildR2FromCarousel(c: CarouselSeries): R2Card | null {
   };
 }
 
+// Build R2 cards by MERGING carousel + API data, not either-or.
+// - Carousel is the master list of all 4 R2 slots (locked or TBD).
+// - For each carousel entry, prefer the API-backed card when both seeds are
+//   locked AND there's a matching API row. Otherwise render the carousel
+//   placeholder so a single API populated series doesn't hide the others.
 let SERIES_R2: R2Card[] = [];
-if (apiSeriesR2.length > 0) {
-  // Have model data — use it. For any API entry with team_b === "TBD" or unknown,
-  // fall back to carousel placeholder for that letter.
-  SERIES_R2 = apiSeriesR2.map(s => {
-    const built = buildR2FromApi(s);
-    if (built) return built;
-    // API entry exists but one side is TBD — try to find a matching carousel entry
-    // (match by locked team) and synthesize a placeholder.
-    const locked = TEAM_META[s.team_a] ? s.team_a : (TEAM_META[s.team_b] ? s.team_b : null);
-    if (!locked) return null;
-    const car = carouselR2.find(c => c.topSeed.abbrev === locked || c.bottomSeed.abbrev === locked);
-    if (!car) return null;
+if (carouselR2.length > 0) {
+  SERIES_R2 = carouselR2.map(car => {
+    const ta = car.topSeed.abbrev;
+    const tb = car.bottomSeed.abbrev;
+    const apiMatch = apiSeriesR2.find(s =>
+      (s.team_a === ta && s.team_b === tb) || (s.team_a === tb && s.team_b === ta)
+    );
+    if (apiMatch) {
+      const built = buildR2FromApi(apiMatch);
+      if (built) return built;
+    }
     return buildR2FromCarousel(car);
   }).filter((x): x is R2Card => x !== null);
-} else if (carouselR2.length > 0) {
-  // No model data yet — derive placeholders from NHL carousel.
-  SERIES_R2 = carouselR2.map(buildR2FromCarousel).filter((x): x is R2Card => x !== null);
+} else if (apiSeriesR2.length > 0) {
+  // Carousel missing (unlikely) — fall back to API-only.
+  SERIES_R2 = apiSeriesR2.map(buildR2FromApi).filter((x): x is R2Card => x !== null);
 }
 
 const r1AllComplete = SERIES.length > 0 && SERIES.every(s => s.is_complete);
