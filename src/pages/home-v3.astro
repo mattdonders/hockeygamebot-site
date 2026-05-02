@@ -1,0 +1,762 @@
+---
+/**
+ * home-v3 — Claude Design editorial homepage.
+ * Light-mode default, three sections: Tonight's Games · From the Bots · Leaderboards.
+ * Data: scoreboard from /v1/scoreboard (build-time) · leaderboards from src/data/stats/
+ */
+import { pickTeamColor } from '../lib/team-colors';
+import leaderboardsRaw from '../data/stats/leaderboards.json';
+import metaRaw from '../data/stats/_meta.json';
+
+// ── Build-time scoreboard fetch ───────────────────────────────────────────────
+const SCOREBOARD_URL = 'https://api.hockeygamebot.com/v1/scoreboard';
+
+type SBGame = {
+  game_id: string;
+  game_state: string;
+  venue: string | null;
+  start_time_utc: string | null;
+  home_team: { abbrev: string; score: number | null; short_name: string };
+  away_team: { abbrev: string; score: number | null; short_name: string };
+  clock: { period: number | null; time_remaining: string | null; in_intermission: boolean | null };
+};
+type Scoreboard = { date: string; games: SBGame[] };
+
+let scoreboard: Scoreboard | null = null;
+try {
+  const res = await fetch(SCOREBOARD_URL);
+  if (res.ok) scoreboard = (await res.json()) as Scoreboard;
+} catch { /* falls through to empty */ }
+
+// ── Date / headline ───────────────────────────────────────────────────────────
+function fmtDate(iso: string): string {
+  const d = new Date(iso + 'T12:00:00Z');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function fmtStartET(utc: string | null): string {
+  if (!utc) return '';
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    }).format(new Date(utc)) + ' ET';
+  } catch { return ''; }
+}
+
+const today = scoreboard ? fmtDate(scoreboard.date) : new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+const gameCount = scoreboard?.games.length ?? 0;
+
+// ── Tile data ─────────────────────────────────────────────────────────────────
+type Tile = {
+  id: string;
+  awayAbbr: string; awayColor: string; awayScore: number | null;
+  homeAbbr: string; homeColor: string; homeScore: number | null;
+  state: 'pre' | 'live' | 'intermission' | 'final';
+  period: number | null;
+  timeRemaining: string | null;
+  startTime: string;
+  venue: string;
+};
+
+function buildTile(g: SBGame): Tile {
+  const gs = g.game_state;
+  const state: Tile['state'] =
+    gs === 'live' ? 'live' :
+    gs === 'intermission' ? 'intermission' :
+    gs === 'final' ? 'final' : 'pre';
+  return {
+    id: g.game_id,
+    awayAbbr: g.away_team.abbrev,
+    awayColor: pickTeamColor(g.away_team.abbrev),
+    awayScore: (state !== 'pre') ? g.away_team.score : null,
+    homeAbbr: g.home_team.abbrev,
+    homeColor: pickTeamColor(g.home_team.abbrev),
+    homeScore: (state !== 'pre') ? g.home_team.score : null,
+    state,
+    period: g.clock.period,
+    timeRemaining: g.clock.time_remaining,
+    startTime: fmtStartET(g.start_time_utc),
+    venue: g.venue ?? '',
+  };
+}
+
+const tiles: Tile[] = (scoreboard?.games ?? []).map(buildTile);
+
+function periodLabel(p: number | null): string {
+  if (!p) return '';
+  if (p === 4) return 'OT';
+  if (p >= 5) return 'SO';
+  return `P${p}`;
+}
+
+// ── Leaderboards ──────────────────────────────────────────────────────────────
+type LBRow = { display_name: string; team_abbrev: string; value: number; gp: number; pct: number };
+const lbGameScore: LBRow[] = (leaderboardsRaw.game_score as LBRow[]).slice(0, 8);
+const lbGoals: LBRow[] = (leaderboardsRaw.goals as LBRow[]).slice(0, 8);
+const lbAssists: LBRow[] = (leaderboardsRaw.assists as LBRow[]).slice(0, 8);
+
+const metaSeason = (metaRaw as { season: string }).season;
+const seasonLabel = `${metaSeason.slice(0, 4)}–${metaSeason.slice(6)}`;
+
+// ── Botcards (static for now — real images come from B2/R2) ──────────────────
+const botcards = [
+  { kind: 'Pre-Game', label: 'COL @ EDM', ts: '8m ago', w: 360 },
+  { kind: 'Player', label: 'Q. Hughes', ts: '22m ago', w: 420 },
+  { kind: 'Goalie', label: 'Hellebuyck', ts: '41m ago', w: 320 },
+  { kind: 'Three Stars', label: 'EDM vs COL', ts: '1h ago', w: 380 },
+  { kind: 'Win Prob', label: 'DAL vs VAN', ts: '2h ago', w: 340 },
+  { kind: 'Series', label: 'TOR / FLA', ts: '3h ago', w: 360 },
+  { kind: 'Milestone', label: 'McDavid 1000', ts: '5h ago', w: 320 },
+  { kind: 'Postgame', label: 'NYR 4 — CAR 2', ts: '7h ago', w: 400 },
+];
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>HockeyGameBot — 32 bots, every game, all season</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="Live NHL scores and advanced analytics from 32 automated bots — win probability, expected goals, game scores, and leaderboards.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="HockeyGameBot">
+<meta property="og:title" content="HockeyGameBot · 32 Bots, Every Game, All Season">
+<meta property="og:description" content="Live NHL scores and advanced analytics from 32 automated bots.">
+<meta property="og:url" content="https://hockeygamebot.com/">
+<meta property="og:image" content="https://hockeygamebot.com/og/main.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@hockeygamebot">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/favicon-180x180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ── Tokens ── */
+:root {
+  --bg:      #EFEEE8;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --rule:    rgba(13,13,20,0.92);
+  --red:     #E8002D;
+  --good:    #1f7a3a;
+  --bad:     #B00020;
+  --display: "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
+  --body:    "Barlow", "Helvetica Neue", Arial, sans-serif;
+  --mono:    "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+/* ── Nav ── */
+.nav {
+  border-bottom: 1px solid var(--ink-10);
+  background: var(--bg);
+  position: sticky; top: 0; z-index: 30;
+}
+.nav-inner {
+  display: flex; align-items: center; gap: 40px; height: 64px;
+}
+.wordmark {
+  font-family: var(--display);
+  font-weight: 800; font-size: 22px;
+  letter-spacing: 0.02em; text-transform: uppercase;
+  color: var(--ink);
+  display: inline-flex; align-items: center; gap: 10px; line-height: 1;
+}
+.wordmark .dot {
+  width: 8px; height: 8px; background: var(--red); border-radius: 50%;
+  display: inline-block; transform: translateY(-1px);
+}
+.nav-links {
+  display: flex; align-items: center; gap: 0;
+  margin-left: auto;
+  font-family: var(--display); font-weight: 700; font-size: 13px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+}
+.nav-links a {
+  padding: 6px 14px; color: var(--ink-72); transition: color .15s;
+}
+.nav-links a:hover { color: var(--ink); }
+.nav-links a.is-live {
+  color: var(--ink);
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.nav-links a.is-live::before {
+  content: ""; width: 6px; height: 6px; background: var(--red); border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(232,0,45,.6);
+  animation: livepulse 1.6s infinite;
+}
+@keyframes livepulse {
+  0%   { box-shadow: 0 0 0 0 rgba(232,0,45,.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(232,0,45,0); }
+  100% { box-shadow: 0 0 0 0 rgba(232,0,45,0); }
+}
+.nav-links .sep { color: var(--ink-32); padding: 0 2px; user-select: none; }
+
+/* ── Hero (dark band) ── */
+.hero {
+  background: var(--ink); color: #fff;
+  border-top: 2px solid var(--rule);
+  border-bottom: 2px solid var(--rule);
+}
+.hero-inner { padding: 36px 0 44px; }
+.hero-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 24px; padding-bottom: 22px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.eyebrow {
+  font-family: var(--display); font-weight: 700; font-size: 12px;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: rgba(255,255,255,0.48);
+  display: inline-flex; align-items: center; gap: 10px;
+}
+.eyebrow .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
+.hero h1 {
+  font-family: var(--display); font-weight: 800; font-size: 64px;
+  letter-spacing: -0.005em; text-transform: uppercase;
+  line-height: 0.92; margin: 8px 0 0;
+}
+.hero h1 em { font-style: normal; color: rgba(255,255,255,0.36); }
+.hero-meta {
+  text-align: right; font-family: var(--mono); font-size: 11px;
+  color: rgba(255,255,255,0.56); letter-spacing: 0.04em;
+  line-height: 1.6; white-space: nowrap;
+}
+.hero-meta strong { color: #fff; font-weight: 500; }
+
+/* ── Game grid ── */
+.games {
+  margin-top: 26px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+.game {
+  background: var(--surface); color: var(--ink);
+  border: 1px solid rgba(13,13,20,0.08);
+  padding: 18px 20px 16px;
+  position: relative;
+  display: flex; flex-direction: column; gap: 14px;
+  min-height: 184px;
+}
+/* team color pips at top */
+.game::before {
+  content: ""; position: absolute;
+  top: 0; left: 0; height: 3px; width: 50%;
+  background: var(--c-away, var(--ink));
+}
+.game::after {
+  content: ""; position: absolute;
+  top: 0; right: 0; height: 3px; width: 50%;
+  background: var(--c-home, var(--ink));
+}
+.game-tag {
+  font-family: var(--display); font-weight: 700; font-size: 11px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-48);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.game-tag .live {
+  color: var(--red); display: inline-flex; align-items: center; gap: 6px;
+}
+.game-tag .live::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--red);
+}
+.game-row {
+  display: grid; grid-template-columns: 1fr auto 1fr;
+  align-items: center; column-gap: 14px;
+}
+.team { display: flex; flex-direction: column; gap: 2px; }
+.team.away { text-align: left; }
+.team.home { text-align: right; }
+.team .abbr {
+  font-family: var(--display); font-weight: 800; font-size: 30px;
+  line-height: 1; letter-spacing: 0.01em;
+}
+.team .rec {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48);
+  margin-top: 4px; letter-spacing: 0.02em;
+}
+.game-mid {
+  font-family: var(--display); font-weight: 800; font-size: 26px;
+  color: var(--ink); line-height: 1; text-align: center; min-width: 56px;
+}
+.game-mid.time {
+  font-size: 14px; color: var(--ink-72); font-weight: 700; letter-spacing: 0.05em;
+}
+.game-mid.time small {
+  display: block; font-family: var(--mono); font-size: 10px;
+  color: var(--ink-48); font-weight: 400; margin-top: 4px; letter-spacing: 0.05em;
+}
+.game-mid .vs {
+  display: block; font-family: var(--display); font-weight: 700;
+  font-size: 11px; color: var(--ink-32); letter-spacing: 0.18em; margin: 4px 0;
+}
+.game-foot {
+  margin-top: auto; padding-top: 12px;
+  border-top: 1px solid var(--ink-06);
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em;
+}
+.game-foot .series {
+  color: var(--ink); font-family: var(--display); font-weight: 700;
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+}
+.game-state-final { color: var(--ink-48) !important; }
+
+/* Empty state for no games */
+.no-games {
+  padding: 64px 0; text-align: center;
+  font-family: var(--display); font-weight: 700;
+  font-size: 18px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(255,255,255,0.36);
+}
+
+/* ── Shared section head ── */
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 64px 0 22px; gap: 24px;
+}
+.section-eyebrow {
+  font-family: var(--display); font-weight: 700; font-size: 12px;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48);
+  display: inline-flex; align-items: center; gap: 10px;
+}
+.section-eyebrow .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
+.section-title {
+  font-family: var(--display); font-weight: 800; font-size: 44px;
+  line-height: 0.95; letter-spacing: 0.005em; text-transform: uppercase; margin: 4px 0 0;
+}
+.section-title em { font-style: normal; color: var(--ink-32); }
+.section-meta {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-48);
+  letter-spacing: 0.04em; text-align: right; white-space: nowrap;
+}
+.section-meta a {
+  color: var(--red); font-family: var(--display); font-weight: 700;
+  font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+}
+.section-meta a:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+/* ── From the Bots ── */
+.from-the-bots { border-top: 2px solid var(--rule); padding-top: 22px; }
+.cards-rail-wrap {
+  position: relative;
+  margin: 0 calc(50% - 50vw);
+  padding-left: max(32px, calc(50vw - 640px + 32px));
+}
+.cards-rail {
+  display: flex; gap: 18px;
+  overflow-x: auto; overflow-y: hidden;
+  padding: 6px 32px 24px 0;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-14) transparent;
+}
+.cards-rail::-webkit-scrollbar { height: 8px; }
+.cards-rail::-webkit-scrollbar-thumb { background: var(--ink-14); border-radius: 4px; }
+.botcard {
+  flex: 0 0 auto;
+  background: var(--surface); border: 1px solid var(--ink-06);
+  height: 280px;
+  box-shadow: 0 1px 2px rgba(13,13,20,0.04), 0 14px 28px -18px rgba(13,13,20,0.18);
+  display: flex; flex-direction: column; overflow: hidden;
+  scroll-snap-align: start;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.botcard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 1px 2px rgba(13,13,20,0.04), 0 22px 40px -18px rgba(13,13,20,0.25);
+}
+.botcard-img {
+  flex: 1;
+  position: relative;
+  background:
+    repeating-linear-gradient(135deg, rgba(13,13,20,0.04) 0 8px, transparent 8px 16px),
+    var(--surface);
+  background-size: cover; background-position: center;
+  border-bottom: 1px solid var(--ink-06);
+}
+.botcard-img::after {
+  content: attr(data-label);
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em;
+}
+.botcard-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px 11px;
+  font-family: var(--display); font-weight: 700; font-size: 11px;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-72);
+}
+.botcard-foot .ts { font-family: var(--mono); font-weight: 400; color: var(--ink-48); letter-spacing: 0.04em; }
+.botcard-foot .kind { display: inline-flex; align-items: center; gap: 7px; }
+.botcard-foot .kind::before {
+  content: ""; width: 5px; height: 5px; background: var(--red); display: inline-block;
+}
+
+/* ── Leaderboards ── */
+.lb-wrap { border-top: 2px solid var(--rule); padding-top: 22px; padding-bottom: 80px; }
+.lb-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 0; border-top: 1px solid var(--ink-10);
+}
+.lb-col {
+  padding: 28px 28px 24px 0;
+  border-right: 1px solid var(--ink-10);
+}
+.lb-col:nth-child(2) { padding-left: 28px; }
+.lb-col:nth-child(3) { padding-left: 28px; padding-right: 0; border-right: 0; }
+.lb-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 18px; gap: 12px;
+}
+.lb-name {
+  font-family: var(--display); font-weight: 800; font-size: 24px;
+  letter-spacing: 0.01em; text-transform: uppercase; line-height: 1;
+}
+.lb-unit {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48);
+  letter-spacing: 0.04em; white-space: nowrap;
+}
+.lb-list { list-style: none; margin: 0; padding: 0; counter-reset: lb; }
+.lb-row {
+  counter-increment: lb;
+  display: grid; grid-template-columns: 22px 8px 1fr auto;
+  align-items: center; column-gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid var(--ink-06);
+}
+.lb-row:last-child { border-bottom: 0; }
+.lb-rank { font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.02em; }
+.lb-rank::before { content: counter(lb, decimal-leading-zero); }
+.lb-pip { width: 4px; height: 26px; background: var(--pip, var(--ink)); }
+.lb-who { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.lb-player {
+  font-family: var(--display); font-weight: 700; font-size: 17px;
+  letter-spacing: 0.005em; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lb-team { font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em; }
+.lb-val { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.01em; text-align: right; }
+.lb-val.good { color: var(--good); }
+.lb-foot {
+  margin-top: 18px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48);
+}
+.lb-foot a {
+  color: var(--red); font-family: var(--display); font-weight: 700;
+  font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+}
+.lb-foot a:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+/* ── Footer ── */
+footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--rule); }
+.foot-inner {
+  padding: 56px 0 48px;
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: end; gap: 32px;
+}
+.foot .wordmark { color: #fff; font-size: 36px; }
+.foot-bots {
+  font-family: var(--display); font-weight: 800; font-size: 64px;
+  line-height: 0.95; letter-spacing: 0.005em; text-transform: uppercase;
+  color: rgba(255,255,255,0.10); white-space: nowrap;
+  text-align: center; align-self: center;
+}
+.foot-tag {
+  font-family: var(--display); font-weight: 700; font-size: 12px;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: rgba(255,255,255,0.48); text-align: right;
+}
+.foot-tag strong { color: #fff; font-weight: 700; }
+.foot-bar {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding: 16px 0;
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--mono); font-size: 10.5px;
+  color: rgba(255,255,255,0.36); letter-spacing: 0.04em;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .games { grid-template-columns: repeat(2, 1fr); }
+  .lb-grid { grid-template-columns: 1fr; }
+  .lb-col { border-right: 0; border-bottom: 1px solid var(--ink-10); padding: 24px 0; }
+  .lb-col:nth-child(2) { padding-left: 0; }
+  .lb-col:nth-child(3) { padding-left: 0; border-bottom: 0; }
+  .hero h1 { font-size: 48px; }
+  .section-title { font-size: 34px; }
+  .foot-inner { grid-template-columns: 1fr; gap: 24px; }
+  .foot-tag, .foot-bots { text-align: left; font-size: 40px; }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 0 20px; }
+  .nav-links { display: none; }
+  .games { grid-template-columns: 1fr; }
+  .hero h1 { font-size: 38px; }
+  .section-title { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ NAV ══ -->
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a href="/" class="wordmark" aria-label="HockeyGameBot">
+      Hockey<span class="dot" aria-hidden="true"></span>Gamebot
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/home-v2" class="is-live">Live</a>
+      <span class="sep">·</span>
+      <a href="#cards">Cards</a>
+      <span class="sep">·</span>
+      <a href="/stats">Stats</a>
+      <span class="sep">·</span>
+      <a href="/teams">Teams</a>
+      <span class="sep">·</span>
+      <a href="/support">Support</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ══ HERO — TONIGHT'S GAMES ══ -->
+<section class="hero" id="live">
+  <div class="wrap hero-inner">
+    <div class="hero-head">
+      <div>
+        <div class="eyebrow"><span class="pip"></span>Tonight · {today}</div>
+        <h1>Tonight's Games {gameCount > 0 ? <em>— {gameCount} on the slate</em> : <em>— No games</em>}</h1>
+      </div>
+      <div class="hero-meta">
+        {gameCount > 0
+          ? <><strong>{String(gameCount).padStart(2,'0')} GAMES</strong> · ALL TIMES ET<br/>32 BOTS ARMED</>
+          : <>NO GAMES TODAY<br/>CHECK BACK TOMORROW</>}
+      </div>
+    </div>
+
+    {tiles.length > 0 ? (
+      <div class="games" role="list">
+        {tiles.map(t => (
+          <article class="game" role="listitem"
+                   style={`--c-away:${t.awayColor}; --c-home:${t.homeColor};`}>
+            <div class="game-tag">
+              <span>NHL · {t.state === 'final' ? 'Final' : t.state === 'pre' ? 'Scheduled' : `P${t.period ?? '?'}`}</span>
+              {(t.state === 'live' || t.state === 'intermission') && (
+                <span class="live">
+                  {t.state === 'intermission' ? 'Intermission' : `Live · ${periodLabel(t.period)} ${t.timeRemaining ?? ''}`}
+                </span>
+              )}
+              {t.state === 'pre' && <span>{t.startTime}</span>}
+              {t.state === 'final' && <span class="game-state-final">Final</span>}
+            </div>
+
+            <div class="game-row">
+              <div class="team away">
+                <span class="abbr" style={`color:${t.awayColor}`}>{t.awayAbbr}</span>
+                <span class="rec">away</span>
+              </div>
+
+              {t.state === 'pre' ? (
+                <div class="game-mid time">
+                  {t.startTime.split(' ')[0]}<small>{t.startTime.split(' ').slice(1).join(' ')}</small>
+                </div>
+              ) : (
+                <div class="game-mid">
+                  {t.awayScore} <span class="vs">·</span> {t.homeScore}
+                </div>
+              )}
+
+              <div class="team home">
+                <span class="abbr" style={`color:${t.homeColor}`}>{t.homeAbbr}</span>
+                <span class="rec">home</span>
+              </div>
+            </div>
+
+            <div class="game-foot">
+              <span>{t.venue}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+    ) : (
+      <div class="no-games">No games scheduled today</div>
+    )}
+  </div>
+</section>
+
+<!-- ══ FROM THE BOTS ══ -->
+<section id="cards">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        <div class="section-eyebrow"><span class="pip"></span>From the Bots</div>
+        <h2 class="section-title">Latest Cards <em>— Last 24h</em></h2>
+      </div>
+      <div class="section-meta">
+        <span>32 BOTS · ALL SEASON</span>
+        <a href="#">Browse the archive →</a>
+      </div>
+    </div>
+    <div class="from-the-bots"></div>
+  </div>
+
+  <div class="cards-rail-wrap" role="region" aria-label="Latest bot-generated cards">
+    <div class="cards-rail">
+      {botcards.map(c => (
+        <a class="botcard" style={`width:${c.w}px`} href="#" aria-label={`${c.kind} · ${c.label}`}>
+          <div class="botcard-img" data-label={`${c.kind} · ${c.label}`}></div>
+          <div class="botcard-foot">
+            <span class="kind">{c.kind} · {c.label}</span>
+            <span class="ts">{c.ts}</span>
+          </div>
+        </a>
+      ))}
+    </div>
+  </div>
+</section>
+
+<!-- ══ LEADERBOARDS ══ -->
+<section id="stats">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        <div class="section-eyebrow"><span class="pip"></span>{seasonLabel} · Regular Season</div>
+        <h2 class="section-title">Leaderboards</h2>
+      </div>
+      <div class="section-meta">
+        <span>UPDATED {new Date(metaRaw.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()} · {metaRaw.player_count} PLAYERS</span>
+        <a href="/stats">All metrics →</a>
+      </div>
+    </div>
+
+    <div class="lb-wrap">
+      <div class="lb-grid">
+
+        <!-- HGB Game Score -->
+        <div class="lb-col">
+          <div class="lb-head">
+            <div class="lb-name">HGB Score</div>
+            <div class="lb-unit">per-game avg</div>
+          </div>
+          <ol class="lb-list">
+            {lbGameScore.map(r => (
+              <li class="lb-row" style={`--pip:${pickTeamColor(r.team_abbrev)}`}>
+                <span class="lb-rank"></span>
+                <span class="lb-pip"></span>
+                <span class="lb-who">
+                  <span class="lb-player">{r.display_name}</span>
+                  <span class="lb-team">{r.team_abbrev}</span>
+                </span>
+                <span class="lb-val good">{r.value.toFixed(2)}</span>
+              </li>
+            ))}
+          </ol>
+          <div class="lb-foot">
+            <span>≥ 25 GP played</span>
+            <a href="/stats">Full leaderboard →</a>
+          </div>
+        </div>
+
+        <!-- Goals -->
+        <div class="lb-col">
+          <div class="lb-head">
+            <div class="lb-name">Goals</div>
+            <div class="lb-unit">season total</div>
+          </div>
+          <ol class="lb-list">
+            {lbGoals.map(r => (
+              <li class="lb-row" style={`--pip:${pickTeamColor(r.team_abbrev)}`}>
+                <span class="lb-rank"></span>
+                <span class="lb-pip"></span>
+                <span class="lb-who">
+                  <span class="lb-player">{r.display_name}</span>
+                  <span class="lb-team">{r.team_abbrev}</span>
+                </span>
+                <span class="lb-val good">{r.value}</span>
+              </li>
+            ))}
+          </ol>
+          <div class="lb-foot">
+            <span>{seasonLabel} regular season</span>
+            <a href="/stats">Full leaderboard →</a>
+          </div>
+        </div>
+
+        <!-- Assists -->
+        <div class="lb-col">
+          <div class="lb-head">
+            <div class="lb-name">Assists</div>
+            <div class="lb-unit">season total</div>
+          </div>
+          <ol class="lb-list">
+            {lbAssists.map(r => (
+              <li class="lb-row" style={`--pip:${pickTeamColor(r.team_abbrev)}`}>
+                <span class="lb-rank"></span>
+                <span class="lb-pip"></span>
+                <span class="lb-who">
+                  <span class="lb-player">{r.display_name}</span>
+                  <span class="lb-team">{r.team_abbrev}</span>
+                </span>
+                <span class="lb-val good">{r.value}</span>
+              </li>
+            ))}
+          </ol>
+          <div class="lb-foot">
+            <span>{seasonLabel} regular season</span>
+            <a href="/stats">Full leaderboard →</a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ FOOTER ══ -->
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-inner">
+      <a href="/" class="wordmark" aria-label="HockeyGameBot">
+        Hockey<span class="dot" aria-hidden="true"></span>Gamebot
+      </a>
+      <div class="foot-bots">32 Bots · Every Game · All Season</div>
+      <div class="foot-tag">
+        Built for the people<br/>
+        who watch the <strong>shot map</strong>.
+      </div>
+    </div>
+    <div class="foot-bar">
+      <span>© 2026 HockeyGameBot · Not affiliated with the NHL</span>
+      <span>{seasonLabel} · hockeygamebot.com</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
