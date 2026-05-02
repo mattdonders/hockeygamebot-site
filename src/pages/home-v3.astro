@@ -1,101 +1,85 @@
 ---
 /**
- * home-v3 — Claude Design editorial homepage.
- * Light-mode default, three sections: Tonight's Games · From the Bots · Leaderboards.
- * Data: scoreboard from /v1/scoreboard (build-time) · leaderboards from src/data/stats/
+ * home-v3 — Claude Design v3 editorial homepage.
+ * Three zones:
+ *   1. Dark hero band — yesterday's completed games (all pre-game today)
+ *   2. Featured game — 3-column: matchup + SVG WP flow chart + three stars
+ *   3. Bot cards rail (no section header, just rule + full-bleed rail)
+ * No leaderboards on this page.
  */
 import { pickTeamColor } from '../lib/team-colors';
-import leaderboardsRaw from '../data/stats/leaderboards.json';
-import metaRaw from '../data/stats/_meta.json';
 
-// ── Build-time scoreboard fetch ───────────────────────────────────────────────
 const SCOREBOARD_URL = 'https://api.hockeygamebot.com/v1/scoreboard';
+const FLOW_URL_BASE  = 'https://api.hockeygamebot.com/v1/games';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type StarEntry = {
+  star: number;
+  player_name: string;
+  player_last_name: string;
+  team_abbrev: string;
+};
 
 type SBGame = {
   game_id: string;
+  game_type: number;
   game_state: string;
   venue: string | null;
   start_time_utc: string | null;
-  home_team: { abbrev: string; score: number | null; short_name: string };
-  away_team: { abbrev: string; score: number | null; short_name: string };
+  home_team: { abbrev: string; score: number; short_name: string; name: string };
+  away_team: { abbrev: string; score: number; short_name: string; name: string };
   clock: { period: number | null; time_remaining: string | null; in_intermission: boolean | null };
   stats: {
     win_probability: { home: number | null; away: number | null };
-    xg_5v5: { home: number | null; away: number | null };
+    xg_5v5:         { home: number | null; away: number | null };
   };
+  three_stars: StarEntry[] | null;
 };
-type Scoreboard = { date: string; games: SBGame[] };
+
+type Scoreboard = {
+  date: string;
+  games: SBGame[];
+  previous_day: { hockey_date: string; games: SBGame[] };
+};
+
+type FlowPoint = { t: number; wp: number | null; xg_home: number | null; xg_away: number | null; event_type: string };
+type FlowGoal  = { t: number; is_home: boolean; score: string; scorer: string; strength: string };
+type FlowData  = { game_id: string; points: FlowPoint[]; goals: FlowGoal[] };
+
+// ── Fetch scoreboard ──────────────────────────────────────────────────────────
 
 let scoreboard: Scoreboard | null = null;
 try {
   const res = await fetch(SCOREBOARD_URL);
   if (res.ok) scoreboard = (await res.json()) as Scoreboard;
-} catch { /* falls through to empty */ }
+} catch { /* fallthrough */ }
 
-// ── Date / headline ───────────────────────────────────────────────────────────
+// ── Date formatting helpers ────────────────────────────────────────────────────
+
 function fmtDate(iso: string): string {
   const d = new Date(iso + 'T12:00:00Z');
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', timeZone: 'UTC' });
 }
 
 function fmtStartET(utc: string | null): string {
   if (!utc) return '';
   try {
     return new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York',
-      hour: 'numeric', minute: '2-digit', hour12: true,
-    }).format(new Date(utc)) + ' ET';
+      timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true,
+    }).format(new Date(utc));
   } catch { return ''; }
 }
 
-const today = scoreboard ? fmtDate(scoreboard.date) : new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-const gameCount = scoreboard?.games.length ?? 0;
+// ── Game state helpers ────────────────────────────────────────────────────────
 
-// ── Tile data ─────────────────────────────────────────────────────────────────
-type Tile = {
-  id: string;
-  awayAbbr: string; awayColor: string; awayScore: number | null;
-  homeAbbr: string; homeColor: string; homeScore: number | null;
-  state: 'pre' | 'live' | 'intermission' | 'final';
-  period: number | null;
-  timeRemaining: string | null;
-  startTime: string;
-  venue: string;
-  wpHome: number | null;
-  wpAway: number | null;
-  xgHome: number | null;
-  xgAway: number | null;
-};
-
-function buildTile(g: SBGame): Tile {
-  const gs = g.game_state;
-  const state: Tile['state'] =
-    gs === 'live' ? 'live' :
-    gs === 'intermission' ? 'intermission' :
-    gs === 'final' ? 'final' : 'pre';
-  const wp = g.stats?.win_probability;
-  const xg = g.stats?.xg_5v5;
-  return {
-    id: g.game_id,
-    awayAbbr: g.away_team.abbrev,
-    awayColor: pickTeamColor(g.away_team.abbrev),
-    awayScore: (state !== 'pre') ? g.away_team.score : null,
-    homeAbbr: g.home_team.abbrev,
-    homeColor: pickTeamColor(g.home_team.abbrev),
-    homeScore: (state !== 'pre') ? g.home_team.score : null,
-    state,
-    period: g.clock.period,
-    timeRemaining: g.clock.time_remaining,
-    startTime: fmtStartET(g.start_time_utc),
-    venue: g.venue ?? '',
-    wpHome: wp?.home ?? null,
-    wpAway: wp?.away ?? null,
-    xgHome: xg?.home ?? null,
-    xgAway: xg?.away ?? null,
-  };
+function gameStateLabel(g: SBGame): 'pre' | 'live' | 'intermission' | 'final' {
+  const s = g.game_state;
+  if (s === 'live') return 'live';
+  if (s === 'intermission') return 'intermission';
+  if (s === 'final' || s === 'game-end') return 'final';
+  return 'pre';
 }
-
-const tiles: Tile[] = (scoreboard?.games ?? []).map(buildTile);
 
 function periodLabel(p: number | null): string {
   if (!p) return '';
@@ -104,26 +88,180 @@ function periodLabel(p: number | null): string {
   return `P${p}`;
 }
 
-// ── Leaderboards ──────────────────────────────────────────────────────────────
-type LBRow = { display_name: string; team_abbrev: string; value: number; gp: number; pct: number };
-const lbGameScore: LBRow[] = (leaderboardsRaw.game_score as LBRow[]).slice(0, 8);
-const lbGoals: LBRow[] = (leaderboardsRaw.goals as LBRow[]).slice(0, 8);
-const lbAssists: LBRow[] = (leaderboardsRaw.assists as LBRow[]).slice(0, 8);
+// ── Display logic: today vs yesterday ────────────────────────────────────────
+// If all today's games are pre-game, feature yesterday's results in Zone 1.
 
-const metaSeason = (metaRaw as { season: string }).season;
-const seasonLabel = `${metaSeason.slice(0, 4)}–${metaSeason.slice(6)}`;
+const todayGames  = scoreboard?.games ?? [];
+const prevGames   = scoreboard?.previous_day?.games ?? [];
+const todayDate   = scoreboard?.date ?? new Date().toISOString().slice(0, 10);
+const prevDate    = scoreboard?.previous_day?.hockey_date ?? '';
 
-// ── Botcards (static for now — real images come from B2/R2) ──────────────────
+const allTodayPre = todayGames.length > 0 && todayGames.every(g => gameStateLabel(g) === 'pre');
+const noTodayGames = todayGames.length === 0;
+
+// Zone 1 display: prefer yesterday's final results when today is all pre-game
+const zone1Games  = (allTodayPre || noTodayGames) && prevGames.length > 0 ? prevGames : todayGames;
+const zone1Date   = (allTodayPre || noTodayGames) && prevGames.length > 0 ? fmtDate(prevDate) : fmtDate(todayDate);
+const zone1Label  = (allTodayPre || noTodayGames) && prevGames.length > 0 ? 'Last Night' : 'Tonight';
+const zone1Count  = zone1Games.length;
+
+// Hero eyebrow date for tonight strip
+const tonightDate = fmtDate(todayDate);
+
+// ── Feature game selection ────────────────────────────────────────────────────
+// Pick the game with the biggest WP swing (largest away WP) from yesterday's games.
+// Prefer games with three_stars data.
+
+function wpSwing(g: SBGame): number {
+  const wp = g.stats.win_probability;
+  if (wp.away === null || wp.home === null) return 0;
+  return Math.abs(wp.away - 0.5);
+}
+
+let featuredGame: SBGame | null = null;
+const candidateGames = prevGames.length > 0 ? prevGames : todayGames;
+
+if (candidateGames.length > 0) {
+  // Prefer games with three_stars; sort by WP swing descending
+  const withStars = candidateGames.filter(g => g.three_stars && g.three_stars.length > 0);
+  const pool = withStars.length > 0 ? withStars : candidateGames;
+  featuredGame = pool.reduce((best, g) => wpSwing(g) > wpSwing(best) ? g : best, pool[0]);
+}
+
+// ── Fetch flow data for featured game ────────────────────────────────────────
+
+let flowData: FlowData | null = null;
+if (featuredGame) {
+  try {
+    const res = await fetch(`${FLOW_URL_BASE}/${featuredGame.game_id}/flow`);
+    if (res.ok) flowData = (await res.json()) as FlowData;
+  } catch { /* fallthrough */ }
+}
+
+// ── Build SVG for featured WP chart ──────────────────────────────────────────
+// viewBox 0 0 320 200 — x=(t/3600)*320, y=(1-wp)*200
+
+const SVG_W = 320;
+const SVG_H = 200;
+const GAME_SECS = 3600;
+
+// Filter points with WP and sort by t
+const wpPoints: Array<{ x: number; y: number }> = [];
+if (flowData) {
+  const sorted = [...flowData.points]
+    .filter(p => p.wp !== null && p.t >= 0 && p.t <= GAME_SECS)
+    .sort((a, b) => a.t - b.t);
+
+  // Deduplicate by t: keep last wp value for each t
+  const seen = new Map<number, FlowPoint>();
+  for (const p of sorted) seen.set(p.t, p);
+  const deduped = [...seen.values()].sort((a, b) => a.t - b.t);
+
+  for (const p of deduped) {
+    wpPoints.push({
+      x: +(( p.t / GAME_SECS) * SVG_W).toFixed(2),
+      y: +((1 - (p.wp ?? 0.5)) * SVG_H).toFixed(2),
+    });
+  }
+}
+
+// Build polyline points string
+const polylineStr = wpPoints.map(p => `${p.x},${p.y}`).join(' ');
+
+// Build closed fill path (from midline, follow points, return to midline)
+let fillPath = '';
+if (wpPoints.length >= 2) {
+  const first = wpPoints[0];
+  const last  = wpPoints[wpPoints.length - 1];
+  fillPath = `M${first.x},${SVG_H / 2} ` +
+    wpPoints.map(p => `L${p.x},${p.y}`).join(' ') +
+    ` L${last.x},${SVG_H / 2} Z`;
+}
+
+// Goal dot positions: find closest WP point at or before each goal time
+function findWpAtGoal(t: number): number {
+  if (wpPoints.length === 0) return SVG_H / 2;
+  let best = wpPoints[0];
+  for (const p of wpPoints) {
+    if (((p.x / SVG_W) * GAME_SECS) <= t) best = p;
+  }
+  return best.y;
+}
+
+type GoalDot = { cx: number; cy: number; color: string; label: string };
+const goalDots: GoalDot[] = [];
+if (flowData && featuredGame) {
+  const awayColor = pickTeamColor(featuredGame.away_team.abbrev);
+  const homeColor = pickTeamColor(featuredGame.home_team.abbrev);
+  for (const g of flowData.goals) {
+    const cx = +((g.t / GAME_SECS) * SVG_W).toFixed(2);
+    const cy = findWpAtGoal(g.t);
+    const suffix = g.strength === 'pp' ? 'PP' : g.strength === 'sh' ? 'SH' : '';
+    goalDots.push({ cx, cy, color: g.is_home ? homeColor : awayColor, label: suffix });
+  }
+}
+
+// Period dividers at t=1200, 2400 => x=106.67, 213.33
+const P1_X = +((1200 / GAME_SECS) * SVG_W).toFixed(1);
+const P2_X = +((2400 / GAME_SECS) * SVG_W).toFixed(1);
+
+// ── Tile helper: build per-game display object ────────────────────────────────
+
+type Tile = {
+  g: SBGame;
+  awayColor: string; homeColor: string;
+  state: 'pre' | 'live' | 'intermission' | 'final';
+  wpAwayPct: number | null; wpHomePct: number | null;
+  xgAway: number | null; xgHome: number | null;
+};
+
+function buildTile(g: SBGame): Tile {
+  const state = gameStateLabel(g);
+  const wp    = g.stats.win_probability;
+  const xg    = g.stats.xg_5v5;
+  return {
+    g,
+    awayColor: pickTeamColor(g.away_team.abbrev),
+    homeColor: pickTeamColor(g.home_team.abbrev),
+    state,
+    wpAwayPct: wp.away !== null ? Math.round(wp.away * 100) : null,
+    wpHomePct: wp.home !== null ? Math.round(wp.home * 100) : null,
+    xgAway: xg.away, xgHome: xg.home,
+  };
+}
+
+const zone1Tiles = zone1Games.map(buildTile);
+
+// ── Bot cards (static placeholders) ──────────────────────────────────────────
 const botcards = [
-  { kind: 'Pre-Game', label: 'COL @ EDM', ts: '8m ago', w: 360 },
-  { kind: 'Player', label: 'Q. Hughes', ts: '22m ago', w: 420 },
-  { kind: 'Goalie', label: 'Hellebuyck', ts: '41m ago', w: 320 },
-  { kind: 'Three Stars', label: 'EDM vs COL', ts: '1h ago', w: 380 },
-  { kind: 'Win Prob', label: 'DAL vs VAN', ts: '2h ago', w: 340 },
-  { kind: 'Series', label: 'TOR / FLA', ts: '3h ago', w: 360 },
-  { kind: 'Milestone', label: 'McDavid 1000', ts: '5h ago', w: 320 },
-  { kind: 'Postgame', label: 'NYR 4 — CAR 2', ts: '7h ago', w: 400 },
+  { kind: 'Pre-Game', label: 'PHI @ CAR', ts: '8m ago', w: 360 },
+  { kind: 'Three Stars', label: 'BUF vs BOS', ts: '22m ago', w: 380 },
+  { kind: 'Win Prob', label: 'TBL vs MTL', ts: '41m ago', w: 340 },
+  { kind: 'Player', label: 'T. Thompson', ts: '1h ago', w: 420 },
+  { kind: 'Goalie', label: 'A. Lyon', ts: '1h ago', w: 320 },
+  { kind: 'Win Prob', label: 'VGK vs UTA', ts: '2h ago', w: 340 },
+  { kind: 'Series', label: 'BUF leads 1–0', ts: '3h ago', w: 360 },
+  { kind: 'Postgame', label: 'BUF 4 — BOS 1', ts: '5h ago', w: 400 },
 ];
+
+// ── Featured game display helpers ─────────────────────────────────────────────
+const feat = featuredGame;
+const featAbbr = feat ? {
+  away: feat.away_team.abbrev,
+  home: feat.home_team.abbrev,
+  awayName: feat.away_team.short_name,
+  homeName: feat.home_team.short_name,
+  awayScore: feat.away_team.score,
+  homeScore: feat.home_team.score,
+  awayColor: feat ? pickTeamColor(feat.away_team.abbrev) : '#0d0d14',
+  homeColor: feat ? pickTeamColor(feat.home_team.abbrev) : '#0d0d14',
+  xgAway: feat.stats.xg_5v5.away,
+  xgHome: feat.stats.xg_5v5.home,
+  wpAway: feat.stats.win_probability.away !== null ? Math.round(feat.stats.win_probability.away * 100) : null,
+  wpHome: feat.stats.win_probability.home !== null ? Math.round(feat.stats.win_probability.home * 100) : null,
+  venue: feat.venue ?? '',
+  stars: feat.three_stars ?? [],
+} : null;
 ---
 <!doctype html>
 <html lang="en">
@@ -131,7 +269,7 @@ const botcards = [
 <meta charset="utf-8" />
 <title>HockeyGameBot — 32 bots, every game, all season</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<meta name="description" content="Live NHL scores and advanced analytics from 32 automated bots — win probability, expected goals, game scores, and leaderboards.">
+<meta name="description" content="Live NHL scores and advanced analytics from 32 automated bots — win probability, expected goals, game scores, and more.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="HockeyGameBot">
 <meta property="og:title" content="HockeyGameBot · 32 Bots, Every Game, All Season">
@@ -145,429 +283,439 @@ const botcards = [
 <link rel="apple-touch-icon" href="/favicon-180x180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
-/* ── Tokens ── */
-:root {
-  --bg:      #EFEEE8;
-  --surface: #FFFFFF;
-  --ink:     #0d0d14;
-  --ink-72:  rgba(13,13,20,0.72);
-  --ink-48:  rgba(13,13,20,0.48);
-  --ink-32:  rgba(13,13,20,0.32);
-  --ink-14:  rgba(13,13,20,0.14);
-  --ink-10:  rgba(13,13,20,0.10);
-  --ink-06:  rgba(13,13,20,0.06);
-  --rule:    rgba(13,13,20,0.92);
-  --red:     #E8002D;
-  --good:    #1f7a3a;
-  --bad:     #B00020;
-  --display: "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
-  --body:    "Barlow", "Helvetica Neue", Arial, sans-serif;
-  --mono:    "JetBrains Mono", ui-monospace, Menlo, monospace;
-}
+  /* ---------- TOKENS ---------- */
+  :root {
+    --bg:        #EFEEE8;
+    --surface:   #FFFFFF;
+    --ink:       #0d0d14;
+    --ink-72:    rgba(13,13,20,0.72);
+    --ink-48:    rgba(13,13,20,0.48);
+    --ink-32:    rgba(13,13,20,0.32);
+    --ink-14:    rgba(13,13,20,0.14);
+    --ink-10:    rgba(13,13,20,0.10);
+    --ink-06:    rgba(13,13,20,0.06);
+    --rule:      rgba(13,13,20,0.92);
+    --red:       #E8002D;
+    --display: "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
+    --body:    "Barlow", "Helvetica Neue", Arial, sans-serif;
+    --mono:    "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--body); font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "tnum" 1, "kern" 1;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
 
-/* ── Reset ── */
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--body);
-  font-weight: 400;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-a { color: inherit; text-decoration: none; }
-img { display: block; max-width: 100%; }
+  /* ---------- NAV ---------- */
+  .nav {
+    border-bottom: 1px solid var(--ink-10);
+    background: var(--bg);
+    position: sticky; top: 0; z-index: 30;
+  }
+  .nav-inner { display: flex; align-items: center; gap: 40px; height: 64px; }
+  .wordmark {
+    font-family: var(--display); font-weight: 800; font-size: 22px;
+    letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink);
+    display: inline-flex; align-items: center; gap: 10px; line-height: 1;
+  }
+  .wordmark .dot {
+    width: 8px; height: 8px; background: var(--red); border-radius: 50%;
+    display: inline-block; transform: translateY(-1px);
+  }
+  .nav-links {
+    display: flex; align-items: center; gap: 0; margin-left: auto;
+    font-family: var(--display); font-weight: 700; font-size: 13px;
+    letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .nav-links a { padding: 6px 14px; color: var(--ink-72); transition: color .15s ease; }
+  .nav-links a:hover { color: var(--ink); }
+  .nav-links .sep { color: var(--ink-32); padding: 0 2px; user-select: none; }
 
-.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+  /* ---------- HERO BAND ---------- */
+  .hero {
+    background: var(--ink); color: #fff;
+    border-top: 2px solid var(--rule); border-bottom: 2px solid var(--rule);
+  }
+  .hero-inner { padding: 36px 0 44px; }
+  .hero-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 24px; padding-bottom: 22px;
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+  }
+  .eyebrow {
+    font-family: var(--display); font-weight: 700; font-size: 12px;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: rgba(255,255,255,0.48);
+    display: inline-flex; align-items: center; gap: 10px;
+  }
+  .eyebrow .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--red); display: inline-block; }
+  .hero h1 {
+    font-family: var(--display); font-weight: 800; font-size: 64px;
+    letter-spacing: -0.005em; text-transform: uppercase;
+    line-height: 0.92; margin: 8px 0 0;
+  }
+  .hero h1 em { font-style: normal; color: rgba(255,255,255,0.36); }
+  .hero-meta {
+    text-align: right; font-family: var(--mono); font-size: 11px;
+    color: rgba(255,255,255,0.56); letter-spacing: 0.04em;
+    line-height: 1.6; white-space: nowrap;
+  }
+  .hero-meta strong { color: #fff; font-weight: 500; }
 
-/* ── Nav ── */
-.nav {
-  border-bottom: 1px solid var(--ink-10);
-  background: var(--bg);
-  position: sticky; top: 0; z-index: 30;
-}
-.nav-inner {
-  display: flex; align-items: center; gap: 40px; height: 64px;
-}
-.wordmark {
-  font-family: var(--display);
-  font-weight: 800; font-size: 22px;
-  letter-spacing: 0.02em; text-transform: uppercase;
-  color: var(--ink);
-  display: inline-flex; align-items: center; gap: 10px; line-height: 1;
-}
-.wordmark .dot {
-  width: 8px; height: 8px; background: var(--red); border-radius: 50%;
-  display: inline-block; transform: translateY(-1px);
-}
-.nav-links {
-  display: flex; align-items: center; gap: 0;
-  margin-left: auto;
-  font-family: var(--display); font-weight: 700; font-size: 13px;
-  letter-spacing: 0.14em; text-transform: uppercase;
-}
-.nav-links a {
-  padding: 6px 14px; color: var(--ink-72); transition: color .15s;
-}
-.nav-links a:hover { color: var(--ink); }
-.nav-links a.is-live {
-  color: var(--ink);
-  display: inline-flex; align-items: center; gap: 7px;
-}
-.nav-links a.is-live::before {
-  content: ""; width: 6px; height: 6px; background: var(--red); border-radius: 50%;
-  box-shadow: 0 0 0 0 rgba(232,0,45,.6);
-  animation: livepulse 1.6s infinite;
-}
-@keyframes livepulse {
-  0%   { box-shadow: 0 0 0 0 rgba(232,0,45,.55); }
-  70%  { box-shadow: 0 0 0 6px rgba(232,0,45,0); }
-  100% { box-shadow: 0 0 0 0 rgba(232,0,45,0); }
-}
-.nav-links .sep { color: var(--ink-32); padding: 0 2px; user-select: none; }
+  /* Tonight's pre-game strip (inside hero, below game cards) */
+  .tonight-strip {
+    margin-top: 24px; padding: 14px 18px;
+    border: 1px solid rgba(255,255,255,0.10);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .tonight-label {
+    font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: rgba(255,255,255,0.48);
+  }
+  .tonight-games {
+    display: flex; gap: 20px; align-items: center;
+    font-family: var(--display); font-weight: 800; font-size: 14px;
+    letter-spacing: 0.04em; color: rgba(255,255,255,0.72);
+  }
+  .tonight-game { display: inline-flex; align-items: center; gap: 6px; }
+  .tonight-time {
+    font-family: var(--mono); font-weight: 400; font-size: 11px;
+    color: rgba(255,255,255,0.40); letter-spacing: 0.04em;
+  }
 
-/* ── Hero (dark band) ── */
-.hero {
-  background: var(--ink); color: #fff;
-  border-top: 2px solid var(--rule);
-  border-bottom: 2px solid var(--rule);
-}
-.hero-inner { padding: 36px 0 44px; }
-.hero-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 24px; padding-bottom: 22px;
-  border-bottom: 1px solid rgba(255,255,255,0.10);
-}
-.eyebrow {
-  font-family: var(--display); font-weight: 700; font-size: 12px;
-  letter-spacing: 0.22em; text-transform: uppercase;
-  color: rgba(255,255,255,0.48);
-  display: inline-flex; align-items: center; gap: 10px;
-}
-.eyebrow .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
-.hero h1 {
-  font-family: var(--display); font-weight: 800; font-size: 64px;
-  letter-spacing: -0.005em; text-transform: uppercase;
-  line-height: 0.92; margin: 8px 0 0;
-}
-.hero h1 em { font-style: normal; color: rgba(255,255,255,0.36); }
-.hero-meta {
-  text-align: right; font-family: var(--mono); font-size: 11px;
-  color: rgba(255,255,255,0.56); letter-spacing: 0.04em;
-  line-height: 1.6; white-space: nowrap;
-}
-.hero-meta strong { color: #fff; font-weight: 500; }
+  /* ---------- GAME CARDS ---------- */
+  .games {
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+  }
+  .game {
+    background: var(--surface); color: var(--ink);
+    border: 1px solid rgba(13,13,20,0.08);
+    position: relative; display: flex; flex-direction: column;
+    min-height: 220px; padding: 16px 18px 0; overflow: hidden;
+  }
+  .game::before {
+    content: ""; position: absolute; top: 0; left: 0; height: 3px; width: 50%;
+    background: var(--c-away, var(--ink));
+  }
+  .game::after {
+    content: ""; position: absolute; top: 0; right: 0; height: 3px; width: 50%;
+    background: var(--c-home, var(--ink));
+  }
+  .game-tag {
+    font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48);
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px;
+  }
+  .game-row {
+    display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: start; column-gap: 10px;
+  }
+  .team { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .team.away { text-align: left; }
+  .team.home { text-align: right; }
+  .team .abbr {
+    font-family: var(--display); font-weight: 800; font-size: 32px;
+    line-height: 1; letter-spacing: 0.01em;
+  }
+  .team .abbr.away { color: var(--c-away, var(--ink)); }
+  .team .abbr.home { color: var(--c-home, var(--ink)); }
+  .team .xg {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-48);
+    margin-top: 6px; letter-spacing: 0.02em;
+  }
+  .team .xg b { color: var(--ink); font-weight: 500; }
+  .game-mid { text-align: center; min-width: 64px; }
+  .game-mid.score {
+    font-family: var(--display); font-weight: 800; font-size: 30px;
+    line-height: 1; color: var(--ink); padding-top: 1px;
+  }
+  .game-mid.score .dash { color: var(--ink-32); padding: 0 4px; }
+  .game-mid.time {
+    font-family: var(--display); font-weight: 800; font-size: 20px;
+    color: var(--ink); line-height: 1; letter-spacing: 0.02em; padding-top: 4px;
+  }
+  .game-mid.time small {
+    display: block; font-family: var(--mono); font-size: 10px;
+    color: var(--ink-48); font-weight: 400; margin-top: 5px; letter-spacing: 0.05em;
+  }
 
-/* ── Game grid ── */
-.games {
-  margin-top: 26px;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 18px;
-}
-.game {
-  background: var(--surface); color: var(--ink);
-  border: 1px solid rgba(13,13,20,0.08);
-  padding: 18px 20px 16px;
-  position: relative;
-  display: flex; flex-direction: column; gap: 14px;
-  min-height: 184px;
-}
-/* team color pips at top */
-.game::before {
-  content: ""; position: absolute;
-  top: 0; left: 0; height: 3px; width: 50%;
-  background: var(--c-away, var(--ink));
-}
-.game::after {
-  content: ""; position: absolute;
-  top: 0; right: 0; height: 3px; width: 50%;
-  background: var(--c-home, var(--ink));
-}
-.game-tag {
-  font-family: var(--display); font-weight: 700; font-size: 11px;
-  letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--ink-48);
-  display: flex; justify-content: space-between; align-items: center;
-}
-.game-tag .live {
-  color: var(--red); display: inline-flex; align-items: center; gap: 6px;
-}
-.game-tag .live::before {
-  content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--red);
-}
-.game-row {
-  display: grid; grid-template-columns: 1fr auto 1fr;
-  align-items: center; column-gap: 14px;
-}
-.team { display: flex; flex-direction: column; gap: 2px; }
-.team.away { text-align: left; }
-.team.home { text-align: right; }
-.team .abbr {
-  font-family: var(--display); font-weight: 800; font-size: 30px;
-  line-height: 1; letter-spacing: 0.01em;
-}
-.team .rec {
-  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48);
-  margin-top: 4px; letter-spacing: 0.02em;
-}
-.game-mid {
-  font-family: var(--display); font-weight: 800; font-size: 26px;
-  color: var(--ink); line-height: 1; text-align: center; min-width: 56px;
-}
-.game-mid.time {
-  font-size: 14px; color: var(--ink-72); font-weight: 700; letter-spacing: 0.05em;
-}
-.game-mid.time small {
-  display: block; font-family: var(--mono); font-size: 10px;
-  color: var(--ink-48); font-weight: 400; margin-top: 4px; letter-spacing: 0.05em;
-}
-.game-mid .vs {
-  display: block; font-family: var(--display); font-weight: 700;
-  font-size: 11px; color: var(--ink-32); letter-spacing: 0.18em; margin: 4px 0;
-}
-.game-xg {
-  display: flex; justify-content: space-between; align-items: center;
-  font-family: var(--mono); font-size: 10px; color: var(--ink-48);
-  letter-spacing: 0.04em; margin-top: -4px;
-}
-.game-xg .xg-label {
-  font-family: var(--display); font-weight: 700; font-size: 9px;
-  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-32);
-}
-.game-xg .xg-val { font-weight: 500; }
+  /* WP bar — anchored to bottom, full card width */
+  .wp-bar-wrap { margin-top: auto; padding: 14px 0 12px; }
+  .wp-bar-labels {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 10px; color: var(--ink-48);
+    letter-spacing: 0.04em; margin-bottom: 6px;
+  }
+  .wp-bar-labels .away b { color: var(--c-away, var(--ink)); font-weight: 600; }
+  .wp-bar-labels .home b { color: var(--c-home, var(--ink)); font-weight: 600; }
+  .wp-bar {
+    height: 6px; width: 100%; background: var(--ink-06);
+    display: flex; overflow: hidden;
+  }
+  .wp-bar .away-fill { height: 100%; background: var(--c-away, var(--ink)); width: var(--wp-away, 50%); }
+  .wp-bar .home-fill { height: 100%; background: var(--c-home, var(--ink)); width: var(--wp-home, 50%); margin-left: auto; }
 
-/* WP bar */
-.game-wp {
-  margin-top: auto; padding-top: 12px;
-}
-.game-wp-bar {
-  height: 4px; border-radius: 2px; overflow: hidden;
-  display: flex;
-}
-.game-wp-bar .wp-away { height: 100%; }
-.game-wp-bar .wp-home { height: 100%; }
-.game-wp-labels {
-  display: flex; justify-content: space-between;
-  margin-top: 5px;
-  font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.02em;
-}
-.game-wp-labels .wp-team {
-  display: flex; align-items: center; gap: 4px;
-  font-family: var(--display); font-weight: 700; font-size: 10px;
-  letter-spacing: 0.1em; text-transform: uppercase;
-}
-.game-wp-labels .wp-pct { font-family: var(--mono); font-size: 10px; }
+  .game-foot {
+    border-top: 1px solid var(--ink-06); margin: 0 -18px;
+    padding: 10px 18px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em;
+  }
+  .game-foot .status {
+    font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink);
+  }
 
-.game-foot {
-  padding-top: 10px;
-  border-top: 1px solid var(--ink-06);
-  display: flex; justify-content: space-between; align-items: center;
-  font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.04em;
-}
-.game-foot .series {
-  color: var(--ink); font-family: var(--display); font-weight: 700;
-  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-}
-.game-state-final { color: var(--ink-48) !important; }
+  /* ---------- ZONE 2 — FEATURED GAME ---------- */
+  .featured { padding: 64px 0 56px; }
+  .featured-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 24px; padding-bottom: 22px; border-bottom: 2px solid var(--rule);
+  }
+  .featured-eyebrow {
+    font-family: var(--display); font-weight: 700; font-size: 12px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48);
+    display: inline-flex; align-items: center; gap: 10px;
+  }
+  .featured-eyebrow .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--red); display: inline-block; }
+  .featured h2 {
+    font-family: var(--display); font-weight: 800; font-size: 44px;
+    line-height: 0.95; letter-spacing: 0.005em; text-transform: uppercase; margin: 4px 0 0;
+  }
+  .featured h2 em { font-style: normal; color: var(--ink-32); }
+  .featured-meta {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-48);
+    letter-spacing: 0.04em; text-align: right; line-height: 1.6;
+  }
+  .featured-body {
+    margin-top: 28px; display: grid;
+    grid-template-columns: 1fr 1.1fr 1fr; gap: 32px; align-items: stretch;
+  }
+  .feat-col { display: flex; flex-direction: column; }
+  .feat-col.left  { padding-right: 12px; border-right: 1px solid var(--ink-10); }
+  .feat-col.center { padding: 0 12px; }
+  .feat-col.right { padding-left: 12px; border-left: 1px solid var(--ink-10); }
 
-/* Empty state for no games */
-.no-games {
-  padding: 64px 0; text-align: center;
-  font-family: var(--display); font-weight: 700;
-  font-size: 18px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: rgba(255,255,255,0.36);
-}
+  /* LEFT: matchup */
+  .feat-status {
+    font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48);
+    margin-bottom: 14px;
+  }
+  .feat-matchup {
+    display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: center; column-gap: 12px;
+  }
+  .feat-team { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .feat-logo {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--c, var(--ink)); display: grid; place-items: center;
+    color: #fff; font-family: var(--display); font-weight: 800;
+    font-size: 18px; letter-spacing: 0.02em;
+  }
+  .feat-abbr {
+    font-family: var(--display); font-weight: 800; font-size: 22px;
+    color: var(--c, var(--ink)); letter-spacing: 0.02em; margin-top: 2px;
+  }
+  .feat-rec {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.02em;
+  }
+  .feat-score {
+    font-family: var(--display); font-weight: 800; font-size: 64px;
+    line-height: 0.9; color: var(--ink); text-align: center; letter-spacing: 0.005em;
+  }
+  .feat-score .dash { color: var(--ink-32); padding: 0 6px; }
+  .feat-score .label {
+    display: block; font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.22em; color: var(--ink-48); margin-top: 8px;
+  }
+  .feat-stat-row {
+    margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr;
+    column-gap: 16px; row-gap: 10px;
+    border-top: 1px solid var(--ink-06); padding-top: 14px;
+  }
+  .feat-stat { display: flex; flex-direction: column; gap: 3px; }
+  .feat-stat .lab {
+    font-family: var(--display); font-weight: 700; font-size: 10px;
+    letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48);
+  }
+  .feat-stat .val {
+    font-family: var(--mono); font-size: 16px; color: var(--ink);
+    font-weight: 500; letter-spacing: 0.01em;
+  }
+  .feat-stat .val .vs { color: var(--ink-32); padding: 0 5px; }
 
-/* ── Shared section head ── */
-.section-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  padding: 64px 0 22px; gap: 24px;
-}
-.section-eyebrow {
-  font-family: var(--display); font-weight: 700; font-size: 12px;
-  letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48);
-  display: inline-flex; align-items: center; gap: 10px;
-}
-.section-eyebrow .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--red); }
-.section-title {
-  font-family: var(--display); font-weight: 800; font-size: 44px;
-  line-height: 0.95; letter-spacing: 0.005em; text-transform: uppercase; margin: 4px 0 0;
-}
-.section-title em { font-style: normal; color: var(--ink-32); }
-.section-meta {
-  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
-  font-family: var(--mono); font-size: 11px; color: var(--ink-48);
-  letter-spacing: 0.04em; text-align: right; white-space: nowrap;
-}
-.section-meta a {
-  color: var(--red); font-family: var(--display); font-weight: 700;
-  font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
-}
-.section-meta a:hover { text-decoration: underline; text-underline-offset: 4px; }
+  /* CENTER: WP chart */
+  .wp-chart-card {
+    background: var(--surface); border: 1px solid var(--ink-06);
+    padding: 14px 14px 10px; display: flex; flex-direction: column;
+    height: 100%; min-height: 240px;
+    box-shadow: 0 1px 2px rgba(13,13,20,0.04);
+  }
+  .wp-chart-head {
+    display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;
+  }
+  .wp-chart-title {
+    font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-72);
+  }
+  .wp-chart-title .red { color: var(--red); }
+  .wp-chart-now {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em;
+  }
+  .wp-chart { flex: 1; width: 100%; height: auto; display: block; }
+  .wp-chart-foot {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 10px; color: var(--ink-48);
+    margin-top: 6px; letter-spacing: 0.04em;
+  }
 
-/* ── From the Bots ── */
-.from-the-bots { border-top: 2px solid var(--rule); padding-top: 22px; }
-.cards-rail-wrap {
-  position: relative;
-  margin: 0 calc(50% - 50vw);
-  padding-left: max(32px, calc(50vw - 640px + 32px));
-}
-.cards-rail {
-  display: flex; gap: 18px;
-  overflow-x: auto; overflow-y: hidden;
-  padding: 6px 32px 24px 0;
-  scroll-snap-type: x proximity;
-  scrollbar-width: thin;
-  scrollbar-color: var(--ink-14) transparent;
-}
-.cards-rail::-webkit-scrollbar { height: 8px; }
-.cards-rail::-webkit-scrollbar-thumb { background: var(--ink-14); border-radius: 4px; }
-.botcard {
-  flex: 0 0 auto;
-  background: var(--surface); border: 1px solid var(--ink-06);
-  height: 280px;
-  box-shadow: 0 1px 2px rgba(13,13,20,0.04), 0 14px 28px -18px rgba(13,13,20,0.18);
-  display: flex; flex-direction: column; overflow: hidden;
-  scroll-snap-align: start;
-  transition: transform .2s ease, box-shadow .2s ease;
-}
-.botcard:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 1px 2px rgba(13,13,20,0.04), 0 22px 40px -18px rgba(13,13,20,0.25);
-}
-.botcard-img {
-  flex: 1;
-  position: relative;
-  background:
-    repeating-linear-gradient(135deg, rgba(13,13,20,0.04) 0 8px, transparent 8px 16px),
-    var(--surface);
-  background-size: cover; background-position: center;
-  border-bottom: 1px solid var(--ink-06);
-}
-.botcard-img::after {
-  content: attr(data-label);
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em;
-}
-.botcard-foot {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 14px 11px;
-  font-family: var(--display); font-weight: 700; font-size: 11px;
-  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-72);
-}
-.botcard-foot .ts { font-family: var(--mono); font-weight: 400; color: var(--ink-48); letter-spacing: 0.04em; }
-.botcard-foot .kind { display: inline-flex; align-items: center; gap: 7px; }
-.botcard-foot .kind::before {
-  content: ""; width: 5px; height: 5px; background: var(--red); display: inline-block;
-}
+  /* RIGHT: Three Stars */
+  .stars-title {
+    font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48);
+    display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px;
+  }
+  .stars-title .red { color: var(--red); }
+  .star {
+    display: grid; grid-template-columns: 4px 28px 1fr auto;
+    column-gap: 12px; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid var(--ink-06);
+  }
+  .star:last-child { border-bottom: 0; }
+  .star-pip { height: 38px; background: var(--c, var(--ink)); }
+  .star-rank {
+    font-family: var(--display); font-weight: 800; font-size: 22px;
+    color: var(--c, var(--ink)); line-height: 1; letter-spacing: 0.01em;
+  }
+  .star-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .star-name {
+    font-family: var(--display); font-weight: 700; font-size: 16px;
+    color: var(--ink); letter-spacing: 0.005em; line-height: 1;
+  }
+  .star-meta {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.02em;
+  }
+  .star-stat {
+    font-family: var(--mono); font-size: 13px; color: var(--ink-48);
+    font-weight: 400; text-align: right; white-space: nowrap;
+    font-style: italic;
+  }
 
-/* ── Leaderboards ── */
-.lb-wrap { border-top: 2px solid var(--rule); padding-top: 22px; padding-bottom: 80px; }
-.lb-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 0; border-top: 1px solid var(--ink-10);
-}
-.lb-col {
-  padding: 28px 28px 24px 0;
-  border-right: 1px solid var(--ink-10);
-}
-.lb-col:nth-child(2) { padding-left: 28px; }
-.lb-col:nth-child(3) { padding-left: 28px; padding-right: 0; border-right: 0; }
-.lb-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  margin-bottom: 18px; gap: 12px;
-}
-.lb-name {
-  font-family: var(--display); font-weight: 800; font-size: 24px;
-  letter-spacing: 0.01em; text-transform: uppercase; line-height: 1;
-}
-.lb-unit {
-  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48);
-  letter-spacing: 0.04em; white-space: nowrap;
-}
-.lb-list { list-style: none; margin: 0; padding: 0; counter-reset: lb; }
-.lb-row {
-  counter-increment: lb;
-  display: grid; grid-template-columns: 22px 8px 1fr auto;
-  align-items: center; column-gap: 12px;
-  padding: 11px 0; border-bottom: 1px solid var(--ink-06);
-}
-.lb-row:last-child { border-bottom: 0; }
-.lb-rank { font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.02em; }
-.lb-rank::before { content: counter(lb, decimal-leading-zero); }
-.lb-pip { width: 4px; height: 26px; background: var(--pip, var(--ink)); }
-.lb-who { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.lb-player {
-  font-family: var(--display); font-weight: 700; font-size: 17px;
-  letter-spacing: 0.005em; color: var(--ink);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.lb-team { font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em; }
-.lb-val { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.01em; text-align: right; }
-.lb-val.good { color: var(--good); }
-.lb-foot {
-  margin-top: 18px;
-  display: flex; justify-content: space-between; align-items: center;
-  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48);
-}
-.lb-foot a {
-  color: var(--red); font-family: var(--display); font-weight: 700;
-  font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
-}
-.lb-foot a:hover { text-decoration: underline; text-underline-offset: 4px; }
+  /* ---------- ZONE 3 — BOT CARDS ---------- */
+  .botzone { padding-bottom: 80px; }
+  .botzone-rule { border-top: 2px solid var(--rule); margin: 0; }
+  .cards-rail-wrap {
+    position: relative;
+    margin: 0 calc(50% - 50vw);
+    padding-left: max(32px, calc(50vw - 640px + 32px));
+    padding-top: 40px;
+  }
+  .cards-rail {
+    display: flex; gap: 18px;
+    overflow-x: auto; overflow-y: hidden;
+    padding: 6px 32px 24px 0;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-14) transparent;
+  }
+  .cards-rail::-webkit-scrollbar { height: 8px; }
+  .cards-rail::-webkit-scrollbar-thumb { background: var(--ink-14); border-radius: 4px; }
+  .cards-rail::-webkit-scrollbar-track { background: transparent; }
+  .botcard {
+    flex: 0 0 auto; background: var(--surface); border: 1px solid var(--ink-06);
+    height: 280px;
+    box-shadow: 0 1px 2px rgba(13,13,20,0.04), 0 14px 28px -18px rgba(13,13,20,0.18);
+    display: flex; flex-direction: column; overflow: hidden;
+    scroll-snap-align: start;
+    transition: transform .2s ease, box-shadow .2s ease;
+  }
+  .botcard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 1px 2px rgba(13,13,20,0.04), 0 22px 40px -18px rgba(13,13,20,0.25);
+  }
+  .botcard-img {
+    flex: 1; position: relative;
+    background:
+      repeating-linear-gradient(135deg, rgba(13,13,20,0.04) 0 8px, transparent 8px 16px),
+      var(--surface);
+    background-size: cover; background-position: center;
+    border-bottom: 1px solid var(--ink-06);
+  }
+  .botcard-img::after {
+    content: attr(data-label); position: absolute; inset: 0;
+    display: grid; place-items: center;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em;
+  }
+  .botcard-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px 11px;
+    font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-72);
+  }
+  .botcard-foot .ts { font-family: var(--mono); font-weight: 400; color: var(--ink-48); letter-spacing: 0.04em; }
+  .botcard-foot .kind { display: inline-flex; align-items: center; gap: 7px; }
+  .botcard-foot .kind::before { content: ""; width: 5px; height: 5px; background: var(--red); display: inline-block; }
 
-/* ── Footer ── */
-footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--rule); }
-.foot-inner {
-  padding: 56px 0 48px;
-  display: grid; grid-template-columns: auto 1fr auto;
-  align-items: end; gap: 32px;
-}
-.foot .wordmark { color: #fff; font-size: 36px; }
-.foot-bots {
-  font-family: var(--display); font-weight: 800; font-size: 64px;
-  line-height: 0.95; letter-spacing: 0.005em; text-transform: uppercase;
-  color: rgba(255,255,255,0.10); white-space: nowrap;
-  text-align: center; align-self: center;
-}
-.foot-tag {
-  font-family: var(--display); font-weight: 700; font-size: 12px;
-  letter-spacing: 0.22em; text-transform: uppercase;
-  color: rgba(255,255,255,0.48); text-align: right;
-}
-.foot-tag strong { color: #fff; font-weight: 700; }
-.foot-bar {
-  border-top: 1px solid rgba(255,255,255,0.08);
-  padding: 16px 0;
-  display: flex; justify-content: space-between; align-items: center;
-  font-family: var(--mono); font-size: 10.5px;
-  color: rgba(255,255,255,0.36); letter-spacing: 0.04em;
-}
+  /* ---------- FOOTER ---------- */
+  footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--rule); }
+  .foot-inner {
+    padding: 56px 0 24px;
+    display: grid; grid-template-columns: auto 1fr auto;
+    align-items: end; gap: 32px;
+  }
+  .foot .wordmark { color: #fff; font-size: 36px; }
+  .foot-tag {
+    font-family: var(--display); font-weight: 700; font-size: 12px;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: rgba(255,255,255,0.48); text-align: right;
+  }
+  .foot-tag strong { color: #fff; font-weight: 700; }
+  .foot-bots {
+    font-family: var(--display); font-weight: 800; font-size: 56px;
+    line-height: 0.95; letter-spacing: 0.005em; text-transform: uppercase;
+    color: rgba(255,255,255,0.10); white-space: nowrap;
+    text-align: center; align-self: center;
+  }
+  .foot-bar {
+    border-top: 1px solid rgba(255,255,255,0.08); padding: 16px 0;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 10.5px;
+    color: rgba(255,255,255,0.36); letter-spacing: 0.04em;
+  }
 
-/* ── Responsive ── */
-@media (max-width: 1100px) {
-  .games { grid-template-columns: repeat(2, 1fr); }
-  .lb-grid { grid-template-columns: 1fr; }
-  .lb-col { border-right: 0; border-bottom: 1px solid var(--ink-10); padding: 24px 0; }
-  .lb-col:nth-child(2) { padding-left: 0; }
-  .lb-col:nth-child(3) { padding-left: 0; border-bottom: 0; }
-  .hero h1 { font-size: 48px; }
-  .section-title { font-size: 34px; }
-  .foot-inner { grid-template-columns: 1fr; gap: 24px; }
-  .foot-tag, .foot-bots { text-align: left; font-size: 40px; }
-}
-@media (max-width: 640px) {
-  .wrap { padding: 0 20px; }
-  .nav-links { display: none; }
-  .games { grid-template-columns: 1fr; }
-  .hero h1 { font-size: 38px; }
-  .section-title { font-size: 28px; }
-}
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 1100px) {
+    .games { grid-template-columns: repeat(2, 1fr); }
+    .featured-body { grid-template-columns: 1fr; }
+    .feat-col.left, .feat-col.center, .feat-col.right { border: 0; padding: 0; }
+    .feat-col.center, .feat-col.right { border-top: 1px solid var(--ink-10); padding-top: 22px; margin-top: 8px; }
+    .hero h1 { font-size: 48px; }
+    .featured h2 { font-size: 34px; }
+    .foot-inner { grid-template-columns: 1fr; gap: 24px; text-align: left; }
+    .foot-tag, .foot-bots { text-align: left; font-size: 36px; }
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 20px; }
+    .nav-links { display: none; }
+    .games { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 38px; }
+    .featured h2 { font-size: 28px; }
+  }
 </style>
 </head>
 <body>
@@ -579,9 +727,9 @@ footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--r
       Hockey<span class="dot" aria-hidden="true"></span>Gamebot
     </a>
     <nav class="nav-links" aria-label="Primary">
-      <a href="/home-v2" class="is-live">Live</a>
+      <a href="/home-v2">Live</a>
       <span class="sep">·</span>
-      <a href="#cards">Cards</a>
+      <a href="#featured">Featured</a>
       <span class="sep">·</span>
       <a href="/stats">Stats</a>
       <span class="sep">·</span>
@@ -592,114 +740,278 @@ footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--r
   </div>
 </header>
 
-<!-- ══ HERO — TONIGHT'S GAMES ══ -->
+<!-- ══ ZONE 1 — DARK HERO BAND ══ -->
 <section class="hero" id="live">
   <div class="wrap hero-inner">
     <div class="hero-head">
       <div>
-        <div class="eyebrow"><span class="pip"></span>Tonight · {today}</div>
-        <h1>Tonight's Games {gameCount > 0 ? <em>— {gameCount} on the slate</em> : <em>— No games</em>}</h1>
+        <div class="eyebrow"><span class="pip"></span>{zone1Label} · {zone1Date}</div>
+        <h1>
+          {zone1Label === 'Last Night' ? 'Last Night' : "Tonight's Games"}
+          {zone1Count > 0
+            ? <em>— {String(zone1Count).padStart(2, '0')} {zone1Count === 1 ? 'game' : 'games'}</em>
+            : <em>— No games</em>
+          }
+        </h1>
       </div>
       <div class="hero-meta">
-        {gameCount > 0
-          ? <><strong>{String(gameCount).padStart(2,'0')} GAMES</strong> · ALL TIMES ET<br/>32 BOTS ARMED</>
-          : <>NO GAMES TODAY<br/>CHECK BACK TOMORROW</>}
+        <strong>{String(zone1Count).padStart(2, '0')} GAMES</strong> · ALL RESULTS<br/>
+        WP · xG · FINAL SCORES
       </div>
     </div>
 
-    {tiles.length > 0 ? (
+    {/* Game cards grid */}
+    {zone1Tiles.length > 0 ? (
       <div class="games" role="list">
-        {tiles.map(t => (
-          <article class="game" role="listitem"
-                   style={`--c-away:${t.awayColor}; --c-home:${t.homeColor};`}>
-            <div class="game-tag">
-              <span>NHL · {t.state === 'final' ? 'Final' : t.state === 'pre' ? 'Scheduled' : `P${t.period ?? '?'}`}</span>
-              {(t.state === 'live' || t.state === 'intermission') && (
-                <span class="live">
-                  {t.state === 'intermission' ? 'Intermission' : `Live · ${periodLabel(t.period)} ${t.timeRemaining ?? ''}`}
-                </span>
-              )}
-              {t.state === 'pre' && <span>{t.startTime}</span>}
-              {t.state === 'final' && <span class="game-state-final">Final</span>}
-            </div>
-
-            <div class="game-row">
-              <div class="team away">
-                <span class="abbr" style={`color:${t.awayColor}`}>{t.awayAbbr}</span>
+        {zone1Tiles.map(t => {
+          const wpAway = t.wpAwayPct ?? 50;
+          const wpHome = t.wpHomePct ?? 50;
+          return (
+            <article
+              class="game"
+              role="listitem"
+              style={`--c-away:${t.awayColor}; --c-home:${t.homeColor}; --wp-away:${wpAway}%; --wp-home:${wpHome}%;`}
+            >
+              <div class="game-tag">
+                <span>Playoffs</span>
+                {t.state === 'final' && <span>Final</span>}
+                {t.state === 'live' && <span>Live · {periodLabel(t.g.clock.period)} {t.g.clock.time_remaining ?? ''}</span>}
+                {t.state === 'intermission' && <span>Intermission</span>}
+                {t.state === 'pre' && <span>{fmtStartET(t.g.start_time_utc)}</span>}
               </div>
 
-              {t.state === 'pre' ? (
-                <div class="game-mid time">
-                  {t.startTime.split(' ')[0]}<small>{t.startTime.split(' ').slice(1).join(' ')}</small>
+              <div class="game-row">
+                <div class="team away">
+                  <span class="abbr away">{t.g.away_team.abbrev}</span>
+                  {t.xgAway !== null && (
+                    <span class="xg"><b>{t.xgAway.toFixed(3)}</b> xG 5v5</span>
+                  )}
                 </div>
-              ) : (
-                <div class="game-mid">
-                  {t.awayScore} <span class="vs">·</span> {t.homeScore}
-                </div>
-              )}
 
-              <div class="team home">
-                <span class="abbr" style={`color:${t.homeColor}`}>{t.homeAbbr}</span>
-              </div>
-            </div>
+                {t.state === 'pre' ? (
+                  <div class="game-mid time">
+                    {fmtStartET(t.g.start_time_utc)}<small>ET</small>
+                  </div>
+                ) : (
+                  <div class="game-mid score">
+                    {t.g.away_team.score}<span class="dash">–</span>{t.g.home_team.score}
+                  </div>
+                )}
 
-            {/* xG row — only when data available */}
-            {(t.xgAway !== null || t.xgHome !== null) && (
-              <div class="game-xg">
-                <span class="xg-val">{t.xgAway?.toFixed(1) ?? '—'}</span>
-                <span class="xg-label">xG 5v5</span>
-                <span class="xg-val">{t.xgHome?.toFixed(1) ?? '—'}</span>
-              </div>
-            )}
-
-            {/* WP bar — only when data available and not pre-game */}
-            {t.state !== 'pre' && t.wpAway !== null && t.wpHome !== null && (
-              <div class="game-wp">
-                <div class="game-wp-bar">
-                  <div class="wp-away" style={`width:${Math.round((t.wpAway) * 100)}%; background:${t.awayColor};`}></div>
-                  <div class="wp-home" style={`flex:1; background:${t.homeColor};`}></div>
-                </div>
-                <div class="game-wp-labels">
-                  <span class="wp-team" style={`color:${t.awayColor}`}>
-                    {t.awayAbbr} <span class="wp-pct" style="color:var(--ink-48)">{Math.round(t.wpAway * 100)}%</span>
-                  </span>
-                  <span class="wp-team" style={`color:${t.homeColor}`}>
-                    <span class="wp-pct" style="color:var(--ink-48)">{Math.round(t.wpHome * 100)}%</span> {t.homeAbbr}
-                  </span>
+                <div class="team home">
+                  <span class="abbr home">{t.g.home_team.abbrev}</span>
+                  {t.xgHome !== null && (
+                    <span class="xg"><b>{t.xgHome.toFixed(3)}</b> xG 5v5</span>
+                  )}
                 </div>
               </div>
-            )}
 
-            <div class="game-foot">
-              <span>{t.venue}</span>
-            </div>
-          </article>
-        ))}
+              <div class="wp-bar-wrap">
+                <div class="wp-bar-labels">
+                  <span class="away"><b>{t.g.away_team.abbrev}</b> {wpAway}%</span>
+                  <span class="home">{wpHome}% <b>{t.g.home_team.abbrev}</b></span>
+                </div>
+                <div class="wp-bar" aria-label="Win probability">
+                  <div class="away-fill"></div>
+                  <div class="home-fill"></div>
+                </div>
+              </div>
+
+              <div class="game-foot">
+                <span>{t.g.venue ?? ''}</span>
+                <span class="status">{t.state === 'final' ? 'Final' : t.state === 'live' ? 'Live' : t.state === 'intermission' ? 'INT' : 'Pre'}</span>
+              </div>
+            </article>
+          );
+        })}
       </div>
     ) : (
-      <div class="no-games">No games scheduled today</div>
+      <div style="padding: 48px 0; text-align: center; font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.36);">
+        No game data available
+      </div>
+    )}
+
+    {/* Tonight's upcoming games strip — shown when Zone 1 is showing yesterday */}
+    {(allTodayPre || noTodayGames) && todayGames.length > 0 && (
+      <div class="tonight-strip">
+        <span class="tonight-label">Tonight · {fmtDate(todayDate)}</span>
+        <div class="tonight-games">
+          {todayGames.map(g => (
+            <span class="tonight-game">
+              {g.away_team.abbrev} @ {g.home_team.abbrev}
+              <span class="tonight-time">{fmtStartET(g.start_time_utc)} ET</span>
+            </span>
+          ))}
+        </div>
+      </div>
     )}
   </div>
 </section>
 
-<!-- ══ FROM THE BOTS ══ -->
-<section id="cards">
-  <div class="wrap">
-    <div class="section-head">
-      <div>
-        <div class="section-eyebrow"><span class="pip"></span>From the Bots</div>
-        <h2 class="section-title">Latest Cards <em>— Last 24h</em></h2>
+<!-- ══ ZONE 2 — FEATURED GAME ══ -->
+{feat && featAbbr && (
+  <section class="featured" id="featured">
+    <div class="wrap">
+      <div class="featured-head">
+        <div>
+          <div class="featured-eyebrow"><span class="pip"></span>Featured · {zone1Date}</div>
+          <h2>
+            {featAbbr.away} <em>at</em> {featAbbr.home}
+          </h2>
+        </div>
+        <div class="featured-meta">
+          {featAbbr.venue.toUpperCase()}<br/>
+          FINAL · {featAbbr.awayScore}–{featAbbr.homeScore}<br/>
+          <span style="color:var(--ink); font-weight:500;">BUF WINS</span>
+        </div>
       </div>
-      <div class="section-meta">
-        <span>32 BOTS · ALL SEASON</span>
-        <a href="#">Browse the archive →</a>
+
+      <div class="featured-body">
+
+        <!-- LEFT: matchup + stats -->
+        <div class="feat-col left">
+          <span class="feat-status">Final Score · Playoffs</span>
+          <div class="feat-matchup">
+            <div class="feat-team" style={`--c:${featAbbr.awayColor};`}>
+              <div class="feat-logo">{featAbbr.away}</div>
+              <div class="feat-abbr">{featAbbr.away}</div>
+              <div class="feat-rec">away</div>
+            </div>
+            <div class="feat-score">
+              {featAbbr.awayScore}<span class="dash">–</span>{featAbbr.homeScore}
+              <span class="label">Final</span>
+            </div>
+            <div class="feat-team" style={`--c:${featAbbr.homeColor};`}>
+              <div class="feat-logo">{featAbbr.home}</div>
+              <div class="feat-abbr">{featAbbr.home}</div>
+              <div class="feat-rec">home</div>
+            </div>
+          </div>
+          <div class="feat-stat-row">
+            <div class="feat-stat">
+              <span class="lab">xG · 5v5</span>
+              <span class="val">
+                {featAbbr.xgAway?.toFixed(3) ?? '—'}
+                <span class="vs">·</span>
+                {featAbbr.xgHome?.toFixed(3) ?? '—'}
+              </span>
+            </div>
+            <div class="feat-stat">
+              <span class="lab">Win Prob</span>
+              <span class="val">
+                {featAbbr.wpAway !== null ? `${featAbbr.wpAway}%` : '—'}
+                <span class="vs">·</span>
+                {featAbbr.wpHome !== null ? `${featAbbr.wpHome}%` : '—'}
+              </span>
+            </div>
+            <div class="feat-stat">
+              <span class="lab">Away</span>
+              <span class="val">{featAbbr.awayName}</span>
+            </div>
+            <div class="feat-stat">
+              <span class="lab">Home</span>
+              <span class="val">{featAbbr.homeName}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- CENTER: SVG WP flow chart -->
+        <div class="feat-col center">
+          <div class="wp-chart-card">
+            <div class="wp-chart-head">
+              <span class="wp-chart-title">Win Probability <span class="red">·</span> Flow</span>
+              <span class="wp-chart-now">
+                {featAbbr.away} {featAbbr.wpAway ?? '—'}% · {featAbbr.home} {featAbbr.wpHome ?? '—'}%
+              </span>
+            </div>
+            <svg class="wp-chart" viewBox="0 0 320 200" preserveAspectRatio="none" aria-label="Win probability flow chart">
+              <!-- 50% midline -->
+              <line x1="0" x2="320" y1="100" y2="100"
+                    stroke="rgba(13,13,20,0.10)" stroke-width="1" stroke-dasharray="2 4"/>
+              <!-- Period dividers -->
+              <line x1={P1_X} x2={P1_X} y1="6" y2="194"
+                    stroke="rgba(13,13,20,0.18)" stroke-width="1" stroke-dasharray="3 4"/>
+              <line x1={P2_X} x2={P2_X} y1="6" y2="194"
+                    stroke="rgba(13,13,20,0.18)" stroke-width="1" stroke-dasharray="3 4"/>
+              <!-- Period labels -->
+              <text x={P1_X / 2} y="14" font-family="JetBrains Mono" font-size="9"
+                    fill="rgba(13,13,20,0.32)" text-anchor="middle" letter-spacing="0.5">P1</text>
+              <text x={(P1_X + P2_X) / 2} y="14" font-family="JetBrains Mono" font-size="9"
+                    fill="rgba(13,13,20,0.32)" text-anchor="middle" letter-spacing="0.5">P2</text>
+              <text x={(P2_X + 320) / 2} y="14" font-family="JetBrains Mono" font-size="9"
+                    fill="rgba(13,13,20,0.32)" text-anchor="middle" letter-spacing="0.5">P3</text>
+
+              {/* Filled area */}
+              {fillPath && (
+                <path d={fillPath} fill="rgba(13,13,20,0.06)" stroke="none"/>
+              )}
+
+              {/* WP polyline */}
+              {polylineStr && (
+                <polyline
+                  points={polylineStr}
+                  fill="none"
+                  stroke="#0d0d14"
+                  stroke-width="1.6"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+              )}
+
+              {/* Goal dots */}
+              {goalDots.map(dot => (
+                <circle
+                  cx={dot.cx} cy={dot.cy} r="3.5"
+                  fill={dot.color}
+                  stroke="#EFEEE8" stroke-width="1.5"
+                />
+              ))}
+            </svg>
+            <div class="wp-chart-foot">
+              <span style={`color:${featAbbr.awayColor};font-weight:600;`}>{featAbbr.away} {featAbbr.wpAway}%</span>
+              <span>{goalDots.length} goals · regulation</span>
+              <span style={`color:${featAbbr.homeColor};font-weight:600;`}>{featAbbr.wpHome}% {featAbbr.home}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Three Stars -->
+        <div class="feat-col right">
+          <div class="stars-title">
+            <span class="red">★</span> Three Stars · Final
+          </div>
+          {featAbbr.stars.length > 0 ? (
+            featAbbr.stars.map(s => {
+              const starColor = pickTeamColor(s.team_abbrev);
+              return (
+                <div class="star" style={`--c:${starColor};`}>
+                  <div class="star-pip"></div>
+                  <div class="star-rank">{s.star}</div>
+                  <div class="star-who">
+                    <div class="star-name">{s.player_last_name}</div>
+                    <div class="star-meta">{s.team_abbrev} · {s.player_name}</div>
+                  </div>
+                  <div class="star-stat">★{s.star}</div>
+                </div>
+              );
+            })
+          ) : (
+            <div style="color:var(--ink-48); font-family:var(--mono); font-size:12px; padding:24px 0;">
+              Three stars not available
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
-    <div class="from-the-bots"></div>
-  </div>
+  </section>
+)}
 
+<!-- ══ ZONE 3 — BOT CARDS ══ -->
+<section class="botzone" id="cards">
+  <div class="wrap"><div class="botzone-rule"></div></div>
   <div class="cards-rail-wrap" role="region" aria-label="Latest bot-generated cards">
-    <div class="cards-rail">
+    <div class="cards-rail" id="cardsRail">
       {botcards.map(c => (
         <a class="botcard" style={`width:${c.w}px`} href="#" aria-label={`${c.kind} · ${c.label}`}>
           <div class="botcard-img" data-label={`${c.kind} · ${c.label}`}></div>
@@ -709,103 +1021,6 @@ footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--r
           </div>
         </a>
       ))}
-    </div>
-  </div>
-</section>
-
-<!-- ══ LEADERBOARDS ══ -->
-<section id="stats">
-  <div class="wrap">
-    <div class="section-head">
-      <div>
-        <div class="section-eyebrow"><span class="pip"></span>{seasonLabel} · Regular Season</div>
-        <h2 class="section-title">Leaderboards</h2>
-      </div>
-      <div class="section-meta">
-        <span>UPDATED {new Date(metaRaw.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()} · {metaRaw.player_count} PLAYERS</span>
-        <a href="/stats">All metrics →</a>
-      </div>
-    </div>
-
-    <div class="lb-wrap">
-      <div class="lb-grid">
-
-        <!-- HGB Game Score -->
-        <div class="lb-col">
-          <div class="lb-head">
-            <div class="lb-name">HGB Score</div>
-            <div class="lb-unit">per-game avg</div>
-          </div>
-          <ol class="lb-list">
-            {lbGameScore.map(r => (
-              <li class="lb-row" style={`--pip:${pickTeamColor(r.team_abbrev)}`}>
-                <span class="lb-rank"></span>
-                <span class="lb-pip"></span>
-                <span class="lb-who">
-                  <span class="lb-player">{r.display_name}</span>
-                  <span class="lb-team">{r.team_abbrev}</span>
-                </span>
-                <span class="lb-val good">{r.value.toFixed(2)}</span>
-              </li>
-            ))}
-          </ol>
-          <div class="lb-foot">
-            <span>≥ 25 GP played</span>
-            <a href="/stats">Full leaderboard →</a>
-          </div>
-        </div>
-
-        <!-- Goals -->
-        <div class="lb-col">
-          <div class="lb-head">
-            <div class="lb-name">Goals</div>
-            <div class="lb-unit">season total</div>
-          </div>
-          <ol class="lb-list">
-            {lbGoals.map(r => (
-              <li class="lb-row" style={`--pip:${pickTeamColor(r.team_abbrev)}`}>
-                <span class="lb-rank"></span>
-                <span class="lb-pip"></span>
-                <span class="lb-who">
-                  <span class="lb-player">{r.display_name}</span>
-                  <span class="lb-team">{r.team_abbrev}</span>
-                </span>
-                <span class="lb-val good">{r.value}</span>
-              </li>
-            ))}
-          </ol>
-          <div class="lb-foot">
-            <span>{seasonLabel} regular season</span>
-            <a href="/stats">Full leaderboard →</a>
-          </div>
-        </div>
-
-        <!-- Assists -->
-        <div class="lb-col">
-          <div class="lb-head">
-            <div class="lb-name">Assists</div>
-            <div class="lb-unit">season total</div>
-          </div>
-          <ol class="lb-list">
-            {lbAssists.map(r => (
-              <li class="lb-row" style={`--pip:${pickTeamColor(r.team_abbrev)}`}>
-                <span class="lb-rank"></span>
-                <span class="lb-pip"></span>
-                <span class="lb-who">
-                  <span class="lb-player">{r.display_name}</span>
-                  <span class="lb-team">{r.team_abbrev}</span>
-                </span>
-                <span class="lb-val good">{r.value}</span>
-              </li>
-            ))}
-          </ol>
-          <div class="lb-foot">
-            <span>{seasonLabel} regular season</span>
-            <a href="/stats">Full leaderboard →</a>
-          </div>
-        </div>
-
-      </div>
     </div>
   </div>
 </section>
@@ -825,7 +1040,7 @@ footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--r
     </div>
     <div class="foot-bar">
       <span>© 2026 HockeyGameBot · Not affiliated with the NHL</span>
-      <span>{seasonLabel} · hockeygamebot.com</span>
+      <span>hockeygamebot.com</span>
     </div>
   </div>
 </footer>
