@@ -19,6 +19,10 @@ type SBGame = {
   home_team: { abbrev: string; score: number | null; short_name: string };
   away_team: { abbrev: string; score: number | null; short_name: string };
   clock: { period: number | null; time_remaining: string | null; in_intermission: boolean | null };
+  stats: {
+    win_probability: { home: number | null; away: number | null };
+    xg_5v5: { home: number | null; away: number | null };
+  };
 };
 type Scoreboard = { date: string; games: SBGame[] };
 
@@ -57,6 +61,10 @@ type Tile = {
   timeRemaining: string | null;
   startTime: string;
   venue: string;
+  wpHome: number | null;
+  wpAway: number | null;
+  xgHome: number | null;
+  xgAway: number | null;
 };
 
 function buildTile(g: SBGame): Tile {
@@ -65,6 +73,8 @@ function buildTile(g: SBGame): Tile {
     gs === 'live' ? 'live' :
     gs === 'intermission' ? 'intermission' :
     gs === 'final' ? 'final' : 'pre';
+  const wp = g.stats?.win_probability;
+  const xg = g.stats?.xg_5v5;
   return {
     id: g.game_id,
     awayAbbr: g.away_team.abbrev,
@@ -78,6 +88,10 @@ function buildTile(g: SBGame): Tile {
     timeRemaining: g.clock.time_remaining,
     startTime: fmtStartET(g.start_time_utc),
     venue: g.venue ?? '',
+    wpHome: wp?.home ?? null,
+    wpAway: wp?.away ?? null,
+    xgHome: xg?.home ?? null,
+    xgAway: xg?.away ?? null,
   };
 }
 
@@ -315,15 +329,48 @@ img { display: block; max-width: 100%; }
   display: block; font-family: var(--display); font-weight: 700;
   font-size: 11px; color: var(--ink-32); letter-spacing: 0.18em; margin: 4px 0;
 }
-.game-foot {
+.game-xg {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-48);
+  letter-spacing: 0.04em; margin-top: -4px;
+}
+.game-xg .xg-label {
+  font-family: var(--display); font-weight: 700; font-size: 9px;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-32);
+}
+.game-xg .xg-val { font-weight: 500; }
+
+/* WP bar */
+.game-wp {
   margin-top: auto; padding-top: 12px;
+}
+.game-wp-bar {
+  height: 4px; border-radius: 2px; overflow: hidden;
+  display: flex;
+}
+.game-wp-bar .wp-away { height: 100%; }
+.game-wp-bar .wp-home { height: 100%; }
+.game-wp-labels {
+  display: flex; justify-content: space-between;
+  margin-top: 5px;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.02em;
+}
+.game-wp-labels .wp-team {
+  display: flex; align-items: center; gap: 4px;
+  font-family: var(--display); font-weight: 700; font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.game-wp-labels .wp-pct { font-family: var(--mono); font-size: 10px; }
+
+.game-foot {
+  padding-top: 10px;
   border-top: 1px solid var(--ink-06);
   display: flex; justify-content: space-between; align-items: center;
-  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.04em;
 }
 .game-foot .series {
   color: var(--ink); font-family: var(--display); font-weight: 700;
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
 }
 .game-state-final { color: var(--ink-48) !important; }
 
@@ -579,7 +626,6 @@ footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--r
             <div class="game-row">
               <div class="team away">
                 <span class="abbr" style={`color:${t.awayColor}`}>{t.awayAbbr}</span>
-                <span class="rec">away</span>
               </div>
 
               {t.state === 'pre' ? (
@@ -594,9 +640,35 @@ footer.foot { background: var(--ink); color: #fff; border-top: 2px solid var(--r
 
               <div class="team home">
                 <span class="abbr" style={`color:${t.homeColor}`}>{t.homeAbbr}</span>
-                <span class="rec">home</span>
               </div>
             </div>
+
+            {/* xG row — only when data available */}
+            {(t.xgAway !== null || t.xgHome !== null) && (
+              <div class="game-xg">
+                <span class="xg-val">{t.xgAway?.toFixed(1) ?? '—'}</span>
+                <span class="xg-label">xG 5v5</span>
+                <span class="xg-val">{t.xgHome?.toFixed(1) ?? '—'}</span>
+              </div>
+            )}
+
+            {/* WP bar — only when data available and not pre-game */}
+            {t.state !== 'pre' && t.wpAway !== null && t.wpHome !== null && (
+              <div class="game-wp">
+                <div class="game-wp-bar">
+                  <div class="wp-away" style={`width:${Math.round((t.wpAway) * 100)}%; background:${t.awayColor};`}></div>
+                  <div class="wp-home" style={`flex:1; background:${t.homeColor};`}></div>
+                </div>
+                <div class="game-wp-labels">
+                  <span class="wp-team" style={`color:${t.awayColor}`}>
+                    {t.awayAbbr} <span class="wp-pct" style="color:var(--ink-48)">{Math.round(t.wpAway * 100)}%</span>
+                  </span>
+                  <span class="wp-team" style={`color:${t.homeColor}`}>
+                    <span class="wp-pct" style="color:var(--ink-48)">{Math.round(t.wpHome * 100)}%</span> {t.homeAbbr}
+                  </span>
+                </div>
+              </div>
+            )}
 
             <div class="game-foot">
               <span>{t.venue}</span>
