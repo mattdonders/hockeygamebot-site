@@ -745,6 +745,41 @@ const featAbbr = feat ? {
     color: rgba(255,255,255,0.36); letter-spacing: 0.04em;
   }
 
+  /* ---------- LAST NIGHT SECTION (light bg, below hero) ---------- */
+  .lastnight {
+    background: var(--bg);
+    padding: 32px 0 48px;
+    border-bottom: 1px solid var(--ink-10);
+  }
+  .lastnight-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .lastnight-eyebrow {
+    font-family: var(--display); font-weight: 700; font-size: 11px;
+    letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48);
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .lastnight-eyebrow .pip-ink {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--ink-48); display: inline-block;
+  }
+  .lastnight-count {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em;
+  }
+  /* Light-mode game card overrides */
+  .game--light {
+    background: var(--surface);
+    border-color: var(--ink-10);
+  }
+  .game--light .game-tag { color: var(--ink-48); }
+  .game--light .game-mid.score { color: var(--ink); }
+  .game--light .wp-bar-labels { color: var(--ink-48); }
+  .game--light .game-foot { color: var(--ink-48); border-top-color: var(--ink-06); }
+  .game--light .game-foot .series { color: var(--ink); }
+  .game--light .team .xg { color: var(--ink-48); }
+  .game--light .team .xg b { color: var(--ink-72); }
+  .game--light .wp-bar { background: var(--ink-06); }
+
   /* ---------- TONIGHT STRIP ---------- */
   .tonight-strip {
     margin-top: 20px;
@@ -834,54 +869,34 @@ const featAbbr = feat ? {
   </div>
 </header>
 
-<!-- ══ ZONE 1 — DARK HERO BAND ══ -->
+<!-- ══ ZONE 1 — DARK HERO BAND (always "Tonight") ══ -->
 <section class="hero" id="live">
   <div class="wrap hero-inner">
     <div class="hero-head">
       <div>
-        <div class="eyebrow"><span class="pip"></span>{zone1Label} · {zone1Date}</div>
+        <div class="eyebrow">
+          <span class="pip"></span>
+          {allTodayPre || noTodayGames ? `Tonight · ${fmtDate(todayDate)}` : `Live · ${fmtDate(todayDate)}`}
+        </div>
         <h1>
-          {zone1Label === 'Last Night' ? 'Last Night' : "Tonight's Games"}
-          {zone1Count > 0
-            ? <em>— {String(zone1Count).padStart(2, '0')} {zone1Count === 1 ? 'game' : 'games'}</em>
-            : <em>— No games</em>
-          }
+          {allTodayPre || noTodayGames ? "Tonight's Games" : "Live Tonight"}
+          {todayGames.length > 0
+            ? <em>— {String(todayGames.length).padStart(2,'0')} {todayGames.length === 1 ? 'game' : 'games'}</em>
+            : <em>— Check back soon</em>}
         </h1>
       </div>
       <div class="hero-meta">
-        <strong>{String(zone1Count).padStart(2, '0')} GAMES</strong> · ALL RESULTS<br/>
-        WP · xG · FINAL SCORES
+        <strong>32 BOTS ARMED</strong><br/>
+        WP · xG · PBP
       </div>
     </div>
 
-    {/* Tonight strip — only when Zone 1 is showing yesterday's results */}
-    {(allTodayPre || noTodayGames) && tonightGames.length > 0 && (
-      <div class="tonight-strip" aria-label="Tonight's upcoming games">
-        <span class="tonight-label">Tonight</span>
-        {tonightGames.map(tg => (
-          <div class="tonight-game">
-            <span class="matchup">{tg.awayAbbr} @ {tg.homeAbbr}</span>
-            <span class="sep">·</span>
-            <span>{tg.startET} ET</span>
-            {(tg.awayGoalie || tg.homeGoalie) && (
-              <>
-                <span class="sep">·</span>
-                <span class="goalies">
-                  {tg.awayGoalie?.last_name ?? tg.awayAbbr} ({tg.awayGoalie?.record ?? '—'})
-                  {' vs '}
-                  {tg.homeGoalie?.last_name ?? tg.homeAbbr} ({tg.homeGoalie?.record ?? '—'})
-                </span>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-    )}
-
-    {/* Game cards grid */}
-    {zone1Tiles.length > 0 ? (
+    {/* Tonight's pre-game cards — or live/final cards if game is in progress */}
+    {todayGames.length > 0 ? (
       <div class="games" role="list">
-        {zone1Tiles.map(t => {
+        {todayGames.map(g => {
+          const t = buildTile(g);
+          const tg = tonightGames.find(x => x.game_id === g.game_id);
           const wpAway = t.wpAwayPct ?? 50;
           const wpHome = t.wpHomePct ?? 50;
           return (
@@ -893,41 +908,43 @@ const featAbbr = feat ? {
               <div class="game-tag">
                 <span>Playoffs</span>
                 {t.state === 'final' && <span>Final</span>}
-                {t.state === 'live' && <span>Live · {periodLabel(t.g.clock.period)} {t.g.clock.time_remaining ?? ''}</span>}
+                {t.state === 'live' && <span class="live"><span class="pdot"></span>{periodLabel(t.g.clock.period)} {t.g.clock.time_remaining ?? ''}</span>}
                 {t.state === 'intermission' && <span>Intermission</span>}
-                {t.state === 'pre' && <span>{fmtStartET(t.g.start_time_utc)}</span>}
+                {t.state === 'pre' && <span>{fmtStartET(t.g.start_time_utc)} ET</span>}
               </div>
 
               <div class="game-row">
                 <div class="team away">
-                  <span class="abbr away">{t.g.away_team.abbrev}</span>
-                  {t.xgAway !== null && (
-                    <span class="xg"><b>{t.xgAway.toFixed(3)}</b> xG 5v5</span>
-                  )}
+                  <span class="abbr away">{g.away_team.abbrev}</span>
+                  {t.xgAway !== null
+                    ? <span class="xg"><b>{t.xgAway.toFixed(2)}</b> xG</span>
+                    : tg?.awayGoalie && <span class="xg">{tg.awayGoalie.last_name} ({tg.awayGoalie.record})</span>
+                  }
                 </div>
 
                 {t.state === 'pre' ? (
                   <div class="game-mid time">
-                    {fmtStartET(t.g.start_time_utc)}<small>ET</small>
+                    {fmtStartET(g.start_time_utc)}<small>ET</small>
                   </div>
                 ) : (
                   <div class="game-mid score">
-                    {t.g.away_team.score}<span class="dash">–</span>{t.g.home_team.score}
+                    {g.away_team.score}<span class="dash">–</span>{g.home_team.score}
                   </div>
                 )}
 
                 <div class="team home">
-                  <span class="abbr home">{t.g.home_team.abbrev}</span>
-                  {t.xgHome !== null && (
-                    <span class="xg"><b>{t.xgHome.toFixed(3)}</b> xG 5v5</span>
-                  )}
+                  <span class="abbr home">{g.home_team.abbrev}</span>
+                  {t.xgHome !== null
+                    ? <span class="xg"><b>{t.xgHome.toFixed(2)}</b> xG</span>
+                    : tg?.homeGoalie && <span class="xg">{tg.homeGoalie.last_name} ({tg.homeGoalie.record})</span>
+                  }
                 </div>
               </div>
 
               <div class="wp-bar-wrap">
                 <div class="wp-bar-labels">
-                  <span class="away"><b>{t.g.away_team.abbrev}</b> {wpAway}%</span>
-                  <span class="home">{wpHome}% <b>{t.g.home_team.abbrev}</b></span>
+                  <span class="away"><b>{g.away_team.abbrev}</b> {wpAway}%</span>
+                  <span class="home">{wpHome}% <b>{g.home_team.abbrev}</b></span>
                 </div>
                 <div class="wp-bar" aria-label="Win probability">
                   <div class="away-fill"></div>
@@ -936,35 +953,75 @@ const featAbbr = feat ? {
               </div>
 
               <div class="game-foot">
-                <span>{t.g.venue ?? ''}</span>
-                <span class="status">{t.state === 'final' ? 'Final' : t.state === 'live' ? 'Live' : t.state === 'intermission' ? 'INT' : 'Pre'}</span>
+                <span>{g.venue ?? ''}</span>
+                <span class="series">{t.state === 'pre' ? 'Pre-Game' : t.state === 'final' ? 'Final' : 'Live'}</span>
               </div>
             </article>
           );
         })}
       </div>
     ) : (
-      <div style="padding: 48px 0; text-align: center; font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.36);">
-        No game data available
-      </div>
-    )}
-
-    {/* Tonight's upcoming games strip — shown when Zone 1 is showing yesterday */}
-    {(allTodayPre || noTodayGames) && todayGames.length > 0 && (
-      <div class="tonight-strip">
-        <span class="tonight-label">Tonight · {fmtDate(todayDate)}</span>
-        <div class="tonight-games">
-          {todayGames.map(g => (
-            <span class="tonight-game">
-              {g.away_team.abbrev} @ {g.home_team.abbrev}
-              <span class="tonight-time">{fmtStartET(g.start_time_utc)} ET</span>
-            </span>
-          ))}
-        </div>
-      </div>
+      <p style="padding:48px 0;text-align:center;font-family:var(--display);font-weight:700;font-size:16px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.28);">
+        No games scheduled tonight
+      </p>
     )}
   </div>
 </section>
+
+<!-- ══ LAST NIGHT — results, only shown when today is pre-game ══ -->
+{(allTodayPre || noTodayGames) && prevGames.length > 0 && (
+  <section class="lastnight" id="lastnight">
+    <div class="wrap">
+      <div class="lastnight-head">
+        <div class="lastnight-eyebrow"><span class="pip-ink"></span>Last Night · {fmtDate(prevDate)}</div>
+        <span class="lastnight-count">{prevGames.length} game{prevGames.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="games games--light" role="list">
+        {prevGames.map(g => {
+          const t = buildTile(g);
+          const wpAway = t.wpAwayPct ?? 50;
+          const wpHome = t.wpHomePct ?? 50;
+          return (
+            <article
+              class="game game--light"
+              role="listitem"
+              style={`--c-away:${t.awayColor}; --c-home:${t.homeColor}; --wp-away:${wpAway}%; --wp-home:${wpHome}%;`}
+            >
+              <div class="game-tag">
+                <span>Playoffs</span>
+                <span>Final</span>
+              </div>
+              <div class="game-row">
+                <div class="team away">
+                  <span class="abbr away">{g.away_team.abbrev}</span>
+                  {t.xgAway !== null && <span class="xg"><b>{t.xgAway.toFixed(2)}</b> xG</span>}
+                </div>
+                <div class="game-mid score">
+                  {g.away_team.score}<span class="dash">–</span>{g.home_team.score}
+                </div>
+                <div class="team home">
+                  <span class="abbr home">{g.home_team.abbrev}</span>
+                  {t.xgHome !== null && <span class="xg"><b>{t.xgHome.toFixed(2)}</b> xG</span>}
+                </div>
+              </div>
+              <div class="wp-bar-wrap">
+                <div class="wp-bar-labels">
+                  <span class="away"><b>{g.away_team.abbrev}</b> {wpAway}%</span>
+                  <span class="home">{wpHome}% <b>{g.home_team.abbrev}</b></span>
+                </div>
+                <div class="wp-bar"><div class="away-fill"></div><div class="home-fill"></div></div>
+              </div>
+              <div class="game-foot">
+                <span>{g.venue ?? ''}</span>
+                <span class="series">Final</span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+)}
 
 <!-- ══ ZONE 2 — FEATURED GAME ══ -->
 {feat && featAbbr && (
