@@ -232,6 +232,53 @@ function buildTile(g: SBGame): Tile {
 
 const zone1Tiles = zone1Games.map(buildTile);
 
+// ── Tonight strip: goalie leaders for each pre-game game ─────────────────────
+// Fetched from NHL gamecenter landing — returns playoff goalie series leaders
+// (the most-used goalie for each team), which is the closest public proxy for
+// "probable starter" during playoffs when lineups aren't announced.
+
+type GoalieLead = { abbrev: string; last_name: string; record: string; gaa: number; svPct: number };
+type TonightEntry = {
+  game_id: string;
+  awayAbbr: string; homeAbbr: string;
+  startET: string;
+  awayGoalie: GoalieLead | null;
+  homeGoalie: GoalieLead | null;
+};
+
+async function fetchGoalieLeaders(gameId: string, awayAbbr: string, homeAbbr: string): Promise<TonightEntry> {
+  const base: TonightEntry = { game_id: gameId, awayAbbr, homeAbbr, startET: '', awayGoalie: null, homeGoalie: null };
+  try {
+    const res = await fetch(`https://api-web.nhle.com/v1/gamecenter/${gameId}/landing`);
+    if (!res.ok) return base;
+    const data = await res.json() as Record<string, unknown>;
+    const mm = (data.matchup ?? {}) as Record<string, unknown>;
+    const gc = (mm.goalieComparison ?? {}) as Record<string, unknown>;
+    function extractLeader(side: Record<string, unknown>, abbrev: string): GoalieLead | null {
+      const leaders = (side.leaders ?? []) as Array<Record<string, unknown>>;
+      const g = leaders.find(l => l.gamesPlayed) ?? leaders[0];
+      if (!g) return null;
+      const lastName = (g.lastName as Record<string,string> | undefined)?.default ?? String(g.player_last_name ?? '');
+      const record = String(g.record ?? '');
+      return { abbrev, last_name: lastName, record, gaa: Number(g.gaa ?? 0), svPct: Number(g.savePctg ?? 0) };
+    }
+    return {
+      ...base,
+      awayGoalie: extractLeader((gc.awayTeam ?? {}) as Record<string,unknown>, awayAbbr),
+      homeGoalie: extractLeader((gc.homeTeam ?? {}) as Record<string,unknown>, homeAbbr),
+    };
+  } catch { return base; }
+}
+
+const tonightGames: TonightEntry[] = await Promise.all(
+  todayGames
+    .filter(g => gameStateLabel(g) === 'pre')
+    .map(g => fetchGoalieLeaders(g.game_id, g.away_team.abbrev, g.home_team.abbrev).then(e => ({
+      ...e,
+      startET: fmtStartET(g.start_time_utc),
+    })))
+);
+
 // ── Bot cards (static placeholders) ──────────────────────────────────────────
 const botcards = [
   { kind: 'Pre-Game', label: 'PHI @ CAR', ts: '8m ago', w: 360 },
@@ -698,6 +745,53 @@ const featAbbr = feat ? {
     color: rgba(255,255,255,0.36); letter-spacing: 0.04em;
   }
 
+  /* ---------- TONIGHT STRIP ---------- */
+  .tonight-strip {
+    margin-top: 20px;
+    padding: 10px 0 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 28px;
+    align-items: center;
+  }
+  .tonight-label {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--red);
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .tonight-label::before {
+    content: "";
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 0 0 rgba(232,0,45,.6);
+    animation: livepulse 1.6s infinite;
+  }
+  .tonight-game {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: rgba(255,255,255,0.56);
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .tonight-game .matchup {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: #fff;
+  }
+  .tonight-game .sep { color: rgba(255,255,255,0.24); margin: 0 2px; }
+  .tonight-game .goalies { color: rgba(255,255,255,0.48); }
+
   /* ---------- RESPONSIVE ---------- */
   @media (max-width: 1100px) {
     .games { grid-template-columns: repeat(2, 1fr); }
@@ -759,6 +853,30 @@ const featAbbr = feat ? {
         WP · xG · FINAL SCORES
       </div>
     </div>
+
+    {/* Tonight strip — only when Zone 1 is showing yesterday's results */}
+    {(allTodayPre || noTodayGames) && tonightGames.length > 0 && (
+      <div class="tonight-strip" aria-label="Tonight's upcoming games">
+        <span class="tonight-label">Tonight</span>
+        {tonightGames.map(tg => (
+          <div class="tonight-game">
+            <span class="matchup">{tg.awayAbbr} @ {tg.homeAbbr}</span>
+            <span class="sep">·</span>
+            <span>{tg.startET} ET</span>
+            {(tg.awayGoalie || tg.homeGoalie) && (
+              <>
+                <span class="sep">·</span>
+                <span class="goalies">
+                  {tg.awayGoalie?.last_name ?? tg.awayAbbr} ({tg.awayGoalie?.record ?? '—'})
+                  {' vs '}
+                  {tg.homeGoalie?.last_name ?? tg.homeAbbr} ({tg.homeGoalie?.record ?? '—'})
+                </span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
 
     {/* Game cards grid */}
     {zone1Tiles.length > 0 ? (
