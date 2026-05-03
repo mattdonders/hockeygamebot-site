@@ -421,13 +421,17 @@ img { display: block; max-width: 100%; }
 .feat-hed { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: 34px; line-height: 0.98; margin-bottom: 10px; }
 .feat-dek { font-size: 15px; color: var(--ink-72); max-width: 540px; margin-bottom: 22px; line-height: 1.55; }
 
-.scoreline { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 20px; padding: 16px 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); margin-bottom: 16px; }
-.sl-team { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.sl-logo { width: 52px; height: 52px; object-fit: contain; display: block; }
-.sl-abbr { font-family: var(--display); font-weight: 800; font-size: 34px; line-height: 1; }
+.scoreline { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 20px; padding: 20px 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); margin-bottom: 16px; }
+.sl-team { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.sl-logo { width: 80px; height: 80px; object-fit: contain; display: block; }
 .sl-xg { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
 .sl-mid { font-family: var(--mono); font-size: 11px; color: var(--ink-48); text-transform: uppercase; letter-spacing: 0.1em; text-align: center; }
-.sl-mid b { display: block; font-family: var(--display); font-weight: 800; color: var(--ink); font-size: 16px; letter-spacing: 0.04em; margin: 2px 0; }
+.sl-mid b { display: block; font-family: var(--display); font-weight: 800; color: var(--ink); font-size: 56px; line-height: 0.9; letter-spacing: -0.02em; margin: 6px 0; }
+
+/* ── COUNTDOWN ───────────────────────────────────────────────────────────────── */
+.countdown-wrap { display: flex; align-items: baseline; gap: 12px; margin-top: 16px; font-family: var(--mono); }
+.countdown-label { font-size: 10px; letter-spacing: 0.12em; color: var(--ink-48); text-transform: uppercase; }
+.countdown-clock { font-size: 36px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 
 .breakdown { border-top: 1px solid var(--ink-14); margin-top: 4px; }
 .breakdown summary { list-style: none; cursor: pointer; padding: 11px 0; display: flex; align-items: center; justify-content: space-between; font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--red); user-select: none; }
@@ -577,7 +581,6 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
           <div class="scoreline">
             <div class="sl-team">
               <img class="sl-logo" src={`https://assets.nhle.com/logos/nhl/svg/${featGame.away_team.abbrev}_light.svg`} alt={featGame.away_team.abbrev} onerror="this.style.display='none'" />
-              <div class="sl-abbr" style={`color:${featAC}`}>{featGame.away_team.abbrev}</div>
               <div class="sl-xg">xG {featXgA?.toFixed(2) ?? '—'} · WP {featWpAway ?? '—'}%</div>
             </div>
             <div class="sl-mid">
@@ -587,7 +590,6 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
             </div>
             <div class="sl-team">
               <img class="sl-logo" src={`https://assets.nhle.com/logos/nhl/svg/${featGame.home_team.abbrev}_light.svg`} alt={featGame.home_team.abbrev} onerror="this.style.display='none'" />
-              <div class="sl-abbr" style={`color:${featHC}`}>{featGame.home_team.abbrev}</div>
               <div class="sl-xg">xG {featXgH?.toFixed(2) ?? '—'} · WP {featWpHome ?? '—'}%</div>
             </div>
           </div>
@@ -795,7 +797,28 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
   const fmtET = utc => utc ? new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(utc)) : '';
+  const fmtLocal = utc => { try { return utc ? new Date(utc).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZoneName:'short'}) : ''; } catch { return ''; } };
   const fmtDate = iso => new Date(iso+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',timeZone:'UTC'});
+
+  // ── Countdown ─────────────────────────────────────────────────────────────────
+  let countdownTimer = null;
+  function startCountdown(firstUtc) {
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    const target = new Date(firstUtc).getTime();
+    function tick() {
+      const diff = target - Date.now();
+      if (diff <= 0) { clearInterval(countdownTimer); setText('countdown', 'PUCK DROP!'); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setText('countdown', h > 0
+        ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+        : `${m}:${String(s).padStart(2,'0')}`);
+    }
+    tick();
+    countdownTimer = setInterval(tick, 1000);
+  }
+  function stopCountdown() { if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; } }
   const pLabel = p => !p ? '' : p===4?'OT':p>=5?'SO':`P${p}`;
   const gs = g => { const s=g.game_state; if(s==='live') return 'live'; if(s==='intermission') return 'intermission'; if(s==='final'||s==='game-end') return 'final'; return 'pre'; };
   const wpPct = (g,side) => { const v=g.stats?.win_probability?.[side]; return v!=null?Math.round(v*100):50; };
@@ -838,14 +861,18 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
 
   // ── Pre-game ─────────────────────────────────────────────────────────────────
   function renderPre(data, tonight) {
+    stopCountdown();
     const games = data.games ?? [];
     const date = data.date ? fmtDate(data.date) : 'Tonight';
     document.getElementById('hero-section')?.classList.remove('is-live');
     setText('hero-ghost', 'SOON');
     document.getElementById('live-pill').style.display = 'none';
     setText('hero-eyebrow-text', `Tonight · ${date}`);
-    setText('hero-meta', `${games.length} game${games.length!==1?'s':''} · 32 bots standing by`);
+    setText('hero-meta', `${games.length} game${games.length!==1?'s':''} · ${games.length * 2} bots standing by`);
     document.getElementById('also-section').style.display = 'none';
+
+    const sorted = [...games].sort((a,b) => new Date(a.start_time_utc||0) - new Date(b.start_time_utc||0));
+    const firstUtc = sorted[0]?.start_time_utc;
 
     const cards = games.map(g => {
       const tg = tonight.find(t => t.game_id === g.game_id);
@@ -881,7 +908,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
           </div>
         </div>
         <div class="pregame-card-foot">
-          <span class="time">${tg?.startET || fmtET(g.start_time_utc) || '—'}</span>
+          <span class="time">${fmtLocal(g.start_time_utc) || tg?.startET || '—'}</span>
           <span class="venue">${g.venue || ''}</span>
         </div>
       </div>`;
@@ -890,13 +917,16 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
     setHtml('hero-slot', `<div class="state-empty">
       <div class="state-big">PUCK DROP <em>SOON.</em></div>
       <div class="state-lead">${games.length} games tonight. Pre-game posts shipped — milestone watches, predictions, projected lineups.</div>
-      <div class="state-meta">${games.length} GAMES · 32 BOTS STANDING BY</div>
+      <div class="state-meta">${games.length} GAMES · ${games.length * 2} BOTS STANDING BY</div>
+      ${firstUtc ? `<div class="countdown-wrap"><span class="countdown-label">First puck drop in</span><span class="countdown-clock" id="countdown">–:––</span></div>` : ''}
       <div class="pregame-grid">${cards}</div>
     </div>`);
+    if (firstUtc) startCountdown(firstUtc);
   }
 
   // ── Live ──────────────────────────────────────────────────────────────────────
   function renderLive(data) {
+    stopCountdown();
     const games = data.games ?? [];
     const feat = pickLive(games);
     if (!feat) { renderPre(data, []); return; }
@@ -1031,6 +1061,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
 
   // ── Post-game ─────────────────────────────────────────────────────────────────
   function renderPost(data) {
+    stopCountdown();
     const games = data.previous_day?.games ?? [];
     const prevDate = data.previous_day?.hockey_date;
     const dateLabel = prevDate ? fmtDate(prevDate) : 'Last Night';
