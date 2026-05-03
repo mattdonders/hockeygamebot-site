@@ -82,586 +82,620 @@ const teams = [
   { abbr: 'WSH', name: 'Washington Capitals' },
   { abbr: 'WPG', name: 'Winnipeg Jets' },
 ];
+
+// ── Editorial layout: divisions + per-team enriched data (computed in frontmatter
+// to avoid TS-generic-vs-JSX ambiguity in the template). ──────────────────────
+interface TeamRow {
+  abbr: string; name: string;
+  xHandle: string; xUrl: string;
+  bskyHandle: string; bskyUrl: string;
+  logoUrl: string;
+  record: string | null;
+  isPlayoff: boolean; isEliminated: boolean;
+  paletteA: string; paletteB: string;
+  abbrColor: string;
+}
+interface Division { name: string; conf: string; rows: TeamRow[]; }
+
+const TC: Record<string, [string, string]> = {
+  ANA:['#F47A38','#B09862'], BOS:['#FFB81C','#000000'], BUF:['#002654','#FDBB30'],
+  CAR:['#CC0000','#000000'], CBJ:['#002654','#CE1126'], CGY:['#C8102E','#F1BE48'],
+  CHI:['#CF0A2C','#000000'], COL:['#6F263D','#236192'], DAL:['#006847','#8F8F8C'],
+  DET:['#CE1126','#FFFFFF'], EDM:['#FF4C00','#041E42'], FLA:['#041E42','#C8102E'],
+  LAK:['#111111','#A2AAAD'], MIN:['#154734','#A6192E'], MTL:['#AF1E2D','#00205B'],
+  NSH:['#FFB81C','#041E42'], NJD:['#CE1126','#000000'], NYI:['#00539B','#F47D30'],
+  NYR:['#0038A8','#CE1126'], OTT:['#DA1A32','#000000'], PHI:['#FA4616','#000000'],
+  PIT:['#000000','#FCB514'], SEA:['#001628','#99D9D9'], SJS:['#006D75','#EA7200'],
+  STL:['#002F87','#FDB827'], TBL:['#00205B','#FFFFFF'], TOR:['#00205B','#FFFFFF'],
+  UTA:['#71AFE5','#090909'], VAN:['#00205B','#00843D'], VGK:['#B4975A','#333F48'],
+  WSH:['#041E42','#C8102E'], WPG:['#041E42','#004C97'],
+};
+function pickAbbrColor(abbr: string): string {
+  const palette = TC[abbr] ?? ['#E8002D','#0d0d14'];
+  const primary = palette[0];
+  const r = parseInt(primary.slice(1,3),16)/255;
+  const g = parseInt(primary.slice(3,5),16)/255;
+  const b = parseInt(primary.slice(5,7),16)/255;
+  const lum = (Math.max(r,g,b)+Math.min(r,g,b))/2;
+  return lum < 0.15 ? palette[1] : palette[0];
+}
+
+const teamsByAbbr = new Map(teams.map(t => [t.abbr, t]));
+function buildRow(abbr: string): TeamRow | null {
+  const team = teamsByAbbr.get(abbr);
+  if (!team) return null;
+  const xHandle = (team as any).xHandle ?? `${team.abbr}GameBot`;
+  const stats = teamStats.get(team.abbr);
+  const clinch = stats?.clinch ?? null;
+  const palette = TC[team.abbr] ?? ['#E8002D','#0d0d14'];
+  return {
+    abbr: team.abbr,
+    name: team.name,
+    xHandle,
+    xUrl: `https://x.com/${xHandle}`,
+    bskyHandle: `${team.abbr.toLowerCase()}.hockeygamebot.com`,
+    bskyUrl: `https://bsky.app/profile/${team.abbr.toLowerCase()}.hockeygamebot.com`,
+    logoUrl: `https://assets.nhle.com/logos/nhl/svg/${team.abbr}_light.svg`,
+    record: stats?.record ?? null,
+    isPlayoff: clinch === 'x' || clinch === 'y' || clinch === 'z',
+    isEliminated: clinch === 'e',
+    paletteA: palette[0],
+    paletteB: palette[1],
+    abbrColor: pickAbbrColor(team.abbr),
+  };
+}
+
+const divisions: Division[] = [
+  { name: 'Atlantic',     conf: 'Eastern Conference',
+    rows: ['BOS','BUF','DET','FLA','MTL','OTT','TBL','TOR'].map(buildRow).filter(Boolean) as TeamRow[] },
+  { name: 'Metropolitan', conf: 'Eastern Conference',
+    rows: ['CAR','CBJ','NJD','NYI','NYR','PHI','PIT','WSH'].map(buildRow).filter(Boolean) as TeamRow[] },
+  { name: 'Central',      conf: 'Western Conference',
+    rows: ['CHI','COL','DAL','MIN','NSH','STL','UTA','WPG'].map(buildRow).filter(Boolean) as TeamRow[] },
+  { name: 'Pacific',      conf: 'Western Conference',
+    rows: ['ANA','CGY','EDM','LAK','SJS','SEA','VAN','VGK'].map(buildRow).filter(Boolean) as TeamRow[] },
+];
 ---
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Find Your Team Bot | HockeyGameBot</title>
-  <meta name="description" content="32 NHL team-specific bots posting live game updates to Twitter / X and Bluesky. Find yours.">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="HockeyGameBot">
-  <meta property="og:title" content="Find Your Team Bot | HockeyGameBot">
-  <meta property="og:description" content="32 NHL team-specific bots posting live game updates to Twitter / X and Bluesky. Find yours.">
-  <meta property="og:url" content="https://hockeygamebot.com/teams">
-  <meta property="og:image" content="https://hockeygamebot.com/og/teams.png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:site" content="@hockeygamebot">
-  <meta name="twitter:title" content="Find Your Team Bot | HockeyGameBot">
-  <meta name="twitter:description" content="32 NHL team-specific bots posting live game updates to Twitter / X and Bluesky. Find yours.">
-  <meta name="twitter:image" content="https://hockeygamebot.com/og/teams.png">
-  <link rel="icon" href="/favicon.ico" sizes="any">
-  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
-  <link rel="apple-touch-icon" href="/favicon-180x180.png">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
-</head>
-<body>
-
-<!-- TOP BAR -->
-<div class="topbar">
-  <a href="/" class="brand">HGB</a>
-  <div class="brand-sub">HockeyGameBot</div>
-  <div class="topbar-right">
-    <nav class="topbar-nav">
-      <a href="/" class="topbar-link">SCORES</a>
-      <a href="/teams" class="topbar-link topbar-link--active" aria-current="page">TEAMS</a>
-      <a href="/support" class="topbar-link topbar-link--support">
-        <svg class="support-heart" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-        <span class="support-label">SUPPORT</span>
-      </a>
-    </nav>
-  </div>
-</div>
-
-<main>
-
-  <!-- ── HERO ──────────────────────────────────────────────────────── -->
-  <section class="hero">
-    <div class="hero-inner">
-      <div class="hero-wordmark">HGB</div>
-      <h1 class="hero-headline">Find Your Team Bot</h1>
-      <p class="hero-sub">32 team-specific bots posting live game updates to Twitter&nbsp;/&nbsp;X and Bluesky. Find yours below.</p>
-    </div>
-  </section>
-
-  <!-- ── MAIN ACCOUNT CARD ─────────────────────────────────────────── -->
-  <section class="teams-section">
-    <div class="teams-inner">
-
-      <div class="main-card">
-        <div class="main-card-brand">
-          <span class="main-card-wordmark">HGB</span>
-          <div>
-            <div class="main-card-name">HockeyGameBot</div>
-            <div class="main-card-desc">The main account — news, updates, and announcements</div>
-          </div>
-        </div>
-        <div class="main-card-right">
-          <!-- Column: Main account -->
-          <div class="main-card-group">
-            <div class="main-card-group-label">Main Account</div>
-            <a href="https://x.com/hockey_gamebot" class="team-link team-link--x" target="_blank" rel="noopener">
-              <svg class="link-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-              <span class="link-label">@hockey_gamebot</span>
-            </a>
-            <a href="https://bsky.app/profile/hockeygamebot.com" class="team-link team-link--bsky" target="_blank" rel="noopener">
-              <svg class="link-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
-              <span class="link-label">@hockeygamebot.com</span>
-            </a>
-          </div>
-          <!-- Divider between columns -->
-          <div class="main-card-col-divider"></div>
-          <!-- Column: Follow all 32 -->
-          <div class="main-card-group">
-            <div class="main-card-group-label">Follow All 32 Bots</div>
-            <a href="https://x.com/i/lists/1999874550130196749" class="team-link team-link--x" target="_blank" rel="noopener">
-              <svg class="link-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-              <span class="link-label">X List</span>
-            </a>
-            <a href="https://bsky.app/profile/hockeygamebot.com/lists/3m7zvts4nfm2z" class="team-link team-link--bsky" target="_blank" rel="noopener">
-              <svg class="link-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
-              <span class="link-label">Bluesky List</span>
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <!-- ── FALLBACK NOTICE (only shown when live standings fetch failed) ── -->
-      {standingsSource === 'fallback' && (
-        <p class="standings-notice">
-          Standings shown as of {new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(standingsFetchedAt))}. Live update temporarily unavailable.
-        </p>
-      )}
-
-      <!-- ── TEAM GRID ──────────────────────────────────────────────── -->
-      <div class="teams-grid">
-        {teams.map((team) => {
-          const xHandle = team.xHandle ?? `${team.abbr}GameBot`;
-          const xUrl = `https://x.com/${xHandle}`;
-          const bskyHandle = `${team.abbr.toLowerCase()}.hockeygamebot.com`;
-          const bskyUrl = `https://bsky.app/profile/${bskyHandle}`;
-          const logoUrl = `https://assets.nhle.com/logos/nhl/svg/${team.abbr}_light.svg`;
-          const stats = teamStats.get(team.abbr);
-          const clinch = stats?.clinch ?? null;
-          const isPlayoff = clinch === 'x' || clinch === 'y' || clinch === 'z';
-          const isEliminated = clinch === 'e';
-          const teamPageUrl = `/teams/${team.abbr.toLowerCase()}`;
-          return (
-            <div class="team-card">
-              <a href={teamPageUrl} class="team-card-top" aria-label={`${team.name} bot page`}>
-                <img
-                  src={logoUrl}
-                  alt={`${team.name} logo`}
-                  class="team-logo"
-                  width="48"
-                  height="48"
-                  loading="lazy"
-                />
-                <span class="team-name">{team.name}</span>
-                <svg class="team-card-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-              </a>
-              <div class="team-links">
-                <a href={xUrl} class="team-link team-link--x" target="_blank" rel="noopener" aria-label={`${team.name} on X`}>
-                  <svg class="link-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                  </svg>
-                  <span class="link-label">@{xHandle}</span>
-                </a>
-                <a href={bskyUrl} class="team-link team-link--bsky" target="_blank" rel="noopener" aria-label={`${team.name} on Bluesky`}>
-                  <svg class="link-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/>
-                  </svg>
-                  <span class="link-label">@{bskyHandle}</span>
-                </a>
-              </div>
-              {stats && (
-                <div class={`team-status ${isPlayoff ? 'team-status--playoffs' : isEliminated ? 'team-status--eliminated' : 'team-status--record'}`}>
-                  {playoffMode
-                    ? (isPlayoff ? '★ PLAYOFFS' : isEliminated ? 'ELIMINATED' : stats.record)
-                    : stats.record}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  </section>
-
-</main>
-
-<footer class="site-footer">
-  <div class="footer-inner">
-    <span class="footer-brand">HGB</span>
-    <span class="footer-sep">·</span>
-    <a href="/" class="footer-link">Scores</a>
-    <a href="/teams" class="footer-link">Teams</a>
-    <a href="https://ko-fi.com/hockeygamebot" class="footer-link" target="_blank" rel="noopener">Ko-fi</a>
-    <span class="footer-copy">Built with 🏒 by <a href="https://twitter.com/mattdonders" class="footer-link" target="_blank" rel="noopener">@mattdonders</a></span>
-  </div>
-</footer>
-
-</body>
-</html>
-
+<meta charset="utf-8" />
+<title>The Bot Roster — 32 Teams · HockeyGameBot</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="32 NHL team-specific bots posting live game updates to X and Bluesky. Find yours." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="HockeyGameBot" />
+<meta property="og:title" content="The Bot Roster — 32 Teams · HockeyGameBot" />
+<meta property="og:description" content="32 NHL team-specific bots posting live game updates to X and Bluesky. Find yours." />
+<meta property="og:url" content="https://hockeygamebot.com/teams" />
+<meta property="og:image" content="https://hockeygamebot.com/og/teams.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@hockeygamebot" />
+<meta name="twitter:title" content="The Bot Roster — 32 Teams · HockeyGameBot" />
+<meta name="twitter:description" content="32 NHL team-specific bots posting live game updates to X and Bluesky. Find yours." />
+<meta name="twitter:image" content="https://hockeygamebot.com/og/teams.png" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/favicon-180x180.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style is:global>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── TOKENS ──────────────────────────────────────────────────────────────────── */
 :root {
-  --bg: #090909;
-  --card: #111;
-  --border: #1c1c1c;
-  --border2: #252525;
-  --muted: #555;
-  --text: #999;
-  --text-secondary: #777;
-  --white: #f5f5f5;
-  --red: #ff3d3d;
-  --red-dim: rgba(255, 61, 61, 0.12);
-  --red-border: rgba(255, 61, 61, 0.3);
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-86:  rgba(13,13,20,0.86);
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-03:  rgba(13,13,20,0.03);
+  --red:     #E8002D;
+  --grid-line: rgba(13,13,20,0.04);
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
 }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
 
-html, body {
-  background: var(--bg);
-  font-family: 'Space Grotesk', sans-serif;
-  color: var(--text);
-  line-height: 1.65;
-  min-height: 100vh;
-}
+/* ── NAV ─────────────────────────────────────────────────────────────────────── */
+.nav { background: var(--bg); border-bottom: 1px solid var(--ink-14); position: sticky; top: 0; z-index: 50; }
+.nav-inner { display: flex; align-items: center; height: 60px; gap: 0; }
+.wordmark { font-family: var(--display); font-weight: 800; font-size: 21px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; line-height: 1; }
+.wordmark .dot { width: 6px; height: 6px; background: var(--red); border-radius: 50%; margin: 0 7px; display: inline-block; transform: translateY(-1px); }
+.nav-status { display: inline-flex; align-items: center; gap: 7px; margin-left: 20px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em; }
+.nav-links { margin-left: auto; display: flex; align-items: center; gap: 0; font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; }
+.nav-links a { padding: 5px 12px; color: var(--ink-48); transition: color .15s; }
+.nav-links a:hover, .nav-links a.active { color: var(--ink); }
+.nav-links .sep { color: var(--ink-20); }
 
-/* ── TOP BAR ────────────────────────────────────────────────────── */
-.topbar {
-  height: 44px;
-  background: var(--red);
-  display: flex;
-  align-items: center;
-  padding: 0 24px;
-  gap: 16px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
+/* ── MASTHEAD ────────────────────────────────────────────────────────────────── */
+.mast {
+  position: relative; overflow: hidden;
+  padding: 56px 0 48px;
+  border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 96px 96px;
 }
-.brand {
-  font-family: 'Oswald', sans-serif;
-  font-size: 22px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 0.1em;
-  text-decoration: none;
+.mast-ghost {
+  position: absolute; pointer-events: none; user-select: none; z-index: 0;
+  font-family: var(--display); font-weight: 800; font-size: 360px; line-height: 0.86;
+  text-transform: uppercase; letter-spacing: -0.02em; white-space: nowrap;
+  color: rgba(13,13,20,0.06);
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
 }
-.brand-sub {
+.mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+.mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-inner { position: relative; z-index: 2; }
+.mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 28px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+.mast-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; }
+.mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+.mast-meta { font-size: 10px; opacity: 0.6; text-align: right; }
+.mast-headline { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: clamp(56px, 11vw, 144px); line-height: 0.86; letter-spacing: -0.015em; max-width: 1100px; }
+.mast-headline .accent { color: var(--red); }
+.mast-headline em { font-style: normal; color: var(--ink-32); }
+.mast-dek { font-size: 17px; color: var(--ink-72); max-width: 620px; margin-top: 18px; line-height: 1.5; }
+.mast-stats { display: grid; grid-template-columns: repeat(4, auto); gap: 0; margin-top: 32px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+.mast-stat { padding: 14px 24px 14px 0; border-right: 1px solid var(--ink-14); margin-right: 24px; }
+.mast-stat:last-child { border-right: 0; margin-right: 0; }
+.mast-stat-num { font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1; letter-spacing: -0.01em; }
+.mast-stat-num.red { color: var(--red); }
+.mast-stat-lbl { font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.06em; margin-top: 4px; }
+
+/* ── STANDINGS NOTICE ────────────────────────────────────────────────────────── */
+.standings-notice {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--ink-14);
+  padding: 10px 0;
+  font-family: var(--mono);
   font-size: 11px;
-  color: rgba(255,255,255,0.65);
-  letter-spacing: 0.14em;
-}
-.topbar-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-}
-.topbar-nav {
-  display: flex;
-  gap: 6px;
-}
-.topbar-link {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: rgba(255,255,255,0.7);
-  text-decoration: none;
-  padding: 4px 10px;
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 3px;
-  transition: color 0.15s, border-color 0.15s;
-}
-.topbar-link:hover { color: #fff; border-color: rgba(255,255,255,0.5); }
-.topbar-link--active { color: #fff; border-color: rgba(255,255,255,0.5); }
-.topbar-link--support {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.support-heart { flex-shrink: 0; opacity: 0.9; }
-.support-label { display: inline; }
-
-@media (max-width: 640px) {
-  .topbar { height: 48px; padding: 0 16px; gap: 10px; }
-  .brand-sub { display: none; }
-  .support-label { display: none; }
-}
-
-/* ── HERO ───────────────────────────────────────────────────────── */
-.hero {
-  padding: 72px 24px 64px;
+  color: var(--ink-56);
+  letter-spacing: 0.03em;
   text-align: center;
-  border-bottom: 1px solid var(--border);
 }
-.hero-inner {
-  max-width: 640px;
-  margin: 0 auto;
+
+/* ── MAIN ACCOUNT (LEDE) ─────────────────────────────────────────────────────── */
+.lede { padding: 48px 0 32px; border-bottom: 1px solid var(--ink-14); }
+.lede-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.lede-card {
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  padding: 24px 26px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.lede-card::before {
+  content: ""; position: absolute; top: 0; left: 0; bottom: 0;
+  width: 4px; background: var(--red);
+}
+.lede-tag { font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red); }
+.lede-title { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: 26px; line-height: 0.95; letter-spacing: 0.01em; }
+.lede-desc { font-size: 13px; color: var(--ink-72); line-height: 1.5; }
+.lede-handles { display: flex; gap: 10px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--ink-06); }
+.lede-handle {
+  display: inline-flex;
   align-items: center;
-  gap: 20px;
-}
-.hero-wordmark {
-  font-family: 'Oswald', sans-serif;
-  font-size: 48px;
-  font-weight: 700;
-  color: var(--red);
-  letter-spacing: 0.08em;
-  line-height: 1;
-}
-.hero-headline {
-  font-family: 'Oswald', sans-serif;
-  font-size: clamp(26px, 5vw, 40px);
-  font-weight: 700;
-  color: var(--white);
-  letter-spacing: 0.02em;
-  line-height: 1.15;
-  text-wrap: balance;
-}
-.hero-sub {
-  font-size: clamp(14px, 2vw, 16px);
-  color: var(--text-secondary);
-  line-height: 1.7;
-  max-width: 480px;
-}
-
-/* ── TEAMS SECTION ──────────────────────────────────────────────── */
-.teams-section {
-  padding: 48px 24px 80px;
-}
-.teams-inner {
-  max-width: 1100px;
-  margin: 0 auto;
-}
-
-/* ── STANDINGS FALLBACK NOTICE ──────────────────────────────────── */
-.standings-notice {
+  gap: 7px;
+  font-family: var(--mono);
   font-size: 11px;
-  font-style: italic;
-  color: var(--muted);
-  margin-bottom: 14px;
-  text-align: center;
+  font-weight: 600;
+  color: var(--ink-72);
+  padding: 7px 11px;
+  border: 1px solid var(--ink-14);
+  transition: color .15s, border-color .15s, background .15s;
+  letter-spacing: 0.01em;
 }
+.lede-handle:hover { color: var(--ink); border-color: var(--ink); background: var(--bg-2); }
+.lede-handle svg { width: 12px; height: 12px; flex-shrink: 0; }
 
-/* ── TEAM GRID ──────────────────────────────────────────────────── */
-.teams-grid {
+/* ── ROSTER ──────────────────────────────────────────────────────────────────── */
+.roster { padding: 48px 0 80px; }
+.roster-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 24px; margin-bottom: 24px;
+  border-bottom: 2px solid var(--ink); padding-bottom: 20px;
+}
+.roster-title { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: clamp(28px,4vw,46px); line-height: 0.95; letter-spacing: -0.005em; }
+.roster-title .accent { color: var(--red); }
+.roster-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; text-align: right; line-height: 1.6; }
+
+.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-pip { width: 8px; height: 8px; display: inline-block; }
+.legend-pip.playoffs { background: var(--ink); }
+.legend-pip.eliminated { background: var(--red); opacity: 0.5; }
+.legend-pip.record { background: var(--ink-14); }
+
+/* Division header */
+.division { margin-top: 44px; }
+.division:first-of-type { margin-top: 0; }
+.division-head {
+  display: flex; align-items: baseline; gap: 14px;
+  margin-bottom: 16px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--ink-14);
+}
+.division-name {
+  font-family: var(--display); font-weight: 800; text-transform: uppercase;
+  font-size: 22px; letter-spacing: 0.04em; line-height: 1;
+}
+.division-conf {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-48);
+  letter-spacing: 0.14em; text-transform: uppercase;
+}
+.division-rule { flex: 1; height: 1px; background: var(--ink-14); }
+.division-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.06em; }
+
+/* Team grid */
+.team-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 
-/* ── TEAM CARD ──────────────────────────────────────────────────── */
+/* Team card — sports almanac style */
 .team-card {
-  background: var(--card);
-  border: 1px solid var(--border2);
-  border-radius: 8px;
-  padding: 18px 16px 14px;
+  background: var(--surface);
+  border: 1px solid var(--ink-10);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  transition: border-color 0.15s;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .15s, transform .15s, box-shadow .15s;
 }
 .team-card:hover {
-  border-color: #333;
+  border-color: var(--ink);
+  transform: translateY(-2px);
+  box-shadow: 0 1px 2px rgba(13,13,20,0.04), 0 18px 30px -16px rgba(13,13,20,0.18);
 }
+.team-card.is-playoff { border-color: var(--ink); }
+.team-card.is-playoff::after {
+  content: "";
+  position: absolute; top: 0; right: 0;
+  width: 0; height: 0;
+  border-style: solid;
+  border-width: 0 22px 22px 0;
+  border-color: transparent var(--ink) transparent transparent;
+  pointer-events: none;
+}
+.team-card.is-eliminated { opacity: 0.62; }
+.team-card.is-eliminated:hover { opacity: 1; }
 
-/* ── MAIN ACCOUNT CARD ──────────────────────────────────────────── */
-.main-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  background: var(--card);
-  border: 1px solid #2a2a2a;
-  border-left: 3px solid var(--red);
-  border-radius: 8px;
-  padding: 20px 24px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-.main-card-brand {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.main-card-wordmark {
-  font-family: 'Oswald', sans-serif;
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--red);
-  letter-spacing: 0.08em;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.main-card-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--white);
-  line-height: 1.3;
-}
-.main-card-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-.main-card-right {
-  display: flex;
-  flex-direction: row;
-  gap: 0;
-  align-items: stretch;
-  flex-shrink: 0;
-}
-.main-card-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0 20px;
-}
-.main-card-group:first-child { padding-left: 0; }
-.main-card-group:last-child  { padding-right: 0; }
-.main-card-group-label {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 2px;
-}
-.main-card-col-divider {
-  width: 1px;
-  background: var(--border2);
-  align-self: stretch;
-  margin: 0 4px;
-}
-.main-card-links {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+.team-bar { height: 5px; display: flex; flex-shrink: 0; }
+.team-bar-l, .team-bar-r { flex: 1; }
 
-/* ── TEAM STATUS ROW ────────────────────────────────────────────── */
-.team-status {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  padding: 4px 8px;
-  border-radius: 4px;
-  text-align: center;
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-  margin-top: 2px;
-}
-.team-status--playoffs {
-  color: #4ade80;
-}
-.team-status--eliminated {
-  color: #ff6b6b;
-}
-.team-status--record {
-  color: var(--muted);
-  letter-spacing: 0.06em;
-  font-weight: 500;
-}
-
-@media (max-width: 640px) {
-  .main-card { padding: 16px; gap: 14px; flex-direction: column; }
-  .main-card-wordmark { font-size: 22px; }
-  .main-card-name { font-size: 14px; }
-  .main-card-group { padding: 0 12px; }
-  .main-card-group:first-child { padding-left: 0; }
-  .main-card-group:last-child  { padding-right: 0; }
-}
-
-.team-card-top {
-  display: flex;
-  align-items: center;
+.team-head {
+  display: grid;
+  grid-template-columns: 56px 1fr;
   gap: 12px;
-  text-decoration: none;
-  color: inherit;
-  border-radius: 4px;
-  transition: opacity 0.15s;
+  padding: 14px 14px 10px;
+  align-items: center;
 }
-.team-card-top:hover { opacity: 0.8; }
-.team-card-arrow {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  margin-left: auto;
-  color: var(--muted);
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.team-card-top:hover .team-card-arrow { opacity: 1; }
 .team-logo {
-  width: 44px;
-  height: 44px;
-  object-fit: contain;
-  flex-shrink: 0;
+  width: 56px; height: 56px; object-fit: contain;
+  background: var(--bg-2);
+  padding: 4px;
+  border: 1px solid var(--ink-06);
+}
+.team-id { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.team-abbr {
+  font-family: var(--display); font-weight: 800;
+  font-size: 32px; line-height: 0.92; letter-spacing: 0.02em;
 }
 .team-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--white);
-  line-height: 1.3;
+  font-family: var(--display); font-weight: 700;
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ink-56);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* ── SOCIAL LINKS ───────────────────────────────────────────────── */
-.team-links {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* Status row */
+.team-status {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 14px;
+  border-top: 1px solid var(--ink-06);
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+  color: var(--ink-48);
 }
-.team-link {
-  display: flex;
+.team-status-lbl { letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.6; }
+.team-status-val { font-weight: 600; color: var(--ink-72); font-variant-numeric: tabular-nums; }
+.team-status-val.playoffs { color: var(--ink); display: inline-flex; align-items: center; gap: 5px; }
+.team-status-val.playoffs::before { content: ""; width: 6px; height: 6px; background: var(--ink); }
+.team-status-val.eliminated { color: var(--red); }
+
+/* Handles */
+.team-handles {
+  display: flex; flex-direction: column;
+  border-top: 1px solid var(--ink-06);
+}
+.team-handle {
+  display: grid;
+  grid-template-columns: 18px 36px 1fr 12px;
   align-items: center;
-  gap: 7px;
-  text-decoration: none;
-  font-size: 11px;
+  gap: 8px;
+  padding: 9px 14px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-72);
+  border-top: 1px solid var(--ink-06);
+  transition: background .15s, color .15s;
+  letter-spacing: 0.01em;
+}
+.team-handle:first-child { border-top: 0; }
+.team-handle:hover { background: var(--bg-2); color: var(--ink); }
+.team-handle svg { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.56; }
+.team-handle:hover svg { opacity: 1; }
+.team-handle .platform {
+  font-family: var(--display); font-weight: 700; font-size: 9.5px;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48);
+}
+.team-handle .h-name {
   font-weight: 500;
-  letter-spacing: 0.02em;
-  padding: 5px 8px;
-  border-radius: 4px;
-  border: 1px solid transparent;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.link-icon {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
+.team-handle .arrow {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-32);
+  transition: transform .15s, color .15s;
+  text-align: right;
 }
-.link-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.team-handle:hover .arrow { color: var(--ink); transform: translateX(2px); }
 
-.team-link--x {
-  color: #aaa;
-  border-color: var(--border2);
-}
-.team-link--x:hover {
-  color: var(--white);
-  background: rgba(255,255,255,0.05);
-  border-color: #333;
-}
+/* ── FOOTER ──────────────────────────────────────────────────────────────────── */
+footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); padding: 48px 0 24px; }
+.foot-inner { display: grid; grid-template-columns: auto 1fr auto; align-items: end; gap: 32px; padding-bottom: 32px; }
+.foot-wordmark { font-family: var(--display); font-weight: 800; font-size: 30px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; }
+.foot-wordmark .dot { width: 6px; height: 6px; background: var(--red); border-radius: 50%; margin: 0 7px; display: inline-block; transform: translateY(-1px); }
+.foot-ghost { font-family: var(--display); font-weight: 800; font-size: 38px; line-height: 0.95; text-transform: uppercase; color: rgba(255,255,255,0.07); text-align: center; white-space: nowrap; }
+.foot-tag { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(255,255,255,0.32); text-align: right; line-height: 1.8; }
+.foot-bar { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10.5px; color: rgba(255,255,255,0.24); letter-spacing: 0.04em; }
 
-.team-link--bsky {
-  color: #aaa;
-  border-color: var(--border2);
+/* ── RESPONSIVE ──────────────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .team-grid { grid-template-columns: repeat(3, 1fr); }
+  .lede-grid { grid-template-columns: 1fr; }
+  .foot-inner { grid-template-columns: 1fr; gap: 20px; }
+  .mast-ghost { font-size: 240px; }
 }
-.team-link--bsky:hover {
-  color: #5bb8ff;
-  background: rgba(91,184,255,0.07);
-  border-color: rgba(91,184,255,0.25);
-}
-
-/* ── FOOTER ─────────────────────────────────────────────────────── */
-.site-footer {
-  background: #050505;
-  border-top: 1px solid var(--border);
-  padding: 28px 24px;
-}
-.footer-inner {
-  max-width: 1100px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.footer-brand {
-  font-family: 'Oswald', sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--red);
-  letter-spacing: 0.1em;
-}
-.footer-sep { color: var(--border2); }
-.footer-link {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  text-decoration: none;
-  transition: color 0.15s;
-}
-.footer-link:hover { color: var(--white); }
-.footer-copy {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-/* ── RESPONSIVE ─────────────────────────────────────────────────── */
-@media (max-width: 900px) {
-  .teams-grid { grid-template-columns: repeat(3, 1fr); }
-}
-
-@media (max-width: 640px) {
-  .hero { padding: 52px 20px 44px; }
-  .hero-wordmark { font-size: 38px; }
-  .teams-section { padding: 32px 16px 60px; }
-  .teams-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .team-card { padding: 14px 12px 12px; gap: 10px; }
-  .team-logo { width: 36px; height: 36px; }
-  .team-name { font-size: 12px; }
-  .team-link { font-size: 10px; padding: 4px 7px; }
-  .link-icon { width: 12px; height: 12px; }
-  .footer-copy { margin-left: 0; width: 100%; }
+@media (max-width: 720px) {
+  .wrap { padding: 0 20px; }
+  .nav-links { display: none; }
+  .mast { padding: 40px 0 36px; }
+  .mast-ghost { font-size: 160px; }
+  .mast-stats { grid-template-columns: repeat(2, 1fr); }
+  .mast-stat { border-right: 0; padding-right: 0; margin-right: 0; }
+  .mast-stat:nth-child(1), .mast-stat:nth-child(2) { border-bottom: 1px solid var(--ink-14); padding-bottom: 14px; margin-bottom: 14px; }
+  .team-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .team-abbr { font-size: 26px; }
+  .team-logo { width: 46px; height: 46px; }
+  .team-head { grid-template-columns: 46px 1fr; padding: 12px 12px 8px; }
+  .team-handle { padding: 8px 12px; grid-template-columns: 16px 32px 1fr 10px; gap: 6px; font-size: 10.5px; }
+  .roster-head { flex-direction: column; align-items: flex-start; }
+  .roster-meta { text-align: left; }
+  .division-name { font-size: 18px; }
+  .foot-tag { text-align: left; }
 }
 </style>
+</head>
+<body>
+
+<!-- ── NAV ── -->
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a href="/" class="wordmark">Hockey<span class="dot"></span>Gamebot</a>
+    <nav class="nav-links">
+      <a href="/">Live</a><span class="sep"> · </span>
+      <a href="/playoffs/2026">Playoffs</a><span class="sep"> · </span>
+      <a href="/teams" class="active">Teams</a><span class="sep"> · </span>
+      <a href="/support">Support</a>
+    </nav>
+  </div>
+</nav>
+
+<!-- ── MASTHEAD ── -->
+<section class="mast">
+  <div class="mast-ghost">ROSTER</div>
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="wrap mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> ISSUE 32 · BOT DIRECTORY</div>
+      <div class="mast-meta">
+        Updated {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(standingsFetchedAt))}<br/>
+        Standings · {standingsSource === 'live' ? 'Live' : 'Cached'}
+      </div>
+    </div>
+    <h1 class="mast-headline">The bot <span class="accent">roster</span>.<br/><em>Thirty-two teams. One per franchise.</em></h1>
+    <p class="mast-dek">Every NHL team has a dedicated bot posting goals, period reports, three stars and post-game cards to X and Bluesky — independently, in real time, without a human in the loop.</p>
+    <div class="mast-stats">
+      <div class="mast-stat">
+        <div class="mast-stat-num red">32</div>
+        <div class="mast-stat-lbl">Bots</div>
+      </div>
+      <div class="mast-stat">
+        <div class="mast-stat-num">2</div>
+        <div class="mast-stat-lbl">Platforms</div>
+      </div>
+      <div class="mast-stat">
+        <div class="mast-stat-num">7</div>
+        <div class="mast-stat-lbl">Card types</div>
+      </div>
+      <div class="mast-stat">
+        <div class="mast-stat-num">24/7</div>
+        <div class="mast-stat-lbl">All season</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{standingsSource === 'fallback' && (
+  <div class="standings-notice">
+    Standings shown as of {new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(standingsFetchedAt))} · live update temporarily unavailable
+  </div>
+)}
+
+<!-- ── LEDE: MAIN ACCOUNTS ── -->
+<section class="lede">
+  <div class="wrap">
+    <div class="lede-grid">
+      <article class="lede-card">
+        <span class="lede-tag">Main Account</span>
+        <h2 class="lede-title">HockeyGameBot</h2>
+        <p class="lede-desc">News, updates, and announcements across the network. Start here.</p>
+        <div class="lede-handles">
+          <a href="https://x.com/hockey_gamebot" class="lede-handle" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            @hockey_gamebot
+          </a>
+          <a href="https://bsky.app/profile/hockeygamebot.com" class="lede-handle" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
+            @hockeygamebot.com
+          </a>
+        </div>
+      </article>
+      <article class="lede-card">
+        <span class="lede-tag">Subscribe to All 32</span>
+        <h2 class="lede-title">Network Lists</h2>
+        <p class="lede-desc">Follow every team bot at once via curated lists on both platforms.</p>
+        <div class="lede-handles">
+          <a href="https://x.com/i/lists/1999874550130196749" class="lede-handle" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            X List
+          </a>
+          <a href="https://bsky.app/profile/hockeygamebot.com/lists/3m7zvts4nfm2z" class="lede-handle" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
+            Bluesky List
+          </a>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ── ROSTER (TEAM CARDS BY DIVISION) ── -->
+<section class="roster">
+  <div class="wrap">
+    <div class="roster-head">
+      <h2 class="roster-title">The <span class="accent">thirty-two</span></h2>
+      <div class="roster-meta">
+        Grouped by division · alphabetical within<br/>
+        Each card links to that team's bot on X and Bluesky
+      </div>
+    </div>
+
+    <div class="legend">
+      {playoffMode ? (
+        <>
+          <span class="legend-item"><span class="legend-pip playoffs"></span>Clinched playoffs</span>
+          <span class="legend-item"><span class="legend-pip eliminated"></span>Eliminated</span>
+          <span class="legend-item"><span class="legend-pip record"></span>Final regular-season record</span>
+        </>
+      ) : (
+        <>
+          <span class="legend-item"><span class="legend-pip record"></span>Record · W-L-OT</span>
+          <span class="legend-item">Playoff badges activate when clinches begin</span>
+        </>
+      )}
+    </div>
+
+    {divisions.map(div => (
+      <div class="division">
+        <div class="division-head">
+          <span class="division-name">{div.name}</span>
+          <span class="division-conf">{div.conf}</span>
+          <span class="division-rule"></span>
+          <span class="division-count">{div.rows.length} bots</span>
+        </div>
+        <div class="team-grid">
+          {div.rows.map(row => (
+            <article class={`team-card${row.isPlayoff ? ' is-playoff' : ''}${row.isEliminated ? ' is-eliminated' : ''}`}>
+              <div class="team-bar">
+                <div class="team-bar-l" style={`background:${row.paletteA}`}></div>
+                <div class="team-bar-r" style={`background:${row.paletteB}`}></div>
+              </div>
+              <div class="team-head">
+                <img
+                  src={row.logoUrl}
+                  alt={`${row.name} logo`}
+                  class="team-logo"
+                  width="56"
+                  height="56"
+                  loading="lazy"
+                  onerror="this.style.visibility='hidden'"
+                />
+                <div class="team-id">
+                  <div class="team-abbr" style={`color:${row.abbrColor}`}>{row.abbr}</div>
+                  <div class="team-name">{row.name}</div>
+                </div>
+              </div>
+              {row.record && (
+                <div class="team-status">
+                  <span class="team-status-lbl">{playoffMode ? 'Status' : 'Record'}</span>
+                  <span class={`team-status-val${row.isPlayoff ? ' playoffs' : ''}${row.isEliminated ? ' eliminated' : ''}`}>
+                    {playoffMode
+                      ? (row.isPlayoff ? 'Playoffs' : row.isEliminated ? 'Eliminated' : row.record)
+                      : row.record}
+                  </span>
+                </div>
+              )}
+              <div class="team-handles">
+                <a href={row.xUrl} class="team-handle" target="_blank" rel="noopener" aria-label={`${row.name} on X`}>
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                  <span class="platform">X</span>
+                  <span class="h-name">@{row.xHandle}</span>
+                  <span class="arrow">→</span>
+                </a>
+                <a href={row.bskyUrl} class="team-handle" target="_blank" rel="noopener" aria-label={`${row.name} on Bluesky`}>
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
+                  <span class="platform">BSKY</span>
+                  <span class="h-name">{row.bskyHandle}</span>
+                  <span class="arrow">→</span>
+                </a>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    ))}
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="foot-wordmark" href="/">Hockey<span class="dot"></span>Gamebot</a>
+      <div class="foot-ghost">32 Bots · Every Game · All Season</div>
+      <div class="foot-tag">Built for fans who watch<br/>the <strong style="color:#fff">shot map</strong>.</div>
+    </div>
+    <div class="foot-bar">
+      <span>© 2026 HockeyGameBot · Not affiliated with the NHL</span>
+      <span>hockeygamebot.com</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
