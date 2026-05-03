@@ -24,9 +24,21 @@
 - [ ] Player-level xGF roster plugin (ingest Evolving Hockey RAPM or MoneyPuck GAR) — biggest remaining signal
 - [ ] Fix `simulate_series_v2` hardcoded `random.Random(42)` on line ~225 (should use the caller's seed)
 
+## Editorial Homepage (`/home-editorial`) — post-session
+
+- [ ] Wire real bot activity stream into live hero bot feed (currently mocked with static entries)
+- [ ] Integrate Haiku for featured game editorial headline/dek (< $0.01/call; replace auto-derived `editCopy()`)
+- [ ] Wire real card images into bot cards rail (B2 CDN URLs) once bot rewrite ships
+- [ ] Decide URL architecture: promote `/home-editorial` → `/` and move scoreboard to `/live`, or keep split
+- [ ] QA live hero score alignment and ghost opacity on real live game data
+
+## Teams Page — post-session
+
+- [ ] QA division-grouped redesign on real playoff data (clinch/eliminated badges, opacity treatment)
+- [ ] Consider adding per-team recent post preview (last tweet/skeet from the bot feed)
+
 ## Proposals
 
-- [ ] Review hockeygamebot.com site for improvements
 - [ ] Review ig.hockeygamebot.com subdomain
 
 ## Stats Site Sprint (SS-*)
