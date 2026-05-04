@@ -1,21 +1,28 @@
 ---
 import {
   loadPlayers,
-  loadTopForwardsHGBScore,
-  loadTopDefensemenHGBScore,
   loadTopForwardsShots60,
   loadTopGoals60,
 } from '../../lib/stats-loader';
 import { pickTeamColor } from '../../lib/team-colors';
 
-// ── Ranked list ──────────────────────────────────────────────────────────────
-const fwdHGB = loadTopForwardsHGBScore(25);
-const defHGB = loadTopDefensemenHGBScore(25);
+// ── Ranked list — HGB Rating (RAPM ×60, goals above replacement / 60 min) ───
+const allPlayers = loadPlayers();
+const withRapm = allPlayers.filter(p => p.rapm != null && p.gp >= 20);
+const fwdRapmSorted = withRapm.filter(p => p.pos_group === 'F').sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
+const defRapmSorted = withRapm.filter(p => p.pos_group === 'D').sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
+function toRatingRow(p: typeof allPlayers[0], rank: number, total: number) {
+  return { player_id: p.player_id, slug: p.slug, display_name: p.display_name,
+           team_abbrev: p.team_abbrev, pos: p.pos, gp: p.gp,
+           value: (p.rapm ?? 0) * 60,
+           pct: Math.round((1 - rank / total) * 100) };
+}
+const fwdHGB = fwdRapmSorted.slice(0, 25).map((p, i) => toRatingRow(p, i, fwdRapmSorted.length));
+const defHGB = defRapmSorted.slice(0, 25).map((p, i) => toRatingRow(p, i, defRapmSorted.length));
 const top12Ids = new Set(fwdHGB.slice(0, 12).map(p => p.player_id));
 
 // ── Bar chart (shots/60) ─────────────────────────────────────────────────────
 const fwdShots = loadTopForwardsShots60(20);
-const allPlayers = loadPlayers();
 const allFwds = allPlayers.filter(p => p.pos_group === 'F' && p.gp >= 20);
 
 // Empty-array math guards (P2 LOW fix — SITE-FIX-03).
@@ -109,7 +116,7 @@ function fmtToi(sec: number): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Leaderboards — HGB Stats — HockeyGameBot</title>
-  <meta name="description" content="Top NHL skaters by HGBScore v2, shots per 60, expected goals, and pure goals per 60. Four angles on the season, all rate-adjusted, minimum 20 games played." />
+  <meta name="description" content="Top NHL skaters by HGB Rating (RAPM ×60), shots per 60, expected goals, and pure goals per 60. Four angles on the season, all rate-adjusted, minimum 20 games played." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -439,7 +446,7 @@ function fmtToi(sec: number): string {
       </div>
       <div class="mast-card">
         <h1 class="mast-headline">Who's driving<br>play this season.</h1>
-        <p class="mast-lede">Four leaderboards, four ways to read the season. <span class="mono">HGBScore v2</span> for overall per-position, <span class="mono">shots/60</span> for volume, an <span class="mono">xG&nbsp;&times;&nbsp;finishing</span> scatter for shot quality, and <span class="mono">goals/60</span> for pure scoring rate. All rate-adjusted, minimum 20 GP.</p>
+        <p class="mast-lede">Four leaderboards, four ways to read the season. <span class="mono">HGB Rating</span> (RAPM ×60) for overall per-position, <span class="mono">shots/60</span> for volume, an <span class="mono">xG&nbsp;&times;&nbsp;finishing</span> scatter for shot quality, and <span class="mono">goals/60</span> for pure scoring rate. All rate-adjusted, minimum 20 GP.</p>
       </div>
     </div>
   </section>
@@ -447,11 +454,11 @@ function fmtToi(sec: number): string {
   <main class="wrap">
 
     <!-- ════════════════════════════════════════════════════════════════
-         SECTION 1 — Ranked list · HGBScore V2
+         SECTION 1 — Ranked list · HGB Rating
          ════════════════════════════════════════════════════════════ -->
     <div class="lb-sec">
       <div class="lb-sec-h">
-        <h2>Top overall · HGBScore V2</h2>
+        <h2>Top overall · HGB Rating</h2>
         <span class="lb-sec-mode">Mode · <b>Ranked list</b></span>
       </div>
       <p class="lb-sec-lede">Per-game blend of goals, assists, shots, <span class="mono">xG</span>, and two-way play — scaled so <span class="mono">1.0</span> is a solid full game. Split by position so we're not comparing scorers to 40-minute defensemen.</p>
@@ -460,7 +467,7 @@ function fmtToi(sec: number): string {
         <!-- Forwards -->
         <div class="ranked-col">
           <div class="ranked-col-h">
-            <span><span class="card-eyebrow"><span class="accent">HGBScore V2</span> · Forwards</span> <span class="tag">TOP 25</span></span>
+            <span><span class="card-eyebrow"><span class="accent">HGB Rating</span> · Forwards</span> <span class="tag">TOP 25</span></span>
             <span class="sub">min 20 GP · per 60</span>
           </div>
           {fwdHGB.map((p, i) => {
@@ -475,13 +482,13 @@ function fmtToi(sec: number): string {
                   <span class="rc-name">{p.display_name}</span>
                   <span class="rc-meta">{p.pos} · {p.team_abbrev} · {p.gp} GP</span>
                 </div>
-                <span class="rc-val">{p.value.toFixed(2)}</span>
+                <span class="rc-val" style={`color:${p.value >= 0 ? '#14803c' : 'var(--red)'}`}>{p.value >= 0 ? '+' : ''}{p.value.toFixed(2)}</span>
                 <span class="rc-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span>
               </a>
             );
           })}
           <div class="ranked-foot">
-            <span>HGBScore V2 · {fwdHGB.length} shown</span>
+            <span>HGB Rating · {fwdHGB.length} shown</span>
             <a href="/stats/leaderboards/all">View all {allFwds.length} →</a>
           </div>
         </div>
@@ -489,7 +496,7 @@ function fmtToi(sec: number): string {
         <!-- Defensemen -->
         <div class="ranked-col">
           <div class="ranked-col-h">
-            <span><span class="card-eyebrow"><span class="accent">HGBScore V2</span> · Defensemen</span> <span class="tag">TOP 25</span></span>
+            <span><span class="card-eyebrow"><span class="accent">HGB Rating</span> · Defensemen</span> <span class="tag">TOP 25</span></span>
             <span class="sub">min 20 GP · per 60</span>
           </div>
           {defHGB.map((p, i) => {
@@ -504,7 +511,7 @@ function fmtToi(sec: number): string {
                   <span class="rc-name">{p.display_name}</span>
                   <span class="rc-meta">{p.pos} · {p.team_abbrev} · {p.gp} GP</span>
                 </div>
-                <span class="rc-val">{p.value.toFixed(2)}</span>
+                <span class="rc-val" style={`color:${p.value >= 0 ? '#14803c' : 'var(--red)'}`}>{p.value >= 0 ? '+' : ''}{p.value.toFixed(2)}</span>
                 <span class="rc-dot" style={`background:${dotColor(p.pct)}`} title={`${Math.round(p.pct)}th pct`}></span>
               </a>
             );
@@ -733,7 +740,7 @@ function fmtToi(sec: number): string {
       </div>
       <div class="lb-method-grid">
         <div class="lb-method-card">
-          <div class="k">HGBScore V2 <span class="badge badge-core">CORE</span></div>
+          <div class="k">HGB Rating <span class="badge badge-core">CORE</span></div>
           <div class="v">Per-game blend of goals, assists, shots, <span class="mono">xG</span>, and two-way play — scaled so <span class="mono">1.0</span> is a solid game. Percentiles vs same position group with 20+ GP.</div>
         </div>
         <div class="lb-method-card">
