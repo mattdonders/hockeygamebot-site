@@ -46,7 +46,7 @@ Full plan: `docs/plans/stats-redesign.md`
 - [ ] Add `teams.json` to export (32-team aggregates)
 
 ### Phase 2 — Flagship pages
-- [ ] **Player detail page** (`/stats/player/[slug]`) — fingerprint + RAPM block + game log sparkline + "Generate Card" CTA
+- [x] **Player detail page** (`/stats/player/[slug]`) — editorial rewrite: headshot, RAPM block (×60), percentile bars, game log, Generate Card CTA sidebar, Similar Players sidebar
 - [ ] **Goalie page** (`/stats/goalies` + `/stats/goalie/[slug]`)
 - [ ] Sortable/filterable full skater table — vanilla JS island, sort/filter/search across all 715
 
@@ -93,7 +93,7 @@ Full plan: `docs/plans/stats-redesign.md`
 - [x] **SS-FIX-01**: Polish pass — phantom red stripe, hero ticker removed, heatmap shine, font floor audit, sparkline with adaptive zero line + white trendline, section C typography
 - [ ] **SS-6**: Methodology page `/stats/methodology`
 - [ ] **SS-7**: Mobile polish pass
-- [ ] **SS-8**: Merge stats into main site nav
+- [x] **SS-8**: Merge stats into main site nav (Home · Scoreboard · Playoffs · Stats · Teams · Support across all editorial pages)
 - [ ] **Export script**: Add `player_of_the_week` to `_meta.json` in `hgb-bot scripts/export_stats_data.py` (7-day rolling, min 3 GP/40min TOI) — site already reads it, fallback to season avg until then
 - [ ] **Goalie metrics**: Add GSAx to leaderboards when export pipeline has it — xG section in `/stats` has a comment marking the swap point
 
