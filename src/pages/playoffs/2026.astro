@@ -50,40 +50,80 @@ type ApiSeries = {
 };
 
 let apiSeries: ApiSeries[] = [];
+let apiSeriesR2: ApiSeries[] = [];
 let latestUpdate: string | null = null;
 try {
-  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
-  if (res.ok) {
-    const data = await res.json();
-    apiSeries = data.series ?? [];
-    latestUpdate = data.latest_update ?? null;
-  }
-} catch (_) {
-  // If hgb-api is unreachable at build time, the page still renders. Client-side
-  // loadModelData() will fill in later.
+  const [res1, res2] = await Promise.all([
+    fetch('https://api.hockeygamebot.com/v1/playoffs/round/1'),
+    fetch('https://api.hockeygamebot.com/v1/playoffs/round/2'),
+  ]);
+  if (res1.ok) { const d = await res1.json(); apiSeries = d.series ?? []; latestUpdate = d.latest_update ?? null; }
+  if (res2.ok) { const d = await res2.json(); apiSeriesR2 = d.series ?? []; latestUpdate = latestUpdate ?? d.latest_update ?? null; }
+} catch (_) {}
+
+function buildSeriesArray(raw: ApiSeries[]) {
+  return raw.map(s => {
+    const a = TEAM_META[s.team_a] ?? null;
+    const b = TEAM_META[s.team_b] ?? null;
+    if (!a || !b) return null;
+    return {
+      id: s.series_id,
+      conf: a.conf,
+      miniBadge: `${a.conf === 'East' ? 'East' : 'West'} · ${a.seed.split(' · ')[1] ?? a.seed} vs ${b.seed.split(' · ')[1] ?? b.seed}`,
+      games: s.games,
+      is_complete: s.is_complete,
+      winner: s.winner,
+      winner_in: s.winner_in,
+      nextGameUTC: s.next_game_utc,
+      a: { abbr: s.team_a, name: a.name, color: a.color, seed: a.seed, seedFull: a.seedFull,
+           dist: s.dist_a, winPct: s.win_pct_a },
+      b: { abbr: s.team_b, name: b.name, color: b.color, seed: b.seed, seedFull: b.seedFull,
+           dist: s.dist_b, winPct: s.win_pct_b },
+    };
+  }).filter((x): x is NonNullable<typeof x> => x !== null);
 }
 
-// Derive a UI-ready SERIES array. Team metadata comes from TEAM_META; dynamic
-// state from the API payload. Series_id pattern is `hs-ls` lowercased (Elo order).
-const SERIES = apiSeries.map(s => {
-  const a = TEAM_META[s.team_a] ?? null;
-  const b = TEAM_META[s.team_b] ?? null;
-  if (!a || !b) return null;
-  return {
-    id: s.series_id,
-    conf: a.conf,
-    miniBadge: `${a.conf === 'East' ? 'East' : 'West'} · ${a.seed.split(' · ')[1] ?? a.seed} vs ${b.seed.split(' · ')[1] ?? b.seed}`,
-    games: s.games,
-    is_complete: s.is_complete,
-    winner: s.winner,
-    winner_in: s.winner_in,
-    nextGameUTC: s.next_game_utc,
-    a: { abbr: s.team_a, name: a.name, color: a.color, seed: a.seed, seedFull: a.seedFull,
-         dist: s.dist_a, winPct: s.win_pct_a },
-    b: { abbr: s.team_b, name: b.name, color: b.color, seed: b.seed, seedFull: b.seedFull,
-         dist: s.dist_b, winPct: s.win_pct_b },
-  };
-}).filter((x): x is NonNullable<typeof x> => x !== null);
+const SERIES    = buildSeriesArray(apiSeries);
+const SERIES_R2 = buildSeriesArray(apiSeriesR2);
+
+// Quick lookup: series by team pair (for bracket rendering)
+const seriesByTeams = new Map<string, typeof SERIES[0]>();
+[...SERIES, ...SERIES_R2].forEach(s => {
+  seriesByTeams.set(`${s.a.abbr}-${s.b.abbr}`, s);
+  seriesByTeams.set(`${s.b.abbr}-${s.a.abbr}`, s);
+});
+
+// ── Bracket state for hero ────────────────────────────────────────────────────
+// Hardcoded 2026 bracket topology. Each arm: r1a + r1b → r2.
+// Winner of r1a plays winner of r1b in round 2.
+type BracketArm = { r1: [string, string]; r2: [string, string] };
+const EAST_BRACKET: BracketArm[] = [
+  { r1: ['CAR','OTT'], r2: ['CAR','PHI'] },
+  { r1: ['PHI','PIT'], r2: ['CAR','PHI'] },
+  { r1: ['BUF','BOS'], r2: ['BUF','MTL'] },
+  { r1: ['MTL','TBL'], r2: ['BUF','MTL'] },
+];
+const WEST_BRACKET: BracketArm[] = [
+  { r1: ['COL','LAK'], r2: ['COL','MIN'] },
+  { r1: ['MIN','DAL'], r2: ['COL','MIN'] },
+  { r1: ['VGK','UTA'], r2: ['VGK','ANA'] },
+  { r1: ['ANA','EDM'], r2: ['VGK','ANA'] },
+];
+
+// R1 winners/losers for bracket rendering
+const r1Winners = new Map<string, boolean>(); // team → won round 1
+SERIES.forEach(s => {
+  if (s.is_complete && s.winner) {
+    const loser = s.a.abbr === s.winner ? s.b.abbr : s.a.abbr;
+    r1Winners.set(s.winner, true);
+    r1Winners.set(loser, false);
+  }
+});
+
+// R2 series lookup by team pair
+function getR2Series(a: string, b: string) {
+  return seriesByTeams.get(`${a}-${b}`) ?? seriesByTeams.get(`${b}-${a}`) ?? null;
+}
 
 // ── card helpers (server-side) ────────────────────────────────────────────────
 function buildCardSegs(s: typeof SERIES[0]) {
@@ -114,8 +154,21 @@ function mostLikely(s: typeof SERIES[0]) {
   return all.reduce((best, x) => x.v > best.v ? x : best);
 }
 
-const eastSeries = SERIES.filter(s => s.conf === 'East');
-const westSeries = SERIES.filter(s => s.conf === 'West');
+const eastSeries    = SERIES.filter(s => s.conf === 'East');
+const westSeries    = SERIES.filter(s => s.conf === 'West');
+const eastSeriesR2  = SERIES_R2.filter(s => s.conf === 'East');
+const westSeriesR2  = SERIES_R2.filter(s => s.conf === 'West');
+
+// Rough cup win probability: P(win R2) × ½ × ½ (assuming 50/50 in ECF+SCF)
+// Win percentages from the API are 0-100. Eliminated teams get 0.
+const cupPct: Record<string, number> = {};
+SERIES_R2.forEach(s => {
+  cupPct[s.a.abbr] = Math.round(s.a.winPct / 4);
+  cupPct[s.b.abbr] = Math.round(s.b.winPct / 4);
+});
+const cupRanked = Object.entries(cupPct)
+  .map(([abbr, pct]) => ({ abbr, pct, color: TEAM_META[abbr]?.color ?? '#888' }))
+  .sort((a, b) => b.pct - a.pct);
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -215,6 +268,48 @@ img { display: block; max-width: 100%; }
 .mast-headline { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: clamp(36px,5vw,56px); line-height: 0.92; letter-spacing: -0.01em; }
 .mast-sub { font-family: var(--mono); font-size: 12px; color: var(--ink-48); margin-top: 10px; letter-spacing: 0.04em; }
 
+/* ── BRACKET ── */
+.bracket-wrap { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 0; margin-top: 20px; border-top: 1px solid var(--ink-10); }
+.b-conf { display: flex; gap: 0; overflow: hidden; }
+.b-conf.west { flex-direction: row-reverse; }
+.b-col { display: flex; flex-direction: column; border-right: 1px solid var(--ink-06); min-width: 0; }
+.b-conf.west .b-col { border-right: none; border-left: 1px solid var(--ink-06); }
+.b-col-hd { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-32); text-align: center; padding: 6px 4px 5px; border-bottom: 1px solid var(--ink-10); background: var(--bg); flex-shrink: 0; }
+.b-team { display: flex; align-items: center; gap: 7px; padding: 8px 12px; border-bottom: 1px solid var(--ink-06); border-left: 3px solid transparent; flex-shrink: 0; }
+.b-team:last-child { border-bottom: none; }
+.b-team.elim { opacity: 0.28; }
+.b-team.winner { }
+.b-logo { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+.b-abbr { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.02em; flex: 1; min-width: 0; line-height: 1; }
+.b-wins { font-family: var(--display); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ink-32); line-height: 1; }
+.b-team.winner .b-wins { color: var(--ink-72); }
+.b-team.elim .b-wins { color: var(--ink-20); }
+.b-elim-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; color: var(--ink-32); }
+.b-pair-gap { height: 8px; background: var(--bg); border-bottom: 1px solid var(--ink-06); flex-shrink: 0; }
+.b-tbd { display: flex; align-items: center; justify-content: center; flex: 1; padding: 12px 8px; }
+.b-tbd-inner { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-20); border: 1px dashed var(--ink-14); padding: 3px 8px; }
+.b-scf { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px 8px; background: var(--bg); }
+.b-scf-icon { font-size: 24px; line-height: 1; }
+.b-scf-lbl { font-family: var(--mono); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); text-align: center; }
+/* Footer model note */
+.bracket-foot { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; padding: 8px 20px 6px; text-align: right; }
+
+/* Cup strip */
+.cup-strip { border-top: 1px solid var(--ink-10); padding: 14px 20px 0; }
+.cup-strip-label { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.cup-strip-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48); }
+.cup-strip-note { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+.cup-strip-teams { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 700px) { .cup-strip-teams { grid-template-columns: repeat(2, 1fr); } }
+.cup-team { display: flex; align-items: center; gap: 8px; }
+.cup-rank { font-family: var(--mono); font-size: 10px; color: var(--ink-20); min-width: 14px; font-variant-numeric: tabular-nums; }
+.cup-logo { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+.cup-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.cup-abbr { font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: 0.02em; line-height: 1; }
+.cup-pct { font-family: var(--mono); font-weight: 700; font-size: 11px; font-variant-numeric: tabular-nums; }
+.cup-bar-wrap { flex: 1; height: 3px; background: var(--ink-06); overflow: hidden; align-self: center; }
+.cup-bar-fill { height: 100%; opacity: 0.7; }
+
 /* ── CONTENT LAYOUT ── */
 .content { max-width: 1200px; margin: 0 auto; padding: 40px 32px 100px; }
 .conf-block { margin-bottom: 52px; }
@@ -256,7 +351,7 @@ img { display: block; max-width: 100%; }
 .hgb-card__teams { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin-bottom: 12px; }
 .hgb-card__team { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .hgb-card__team--b { flex-direction: row-reverse; text-align: right; }
-.hgb-card__logo { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+.hgb-card__logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; }
 .hgb-card__ids { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .hgb-card__seed { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.12em; text-transform: uppercase; }
 .hgb-card__abbr { font-family: var(--display); font-weight: 800; font-size: 20px; line-height: 0.9; letter-spacing: 0.02em; color: var(--team-color, var(--ink)); }
@@ -269,8 +364,10 @@ img { display: block; max-width: 100%; }
 .hgb-card__seg { position: relative; background: var(--c); flex: var(--w) 0 0; display: flex; align-items: center; justify-content: center; }
 .hgb-card__seg + .hgb-card__seg { border-left: 1px solid rgba(239,238,232,0.7); }
 .hgb-card__seg[data-boundary] { border-left: 2px solid rgba(13,13,20,0.25) !important; }
-.hgb-card__seg-val { font-family: var(--mono); font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+.hgb-card__seg-val { font-family: var(--mono); font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.95); font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
 .hgb-card__seg--small .hgb-card__seg-val { display: none; }
+.hgb-card__seg--max .hgb-card__seg-val { font-size: 15px; }
+.hgb-card__bar .hgb-card__seg[data-dominant] .hgb-card__seg-val { font-size: 18px; }
 
 /* footer */
 .hgb-card__foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 20px 14px; border-top: 1px solid var(--ink-06); }
@@ -531,7 +628,168 @@ img { display: block; max-width: 100%; }
     </div>
     <div class="mast-card">
       <h1 class="mast-headline">2026 Stanley Cup Playoffs</h1>
-      <p class="mast-sub">Round 1 · Monte Carlo, 10,000 sims each</p>
+
+      <!-- BRACKET -->
+      <div class="bracket-wrap">
+
+        <!-- EAST (reads left → right) -->
+        <div class="b-conf east">
+          <!-- R1 -->
+          <div class="b-col" style="flex:2">
+            <div class="b-col-hd">R1 East</div>
+            {[
+              ['CAR','OTT'], ['PHI','PIT'], null,
+              ['BUF','BOS'], ['MTL','TBL'],
+            ].map(pair => pair === null
+              ? <div class="b-pair-gap"></div>
+              : (() => {
+                  const [ta, tb] = pair as [string,string];
+                  const s = seriesByTeams.get(`${ta}-${tb}`) ?? seriesByTeams.get(`${tb}-${ta}`);
+                  const wonA = r1Winners.get(ta); const wonB = r1Winners.get(tb);
+                  const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
+                  const winsA = s?.games.filter(g => g === ta).length ?? 0;
+                  const winsB = s?.games.filter(g => g === tb).length ?? 0;
+                  return (<>
+                    <div class={`b-team${wonA === true ? ' winner' : wonA === false ? ' elim' : ''}`} style={`border-left-color:${ma.color}`}>
+                      <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
+                      <span class="b-abbr">{ta}</span>
+                      <span class="b-wins">{winsA}</span>
+                    </div>
+                    <div class={`b-team${wonB === true ? ' winner' : wonB === false ? ' elim' : ''}`} style={`border-left-color:${mb.color}`}>
+                      <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${tb}_light.svg`} alt={tb} />
+                      <span class="b-abbr">{tb}</span>
+                      <span class="b-wins">{winsB}</span>
+                    </div>
+                  </>);
+                })()
+            )}
+          </div>
+          <!-- R2 -->
+          <div class="b-col" style="flex:1.6">
+            <div class="b-col-hd">R2</div>
+            {[['CAR','PHI'], null, ['BUF','MTL']].map(pair => {
+              if (pair === null) return <div class="b-pair-gap" style="flex:1"></div>;
+              const [ta, tb] = pair as [string,string];
+              const s = getR2Series(ta, tb);
+              const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
+              const winsA = s?.games.filter(g => g === ta).length ?? 0;
+              const winsB = s?.games.filter(g => g === tb).length ?? 0;
+              return (<>
+                <div class="b-team" style={`border-left-color:${ma.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
+                  <span class="b-abbr">{ta}</span>
+                  <span class="b-wins" style={`color:${ma.color}`}>{winsA}</span>
+                </div>
+                <div class="b-team" style={`border-left-color:${mb.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${tb}_light.svg`} alt={tb} />
+                  <span class="b-abbr">{tb}</span>
+                  <span class="b-wins" style={`color:${mb.color}`}>{winsB}</span>
+                </div>
+              </>);
+            })}
+          </div>
+          <!-- ECF -->
+          <div class="b-col" style="flex:1">
+            <div class="b-col-hd">ECF</div>
+            <div class="b-tbd" style="flex:1"><div class="b-tbd-inner">TBD</div></div>
+          </div>
+        </div>
+
+        <!-- CENTER: SCF -->
+        <div class="b-scf">
+          <div class="b-scf-icon">🏆</div>
+          <div class="b-scf-lbl">Stanley<br/>Cup<br/>Final</div>
+        </div>
+
+        <!-- WEST (reads right → left) -->
+        <div class="b-conf west">
+          <!-- R1 -->
+          <div class="b-col" style="flex:2">
+            <div class="b-col-hd">R1 West</div>
+            {[
+              ['COL','LAK'], ['MIN','DAL'], null,
+              ['VGK','UTA'], ['ANA','EDM'],
+            ].map(pair => pair === null
+              ? <div class="b-pair-gap"></div>
+              : (() => {
+                  const [ta, tb] = pair as [string,string];
+                  const s = seriesByTeams.get(`${ta}-${tb}`) ?? seriesByTeams.get(`${tb}-${ta}`);
+                  const wonA = r1Winners.get(ta); const wonB = r1Winners.get(tb);
+                  const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
+                  const winsA = s?.games.filter(g => g === ta).length ?? 0;
+                  const winsB = s?.games.filter(g => g === tb).length ?? 0;
+                  return (<>
+                    <div class={`b-team${wonA === true ? ' winner' : wonA === false ? ' elim' : ''}`} style={`border-left-color:${ma.color}`}>
+                      <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
+                      <span class="b-abbr">{ta}</span>
+                      <span class="b-wins">{winsA}</span>
+                    </div>
+                    <div class={`b-team${wonB === true ? ' winner' : wonB === false ? ' elim' : ''}`} style={`border-left-color:${mb.color}`}>
+                      <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${tb}_light.svg`} alt={tb} />
+                      <span class="b-abbr">{tb}</span>
+                      <span class="b-wins">{winsB}</span>
+                    </div>
+                  </>);
+                })()
+            )}
+          </div>
+          <!-- R2 -->
+          <div class="b-col" style="flex:1.6">
+            <div class="b-col-hd">R2</div>
+            {[['COL','MIN'], null, ['VGK','ANA']].map(pair => {
+              if (pair === null) return <div class="b-pair-gap" style="flex:1"></div>;
+              const [ta, tb] = pair as [string,string];
+              const s = getR2Series(ta, tb);
+              const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
+              const winsA = s?.games.filter(g => g === ta).length ?? 0;
+              const winsB = s?.games.filter(g => g === tb).length ?? 0;
+              return (<>
+                <div class="b-team" style={`border-left-color:${ma.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
+                  <span class="b-abbr">{ta}</span>
+                  <span class="b-wins" style={`color:${ma.color}`}>{winsA}</span>
+                </div>
+                <div class="b-team" style={`border-left-color:${mb.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${tb}_light.svg`} alt={tb} />
+                  <span class="b-abbr">{tb}</span>
+                  <span class="b-wins" style={`color:${mb.color}`}>{winsB}</span>
+                </div>
+              </>);
+            })}
+          </div>
+          <!-- WCF -->
+          <div class="b-col" style="flex:1">
+            <div class="b-col-hd">WCF</div>
+            <div class="b-tbd" style="flex:1"><div class="b-tbd-inner">TBD</div></div>
+          </div>
+        </div>
+
+      </div><!-- /bracket-wrap -->
+      <!-- Cup odds strip -->
+      {cupRanked.length > 0 && (
+        <div class="cup-strip">
+          <div class="cup-strip-label">
+            <span class="cup-strip-eyebrow">~Cup Win %</span>
+            <span class="cup-strip-note">estimated · assumes equal odds in ECF + SCF</span>
+          </div>
+          <div class="cup-strip-teams">
+            {cupRanked.map((t, i) => (
+              <div class="cup-team">
+                <span class="cup-rank">{i + 1}</span>
+                <img class="cup-logo" src={`https://assets.nhle.com/logos/nhl/svg/${t.abbr}_light.svg`} alt={t.abbr} />
+                <div class="cup-info">
+                  <span class="cup-abbr" style={`color:${t.color}`}>{t.abbr}</span>
+                  <span class="cup-pct" style={`color:${t.color}`}>{t.pct}%</span>
+                </div>
+                <div class="cup-bar-wrap">
+                  <div class="cup-bar-fill" style={`width:${t.pct * 4}%;background:${t.color}`}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div class="bracket-foot">Series win % · 10,000 Monte Carlo simulations per series · 60/40 Elo/xGF blend</div>
+        </div>
+      )}
     </div>
   </div>
 </section>
@@ -542,9 +800,64 @@ img { display: block; max-width: 100%; }
       Predictions loading — please refresh in a moment.
     </div>
   )}
+  {/* Round 2 */}
+  {(SERIES_R2.length > 0) && ([['East', eastSeriesR2], ['West', westSeriesR2]] as const).map(([label, series]) => (
+    series.length > 0 && (
+    <div class="conf-block">
+      <div class="section-label"><span class="pip"></span>{label}ern Conference · <span style="color:var(--red)">Round 2</span></div>
+      <div class="series-grid">
+        {series.map(s => {
+          const segs = buildCardSegs(s);
+          const ml = mostLikely(s);
+          const pctA = s.a.winPct;
+          const pctB = s.b.winPct;
+          return (
+            <button class="hgb-card" data-id={s.id} style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`} aria-label={`${s.a.abbr} vs ${s.b.abbr} — click for series details`}>
+              <div class="hgb-card__inner">
+                <header class="hgb-card__meta"><span class="hgb-mini-badge">{s.miniBadge}</span></header>
+                <div class="hgb-card__teams">
+                  <div class="hgb-card__team" style={`--team-color: ${s.a.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids"><span class="hgb-card__seed">{s.a.seed}</span><span class="hgb-card__abbr">{s.a.abbr}</span></div>
+                    <span class="hgb-card__pct" style="margin-left: auto">{pctA}<small>%</small></span>
+                  </div>
+                  <span class="hgb-card__vs">vs</span>
+                  <div class="hgb-card__team hgb-card__team--b" style={`--team-color: ${s.b.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids"><span class="hgb-card__seed">{s.b.seed}</span><span class="hgb-card__abbr">{s.b.abbr}</span></div>
+                    <span class="hgb-card__pct" style="margin-right: auto">{pctB}<small>%</small></span>
+                  </div>
+                </div>
+              </div>
+              <div class="hgb-card__bar">
+                {segs.map(seg => (
+                  <div class="hgb-card__seg" style={`--c:${seg.c};--w:${seg.w}`} data-boundary={seg.boundary ? '' : undefined} data-dominant={seg.w >= 95 ? '' : undefined} class:list={[seg.isSmall && 'hgb-card__seg--small', seg.isMax && 'hgb-card__seg--max']}>
+                    {!seg.isSmall && <span class="hgb-card__seg-val">{seg.w}%</span>}
+                  </div>
+                ))}
+              </div>
+              <footer class="hgb-card__foot">
+                <div class="hgb-card__foot-col">
+                  <span class="hgb-card__foot-label">Next Game</span>
+                  <span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span>
+                </div>
+                {ml && <div class="hgb-card__foot-col hgb-card__foot-col--right">
+                  <span class="hgb-card__foot-label">Most Likely</span>
+                  <span class="hgb-card__foot-val"><strong>{ml.label.split(' in ')[0]}</strong> in {ml.label.split(' in ')[1]} · {ml.v}%</span>
+                </div>}
+              </footer>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+    )
+  ))}
+
+  {/* Round 1 */}
   {([['East', eastSeries], ['West', westSeries]] as const).map(([label, series]) => (
     <div class="conf-block">
-      <div class="section-label"><span class="pip"></span>{label}ern Conference · Round 1</div>
+      <div class="section-label"><span class="pip"></span>{label}ern Conference · Round 1 <span style="font-family:var(--mono);font-size:9px;opacity:0.5;letter-spacing:0.08em">(COMPLETE)</span></div>
       <div class="series-grid">
         {series.map(s => {
           const segs = buildCardSegs(s);
