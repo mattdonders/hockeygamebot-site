@@ -2,11 +2,25 @@
 import { loadPlayers, loadLeaderboard } from '../../lib/stats-loader';
 import { pickTeamColor } from '../../lib/team-colors';
 
-const players       = loadPlayers();
-const skaterLeaders = loadLeaderboard('game_score').slice(0, 5);
-const xgLeaders     = loadLeaderboard('xg').slice(0, 5);
+const players = loadPlayers();
 
-// Lightweight search index — name + team + pos + slug only
+// HGB Rating leaderboard — RAPM ×60, sorted descending
+const ratingLeaders = players
+  .filter(p => p.rapm != null)
+  .sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0))
+  .slice(0, 5)
+  .map(p => ({
+    slug:        p.slug,
+    display_name: p.display_name,
+    team_abbrev: p.team_abbrev,
+    pos:         p.pos,
+    gp:          p.gp,
+    value:       (p.rapm ?? 0) * 60,
+  }));
+
+const xgLeaders = loadLeaderboard('xg').slice(0, 5);
+
+// Lightweight search index for client-side search
 const searchIndex = players.map(p => ({
   slug: p.slug,
   name: `${p.first_name} ${p.last_name}`,
@@ -23,11 +37,11 @@ function sign(n: number): string { return n >= 0 ? '+' : ''; }
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>HGB Stats — HockeyGameBot</title>
-  <meta name="description" content="Advanced hockey analytics — RAPM, expected goals, percentiles, and every-player leaderboards. Updated nightly." />
+  <meta name="description" content="Advanced hockey analytics — HGB Rating, expected goals, percentiles, and every-player leaderboards. Updated nightly." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <style>
+  <style is:global>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg:      #EFEEE8;
@@ -76,65 +90,67 @@ function sign(n: number): string { return n >= 0 ? '+' : ''; }
     }
     .search-input::placeholder { color: var(--ink-32); }
     .search-input:focus { border-color: var(--ink); }
-    .search-icon { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--ink-32); pointer-events: none; font-size: 16px; }
+    .search-icon { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--ink-48); pointer-events: none; font-size: 14px; font-family: var(--mono); }
     .search-results {
-      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
+      position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 40;
       background: var(--surface); border: 2px solid var(--ink);
       display: none; flex-direction: column;
-      box-shadow: 4px 4px 0 rgba(13,13,20,0.12);
+      box-shadow: 4px 4px 0 rgba(13,13,20,0.10);
     }
     .search-results.open { display: flex; }
     .search-result {
-      display: flex; align-items: center; gap: 12px;
-      padding: 10px 16px; border-bottom: 1px solid var(--ink-10);
-      text-decoration: none; color: var(--ink); cursor: pointer;
+      display: flex; align-items: center; gap: 14px;
+      padding: 11px 16px; border-bottom: 1px solid var(--ink-10);
+      text-decoration: none; color: var(--ink);
     }
     .search-result:last-child { border-bottom: 0; }
     .search-result:hover, .search-result.focused { background: var(--bg); }
-    .sr-name { font-family: var(--body); font-weight: 600; font-size: 14px; flex: 1; }
-    .sr-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; white-space: nowrap; }
-    .sr-empty { padding: 12px 16px; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .sr-name { font-family: var(--body); font-weight: 600; font-size: 15px; color: var(--ink); flex: 1; }
+    .sr-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.05em; white-space: nowrap; }
+    .sr-empty { padding: 14px 16px; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; }
 
-    /* Content grid */
+    /* Content */
     .content { padding: 40px 0; display: flex; flex-direction: column; gap: 40px; }
 
-    /* Section header */
-    .section-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 12px; }
-    .section-eyebrow .accent { color: var(--red); }
+    /* White surface card (matches player page) */
+    .card { background: var(--surface); border: 1px solid var(--ink-14); box-shadow: 0 1px 3px rgba(13,13,20,0.06); }
+    .card-head { padding: 14px 18px 12px; border-bottom: 1px solid var(--ink-06); display: flex; align-items: baseline; justify-content: space-between; }
+    .card-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); }
+    .card-eyebrow .accent { color: var(--red); }
+    .card-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
 
     /* Leaders grid */
-    .leaders-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+    .leaders-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
     @media (max-width: 700px) { .leaders-grid { grid-template-columns: 1fr; } }
 
-    /* Leader list */
-    .leaders-list { background: var(--surface); border: 1px solid var(--ink-14); }
-    .lb-row { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--ink-06); text-decoration: none; color: inherit; border-left: 3px solid transparent; transition: background 0.1s; }
-    .lb-row:last-child { border-bottom: 0; }
+    /* Leader rows */
+    .lb-row { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--ink-06); text-decoration: none; color: inherit; border-left: 3px solid transparent; transition: background 0.1s; }
+    .lb-row:last-of-type { border-bottom: 0; }
     .lb-row:hover { background: var(--bg); }
-    .lb-rank { font-family: var(--mono); font-size: 11px; color: var(--ink-32); min-width: 20px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-    .lb-logo { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+    .lb-rank { font-family: var(--mono); font-size: 11px; color: var(--ink-32); min-width: 16px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+    .lb-logo { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
     .lb-info { flex: 1; min-width: 0; }
-    .lb-name { font-family: var(--body); font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .lb-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; margin-top: 1px; }
-    .lb-val { font-family: var(--mono); font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; text-align: right; flex-shrink: 0; min-width: 44px; }
-    .view-all { display: block; margin-top: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-32); text-decoration: none; text-align: right; }
+    .lb-name { font-family: var(--body); font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+    .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em; margin-top: 2px; }
+    .lb-val { font-family: var(--mono); font-weight: 700; font-size: 16px; font-variant-numeric: tabular-nums; text-align: right; flex-shrink: 0; min-width: 48px; color: var(--ink); }
+    .lb-val.pos { color: #14803c; }
+    .view-all { display: block; padding: 10px 18px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-32); text-decoration: none; text-align: right; border-top: 1px solid var(--ink-06); }
     .view-all:hover { color: var(--red); }
 
-    /* Browse all CTA */
+    /* Browse CTA */
     .browse-cta { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; background: var(--surface); border: 1px solid var(--ink-14); }
     .browse-text { font-family: var(--display); font-weight: 700; font-size: 18px; text-transform: uppercase; letter-spacing: 0.02em; }
     .browse-link { font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--red); text-decoration: none; padding: 10px 18px; border: 2px solid var(--red); }
     .browse-link:hover { background: var(--red); color: #fff; }
 
     /* Methodology */
-    .method-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; background: var(--surface); border: 1px solid var(--ink-14); }
+    .method-grid { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border: 1px solid var(--ink-14); }
     @media (max-width: 700px) { .method-grid { grid-template-columns: 1fr; } }
     .method-item { padding: 20px 20px 18px; border-right: 1px solid var(--ink-06); }
     .method-item:last-child { border-right: 0; }
     .method-label { font-family: var(--display); font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
     .method-desc { font-family: var(--mono); font-size: 11px; color: var(--ink-48); line-height: 1.65; letter-spacing: 0.02em; }
 
-    /* Footer */
     footer { background: var(--ink); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.24); letter-spacing: 0.06em; text-align: center; }
   </style>
 </head>
@@ -160,7 +176,6 @@ function sign(n: number): string { return n >= 0 ? '+' : ''; }
   <div class="hero">
     <div class="hero-eyebrow">HGB Stats · 2025–26 NHL Season</div>
     <h1 class="hero-headline">Every skater.<br><em>Measured.</em></h1>
-
     <div class="search-wrap" id="search-wrap">
       <input
         type="search"
@@ -177,51 +192,55 @@ function sign(n: number): string { return n >= 0 ? '+' : ''; }
 
   <div class="content">
 
-    <!-- LEADERS -->
-    <div>
-      <div class="leaders-grid">
-        <div>
-          <div class="section-eyebrow">Season Leaders &nbsp;<span class="accent">HGBScore V2</span></div>
-          <div class="leaders-list">
-            {skaterLeaders.map((entry, i) => {
-              const tc = pickTeamColor(entry.team_abbrev);
-              return (
-                <a class="lb-row" href={`/stats/player/${entry.slug}`} style={`border-left-color:${tc}`}>
-                  <span class="lb-rank">{i + 1}</span>
-                  <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${entry.team_abbrev}_light.svg`} alt={entry.team_abbrev} width="22" height="22" loading="lazy" />
-                  <div class="lb-info">
-                    <div class="lb-name">{entry.display_name}</div>
-                    <div class="lb-meta">{entry.pos} · {entry.team_abbrev} · {entry.gp} GP</div>
-                  </div>
-                  <span class="lb-val">{sign(entry.value)}{entry.value.toFixed(2)}</span>
-                </a>
-              );
-            })}
-          </div>
-          <a href="/stats/leaderboards" class="view-all">Full leaderboard →</a>
-        </div>
+    <!-- LEADERBOARDS -->
+    <div class="leaders-grid">
 
-        <div>
-          <div class="section-eyebrow">Season Leaders &nbsp;<span class="accent">xG / 60</span></div>
-          <div class="leaders-list">
-            {xgLeaders.map((entry, i) => {
-              const tc = pickTeamColor(entry.team_abbrev);
-              return (
-                <a class="lb-row" href={`/stats/player/${entry.slug}`} style={`border-left-color:${tc}`}>
-                  <span class="lb-rank">{i + 1}</span>
-                  <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${entry.team_abbrev}_light.svg`} alt={entry.team_abbrev} width="22" height="22" loading="lazy" />
-                  <div class="lb-info">
-                    <div class="lb-name">{entry.display_name}</div>
-                    <div class="lb-meta">{entry.pos} · {entry.team_abbrev} · {entry.gp} GP</div>
-                  </div>
-                  <span class="lb-val">{entry.value.toFixed(2)}</span>
-                </a>
-              );
-            })}
-          </div>
-          <a href="/stats/leaderboards" class="view-all">Full leaderboard →</a>
+      <!-- HGB RATING (RAPM ×60) -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-eyebrow">Season Leaders &nbsp;<span class="accent">HGB Rating</span></span>
+          <span class="card-meta">per 60 min · 2025–26</span>
         </div>
+        {ratingLeaders.map((entry, i) => {
+          const tc = pickTeamColor(entry.team_abbrev);
+          return (
+            <a class="lb-row" href={`/stats/player/${entry.slug}`} style={`border-left-color:${tc}`}>
+              <span class="lb-rank">{i + 1}</span>
+              <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${entry.team_abbrev}_light.svg`} alt={entry.team_abbrev} width="28" height="28" loading="lazy" />
+              <div class="lb-info">
+                <div class="lb-name">{entry.display_name}</div>
+                <div class="lb-meta">{entry.pos} · {entry.team_abbrev} · {entry.gp} GP</div>
+              </div>
+              <span class={`lb-val${entry.value >= 0 ? ' pos' : ''}`}>{sign(entry.value)}{entry.value.toFixed(2)}</span>
+            </a>
+          );
+        })}
+        <a href="/stats/leaderboards" class="view-all">Full leaderboard →</a>
       </div>
+
+      <!-- xG / 60 -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-eyebrow">Season Leaders &nbsp;<span class="accent">xG / 60</span></span>
+          <span class="card-meta">5v5 · 2025–26</span>
+        </div>
+        {xgLeaders.map((entry, i) => {
+          const tc = pickTeamColor(entry.team_abbrev);
+          return (
+            <a class="lb-row" href={`/stats/player/${entry.slug}`} style={`border-left-color:${tc}`}>
+              <span class="lb-rank">{i + 1}</span>
+              <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${entry.team_abbrev}_light.svg`} alt={entry.team_abbrev} width="28" height="28" loading="lazy" />
+              <div class="lb-info">
+                <div class="lb-name">{entry.display_name}</div>
+                <div class="lb-meta">{entry.pos} · {entry.team_abbrev} · {entry.gp} GP</div>
+              </div>
+              <span class="lb-val">{entry.value.toFixed(2)}</span>
+            </a>
+          );
+        })}
+        <a href="/stats/leaderboards" class="view-all">Full leaderboard →</a>
+      </div>
+
     </div>
 
     <!-- BROWSE ALL -->
@@ -232,19 +251,18 @@ function sign(n: number): string { return n >= 0 ? '+' : ''; }
 
     <!-- METHODOLOGY -->
     <div>
-      <div class="section-eyebrow">How we measure</div>
       <div class="method-grid">
         <div class="method-item">
-          <div class="method-label">HGBScore V2</div>
-          <p class="method-desc">Per-game blend of goals, assists, shots, xG, and two-way play — rate-adjusted per 60 minutes, scaled so 1.0 is a solid game.</p>
+          <div class="method-label">HGB Rating</div>
+          <p class="method-desc">Regularized Adjusted Plus/Minus (RAPM) — goals above a replacement player per 60 min, controlling for linemates and opponents via ridge regression on shift data.</p>
         </div>
         <div class="method-item">
           <div class="method-label">Expected Goals</div>
-          <p class="method-desc">Probability a shot scores based on location, angle, and context. Better signal than raw shot count for measuring shot quality.</p>
+          <p class="method-desc">Probability a shot scores based on location, angle, and context. Better signal than raw shot count for measuring shot quality and deployment.</p>
         </div>
         <div class="method-item">
-          <div class="method-label">RAPM</div>
-          <p class="method-desc">Regularized Adjusted Plus/Minus — isolates a player's true on-ice impact by controlling for linemates and opponents via ridge regression.</p>
+          <div class="method-label">HGBScore V2</div>
+          <p class="method-desc">Per-game blend of goals, assists, shots, xG, and two-way play — rate-adjusted per 60 minutes. Formula undergoing revision; use HGB Rating for cross-player comparisons.</p>
         </div>
       </div>
     </div>
@@ -279,7 +297,7 @@ function sign(n: number): string { return n >= 0 ? '+' : ''; }
     results.innerHTML = hits.map((p, i) =>
       `<a class="search-result" href="/stats/player/${p.slug}" role="option" data-idx="${i}">
         <span class="sr-name">${p.name}</span>
-        <span class="sr-meta">${p.team} · ${p.pos} · ${p.gp} GP</span>
+        <span class="sr-meta">${p.team} &middot; ${p.pos} &middot; ${p.gp} GP</span>
       </a>`
     ).join('');
     results.classList.add('open');
