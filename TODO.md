@@ -25,16 +25,53 @@
 - [ ] Player-level xGF roster plugin (ingest Evolving Hockey RAPM or MoneyPuck GAR) — biggest remaining signal
 - [ ] Fix `simulate_series_v2` hardcoded `random.Random(42)` on line ~225 (should use the caller's seed)
 
-## Editorial Homepage (`/home-editorial`) — post-session
+## Editorial Homepage — post-session
 
 - [ ] Wire real bot activity stream into live hero bot feed (currently mocked with static entries)
 - [ ] Integrate Haiku for featured game editorial headline/dek (< $0.01/call; replace auto-derived `editCopy()`)
 - [ ] Wire real card images into bot cards rail (B2 CDN URLs) once bot rewrite ships
-- [ ] Decide URL architecture: promote `/home-editorial` → `/` and move scoreboard to `/live`, or keep split
-- [ ] QA live hero score alignment and ghost opacity on real live game data
-- [ ] **WP chart: fix goal dot y-position** — dots currently plot at pre-goal WP y-coordinate; should plot at post-goal WP (GOAL events store post-goal WP since Apr 2026). Fix during next WP chart pass.
-- [ ] **"Yesterday" finals section** — add SSR grid of all yesterday's games directly below "Game of the Night" section (always visible, regardless of hero state). Use same `finals-grid` card style.
-- [ ] **Bigcard right panel** — wire real event feed and restore xG mini-bars, delta-since-period-start strip from mockup reference (`public/mockups/live-hero-opus.html` lines 463–586)
+- [ ] QA live hero score alignment and ghost opacity on real live game data — capture mock state during next live game (`bash scripts/capture-mock-state.sh live-p3-close`)
+- [ ] **WP chart: fix goal dot y-position** — dots plot at pre-goal WP y; should be post-goal (GOAL events store post-goal WP since Apr 2026)
+- [ ] **Bigcard right panel** — wire real event feed and restore xG mini-bars, delta-since-period-start strip (ref: `public/mockups/live-hero-opus.html:463–586`)
+
+## Stats Site Redesign — Offseason 2026
+
+Full plan: `docs/plans/stats-redesign.md`
+
+### Phase 1 — Data foundation
+- [ ] Split `player_games.json` → per-player files (`src/data/stats/game-log/{player_id}.json`) — kills 9.4 MB load bottleneck
+- [ ] Add `goalies.json` to export (`player_game_features.gsax` → GSAx/GSAA/sv%/xSv%) — `export_stats_data.py`
+- [ ] Add player headshot URL to skater export (`https://assets.nhle.com/mugs/nhl/60x60/{player_id}.png`)
+- [ ] Add `lines.json` to export (forward lines + D-pairs from `line_stats_*.csv`)
+- [ ] Add `teams.json` to export (32-team aggregates)
+
+### Phase 2 — Flagship pages
+- [ ] **Player detail page** (`/stats/player/[slug]`) — fingerprint + RAPM block + game log sparkline + "Generate Card" CTA
+- [ ] **Goalie page** (`/stats/goalies` + `/stats/goalie/[slug]`)
+- [ ] Sortable/filterable full skater table — vanilla JS island, sort/filter/search across all 715
+
+### Phase 3 — Card generation
+- [ ] Card generation pipeline: D1 `card_jobs` table, Hetzner 30s poller, R2 upload, client progress UI
+- [ ] Expose Tier 1 cards: grid card, RAPM card, with/without card (start with 3, not all 26)
+- [ ] Rate limiting: 3/day IP-limited free, unlimited for paid
+- [ ] **Card audit: consolidate A-F variants → pick 2 "official" formats, deprecate rest**
+
+### Phase 4 — Auth + monetization
+- [ ] Auth MVP: email magic link + D1 `users` table + Workers KV sessions (no passwords at v1)
+- [ ] Google + X OAuth (second)
+- [ ] Patreon billing link flow (separate from identity) — unlock unlimited cards + no watermark
+- [ ] Patreon webhook handler (`POST /api/webhooks/patreon`) + nightly re-verify cron
+
+### Phase 5 — Personalization
+- [ ] Favoriting: `user_prefs` D1 table (`fav_teams`, `fav_players`)
+- [ ] Personalized home hero — "Your Teams Tonight" surfaced above the pre-state card grid
+- [ ] Compare page (`/stats/compare`) — two-player overlay, dual fingerprints
+
+### Deferred (post v1)
+- [ ] Historical season selector
+- [ ] Lines page (`/stats/lines`)
+- [ ] Teams page (`/stats/teams`)
+- [ ] xG recalibration (apply 1.46× stopgap → xG v2 rebuild is longer project)
 
 ## Teams Page — post-session
 
