@@ -1,0 +1,2559 @@
+---
+// HockeyGameBot live scoreboard — editorial light-mode re-skin of index.astro
+
+type PlayoffSnap = {
+  series_id: string;
+  team_a: string; team_b: string;
+  win_pct_a: number; win_pct_b: number;
+  next_game_utc: string | null;
+  is_complete: boolean;
+};
+let playoffNext: { snap: PlayoffSnap; gameDateISO: string } | null = null;
+let playoffActive = false;
+try {
+  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
+  if (res.ok) {
+    const data = await res.json();
+    const active: PlayoffSnap[] = (data.series ?? []).filter((s: PlayoffSnap) => !s.is_complete);
+    playoffActive = active.length > 0;
+    const withTime = active.filter(s => s.next_game_utc);
+    withTime.sort((a, b) => a.next_game_utc! < b.next_game_utc! ? -1 : 1);
+    if (withTime[0]) playoffNext = { snap: withTime[0], gameDateISO: withTime[0].next_game_utc! };
+  }
+} catch (_) { /* no banner */ }
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HockeyGameBot · Scoreboard — Live NHL Scores & Analytics</title>
+  <meta name="description" content="Live NHL scores and game cards with real-time win probability, xG flow charts, play-by-play, and advanced analytics. Every game, every night.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HockeyGameBot">
+  <meta property="og:title" content="HockeyGameBot · Scoreboard">
+  <meta property="og:description" content="Live NHL scores and advanced analytics — win probability, expected goals, and more.">
+  <meta property="og:url" content="https://hockeygamebot.com/scoreboard">
+  <meta property="og:image" content="https://hockeygamebot.com/og/main.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@hockeygamebot">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/favicon-180x180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+  <script src="/js/hgb-charts.js" is:inline></script>
+
+<style is:global>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #EFEEE8;
+  --surface: #FFFFFF;
+  --ink: #0d0d14;
+  --ink-86: rgba(13,13,20,0.86);
+  --ink-72: rgba(13,13,20,0.72);
+  --ink-48: rgba(13,13,20,0.48);
+  --ink-32: rgba(13,13,20,0.32);
+  --ink-20: rgba(13,13,20,0.20);
+  --ink-14: rgba(13,13,20,0.14);
+  --ink-10: rgba(13,13,20,0.10);
+  --ink-06: rgba(13,13,20,0.06);
+  --red: #E8002D;
+  --green: #16a34a;
+  --yellow: #b45309;
+  --orange: #c2410c;
+  --blue: #1d4ed8;
+  --cyan: #0284c7;
+  --display: "Barlow Condensed", sans-serif;
+  --body: "Barlow", sans-serif;
+  --mono: "JetBrains Mono", monospace;
+}
+html, body {
+  width: 100%; height: 100vh; overflow: hidden;
+  background: var(--bg); font-family: var(--body); color: var(--ink);
+  display: flex; flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+
+/* ── NAV ── */
+.wrap { max-width: 1400px; margin: 0 auto; padding: 0 32px; }
+.nav { background: var(--bg); border-bottom: 1px solid var(--ink-14); flex-shrink: 0; z-index: 50; }
+.nav-inner { display: flex; align-items: center; height: 52px; gap: 0; }
+.wordmark { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; line-height: 1; color: var(--ink); }
+.wordmark .dot { width: 6px; height: 6px; background: var(--red); border-radius: 50%; margin: 0 7px; display: inline-block; transform: translateY(-1px); }
+.nav-status { display: inline-flex; align-items: center; gap: 7px; margin-left: 18px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em; }
+.nav-status .pip { width: 6px; height: 6px; background: var(--red); border-radius: 50%; animation: pip 1.4s infinite; }
+.nav-links { margin-left: auto; display: flex; align-items: center; gap: 0; font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; }
+.nav-links a { padding: 5px 12px; color: var(--ink-48); transition: color .15s; }
+.nav-links a:hover, .nav-links a.active { color: var(--ink); }
+.nav-links .sep { color: var(--ink-20); }
+@keyframes pip { 0%,100% { opacity:1; } 50% { opacity:0.25; } }
+
+/* ── PLAYOFF STRIP ── */
+.playoff-strip {
+  display: flex; align-items: center; gap: 14px;
+  padding: 6px 20px;
+  background: linear-gradient(90deg, rgba(232,0,45,0.08), rgba(232,0,45,0.02) 60%, transparent);
+  border-bottom: 1px solid rgba(232,0,45,0.14);
+  color: var(--ink-72);
+  text-decoration: none;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: background 160ms ease;
+  flex-shrink: 0;
+}
+.playoff-strip:hover { background: linear-gradient(90deg, rgba(232,0,45,0.13), rgba(232,0,45,0.04) 60%, transparent); }
+.playoff-strip__tag { color: var(--red); font-weight: 700; letter-spacing: 0.12em; flex-shrink: 0; }
+.playoff-strip__mid { flex: 1; color: var(--ink-48); font-weight: 500; text-transform: none; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playoff-strip__mid strong { color: var(--ink-72); font-weight: 600; }
+.playoff-strip__time { margin: 0 4px; color: var(--ink-32); }
+.playoff-strip__cta { color: var(--ink-48); font-weight: 600; letter-spacing: 0.1em; flex-shrink: 0; }
+.playoff-strip:hover .playoff-strip__cta { color: var(--red); }
+@media (max-width: 700px) {
+  .playoff-strip { padding: 6px 14px; gap: 10px; font-size: 10px; }
+  .playoff-strip__mid { display: none; }
+}
+
+/* ── TICKER ── */
+.ticker-strip { height: 30px; background: var(--ink); display: flex; align-items: center; overflow: hidden; flex-shrink: 0; }
+.ticker-lbl { flex-shrink: 0; height: 100%; background: rgba(0,0,0,0.3); border-right: 2px solid var(--red); padding: 0 14px; display: flex; align-items: center; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; color: var(--red); white-space: nowrap; transition: color 0.3s, border-color 0.3s; }
+.ticker-lbl.recap { color: rgba(255,255,255,0.4); border-right-color: rgba(255,255,255,0.2); }
+.ticker-content { flex: 1; overflow: hidden; white-space: nowrap; }
+.ticker-inner { display: inline-block; animation: scroll 60s linear infinite; padding-left: 40%; }
+@keyframes scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+.ticker-inner span { display: inline-block; font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.55); margin-right: 56px; }
+.ticker-inner span strong { color: rgba(255,255,255,0.9); }
+.ti-goal strong { color: #7dd3fc; }
+.ti-goal em { font-style: normal; color: #fde68a; font-size: 10px; font-weight: 700; vertical-align: middle; }
+.ti-penalty strong { color: #fde68a; }
+.ti-final strong { color: rgba(255,255,255,0.4); }
+.ti-sep { color: rgba(255,255,255,0.2); margin: 0 20px; font-size: 8px; }
+
+/* ── GRID WRAPPER ── */
+#grid-wrapper { flex: 1; background: var(--bg); padding: 4px; position: relative; overflow: hidden; min-height: 0; }
+
+/* Base grid container */
+.gg { width: 100%; height: 100%; gap: 4px; }
+
+/* Layout variants */
+.gg-1 { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.gg-2 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.gg-3 { display: grid; grid-template-columns: 3fr 2fr; grid-template-rows: 1fr 1fr; }
+.gg-3 #g-0 { grid-row: 1 / 3; }
+.gg-4 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.gg-5 { display: flex; height: 100%; }
+.gg-left  { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.gg-right { flex: 1; display: flex; flex-direction: column; gap: 4px; margin-left: 4px; }
+.gg-left .hcard, .gg-right .hcard { flex: 1; min-height: 0; }
+.gg-6  { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.gg-8r  { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; }
+.gg-9r  { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+.gg-12r { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+.gg-15r { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+.gg-7r { display: flex; height: 100%; gap: 4px; }
+.gg-7r-left  { flex: 2; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-7r-right { flex: 1; display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+.gg-11r { display: flex; height: 100%; gap: 4px; }
+.gg-11r-left  { flex: 1; display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-11r-right { flex: 2; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+.gg-13r { display: flex; height: 100%; gap: 4px; }
+.gg-13r-left  { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-13r-right { flex: 1; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+.gg-10 { display: flex; height: 100%; gap: 4px; }
+.gg-10-left  { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-10-right { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+
+.hcard:empty { background: rgba(13,13,20,0.025); border-color: rgba(13,13,20,0.06); }
+
+.gg-13r-right .hc-logo { width: 56px !important; height: 56px !important; }
+.gg-13r-right .hc-abbr { font-size: 22px !important; }
+.gg-13r-right .hc-n    { font-size: 48px !important; }
+.gg-13r-right .hc-sep  { font-size: 26px !important; }
+.gg-13r-right .hc-score-center { min-width: 88px !important; gap: 4px !important; }
+.gg-13r-right .hc-sb-row { gap: 4px !important; }
+.gg-13r-right .hc-star-name { font-size: 10px !important; }
+.gg-13r-right .hc-status    { font-size: 12px !important; }
+.gg-15r .hc-logo { width: 60px !important; height: 60px !important; }
+.gg-15r .hc-abbr { font-size: 24px !important; }
+.gg-15r .hc-n    { font-size: 50px !important; }
+.gg-15r .hc-sep  { font-size: 27px !important; }
+.gg-15r .hc-score-center { min-width: 92px !important; gap: 4px !important; }
+.gg-15r .hc-sb-row { gap: 4px !important; }
+.gg-15r .hc-star-name { font-size: 10px !important; }
+.gg-15r .hc-status    { font-size: 13px !important; }
+.hcard.compact .hc-last { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── HERO CARD ── */
+.hcard {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  position: relative; overflow: hidden;
+  display: grid; grid-template-rows: 4px auto 1fr auto;
+  transform-origin: center center; cursor: pointer;
+}
+.hcard::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(13,13,20,0.02) 0%, transparent 55%);
+}
+.hcard:hover { border-color: rgba(13,13,20,0.28); }
+.hcard--loading { display: flex; align-items: center; justify-content: center; }
+.hcard--loading::before {
+  content: ''; width: 32px; height: 32px; border: 2px solid var(--ink-14);
+  border-top-color: var(--ink-32); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── GOAL WASH ── */
+.goal-wash {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  opacity: 0; pointer-events: none;
+}
+.goal-wash.active { animation: washCycle 5s ease forwards; }
+@keyframes washCycle { 0%{opacity:0} 8%{opacity:1} 80%{opacity:1} 100%{opacity:0} }
+.gwo-eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.22em; color: rgba(255,255,255,0.85); text-transform: uppercase; }
+.gwo-scorer  { font-family: var(--display); font-size: clamp(32px, 5vw, 56px); font-weight: 800; line-height: 1; color: #fff; text-shadow: 0 2px 16px rgba(0,0,0,0.4); }
+.gwo-goal-num { font-family: var(--display); font-size: clamp(14px, 2vw, 22px); color: rgba(255,255,255,0.7); letter-spacing: 0.06em; }
+.gwo-assists  { font-size: clamp(10px, 1.2vw, 14px); color: rgba(255,255,255,0.75); }
+.gwo-divider  { width: 48px; height: 1px; background: rgba(255,255,255,0.3); margin: 4px 0; }
+.gwo-score    { font-family: var(--display); font-size: clamp(20px, 3vw, 32px); font-weight: 700; color: #fff; }
+.gwo-context  { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.65); letter-spacing: 0.1em; }
+
+/* ── CARD TRANSITIONS ── */
+.hcard.exiting { opacity: 0; transform: scale(0.96); transition: opacity 0.35s ease, transform 0.35s ease; }
+.hcard.entering { animation: cardEnter 0.45s ease forwards; }
+@keyframes cardEnter { from { opacity: 0; transform: scale(1.025); } to { opacity: 1; transform: scale(1); } }
+
+/* ── CARD SUB-ELEMENTS ── */
+.hc-accent { width: 100%; }
+.hc-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 0; position: relative; z-index: 2; }
+.hc-status { font-family: var(--display); font-size: clamp(13px, 1.2vw, 17px); font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; gap: 8px; color: var(--ink-48); }
+.hc-status.live { color: var(--cyan); }
+.hc-status.final { color: var(--ink-32); }
+.hc-status.ot { color: var(--orange); }
+.hc-status.scheduled { color: var(--ink-48); }
+.hc-status.intermission { color: var(--blue); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); position: relative; flex-shrink: 0; }
+.status-dot::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; border: 1.5px solid var(--cyan); animation: ringPulse 1.8s ease-out infinite; }
+.hc-status.final .status-dot { background: var(--ink-32); }
+.hc-status.final .status-dot::after,
+.hc-status.scheduled .status-dot::after { display: none; }
+.hc-status.scheduled .status-dot { background: var(--ink-32); }
+.hc-status.intermission .status-dot { background: var(--blue); }
+.hc-status.intermission .status-dot::after { display: none; }
+@keyframes ringPulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.9); opacity: 0; } }
+.hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.badge { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 0; border: 1px solid; display: inline-flex; align-items: center; line-height: 1; }
+.badge.pp   { color: #92400e; border-color: rgba(146,64,14,0.3); background: rgba(146,64,14,0.07); }
+.badge.pk   { color: var(--red); border-color: rgba(232,0,45,0.3); background: rgba(232,0,45,0.06); }
+.badge.adv  { color: #166534; border-color: rgba(22,101,52,0.3); background: rgba(22,101,52,0.06); }
+.badge.en   { color: #c2410c; border-color: rgba(194,65,12,0.3); background: rgba(194,65,12,0.07); }
+.badge.hot  { color: #c2410c; border-color: rgba(194,65,12,0.3); background: rgba(194,65,12,0.06); }
+.badge.close{ color: var(--red); border-color: rgba(232,0,45,0.3); background: rgba(232,0,45,0.05); }
+.badge.ot   { color: #c2410c; border-color: rgba(194,65,12,0.35); background: rgba(194,65,12,0.08); }
+
+/* ── WIN PROBABILITY TEXT ── */
+.hc-wp-text { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 2px; }
+.hc-wp-away, .hc-wp-home { font-family: var(--mono); font-size: clamp(12px, 1.4vw, 16px); font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hc-wp-mid { font-family: var(--mono); font-size: clamp(7px, 0.8vw, 9px); font-weight: 600; letter-spacing: 0.1em; color: var(--ink-32); text-transform: uppercase; }
+
+/* ── STAT BARS ── */
+.hc-stat-wrap { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+.hc-stat-bar { display: flex; align-items: center; gap: 5px; width: 100%; }
+.hc-sb-val { font-family: var(--mono); font-size: clamp(10px, 1.1vw, 13px); font-weight: 700; color: var(--ink-48); min-width: 20px; font-variant-numeric: tabular-nums; }
+.hc-sb-val.away { text-align: right; }
+.hc-sb-val.home { text-align: left; }
+.hc-sb-track { flex: 1; height: 5px; overflow: hidden; background: var(--ink-10); }
+.hc-sb-fill { height: 100%; }
+.hc-sb-label { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-20); text-align: center; }
+
+/* ── CARD BODY ── */
+.hc-body { display: flex; align-items: center; justify-content: center; padding: 4px 28px 0; position: relative; z-index: 2; }
+.hc-team { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
+.hc-logo { width: clamp(56px, 8vw, 100px); height: clamp(56px, 8vw, 100px); object-fit: contain; }
+.hc-logo.dim { opacity: 0.22; filter: grayscale(0.4); }
+.hc-abbr { font-family: var(--display); font-size: clamp(22px, 3.5vw, 40px); font-weight: 800; }
+.hc-abbr.lead { color: var(--ink); }
+.hc-abbr.trail { color: var(--ink-32); }
+.hc-abbr.tie { color: var(--ink); }
+.hc-name { font-family: var(--display); font-size: clamp(8px, 0.9vw, 10px); color: var(--ink-32); text-transform: uppercase; letter-spacing: 0.08em; }
+.hc-score-center { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: clamp(100px, 14vw, 180px); }
+.hc-nums { display: flex; align-items: center; gap: 12px; }
+.hc-n { font-family: var(--display); font-size: clamp(52px, 8vw, 100px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.hc-n.lead { color: var(--ink); }
+.hc-n.trail { color: var(--ink-32); }
+.hc-n.tie { color: var(--ink); }
+.hc-sep { font-family: var(--display); font-size: clamp(28px, 4vw, 50px); color: var(--ink-20); font-weight: 800; }
+
+/* ── CARD FOOT ── */
+.hc-foot { padding: 6px 20px 10px; display: flex; flex-direction: column; gap: 4px; position: relative; z-index: 2; }
+.hc-last-label { display: flex; align-items: center; gap: 8px; }
+.hc-last-label span { font-family: var(--mono); font-size: 7px; font-weight: 700; letter-spacing: 0.16em; color: var(--ink-20); text-transform: uppercase; white-space: nowrap; }
+.hc-last-label::before, .hc-last-label::after { content: ''; flex: 1; height: 1px; background: var(--ink-10); }
+.hc-last { font-family: var(--body); font-size: clamp(10px, 1.1vw, 12px); color: var(--ink-48); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-last strong { color: var(--ink-72); }
+.hc-stars { display: flex; justify-content: space-around; padding: 4px 0 2px; }
+.hc-star { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; }
+.hc-star-num { font-size: 9px; color: var(--ink-20); }
+.hc-star-name { font-family: var(--mono); font-size: clamp(9px, 1vw, 11px); font-weight: 600; color: var(--ink-72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; text-align: center; }
+
+/* ── RECENT EVENTS ── */
+.hc-recent { padding: 6px 20px 10px; display: flex; flex-direction: column; gap: 4px; position: relative; z-index: 2; }
+.hc-recent-label { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.hc-recent-label span { font-family: var(--mono); font-size: 7px; font-weight: 700; letter-spacing: 0.16em; color: var(--ink-20); text-transform: uppercase; white-space: nowrap; }
+.hc-recent-label::before, .hc-recent-label::after { content: ''; flex: 1; height: 1px; background: var(--ink-10); }
+.hc-recent-row { display: flex; align-items: center; gap: 6px; }
+.hc-recent-row:nth-child(2) { opacity: 1.0; }
+.hc-recent-row:nth-child(3) { opacity: 0.65; }
+.hc-recent-row:nth-child(4) { opacity: 0.35; }
+.hc-recent-icon { font-size: 12px; width: 16px; flex-shrink: 0; }
+.hc-recent-desc { font-family: var(--mono); font-size: clamp(11px, 1.1vw, 13px); color: var(--ink-72); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.hc-recent-time { font-family: var(--mono); font-size: 11px; color: var(--ink-32); white-space: nowrap; flex-shrink: 0; margin-left: 6px; }
+
+/* ── BOTTOM BAR ── */
+.bottombar { height: 96px; background: var(--surface); border-top: 1px solid var(--ink-14); display: flex; align-items: center; padding: 0 16px; gap: 8px; overflow-x: auto; overflow-y: hidden; flex-shrink: 0; }
+.bc { flex: 0 0 220px; height: 72px; background: var(--bg); border: 1px solid var(--ink-14); display: flex; flex-direction: column; overflow: hidden; }
+.bc.entering-bb { animation: bbEnter 0.45s ease forwards; }
+@keyframes bbEnter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.bc-wpbar { height: 3px; width: 100%; flex-shrink: 0; }
+.bc-inner { display: flex; align-items: center; padding: 0 8px; flex: 1; }
+.bc-team { flex: 0 0 60px; display: flex; align-items: center; justify-content: center; }
+.bc-logo { width: 52px; height: 52px; object-fit: contain; }
+.bc-logo.dim { opacity: 0.22; filter: grayscale(0.4); }
+.bc-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.bc-scores { display: flex; align-items: center; gap: 5px; }
+.bc-n { font-family: var(--display); font-size: 26px; font-weight: 800; color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums; }
+.bc-n.dim { color: var(--ink-32); }
+.bc-dash { font-family: var(--display); font-size: 17px; font-weight: 800; color: var(--ink-20); }
+.bc-status { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink-48); }
+.bc-status.live { color: var(--cyan); }
+.bc-status.ot   { color: var(--orange); }
+.bc-status.int  { color: var(--blue); }
+.bc-status.pre  { color: var(--ink-48); font-size: 11px; letter-spacing: 0.03em; }
+.bc-status.final { color: var(--ink-32); }
+.bc-status.goal  { color: var(--red); }
+.bc.bb-goal-flash { border-color: var(--red); box-shadow: 0 0 0 1px var(--red), inset 0 0 16px rgba(232,0,45,0.06); animation: bbFlash 4s ease forwards; }
+@keyframes bbFlash { 0%,60% { border-color: var(--red); box-shadow: 0 0 0 1px var(--red), inset 0 0 16px rgba(232,0,45,0.06); } 100% { border-color: var(--ink-14); box-shadow: none; } }
+
+/* ── CATCHUP PILL ── */
+#catchup-pill {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  background: rgba(13,13,20,0.9); border: 1px solid var(--ink-14);
+  color: rgba(255,255,255,0.8); font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  padding: 6px 16px; z-index: 200;
+  opacity: 0; transition: opacity 0.2s ease; pointer-events: none; white-space: nowrap;
+}
+#catchup-pill.show { opacity: 1; }
+
+/* ── DEBUG OVERLAY ── */
+.dbg-chip {
+  position: absolute; top: 6px; right: 8px; z-index: 50;
+  background: rgba(13,13,20,0.08); border: 1px solid rgba(146,64,14,0.4);
+  color: #92400e; font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  padding: 2px 6px; pointer-events: none; font-family: monospace;
+}
+#dbg-panel {
+  position: fixed; bottom: 60px; right: 12px; z-index: 500;
+  background: rgba(13,13,20,0.92); border: 1px solid var(--ink-14);
+  padding: 10px 12px; min-width: 280px; max-height: 320px; overflow-y: auto;
+  font-family: monospace; font-size: 11px; color: rgba(255,255,255,0.5);
+}
+.dbg-title { font-weight: 700; color: #fde68a; letter-spacing: 0.1em; margin-bottom: 8px; font-size: 10px; }
+#dbg-panel table { border-collapse: collapse; width: 100%; }
+#dbg-panel td { padding: 2px 6px 2px 0; white-space: nowrap; }
+#dbg-panel td:first-child { color: #7dd3fc; font-weight: 700; width: 28px; }
+#dbg-panel td:nth-child(3) { color: #fff; text-align: right; width: 52px; }
+#dbg-panel td:nth-child(4) { color: rgba(255,255,255,0.4); font-size: 9px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── MODAL ── */
+.modal-overlay { position:fixed; inset:0; z-index:500; display:flex; align-items:flex-end; justify-content:center; }
+.modal-backdrop { position:absolute; inset:0; background:rgba(13,13,20,0.55); }
+.modal-panel { position:relative; z-index:1; background:var(--surface); border:1px solid var(--ink-14); border-bottom:none; width:100%; max-width:860px; max-height:88vh; overflow-y:auto; border-radius:0; padding:28px 24px 40px; animation:slideUp 0.22s ease; scrollbar-width:thin; scrollbar-color:var(--ink-14) transparent; }
+.modal-panel::-webkit-scrollbar { width:4px; }
+.modal-panel::-webkit-scrollbar-track { background:transparent; }
+.modal-panel::-webkit-scrollbar-thumb { background:var(--ink-14); }
+@keyframes slideUp { from{transform:translateY(60px);opacity:0} to{transform:translateY(0);opacity:1} }
+.modal-actions { position:absolute; top:16px; right:16px; display:flex; align-items:center; gap:4px; z-index:10; }
+.modal-close { background:none; border:none; color:var(--ink-32); font-size:20px; cursor:pointer; line-height:1; padding:0 4px; }
+.modal-close:hover { color:var(--ink); }
+.modal-share { background:none; border:none; color:var(--ink-32); font-size:16px; cursor:pointer; line-height:1; padding:0 4px; transition:color 0.15s; }
+.modal-share:hover { color:var(--ink); }
+.modal-share.capturing { color:var(--cyan); pointer-events:none; }
+.modal-loading { color:var(--ink-32); font-size:13px; padding:40px 0; text-align:center; }
+.modal-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:24px; gap:8px; }
+.modal-team { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:90px; }
+.modal-team img { width:60px; height:60px; object-fit:contain; }
+.modal-abbr { font-family:var(--display); font-size:22px; font-weight:800; }
+.modal-abbr.lead { color:var(--ink); }
+.modal-abbr.trail { color:var(--ink-32); }
+.modal-abbr.tie { color:var(--ink); }
+.modal-city { font-family:var(--mono); font-size:10px; color:var(--ink-32); text-transform:uppercase; letter-spacing:0.08em; }
+.modal-score-center { display:flex; flex-direction:column; align-items:center; gap:6px; flex:1; }
+.modal-scores { display:flex; align-items:center; gap:10px; }
+.modal-n { font-family:var(--display); font-size:56px; font-weight:800; line-height:1; }
+.modal-n.lead { color:var(--ink); }
+.modal-n.trail { color:var(--ink-32); }
+.modal-n.tie { color:var(--ink); }
+.modal-sep { font-family:var(--display); font-size:28px; color:var(--ink-20); font-weight:800; }
+.modal-period { font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:0.1em; color:var(--ink-32); }
+.modal-xg { font-family:var(--mono); font-size:18px; font-weight:700; letter-spacing:0.05em; margin-top:2px; }
+.modal-xg-lbl { font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:0.15em; color:var(--ink-32); text-transform:uppercase; }
+.modal-wp-strip { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding:0 4px; }
+.modal-wp-pct { font-family:var(--mono); font-size:1.1rem; font-weight:700; white-space:nowrap; min-width:44px; }
+.modal-wp-pct.away { text-align:right; }
+.modal-wp-pct.home { text-align:left; }
+.modal-wp-bar { flex:1; height:6px; overflow:hidden; }
+.modal-wp-lbl { font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:0.12em; color:var(--ink-32); text-transform:uppercase; text-align:center; margin-bottom:10px; }
+@media(max-width:600px) {
+  .modal-xg { font-size:14px; }
+  .modal-wp-pct { font-size:0.85rem; min-width:34px; }
+  .modal-wp-bar { height:4px; }
+}
+.modal-chart-wrap { margin-bottom:24px; border:1px solid var(--ink-14); padding:12px; background:var(--bg); }
+.modal-chart-wrap svg { display:block; width:100%; height:auto; }
+.modal-no-chart { color:var(--ink-32); font-size:12px; text-align:center; padding:32px 0; }
+.modal-tabs { display:flex; gap:6px; margin-bottom:10px; }
+.modal-tab-btn { background:none; border:1px solid var(--ink-14); color:var(--ink-32); cursor:pointer; font-family:var(--display); font-size:10px; font-weight:700; letter-spacing:0.1em; padding:4px 14px; text-transform:uppercase; transition:color 0.15s, border-color 0.15s; }
+.modal-tab-btn.active { border-color:var(--ink-32); color:var(--ink-72); }
+.modal-tab-btn:hover:not(.active) { color:var(--ink-48); border-color:var(--ink-20); }
+.modal-tab-panel { display:none; }
+.modal-tab-panel.active { display:block; }
+.modal-section-label { font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:0.18em; color:var(--ink-32); margin-bottom:10px; }
+.modal-goals-section { margin-top:4px; }
+.modal-stars-section { margin-bottom:20px; }
+.modal-stars-row { display:flex; justify-content:space-around; }
+.modal-star { display:flex; flex-direction:column; align-items:center; gap:3px; flex:1; }
+.modal-star-icons { font-size:13px; letter-spacing:1px; }
+.modal-star-name { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--ink-72); text-align:center; }
+.modal-star-team { display:none; }
+.modal-no-goals { color:var(--ink-32); font-size:12px; padding:12px 0; text-align:center; }
+.modal-goals-list { display:flex; flex-direction:column; }
+.modal-period-sep { display:flex; align-items:center; gap:8px; margin:8px 0 4px; }
+.modal-period-sep::before,.modal-period-sep::after { content:''; flex:1; height:1px; background:var(--ink-10); }
+.modal-period-sep span { font-family:var(--display); font-size:10px; font-weight:700; letter-spacing:0.12em; color:var(--ink-32); }
+.modal-goals-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.modal-goals-grid[hidden] { display:none; }
+.modal-goals-col { display:flex; flex-direction:column; gap:4px; }
+.modal-goals-col-hdr { font-family:var(--display); font-size:12px; font-weight:700; letter-spacing:0.12em; margin-bottom:4px; padding-bottom:6px; border-bottom:1px solid var(--ink-10); }
+.modal-goal-card { padding:7px 0; border-bottom:1px solid var(--ink-06); }
+.modal-gc-top { display:flex; align-items:center; gap:7px; font-size:12px; }
+.modal-gc-abbr { font-family:var(--mono); font-weight:700; font-size:11px; letter-spacing:0.08em; min-width:28px; }
+.modal-gc-score { color:var(--ink); font-weight:600; flex:1; white-space:nowrap; }
+.modal-gc-time { font-family:var(--mono); color:var(--ink-32); font-size:11px; white-space:nowrap; }
+.modal-gc-scorer { font-family:var(--mono); font-size:11px; color:var(--ink-48); margin-top:3px; }
+.modal-gc-assists { font-family:var(--mono); font-size:10px; color:var(--ink-32); }
+.modal-strength { font-family:var(--mono); font-size:9px; font-weight:700; padding:1px 4px; letter-spacing:0.06em; }
+.modal-strength.pp { color:#92400e; background:rgba(146,64,14,0.10); }
+.modal-strength.sh { color:#0e7490; background:rgba(14,116,144,0.10); }
+.modal-strength.en { color:var(--red); background:rgba(232,0,45,0.08); }
+.modal-gc-wp-delta { font-family:var(--mono); font-size:11px; font-weight:700; padding:2px 6px; white-space:nowrap; }
+.modal-gc-play { background:var(--ink-06); border:none; color:var(--ink-32); cursor:pointer; font-size:8px; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; padding:0; flex-shrink:0; transition:background 0.15s,color 0.15s; }
+.modal-gc-play:hover { background:var(--ink-14); color:var(--ink); }
+
+/* ── GOAL VIDEO POPUP ── */
+.gvp-overlay { position:fixed; inset:0; z-index:600; display:flex; align-items:center; justify-content:center; }
+.gvp-overlay[hidden] { display:none; }
+.gvp-backdrop { position:absolute; inset:0; background:rgba(13,13,20,0.65); }
+.gvp-panel { position:relative; z-index:1; background:var(--surface); border:1px solid var(--ink-14); max-width:640px; width:calc(100% - 32px); overflow:hidden; box-shadow:0 24px 80px rgba(13,13,20,0.25); }
+.gvp-close { position:absolute; top:10px; right:12px; background:rgba(13,13,20,0.08); border:none; color:var(--ink-48); cursor:pointer; font-size:14px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; z-index:10; transition:color 0.15s,background 0.15s; }
+.gvp-close:hover { color:var(--ink); background:var(--ink-14); }
+.gvp-tabs { display:flex; gap:6px; padding:12px 44px 10px 14px; }
+.gvp-tabs[hidden] { display:none; }
+.gvp-tab { background:none; border:1px solid var(--ink-14); color:var(--ink-32); cursor:pointer; font-family:var(--display); font-size:10px; font-weight:700; letter-spacing:0.1em; padding:4px 14px; text-transform:uppercase; transition:color 0.15s,border-color 0.15s; }
+.gvp-tab.active { border-color:var(--ink-32); color:var(--ink-72); }
+.gvp-media { position:relative; background:#000; }
+#gvp-video { width:100%; display:block; max-height:360px; }
+#gvp-video[hidden] { display:none; }
+#gvp-iframe { width:100%; height:360px; border:none; display:block; }
+#gvp-iframe[hidden] { display:none; }
+.gvp-info { padding:12px 16px 16px; }
+.gvp-scorer { font-family:var(--mono); font-size:13px; color:var(--ink-72); font-weight:500; margin-bottom:5px; }
+.gvp-wp { font-family:var(--mono); font-size:12px; color:var(--ink-32); }
+.gvp-wp strong { color:var(--ink-72); }
+.gvp-wp-delta { font-weight:700; padding:1px 6px; margin-left:4px; }
+.gvp-wp-delta.pos { color:#166534; background:rgba(22,101,52,0.10); }
+.gvp-wp-delta.neg { color:var(--red); background:rgba(232,0,45,0.08); }
+
+/* ── NO GAMES ── */
+.no-games { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--ink-32); }
+.no-games-title { font-family: var(--display); font-size: 28px; font-weight: 800; color: var(--ink-48); letter-spacing: 0.05em; }
+.no-games-sub { font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 1800px) {
+  .gg-8r  { grid-template-columns: repeat(3, 1fr); }
+  .gg-12r { grid-template-columns: repeat(3, 1fr); }
+  .gg-15r { grid-template-columns: repeat(4, 1fr); }
+  .gg-7r, .gg-10, .gg-11r, .gg-13r { display: grid; grid-template-columns: repeat(3, 1fr); height: auto; }
+  .gg-7r-left, .gg-7r-right,
+  .gg-10-left, .gg-10-right,
+  .gg-11r-left, .gg-11r-right,
+  .gg-13r-left, .gg-13r-right { display: contents; }
+}
+@media (max-width: 1100px) {
+  body.recap-mode { height: auto; overflow-x: hidden; overflow-y: auto; }
+  body.recap-mode #grid-wrapper { overflow: visible; height: auto; }
+  body.recap-mode .gg { height: auto; }
+  body.recap-mode .hcard { min-height: 260px; }
+  .gg-7r, .gg-8r, .gg-9r, .gg-11r, .gg-12r, .gg-13r, .gg-15r { grid-template-columns: repeat(2, 1fr); }
+  .gg-7r-left, .gg-7r-right, .gg-11r-left, .gg-11r-right, .gg-13r-left, .gg-13r-right { display: contents; }
+  .gg-10 { grid-template-columns: repeat(2, 1fr); }
+  .gg-6 { grid-template-columns: 1fr 1fr; }
+  .gg-3 { grid-template-columns: 1fr; grid-template-rows: auto; }
+  .gg-3 [id^="g-"] { grid-row: auto; }
+  .gg-5 { flex-direction: column; }
+  .gg-left, .gg-right { flex: none; width: 100%; }
+  .nav-links { display: none; }
+}
+@media (max-width: 640px) {
+  html, body { height: auto; overflow-x: hidden; overflow-y: auto; }
+  .nav { height: 48px; }
+  .nav-inner { height: 48px; }
+  .ticker-strip { height: 26px; }
+  .ticker-lbl { padding: 0 10px; font-size: 8px; }
+  .ticker-inner { animation-duration: 30s; padding-left: 20px; }
+  .ticker-inner span { font-size: 11px; margin-right: 36px; }
+  #grid-wrapper { height: auto; padding: 2px; }
+  .gg { display: flex; flex-direction: column; gap: 2px; height: auto; }
+  .gg-10 { flex-direction: column; height: auto; }
+  .gg-10-left, .gg-10-right { flex: none; width: 100%; display: flex; flex-direction: column; }
+  .hcard { grid-template-rows: 4px auto auto auto; min-height: 220px; }
+  .hc-logo { width: clamp(36px, 10vw, 56px); height: clamp(36px, 10vw, 56px); }
+  .hc-abbr { font-size: clamp(20px, 6vw, 32px); }
+  .hc-name { font-size: 8px; }
+  .hc-n { font-size: clamp(44px, 13vw, 72px); }
+  .hc-sep { font-size: clamp(24px, 7vw, 40px); }
+  .hc-score-center { min-width: clamp(80px, 22vw, 140px); }
+  .hc-body { padding: 4px 16px 0; }
+  .hc-foot { padding: 4px 16px 10px; }
+  .hc-head { padding: 8px 16px 0; }
+  .hc-recent { gap: 3px; padding: 4px 16px 8px; }
+  .hc-recent-icon { font-size: 10px; width: 13px; }
+  .hc-recent-desc { font-size: 11px; }
+  .hc-recent-time { font-size: 9px; }
+  .bottombar { height: 80px; padding: 0 10px; gap: 6px; }
+  #bb-container { justify-content: flex-start !important; }
+  .bc { flex: 0 0 180px; height: 64px; }
+  .bc-team { flex: 0 0 48px; }
+  .bc-logo { width: 42px; height: 42px; }
+  .bc-n { font-size: 22px; }
+}
+</style>
+<body>
+
+<div id="catchup-pill">CATCHING UP TO LIVE…</div>
+
+<!-- ── EDITORIAL NAV ── -->
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a href="/" class="wordmark">Hockey<span class="dot"></span>Gamebot</a>
+    <div class="nav-status" id="nav-status">
+      <span class="pip" id="nav-pip" style="display:none"></span>
+      <span id="nav-status-text">— live · — tonight</span>
+    </div>
+    <nav class="nav-links">
+      <a href="/home-editorial">Home</a><span class="sep"> · </span>
+      <a href="/scoreboard" class="active">Scoreboard</a><span class="sep"> · </span>
+      <a href="/playoffs/2026">Playoffs</a><span class="sep"> · </span>
+      <a href="/teams">Teams</a><span class="sep"> · </span>
+      <a href="/support">Support</a>
+    </nav>
+  </div>
+</nav>
+
+{playoffActive && (
+  <a class="playoff-strip" href="/playoffs/2026" aria-label="Open 2026 playoff predictions">
+    <span class="playoff-strip__tag">★ 2026 Playoffs · Round 1</span>
+    {playoffNext ? (
+      <span class="playoff-strip__mid" data-iso={playoffNext.gameDateISO}>
+        Next: <strong>{playoffNext.snap.team_a}</strong> vs <strong>{playoffNext.snap.team_b}</strong>
+        <span class="playoff-strip__time" data-iso={playoffNext.gameDateISO}>—</span>
+        · {playoffNext.snap.team_a} {playoffNext.snap.win_pct_a}%
+      </span>
+    ) : (
+      <span class="playoff-strip__mid">Predictions updated daily</span>
+    )}
+    <span class="playoff-strip__cta">Full bracket →</span>
+  </a>
+)}
+
+<div class="ticker-strip">
+  <div class="ticker-lbl" id="ticker-lbl">⚡ LIVE</div>
+  <div class="ticker-content">
+    <div class="ticker-inner" id="ticker-inner">
+      <span>Loading game data…</span>
+    </div>
+  </div>
+</div>
+
+<div id="grid-wrapper"></div>
+
+<div class="bottombar">
+  <div id="bb-container" style="display:flex;flex:1;gap:8px;justify-content:center;"></div>
+</div>
+
+<div id="game-modal" class="modal-overlay" style="display:none" aria-modal="true" role="dialog">
+  <div class="modal-backdrop" id="modal-backdrop"></div>
+  <div class="modal-panel">
+    <div class="modal-actions">
+      <button class="modal-share" id="modal-share" aria-label="Share"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg></button>
+      <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    </div>
+    <div id="modal-content"><div class="modal-loading">Loading…</div></div>
+  </div>
+</div>
+
+<div id="gvp" class="gvp-overlay" hidden aria-modal="true" role="dialog">
+  <div class="gvp-backdrop" id="gvp-backdrop"></div>
+  <div class="gvp-panel">
+    <button class="gvp-close" id="gvp-close" aria-label="Close">✕</button>
+    <div class="gvp-tabs" id="gvp-tabs" hidden>
+      <button class="gvp-tab active" data-gvp-tab="edge">EDGE</button>
+      <button class="gvp-tab" data-gvp-tab="highlight">HIGHLIGHT</button>
+    </div>
+    <div class="gvp-media">
+      <video id="gvp-video" controls autoplay playsinline></video>
+      <iframe id="gvp-iframe" allowfullscreen allow="autoplay; encrypted-media" hidden></iframe>
+    </div>
+    <div class="gvp-info">
+      <div class="gvp-scorer" id="gvp-scorer"></div>
+      <div class="gvp-wp" id="gvp-wp"></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
+<script>
+// Playoff banner: hydrate the next-game datetime into browser-local time.
+// Server-side rendered the ISO string into data-iso on .playoff-strip__time.
+(function hydratePlayoffStrip() {
+  const el = document.querySelector('.playoff-strip__time');
+  if (!el) return;
+  const iso = el.getAttribute('data-iso');
+  if (!iso) return;
+  const dt = new Date(iso);
+  const mon = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const time = dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const tz = (dt.toLocaleTimeString(undefined, { timeZoneName: 'short' }).split(' ').pop()) || '';
+  el.textContent = `${mon} ${time} ${tz}`;
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+const API_BASE = 'https://api.hockeygamebot.com';
+const POLL_INTERVAL = 10000;
+const LOGO_BASE = '/logos';
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let SLOTS = [];
+let grid = [];
+let bench = [];
+let currentLayoutMode = null;
+let gameCards = {};                  // game_id → card data
+let prevScores = {};                 // game_id → { away, home }
+let initialized = false;
+let noGamesShown = false;
+let lastGoalTime = 0;  // epoch ms — suppresses re-sort for 45s after any goal
+let _yesterdayData = null; // cached once per session
+let _viewMode = 'today';   // 'today' | 'yesterday'
+let _consecutiveFailures = 0;
+let _retryDelay = 4_000;    // doubles on each failure, cap 60 000ms
+let _lastSuccessAt = 0;     // epoch ms — shown in stale bar
+let _countdownTimer = null; // countdown tick timeout handle
+let _modalOpener = null;    // element that triggered the modal — focus restored on close
+
+const DEBUG = new URLSearchParams(location.search).has('debug');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API
+// ─────────────────────────────────────────────────────────────────────────────
+// ── MOCK DATA (dev only) ──────────────────────────────────────────────────────
+// Usage: ?mock=14&mode=live  or  ?mock=10&mode=recap
+const _mockParams = new URLSearchParams(window.location.search);
+const _mockN    = parseInt(_mockParams.get('mock') || '0', 10);
+const _mockMode = _mockParams.get('mode') || 'live'; // 'live' | 'recap'
+
+function _generateMockGames(n, mode) {
+  const pairs = [
+    ['NJD','NYR'],['BOS','TOR'],['MTL','TBL'],['WPG','CHI'],
+    ['DAL','BOS'],['OTT','FLA'],['CAR','CBJ'],['SEA','EDM'],
+    ['PIT','DET'],['VGK','LAK'],['COL','STL'],['SJS','ANA'],
+    ['PHI','WSH'],['BUF','NYI'],['NSH','MIN'],['CGY','VAN'],
+  ];
+  const isFinal = mode === 'recap';
+  return Array.from({ length: n }, (_, i) => {
+    const [away, home] = pairs[i % pairs.length];
+    const awayScore = Math.floor(Math.random() * 5);
+    const homeScore = Math.floor(Math.random() * 5);
+    const period    = isFinal ? 3 : (Math.floor(Math.random() * 3) + 1);
+    const secs      = Math.floor(Math.random() * 1200);
+    const mm = String(Math.floor(secs / 60)).padStart(2,'0');
+    const ss = String(secs % 60).padStart(2,'0');
+    return {
+      game_id: `mock_${i}`,
+      status: isFinal ? 'final' : 'live',
+      period,
+      time_remaining: `${mm}:${ss}`,
+      in_intermission: false,
+      start_time: new Date(Date.now() - 3600000).toISOString(),
+      away_team: { abbrev: away, short_name: away, score: awayScore },
+      home_team: { abbrev: home, short_name: home, score: homeScore },
+      win_probability: 0.4 + Math.random() * 0.2,
+      home_sog: 10 + Math.floor(Math.random() * 20),
+      away_sog: 10 + Math.floor(Math.random() * 20),
+      xg_home: +(1 + Math.random() * 3).toFixed(1),
+      xg_away: +(1 + Math.random() * 3).toFixed(1),
+      xg_home_5v5: +(0.5 + Math.random() * 2).toFixed(1),
+      xg_away_5v5: +(0.5 + Math.random() * 2).toFixed(1),
+      last_event: `${home} - Shot P${period} ${mm}:${ss}`,
+      recent_events: [],
+      three_stars: isFinal ? [
+        { player_last_name: 'Hughes',    team_abbrev: home, star: 3 },
+        { player_last_name: 'MacKinnon', team_abbrev: away, star: 2 },
+        { player_last_name: 'Draisaitl', team_abbrev: home, star: 1 },
+      ] : null,
+      clock_at: null,
+    };
+  });
+}
+
+async function fetchGames() {
+  if (_mockN > 0) return { games: _generateMockGames(_mockN, _mockMode) };
+  const resp = await fetch(`${API_BASE}/v1/games/today`, { cache: 'no-store' });
+  if (!resp.ok) throw new Error(`API ${resp.status}`);
+  return resp.json();
+}
+
+async function fetchYesterdayData() {
+  const yesterday = _yesterdayDateStr(); // already exists in file
+  try {
+    const resp = await fetch(`${API_BASE}/v1/games/today?date=${yesterday}`, { cache: 'no-store' });
+    if (!resp.ok) return null;
+    return resp.json();
+  } catch { return null; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA TRANSFORMS
+// ─────────────────────────────────────────────────────────────────────────────
+function timeRemainingToMins(tr) {
+  if (!tr || tr === '--:--') return 20;
+  const [m, s] = tr.split(':').map(Number);
+  return (m || 0) + (s || 0) / 60;
+}
+
+function calcGamePct(period, timeRemaining, inIntermission) {
+  // Shows progress through the CURRENT period (0–100%), resets each period.
+  // More visually satisfying than total-game %; 3rd period late = nearly full bar.
+  if (!period || period === 0) return 0;
+  if (inIntermission) return 100;
+  const remainMins = timeRemainingToMins(timeRemaining);
+  const periodMins = (period >= 4) ? 5 : 20; // OT is 5 min
+  return Math.min(100, Math.round(((periodMins - remainMins) / periodMins) * 100));
+}
+
+function calcExcitement(game) {
+  const status = game.status;
+  if (status === 'scheduled' || status === 'upcoming') { const hoursUntil = (new Date(game.start_time).getTime() - Date.now()) / 3600000; return -60 - hoursUntil; }
+  if (status === 'final') {
+    const away = game.away_team?.score || 0;
+    const home = game.home_team?.score || 0;
+    const goalDiff = Math.abs(away - home);
+    const period = game.period || 3;
+    const wentOT = period >= 4;
+    const otBonus = wentOT ? 20 : 0;
+    const closeness = Math.max(0, 4 - goalDiff) * 5; // 1-goal=15, 2-goal=10, 3-goal=5, blowout=0
+    return -75 + otBonus + closeness;
+  }
+  const period = game.period || 1;
+  const away = game.away_team?.score || 0;
+  const home = game.home_team?.score || 0;
+  const goalDiff = Math.abs(away - home);
+  const isOT = period >= 4;
+  const closeness = Math.max(0, 4 - goalDiff) * 15;
+  const periodMult = [0, 1.0, 1.5, 2.5, 4.0][Math.min(period, 4)];
+  const remainMins = timeRemainingToMins(game.time_remaining);
+  const urgency = (period === 3 || isOT) ? (20 - remainMins) * 1.5 : 0;
+  const otBonus = isOT ? 80 : 0;
+  return closeness * periodMult + urgency + otBonus;
+}
+
+function calcExcitementBreakdown(game) {
+  const status = game.status;
+  if (status === 'scheduled' || status === 'upcoming') {
+    const h = (new Date(game.start_time).getTime() - Date.now()) / 3600000;
+    return { total: -60 - h, reason: `scheduled ${h.toFixed(1)}h away` };
+  }
+  if (status === 'final') {
+    const fa = game.away_team?.score || 0, fh = game.home_team?.score || 0;
+    const fd = Math.abs(fa - fh), fp = game.period || 3;
+    const fotBonus = fp >= 4 ? 20 : 0, fcl = Math.max(0, 4 - fd) * 5;
+    return { total: -75 + fotBonus + fcl, reason: `final${fp>=4?' OT':''} diff=${fd}` };
+  }
+  const period = game.period || 1;
+  const away = game.away_team?.score || 0;
+  const home = game.home_team?.score || 0;
+  const goalDiff = Math.abs(away - home);
+  const isOT = period >= 4;
+  const closeness = Math.max(0, 4 - goalDiff) * 15;
+  const periodMult = [0, 1.0, 1.5, 2.5, 4.0][Math.min(period, 4)];
+  const remainMins = timeRemainingToMins(game.time_remaining);
+  const urgency = (period === 3 || isOT) ? (20 - remainMins) * 1.5 : 0;
+  const otBonus = isOT ? 80 : 0;
+  const total = closeness * periodMult + urgency + otBonus;
+  const parts = [];
+  if (closeness) parts.push(`cls${closeness}×${periodMult}`);
+  if (urgency) parts.push(`urg${urgency.toFixed(0)}`);
+  if (otBonus) parts.push(`OT+${otBonus}`);
+  return { total, reason: parts.join(' + ') || 'early' };
+}
+
+function renderDebugPanel(allCards) {
+  if (!DEBUG) return;
+  let panel = document.getElementById('dbg-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'dbg-panel';
+    document.body.appendChild(panel);
+  }
+  const rows = allCards.map((c, i) => {
+    const pos = i < 4 ? `#${i+1}` : `B${i-3}`;
+    const cls = i < 4 ? 'dbg-grid' : 'dbg-bench';
+    return `<tr class="${cls}"><td>${pos}</td><td>${c.away}·${c.home}</td><td>${c.excitement.toFixed(1)}</td><td>${c.debugReason||''}</td></tr>`;
+  }).join('');
+  const modeTag = _recapMode ? ' <span style="color:#4af;font-size:9px">RECAP</span>' : '';
+  const sseEl = document.getElementById('sse-indicator');
+  const sseState = sseEl?.classList.contains('connected') ? '<span style="color:#0f0">● SSE</span>' : '<span style="color:#f44">● SSE</span>';
+  panel.innerHTML = `<div class="dbg-title">GRID DEBUG${modeTag} ${sseState}</div><table>${rows}</table>`;
+}
+
+function buildBadgesFromGame(game) {
+  const badges = [];
+  const period = game.period || 0;
+  const away = game.away_team?.score || 0;
+  const home = game.home_team?.score || 0;
+  const goalDiff = Math.abs(away - home);
+  const isLive = game.status === 'live';
+  const isOT = isLive && period >= 4;
+  if (isOT) badges.push('ot:OT');
+  if (period > 0 && goalDiff === 0) badges.push('close:TIED');
+  else if (period > 0 && goalDiff === 1) badges.push('close:1-GOAL');
+  if (!isOT && period === 3 && game.status !== 'final' && timeRemainingToMins(game.time_remaining) < 5) badges.push('hot:🔥 FINAL MINS');
+  // Strength state badge (live games only)
+  if (isLive) {
+    const ss = game.strength_state;
+    const awayAbbr = game.away_team?.abbrev || '';
+    const homeAbbr = game.home_team?.abbrev || '';
+    // PP = home power play, PK = away power play (home-team-perspective encoding)
+    if      (ss === 'PP')  badges.push(`pp:PP ▶ ${homeAbbr}`);
+    else if (ss === 'PK')  badges.push(`pp:PP ▶ ${awayAbbr}`);
+    else if (ss === '5V3') badges.push(`adv:5v3 ▶ ${homeAbbr}`);
+    else if (ss === '3V5') badges.push(`pk:3v5 ▶ ${awayAbbr}`);
+    else if (ss === 'EN_AWAY') badges.push('en:EN');
+    else if (ss === 'EN_HOME') badges.push('en:EN');
+  }
+  return badges;
+}
+
+function apiGameToCard(game) {
+  const away = game.away_team || {};
+  const home = game.home_team || {};
+  const period = game.period || 0;
+  const isFinal = game.status === 'final';
+  const startTimePassed = game.start_time && new Date(game.start_time) <= new Date();
+  const isScheduled = !startTimePassed && (game.status === 'scheduled' || game.status === 'unknown' || game.status === 'preview' || game.status === 'upcoming');
+  const isLive = game.status === 'live';
+  const isOT = isLive && period >= 4;
+  const inIntermission = game.in_intermission || false;
+  return {
+    id: game.game_id,
+    away: away.abbrev || '???',
+    awayCity: away.short_name || away.name || '',
+    home: home.abbrev || '???',
+    homeCity: home.short_name || home.name || '',
+    awayScore: away.score || 0,
+    homeScore: home.score || 0,
+    period,
+    clock: game.time_remaining || '--:--',
+    clockAt: game.clock_at || null,
+    pct: calcGamePct(period, game.time_remaining, inIntermission),
+    excitement: calcExcitement(game),
+    debugReason: DEBUG ? calcExcitementBreakdown(game).reason : '',
+    status: game.status,
+    isFinal,
+    isScheduled,
+    isOT,
+    inIntermission,
+    lastEvent: typeof game.last_event === 'string'
+      ? game.last_event
+      : (game.last_event?.description || ''),
+    recentEvents: Array.isArray(game.recent_events) ? game.recent_events : [],
+    startTime: game.start_time,
+    accentFrom: teamColor(away.abbrev, 0),
+    accentTo: teamColor(away.abbrev, 1),
+    teamColor: ensureReadable(pickTeamColor(away.abbrev), 58),
+    homeColor: ensureReadable(pickTeamColor(home.abbrev), 58),
+    winProbability: game.win_probability ?? null,
+    homeSog: game.home_sog ?? null,
+    awaySog: game.away_sog ?? null,
+    xgHome: game.xg_home != null ? +parseFloat(game.xg_home).toFixed(1) : null,
+    xgAway: game.xg_away != null ? +parseFloat(game.xg_away).toFixed(1) : null,
+    xgHome5v5: game.xg_home_5v5 != null ? +parseFloat(game.xg_home_5v5).toFixed(1) : null,
+    xgAway5v5: game.xg_away_5v5 != null ? +parseFloat(game.xg_away_5v5).toFixed(1) : null,
+    threeStars: Array.isArray(game.three_stars) ? game.three_stars : null,
+    badges: buildBadgesFromGame(game),
+  };
+}
+
+function buildWashData(card, awayScored) {
+  // Use recentEvents to find most recent goal (more stable than lastEvent which can drift to Stoppage)
+  // Note: event types stored uppercase in D1 — compare case-insensitively
+  const goalEvent = (card.recentEvents || []).find(e => e.type?.toUpperCase() === 'GOAL');
+  const teamName = awayScored ? card.away : card.home;
+  const bgColor = awayScored ? card.teamColor : card.homeColor;
+  const pLabel = periodLabel(card.period, card.isOT);
+
+  // Fall back to card.lastEvent (camelCase string) — set on the card when goal is the last event
+  const goalDesc = goalEvent?.description || card.lastEvent || null;
+  let scorer = 'GOAL', num = '', assists = '';
+  if (goalDesc) {
+    // Format: "Goal — Scorer Name (15)" — scorer is after the em dash
+    const parts = goalDesc.split(' — ');
+    const scorerRaw = parts[1] || '';  // parts[0] = "Goal", parts[1] = scorer name
+    const numMatch = scorerRaw.match(/\((\d+)\)/);
+    scorer = scorerRaw.replace(/\s*\(\d+\).*/, '').replace(/\s*(PP|SH|EN)\s*/g, '').trim().toUpperCase() || 'GOAL';
+    num = numMatch ? `${numMatch[1]} on the season` : '';
+  }
+
+  return {
+    eyebrow: `⚡ Goal — ${teamName}`,
+    scorer,
+    num,
+    assists,
+    score: `${card.away} ${card.awayScore} · ${card.home} ${card.homeScore}`,
+    ctx: `${pLabel} · ${card.clock}`,
+    bgColor,
+  };
+}
+
+function formatStartTime(isoStr) {
+  if (!isoStr) return 'UPCOMING';
+  try {
+    return new Date(isoStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  } catch { return 'UPCOMING'; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function periodLabel(period, isOT) {
+  if (isOT || period >= 4) return period === 5 ? 'SO' : 'OT';
+  return ['', '1ST', '2ND', '3RD'][period] || `P${period}`;
+}
+
+function recentEventStamp(e) {
+  if (e.period && e.time) return ` <span class="hc-recent-time">P${e.period} · ${e.time}</span>`;
+  if (e.time_ago) return ` <span class="hc-recent-time">${e.time_ago}</span>`;
+  return '';
+}
+function recentEventIcon(type) {
+  if (type === 'goal') return '⚡';
+  if (type === 'penalty') return '🟡';
+  if (type === 'stoppage') return '🔴';
+  if (type === 'shot-on-goal' || type === 'missed-shot') return '🏒';
+  if (type === 'blocked-shot') return '🛡';
+  if (type === 'hit') return '💥';
+  if (type === 'faceoff') return '🔵';
+  return '·';
+}
+
+function scoreClass(a, b) {
+  if (a > b) return 'lead';
+  if (a < b) return 'trail';
+  return 'tie';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARD HTML BUILDER
+// ─────────────────────────────────────────────────────────────────────────────
+function buildAccentStyle(card) {
+  if (card.isFinal) {
+    const winnerColor = card.homeScore >= card.awayScore ? card.homeColor : card.teamColor;
+    return `background:${winnerColor}`;
+  }
+  if (card.isScheduled || card.winProbability === null || card.winProbability === undefined) {
+    return `background:${card.homeColor}`;
+  }
+  const homePct = Math.round(card.winProbability * 100);
+  const awayPct = 100 - homePct;
+  const lo = Math.max(0, awayPct - 6);
+  const hi = Math.min(100, awayPct + 6);
+  return `background:linear-gradient(90deg,${card.teamColor} ${lo}%,${card.homeColor} ${hi}%)`;
+}
+
+function buildWpTextHtml(card) {
+  if (card.isScheduled || card.isFinal) return '';
+  if (card.winProbability === null || card.winProbability === undefined) return '';
+  const homePct = Math.round(card.winProbability * 100);
+  const awayPct = 100 - homePct;
+  return `<div class="hc-wp-text">
+    <span class="hc-wp-away" style="color:${card.teamColor}">${awayPct}%</span>
+    <span class="hc-wp-mid">WIN PROB</span>
+    <span class="hc-wp-home" style="color:${card.homeColor}">${homePct}%</span>
+  </div>`;
+}
+
+function buildStatBarHtml(label, awayVal, homeVal, awayColor, homeColor) {
+  if (awayVal === null || awayVal === undefined || homeVal === null || homeVal === undefined) return '';
+  const total = awayVal + homeVal;
+  if (total <= 0) return '';
+  const awayPct = Math.round(awayVal / total * 100);
+  const fill = `linear-gradient(90deg,${awayColor} 0%,${awayColor} ${awayPct}%,${homeColor} ${awayPct}%,${homeColor} 100%)`;
+  return `<div class="hc-stat-wrap">
+    <div class="hc-stat-bar">
+      <span class="hc-sb-val away">${awayVal}</span>
+      <div class="hc-sb-track"><div class="hc-sb-fill" style="background:${fill}"></div></div>
+      <span class="hc-sb-val home">${homeVal}</span>
+    </div>
+    <div class="hc-sb-label">${label}</div>
+  </div>`;
+}
+
+function buildBadgesHtml(badges) {
+  return (badges || []).map(b => {
+    const [cls, ...rest] = b.split(':');
+    return `<span class="badge ${cls}">${rest.join(':')}</span>`;
+  }).join('');
+}
+
+function buildCardInner(card, washData) {
+  if (!card) return '';
+  const ac = scoreClass(card.awayScore, card.homeScore);
+  const hc = scoreClass(card.homeScore, card.awayScore);
+
+  let statusClass, statusHtml;
+  if (card.isFinal) {
+    statusClass = 'final';
+    statusHtml = `<div class="status-dot"></div> FINAL`;
+  } else if (card.isScheduled) {
+    statusClass = 'scheduled';
+    statusHtml = `<div class="status-dot"></div> ${formatStartTime(card.startTime)}`;
+  } else if (card.inIntermission) {
+    statusClass = 'intermission';
+    const intClock = card.clock && card.clock !== '--:--' ? ` · ${card.clock}` : '';
+    statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} INT${intClock}`;
+  } else {
+    statusClass = card.isOT ? 'ot' : 'live';
+    statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+  }
+
+
+  const washHtml = washData ? `
+    <div class="goal-wash active" id="wash-${card.id}" style="background:rgba(${hexToRgb(washData.bgColor || card.teamColor)},0.96)">
+      <div class="gwo-eyebrow">${washData.eyebrow}</div>
+      <div class="gwo-scorer">${washData.scorer}</div>
+      <div class="gwo-goal-num">${washData.num}</div>
+      <div class="gwo-assists">${washData.assists}</div>
+      <div class="gwo-divider"></div>
+      <div class="gwo-score">${washData.score}</div>
+      <div class="gwo-context">${washData.ctx}</div>
+    </div>` : `<div class="goal-wash" id="wash-${card.id}"></div>`;
+
+  const debugChip = DEBUG ? `<div class="dbg-chip">⚡${card.excitement.toFixed(1)}</div>` : '';
+  return `
+    ${washHtml}
+    ${debugChip}
+    <div class="hc-accent" style="${buildAccentStyle(card)}"></div>
+    <div class="hc-head">
+      <div class="hc-status ${statusClass}">${statusHtml}</div>
+      <div class="hc-badges">
+        ${buildBadgesHtml(card.badges)}
+      </div>
+    </div>
+    <div class="hc-body">
+      <div class="hc-team">
+        <img class="hc-logo ${card.isFinal&&ac==='trail'?'dim':''}" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}">
+        <div class="hc-abbr ${ac}">${card.away}</div>
+        <div class="hc-name">${card.awayCity}</div>
+      </div>
+      <div class="hc-score-center">
+        ${buildWpTextHtml(card)}
+        <div class="hc-nums">
+          ${card.isScheduled ? '' : `<span class="hc-n ${ac}">${card.awayScore}</span>`}
+          <span class="hc-sep">${card.isScheduled ? 'VS' : '–'}</span>
+          ${card.isScheduled ? '' : `<span class="hc-n ${hc}">${card.homeScore}</span>`}
+        </div>
+        ${buildStatBarHtml('SHOTS ON GOAL', card.awaySog, card.homeSog, card.teamColor, card.homeColor)}
+        ${/* Show ALL xG on the card (not 5v5). card.xgAway5v5/xgHome5v5 from
+             hgb-api game_state was wrong — it disagreed with the modal's
+             event-sum 5v5 (card 0.5 vs modal 0.8 for MTL) and was missing
+             entirely for LAK/COL. ALL xG from game_state (card.xgAway /
+             card.xgHome) is more reliably populated and sidesteps the 5v5
+             inversion issue. Modal still shows both 5v5 + ALL from event
+             sums for the authoritative view. */ ''}
+        ${card.xgAway != null && card.xgHome != null
+          ? buildStatBarHtml('Expected Goals', card.xgAway, card.xgHome, card.teamColor, card.homeColor)
+          : ''}
+      </div>
+      <div class="hc-team">
+        <img class="hc-logo ${card.isFinal&&hc==='trail'?'dim':''}" src="${LOGO_BASE}/${card.home}_light.svg" alt="${card.home}">
+        <div class="hc-abbr ${hc}">${card.home}</div>
+        <div class="hc-name">${card.homeCity}</div>
+      </div>
+    </div>
+    ${(card.isFinal && card.threeStars?.length) ? `
+  <div class="hc-foot">
+    <div class="hc-last-label"><span>THREE STARS</span></div>
+    <div class="hc-stars">${card.threeStars.slice(0,3).map(s => `
+      <div class="hc-star">
+        <div class="hc-star-num">${'⭐'.repeat(s.star || 1)}</div>
+        <div class="hc-star-name">${s.player_last_name || s.player_name || ''}${s.team_abbrev ? ` (${s.team_abbrev})` : ''}</div>
+      </div>`).join('')}
+    </div>
+  </div>` : (card.recentEvents && card.recentEvents.length) ? `
+  <div class="hc-recent">
+    <div class="hc-recent-label"><span>RECENT EVENTS</span></div>
+    ${card.recentEvents.map(e => `
+      <div class="hc-recent-row">
+        <span class="hc-recent-icon">${recentEventIcon(e.type)}</span>
+        <span class="hc-recent-desc">${e.description}${recentEventStamp(e)}</span>
+      </div>`).join('')}
+  </div>` : (card.lastEvent && !card.isFinal ? `<div class="hc-foot"><div class="hc-last-label"><span>LAST EVENT</span></div><div class="hc-last">${card.lastEvent}</div></div>` : '')}`
+}
+
+function buildBenchCard(card, isGoal) {
+  if (!card) return '';
+  let statusText, statusClass;
+  if (isGoal) {
+    statusText = '⚡ GOAL'; statusClass = 'goal';
+  } else if (card.isFinal) {
+    statusText = 'FINAL'; statusClass = 'final';
+  } else if (card.isScheduled) {
+    statusText = formatStartTime(card.startTime); statusClass = 'pre';
+  } else if (card.isOT) {
+    statusText = `● OT · ${card.clock}`; statusClass = 'ot';
+  } else if (card.clock === 'INT') {
+    statusText = `${periodLabel(card.period, false)} INT`; statusClass = 'int';
+  } else {
+    statusText = `● ${periodLabel(card.period, false)} · ${card.clock}`; statusClass = 'live';
+  }
+  const awayDim = card.isFinal && card.awayScore < card.homeScore;
+  const homeDim = card.isFinal && card.homeScore < card.awayScore;
+  const wpStyle = buildAccentStyle(card);
+  const scoreHtml = card.isScheduled ? '' :
+    `<div class="bc-scores"><span class="bc-n${awayDim?' dim':''}">${card.awayScore}</span><span class="bc-dash">–</span><span class="bc-n${homeDim?' dim':''}">${card.homeScore}</span></div>`;
+  return `
+    <div class="bc${isGoal ? ' bb-goal-flash' : ''}" id="bb-${card.id}" data-game-id="${card.id}">
+      <div class="bc-wpbar" style="${wpStyle}"></div>
+      <div class="bc-inner">
+        <div class="bc-team"><img class="bc-logo${awayDim?' dim':''}" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}"></div>
+        <div class="bc-center">
+          ${scoreHtml}
+          <div class="bc-status ${statusClass}">${statusText}</div>
+        </div>
+        <div class="bc-team"><img class="bc-logo${homeDim?' dim':''}" src="${LOGO_BASE}/${card.home}_light.svg" alt="${card.home}"></div>
+      </div>
+    </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAYOUT ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+function getLayoutMode(n) {
+  if (n >= 7) return '6';   // 3×2 grid + bench overflow (optB)
+  return String(Math.max(1, n));
+}
+
+function getRecapLayoutMode(n) {
+  if (n <= 6) return String(Math.max(1, n));
+  if (n <= 7)  return '7r';   // 2×2 left + 1×3 right
+  if (n <= 8)  return '8r';   // 4×2
+  if (n <= 9)  return '9r';   // 3×3
+  if (n <= 10) return '10';   // 2×2 left + 2×3 right
+  if (n <= 11) return '11r';  // 1×2 left + 3×3 right
+  if (n <= 12) return '12r';  // 4×3
+  if (n <= 13) return '13r';  // 2×2 left + 3×3 right
+  return '15r';               // 5×3 (14–15)
+}
+
+function getGridSlotCount(mode) {
+  return { '1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7plus':4,'7r':7,'10':10,
+           '8r':8,'9r':9,'11r':11,'12r':12,'13r':13,'15r':15 }[mode] || 4;
+}
+
+function buildGridHtml(mode) {
+  const c = (id, compact) =>
+    `<div id="g-${id}" class="hcard${compact ? ' compact' : ''}"></div>`;
+  const row = (n, compact) => Array.from({length:n},(_,i)=>c(i,compact)).join('');
+  const seq = (n, start, compact) => Array.from({length:n},(_,i)=>c(start+i,compact)).join('');
+  switch (mode) {
+    case '1':  return `<div class="gg gg-1">${c(0)}</div>`;
+    case '2':  return `<div class="gg gg-2">${c(0)}${c(1)}</div>`;
+    case '3':  return `<div class="gg gg-3">${c(0)}${c(1,1)}${c(2,1)}</div>`;
+    case '4':  return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
+    case '5':  return `<div class="gg gg-5"><div class="gg-left">${c(0)}${c(1)}</div><div class="gg-right">${c(2,1)}${c(3,1)}${c(4,1)}</div></div>`;
+    case '6':  return `<div class="gg gg-6">${row(6,1)}</div>`;
+    case '7r': return `<div class="gg gg-7r"><div class="gg-7r-left">${seq(4,0,0)}</div><div class="gg-7r-right">${seq(3,4,1)}</div></div>`;
+    case '10': return `<div class="gg gg-10"><div class="gg-10-left">${seq(4,0,0)}</div><div class="gg-10-right">${seq(6,4,1)}</div></div>`;
+    case '11r':return `<div class="gg gg-11r"><div class="gg-11r-left">${seq(2,0,0)}</div><div class="gg-11r-right">${seq(9,2,1)}</div></div>`;
+    case '13r':return `<div class="gg gg-13r"><div class="gg-13r-left">${seq(4,0,0)}</div><div class="gg-13r-right">${seq(9,4,1)}</div></div>`;
+    case '8r': return `<div class="gg gg-8r">${row(8,1)}</div>`;
+    case '9r': return `<div class="gg gg-9r">${row(9,1)}</div>`;
+    case '12r':return `<div class="gg gg-12r">${row(12,1)}</div>`;
+    case '15r':return `<div class="gg gg-15r">${row(15,1)}</div>`;
+    default:   return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
+  }
+}
+
+function applyLayout(mode, newGrid, newBench) {
+  currentLayoutMode = mode;
+  const gridSize = getGridSlotCount(mode);
+  document.getElementById('grid-wrapper').innerHTML = buildGridHtml(mode);
+  SLOTS = Array.from({length: gridSize}, (_, i) => `g-${i}`);
+  grid = newGrid;
+  bench = newBench;
+  const bbEl = document.querySelector('.bottombar');
+  if (bbEl) bbEl.style.display = newBench.length === 0 ? 'none' : '';
+  _lastBenchKey = '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+function renderGrid() {
+  grid.forEach((id, i) => {
+    const el = document.getElementById(SLOTS[i]);
+    if (!el) return;
+    el.innerHTML = id ? buildCardInner(gameCards[id]) : '';
+  });
+}
+
+let _lastBenchKey = '';
+function renderBench() {
+  const key = bench.slice(0, 8).map(id => {
+    const c = gameCards[id];
+    return c ? `${id}:${c.awayScore}-${c.homeScore}:${c.status}:${c.clock}` : id;
+  }).join('|');
+  if (key === _lastBenchKey) return;
+  _lastBenchKey = key;
+  const bbEl = document.querySelector('.bottombar');
+  if (bench.length === 0) { if (bbEl) bbEl.style.display = 'none'; return; }
+  if (bbEl) bbEl.style.display = '';
+  document.getElementById('bb-container').innerHTML =
+    bench.slice(0, 8).map(id => buildBenchCard(gameCards[id])).join('');
+}
+
+function updateTopBar(data, mode = 'today') {
+  const games = data.games || [];
+  const liveCount = mode === 'yesterday' ? 0 : games.filter(g => g.status === 'live').length;
+  const total = games.length;
+  const el = document.getElementById('nav-status-text');
+  if (!el) return;
+  const tonightLabel = mode === 'yesterday' ? 'yesterday' : 'tonight';
+  el.textContent = `${liveCount} live · ${total} ${tonightLabel}`;
+  // Show live pip when games are live
+  const pip = document.getElementById('nav-pip');
+  if (pip) pip.style.display = liveCount > 0 ? '' : 'none';
+}
+
+// ── GOALS TICKER ─────────────────────────────────────────────────────────────
+let _lastGoalsTickerHtml = '';
+let _goalsCache = [];
+let _tickerMode = 'live'; // 'live' | 'recap'
+let _recapMode  = false;
+
+function enterRecapMode() {
+  if (_recapMode) return;
+  _recapMode = true;
+  _tickerMode = 'recap';
+  startPolling(60_000);
+  document.body.classList.add('recap-mode');
+  // Immediately flip the ticker label — don't wait for next poll
+  const lbl = document.getElementById('ticker-label');
+  if (lbl) { lbl.textContent = '🔄 RECAP'; lbl.classList.add('recap'); }
+}
+
+function exitRecapMode() {
+  if (!_recapMode) return;
+  _recapMode = false;
+  startPolling(POLL_INTERVAL);
+  document.body.classList.remove('recap-mode');
+}
+
+function _yesterdayDateStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+async function fetchGoals() {
+  try {
+    const resp = await fetch(`${API_BASE}/v1/goals`, { cache: 'no-store' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const todayGoals = data.goals || [];
+    if (todayGoals.length > 0) {
+      // Today has goals — switch/stay in live mode
+      _goalsCache = todayGoals;
+      if (!_recapMode) _tickerMode = 'live';
+      renderGoalsTicker();
+    } else if (_tickerMode !== 'live') {
+      // Still pre-game and already showing recap — nothing to update
+    } else {
+      // No goals today yet — fetch yesterday for recap ticker
+      fetchYesterdayGoals();
+    }
+  } catch (e) {
+    // silently ignore — ticker just stays as-is
+  }
+}
+
+async function fetchYesterdayGoals() {
+  try {
+    const yesterday = _yesterdayDateStr();
+    const resp = await fetch(`${API_BASE}/v1/goals?date=${yesterday}`, { cache: 'no-store' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if ((data.goals || []).length > 0) {
+      _goalsCache = data.goals;
+      _tickerMode = 'recap';
+      renderGoalsTicker();
+    }
+  } catch (e) {
+    // silently ignore
+  }
+}
+
+function renderGoalsTicker() {
+  const goals = _goalsCache;
+  if (!goals.length) {
+    // Fall back to scores if no goals yet
+    return;
+  }
+
+  const GOAL_EMOJIS = ['🚨', '🥅', '🏒', '🚨', '🏒', '🥅'];
+  // Most recent goals first — show up to 30 so the ticker has plenty of content
+  // Shuffle so each page load shows a different ordering
+  const shuffled = [...goals].sort(() => Math.random() - 0.5);
+  const items = shuffled.slice(0, 30).map((g, i) => {
+    const emoji = GOAL_EMOJIS[i % GOAL_EMOJIS.length];
+    const scorer = g.scorer?.name ? g.scorer.name.split(' ').pop() : null; // last name only
+    const team = g.scoring_team?.abbrev || '?';
+    const away = g.away_team?.abbrev || '?';
+    const home = g.home_team?.abbrev || '?';
+    const score = `${away} ${g.away_score}–${g.home_score} ${home}`;
+    const period = g.period ? (g.period <= 3 ? `P${g.period}` : (g.period === 4 ? 'OT' : 'SO')) : '';
+    const time = g.time_in_period || '';
+    const strength = g.strength === 'pp' ? ' <em>PP</em>' : g.strength === 'sh' ? ' <em>SH</em>' : '';
+    const scorerPart = scorer ? `<strong>${scorer}</strong> (${team})${strength}` : `<strong>${team}</strong>${strength}`;
+    const context = [period, time].filter(Boolean).join(' ');
+    return `<span class="ti-goal">${emoji} ${scorerPart} &nbsp;·&nbsp; ${score}${context ? ` &nbsp;·&nbsp; ${context}` : ''}</span>`;
+  });
+
+  const html = items.join('<span class="ti-sep">◆</span>');
+  if (html === _lastGoalsTickerHtml) return;
+  _lastGoalsTickerHtml = html;
+  // Double the content so the scroll loop is seamless
+  const tickerEl = document.getElementById('ticker-inner');
+  tickerEl.innerHTML = [html, html].join('<span class="ti-sep">◆</span>');
+  // ~4s per item so each goal is readable; min 30s
+  tickerEl.style.animationDuration = `${Math.max(36, items.length * 6)}s`;
+  // Update label
+  const lbl = document.getElementById('ticker-lbl');
+  if (lbl) {
+    lbl.textContent = _tickerMode === 'recap' ? '🔄 RECAP' : '⚡ LIVE';
+    lbl.classList.toggle('recap', _tickerMode === 'recap');
+  }
+}
+
+// Legacy fallback — called from pollAndUpdate when no goals yet
+let _lastTickerHtml = '';
+function updateTicker(cards) {
+  if (_goalsCache.length) return; // goals ticker takes over once we have data
+  if (!cards.length) return;
+  const items = cards.map(c => {
+    if (c.isFinal) {
+      return `<span class="ti-final"><strong>FINAL</strong> &nbsp;${c.away} ${c.awayScore} · ${c.home} ${c.homeScore}</span>`;
+    } else if (c.isScheduled) {
+      return `<span><strong>${c.away} vs ${c.home}</strong> &nbsp;${formatStartTime(c.startTime)}</span>`;
+    } else {
+      const p = periodLabel(c.period, c.isOT);
+      const suffix = c.lastEvent ? ` · ${c.lastEvent}` : '';
+      return `<span><strong>${c.away} ${c.awayScore}–${c.homeScore} ${c.home}</strong> &nbsp;${p} ${c.clock}${suffix}</span>`;
+    }
+  });
+  const html = items.join('');
+  if (html === _lastTickerHtml) return;
+  _lastTickerHtml = html;
+  document.getElementById('ticker-inner').innerHTML = [html, html].join('');
+}
+
+function showNoGames() {
+  if (noGamesShown) return;
+  noGamesShown = true;
+  document.getElementById('grid-wrapper').innerHTML = `
+    <div class="no-games">
+      <div class="no-games-title">NO GAMES TODAY</div>
+      <div class="no-games-sub">CHECK BACK TOMORROW</div>
+    </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANIMATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  if (!hex || !hex.startsWith('#')) return '200,16,46';
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+
+function triggerWash(id, washData) {
+  const card = gameCards[id];
+  if (!card) return;
+  const slotIndex = grid.indexOf(id);
+  if (slotIndex < 0) return;
+  const el = document.getElementById(SLOTS[slotIndex]);
+  // Re-render with wash
+  el.innerHTML = buildCardInner(card, washData);
+  // Wash was rendered with .active class already, no extra trigger needed
+}
+
+function promoteGame(promoteId, washData) {
+  const demoteId = grid[SLOTS.length - 1];
+  const brEl = document.getElementById(SLOTS[SLOTS.length - 1]);
+  const bbEl = document.getElementById(`bb-${promoteId}`);
+  brEl.classList.add('exiting');
+  if (bbEl) bbEl.classList.add('exiting-bb');
+
+  setTimeout(() => {
+    grid[SLOTS.length - 1] = promoteId;
+    bench = bench.filter(id => id !== promoteId);
+    if (demoteId) bench.push(demoteId);
+
+    brEl.innerHTML = buildCardInner(gameCards[promoteId], washData);
+    brEl.classList.remove('exiting');
+    brEl.style.opacity = '0'; brEl.style.transform = 'scale(1.02)';
+    brEl.offsetHeight;
+    brEl.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
+    brEl.style.opacity = '1'; brEl.style.transform = 'scale(1)';
+    setTimeout(() => { brEl.style.transition = ''; }, 500);
+
+    renderBench();
+    setTimeout(() => {
+      const newBb = document.getElementById(`bb-${demoteId}`);
+      if (newBb) newBb.classList.add('entering-bb');
+    }, 50);
+  }, 380);
+}
+
+function resortGrid(newOrder) {
+  SLOTS.forEach(id => document.getElementById(id).classList.add('exiting'));
+  setTimeout(() => {
+    grid = newOrder;
+    newOrder.forEach((gameId, i) => {
+      const el = document.getElementById(SLOTS[i]);
+      el.innerHTML = gameId ? buildCardInner(gameCards[gameId]) : '';
+      el.classList.remove('exiting');
+      el.style.opacity = '0'; el.style.transform = 'scale(1.02)';
+    });
+    document.body.offsetHeight;
+    newOrder.forEach((_, i) => {
+      const el = document.getElementById(SLOTS[i]);
+      el.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
+      el.style.opacity = '1'; el.style.transform = 'scale(1)';
+    });
+    setTimeout(() => SLOTS.forEach(id => { document.getElementById(id).style.transition = ''; }), 500);
+  }, 380);
+}
+
+function updateCardInPlace(slotIndex, card) {
+  const el = document.getElementById(SLOTS[slotIndex]);
+  if (!el || !card) return;
+
+  // Targeted DOM updates — never recreate <img> tags so logos don't flash
+  const ac = scoreClass(card.awayScore, card.homeScore);
+  const hc = scoreClass(card.homeScore, card.awayScore);
+
+  // Scores & separator
+  const nums = el.querySelectorAll('.hc-n');
+  if (nums[0]) { nums[0].textContent = card.awayScore; nums[0].className = `hc-n ${ac}`; }
+  if (nums[1]) { nums[1].textContent = card.homeScore; nums[1].className = `hc-n ${hc}`; }
+  const sep = el.querySelector('.hc-sep');
+  if (sep) sep.textContent = card.isScheduled ? 'VS' : '–';
+
+  // Abbr color classes
+  const abbrs = el.querySelectorAll('.hc-abbr');
+  if (abbrs[0]) abbrs[0].className = `hc-abbr ${ac}`;
+  if (abbrs[1]) abbrs[1].className = `hc-abbr ${hc}`;
+
+  // Logo dim (class only — no src change, no reload)
+  const logos = el.querySelectorAll('.hc-logo');
+  if (logos[0]) logos[0].className = `hc-logo ${card.isFinal && ac==='trail' ? 'dim' : ''}`;
+  if (logos[1]) logos[1].className = `hc-logo ${card.isFinal && hc==='trail' ? 'dim' : ''}`;
+
+  // Status
+  const statusEl = el.querySelector('.hc-status');
+  if (statusEl) {
+    let statusClass, statusHtml;
+    if (card.isFinal) {
+      statusClass = 'final'; statusHtml = `<div class="status-dot"></div> FINAL`;
+    } else if (card.isScheduled) {
+      statusClass = 'scheduled'; statusHtml = `<div class="status-dot"></div> ${formatStartTime(card.startTime)}`;
+    } else if (card.inIntermission) {
+      statusClass = 'intermission';
+      const intClock = card.clock && card.clock !== '--:--' ? ` · ${card.clock}` : '';
+      statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} INT${intClock}`;
+    } else {
+      statusClass = card.isOT ? 'ot' : 'live';
+      statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+    }
+    statusEl.className = `hc-status ${statusClass}`;
+    statusEl.innerHTML = statusHtml;
+  }
+
+  // Badges
+  const badgesEl = el.querySelector('.hc-badges');
+  if (badgesEl) badgesEl.innerHTML = buildBadgesHtml(card.badges);
+
+  // Accent bar gradient
+  const accentEl = el.querySelector('.hc-accent');
+  if (accentEl) accentEl.style.cssText = buildAccentStyle(card);
+
+  // WP text above score
+  const wpTextEl = el.querySelector('.hc-wp-text');
+  const newWpHtml = buildWpTextHtml(card);
+  if (wpTextEl && !newWpHtml) {
+    wpTextEl.remove();
+  } else if (!wpTextEl && newWpHtml) {
+    const scoreCenter = el.querySelector('.hc-score-center');
+    if (scoreCenter) scoreCenter.insertAdjacentHTML('afterbegin', newWpHtml);
+  } else if (wpTextEl && newWpHtml) {
+    wpTextEl.outerHTML = newWpHtml;
+  }
+
+  // Footer (recent events or last event) — rebuild whenever content changes
+  const footEl = el.querySelector('.hc-foot');
+  const recentEl = el.querySelector('.hc-recent');
+  const hasRecentEvents = card.recentEvents && card.recentEvents.length > 0;
+  if (card.isFinal && card.threeStars?.length) {
+    // Final game: three stars take priority over recent events
+    if (!footEl || !footEl.querySelector('.hc-stars')) {
+      if (recentEl) recentEl.remove();
+      el.innerHTML = buildCardInner(card);
+    }
+  } else if (hasRecentEvents) {
+    // Live game: show recent events
+    if (recentEl) {
+      recentEl.outerHTML = `<div class="hc-recent"><div class="hc-recent-label"><span>RECENT EVENTS</span></div>${card.recentEvents.map(e => `<div class="hc-recent-row"><span class="hc-recent-icon">${recentEventIcon(e.type)}</span><span class="hc-recent-desc">${e.description}${recentEventStamp(e)}</span></div>`).join('')}</div>`;
+    } else {
+      if (footEl) footEl.remove();
+      el.innerHTML = buildCardInner(card);
+    }
+  } else if (card.lastEvent && !card.isFinal) {
+    if (footEl) {
+      const lastEl = footEl.querySelector('.hc-last');
+      if (lastEl) lastEl.textContent = card.lastEvent;
+    } else {
+      el.innerHTML = buildCardInner(card);
+    }
+  }
+}
+
+function flashBenchGoal(id) {
+  const el = document.getElementById(`bb-${id}`);
+  if (!el) return;
+  const card = gameCards[id];
+  if (!card) return;
+  const statusEl = el.querySelector('.bc-status');
+  if (statusEl) { statusEl.textContent = `⚡ GOAL`; statusEl.className = 'bc-status goal'; }
+  el.classList.remove('bb-goal-flash');
+  el.offsetHeight;
+  el.classList.add('bb-goal-flash');
+  setTimeout(() => {
+    if (statusEl) {
+      statusEl.textContent = `● ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+      statusEl.className = 'bc-status live';
+    }
+    el.classList.remove('bb-goal-flash');
+  }, 4500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// GOAL DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+function checkForGoals(cards) {
+  const newGoals = [];
+  for (const card of cards) {
+    const prev = prevScores[card.id];
+    if (prev) {
+      const awayScored = card.awayScore > prev.away;
+      const homeScored = card.homeScore > prev.home;
+      if ((awayScored || homeScored) && !card.isFinal) {
+        newGoals.push({ id: card.id, awayScored });
+      }
+    }
+    prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
+  }
+  return newGoals;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN POLL LOOP
+// ─────────────────────────────────────────────────────────────────────────────
+async function pollAndUpdate() {
+  let data;
+  try {
+    data = await fetchGames();
+  } catch (e) {
+    console.warn('[HGB] API fetch failed:', e.message);
+    _consecutiveFailures++;
+    clearInterval(pollTimer);
+    showApiError(_lastSuccessAt > 0);              // stale bar if we've ever loaded
+    pollTimer = setTimeout(pollAndUpdate, _retryDelay);
+    _retryDelay = Math.min(_retryDelay * 2, 60_000);
+    return;
+  }
+
+  // Successful fetch — clear error state and resume normal cadence
+  if (_consecutiveFailures > 0) {
+    _consecutiveFailures = 0;
+    _retryDelay = 4_000;
+    clearApiError();
+    startPolling(_recapMode ? 60_000 : POLL_INTERVAL);
+  }
+  _lastSuccessAt = Date.now();
+
+  const todayGames = data.games || [];
+  if (!todayGames.length) {
+    showNoGames();
+    return;
+  }
+
+  // Yesterday mode: show yesterday's results until 1hr before first game today
+  const firstStart = todayGames.reduce((min, g) => {
+    const t = g.start_time ? new Date(g.start_time).getTime() : Infinity;
+    return Math.min(min, t);
+  }, Infinity);
+  const showYesterday = isFinite(firstStart) && Date.now() < firstStart - 3_600_000;
+
+  let displayData = data;
+  if (showYesterday) {
+    if (!_yesterdayData) _yesterdayData = await fetchYesterdayData();
+    if (_yesterdayData?.games?.length) displayData = _yesterdayData;
+    _viewMode = 'yesterday';
+  } else {
+    _viewMode = 'today';
+  }
+
+  const cards = (displayData.games || []).map(apiGameToCard);
+  const goalIds = _viewMode === 'yesterday' ? [] : checkForGoals(cards);
+
+  // Update game cards map
+  for (const card of cards) {
+    gameCards[card.id] = card;
+  }
+
+  // Sort by excitement — stable: use game id as tiebreaker so equal-score games never flip.
+  // Round to 1 decimal to prevent tiny float drift (pre-game hoursUntil changes each poll)
+  // from triggering spurious re-sorts.
+  const sorted = [...cards].sort((a, b) => {
+    const diff = Math.round(b.excitement * 10) - Math.round(a.excitement * 10);
+    return diff !== 0 ? diff : (a.id < b.id ? -1 : 1);
+  });
+
+  // Recap mode: all today's games are final, OR showing yesterday → no bench, slow poll, ticker=recap
+  const anyLive = cards.some(c => !c.isScheduled && !c.isFinal);
+  const allFinal = cards.length > 0 && (_viewMode === 'yesterday' || (_viewMode === 'today' && cards.every(c => c.isFinal)));
+  // Stream button live state
+  const streamDot = document.getElementById('stream-dot');
+  const streamLabel = document.getElementById('stream-btn-label');
+  if (streamDot) streamDot.classList.toggle('is-live', anyLive);
+  if (streamLabel) streamLabel.textContent = anyLive ? '🔴 LIVE' : 'STREAM';
+  if (allFinal) enterRecapMode();
+  else if (_recapMode && !allFinal) exitRecapMode();
+
+  const layoutMode = _recapMode ? getRecapLayoutMode(cards.length) : getLayoutMode(cards.length);
+  const gridSize = getGridSlotCount(layoutMode);
+  const newTopN = sorted.slice(0, gridSize).map(c => c.id);
+  const newBench = _recapMode ? [] : sorted.slice(gridSize).map(c => c.id);
+
+
+  if (!initialized || layoutMode !== currentLayoutMode) {
+    if (!initialized) {
+      // Init previous scores
+      for (const card of cards) {
+        prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
+      }
+    }
+    applyLayout(layoutMode, newTopN, newBench);
+    renderGrid();
+    renderBench();
+    updateTopBar(displayData, _viewMode);
+    updateTicker(cards);
+    renderDebugPanel(sorted);
+    initialized = true;
+    return;
+  }
+
+  // Process goals
+  for (const { id, awayScored } of goalIds) {
+    const card = gameCards[id];
+    const washData = buildWashData(card, awayScored);
+    if (grid.includes(id)) {
+      // Goal in featured game → wash animation
+      triggerWash(id, washData);
+    } else if (bench.includes(id)) {
+      // Goal in bench game
+      flashBenchGoal(id);
+      // Promote if within 1 goal
+      const goalDiff = Math.abs(card.awayScore - card.homeScore);
+      if (goalDiff <= 1) {
+        setTimeout(() => promoteGame(id, washData), 4000);
+      }
+    }
+  }
+  if (goalIds.length) lastGoalTime = Date.now();
+
+  // Check if top-N order changed
+  const gridChanged = JSON.stringify(newTopN) !== JSON.stringify(grid);
+  const goalFreezeActive = (Date.now() - lastGoalTime) < 45000;
+  if (gridChanged && !goalIds.length && !goalFreezeActive && anyLive) {
+    // Re-sort without goal animation
+    grid = newTopN;
+    bench = newBench;
+    resortGrid(newTopN);
+    setTimeout(() => renderBench(), 400);
+  } else if (!goalIds.length) {
+    // Just update card data in place
+    for (let i = 0; i < grid.length; i++) {
+      if (grid[i]) updateCardInPlace(i, gameCards[grid[i]]);
+    }
+    bench = newBench;
+    renderBench();
+  }
+
+  updateTopBar(displayData, _viewMode);
+  updateTicker(cards);
+  renderDebugPanel(sorted);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WALL CLOCK
+// ─────────────────────────────────────────────────────────────────────────────
+// Wall clock removed from topbar — users have one in their OS, and the
+// second-by-second tick added DOM churn for zero value. Kept this
+// commented-out block intentionally as a gravestone in case we want it
+// back in a different form (e.g. "next game in 3h 12m").
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB VISIBILITY — throttle when hidden, catchup indicator on return
+// ─────────────────────────────────────────────────────────────────────────────
+let pollTimer = null;
+let hiddenAt = null;
+const STALE_THRESHOLD_MS = 10_000; // show catchup pill if hidden >10s
+
+function startPolling(interval) {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(pollAndUpdate, interval);
+}
+
+function showCatchupPill() {
+  const pill = document.getElementById('catchup-pill');
+  pill.classList.add('show');
+  setTimeout(() => pill.classList.remove('show'), 1500);
+}
+
+// ── API error UI ──────────────────────────────────────────────────────────────
+function _fmtAgo(ms) {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
+}
+
+function showApiError(isStale) {
+  document.getElementById('api-error-banner')?.remove();
+  document.getElementById('api-stale-bar')?.remove();
+  clearTimeout(_countdownTimer);
+
+  const wrapper = document.getElementById('grid-wrapper');
+  if (!wrapper) return;
+
+  if (isStale) {
+    // Keep existing cards visible — amber bar above them
+    const bar = document.createElement('div');
+    bar.id = 'api-stale-bar';
+    bar.setAttribute('role', 'status'); // polite: don't interrupt screen readers
+    bar.style.cssText = 'padding:6px 14px;background:rgba(255,202,40,0.1);color:#ffca28;font-size:12px;text-align:center;letter-spacing:0.04em;border-bottom:1px solid rgba(255,202,40,0.2);';
+    const ago = _fmtAgo(Date.now() - _lastSuccessAt);
+    bar.textContent = `Scores last updated ${ago}. Retrying…`;
+    wrapper.prepend(bar);
+  } else {
+    // Cold-start: nothing to show — replace content with error banner
+    const secs = Math.round(_retryDelay / 1000);
+    const banner = document.createElement('div');
+    banner.id = 'api-error-banner';
+    banner.setAttribute('role', 'alert'); // assertive: announce immediately
+    banner.style.cssText = 'padding:40px 16px;text-align:center;';
+    banner.innerHTML = `
+      <div style="font-size:14px;font-weight:700;color:#ff3d3d;letter-spacing:0.06em;margin-bottom:8px;">UNABLE TO LOAD SCORES</div>
+      <div style="font-size:12px;color:#555;margin-bottom:14px;">Retrying in <span id="api-error-countdown">${secs}s</span>.</div>
+      <button id="api-error-retry" style="background:#ff3d3d;color:#fff;border:none;padding:7px 18px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit;font-weight:700;letter-spacing:0.08em;">RETRY NOW</button>`;
+    wrapper.innerHTML = '';
+    wrapper.appendChild(banner);
+
+    // Manual retry — treat as a fresh attempt (reset backoff)
+    document.getElementById('api-error-retry').addEventListener('click', () => {
+      clearTimeout(_countdownTimer);
+      clearInterval(pollTimer);
+      _consecutiveFailures = 0;
+      _retryDelay = 4_000;
+      clearApiError();
+      pollAndUpdate();
+    });
+
+    let remaining = secs;
+    const countEl = document.getElementById('api-error-countdown');
+    function tick() {
+      remaining--;
+      if (countEl && remaining > 0) {
+        countEl.textContent = `${remaining}s`;
+        _countdownTimer = setTimeout(tick, 1_000);
+      }
+    }
+    _countdownTimer = setTimeout(tick, 1_000);
+  }
+}
+
+function clearApiError() {
+  document.getElementById('api-error-banner')?.remove();
+  document.getElementById('api-stale-bar')?.remove();
+  clearTimeout(_countdownTimer);
+  _countdownTimer = null;
+}
+
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now();
+    startPolling(60_000); // slow down while backgrounded
+  } else {
+    const wasHiddenMs = hiddenAt ? Date.now() - hiddenAt : 0;
+    hiddenAt = null;
+    if (wasHiddenMs > STALE_THRESHOLD_MS) showCatchupPill();
+    pollAndUpdate(); // immediate refresh
+    startPolling(_recapMode ? 60_000 : POLL_INTERVAL); // resume normal cadence
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SSE PUSH — bot events trigger immediate poll instead of waiting for interval
+// ─────────────────────────────────────────────────────────────────────────────
+const SSE_URL = 'https://push.hockeygamebot.com/events';
+const sseIndicator = document.getElementById('sse-indicator');
+
+let _sse = null;
+function connectSSE() {
+  // Always close any existing connection first — EventSource also auto-reconnects
+  // natively, so without this we'd accumulate duplicate connections on each error.
+  if (_sse) { _sse.close(); _sse = null; }
+
+  _sse = new EventSource(SSE_URL);
+
+  _sse.onopen = () => {
+    sseIndicator?.classList.add('connected');
+    sseIndicator?.classList.remove('error');
+  };
+
+  _sse.onmessage = (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+    if (data.type === 'connected') {
+      sseIndicator?.classList.add('connected');
+      sseIndicator?.classList.remove('error');
+      return;
+    }
+    if (data.type === 'goal' || data.type === 'period_end' || data.type === 'game_end') {
+      pollAndUpdate();
+    }
+    if (data.type === 'goal') {
+      // Refresh goals ticker ~3s after goal — give D1 time to have the new row
+      setTimeout(fetchGoals, 3000);
+    }
+  };
+
+  _sse.onerror = () => {
+    sseIndicator?.classList.remove('connected');
+    sseIndicator?.classList.add('error');
+    if (_sse) { _sse.close(); _sse = null; }
+    setTimeout(connectSSE, 10_000);
+  };
+}
+
+connectSSE();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAME MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+function _hideModal() {
+  document.getElementById('game-modal').style.display = 'none';
+  document.body.style.overflow = '';
+  _modalOpener?.focus();
+  _modalOpener = null;
+}
+
+function closeModal() {
+  _hideModal();
+  if (location.search) history.replaceState({}, '', location.pathname);
+}
+
+
+// Convert SVG <img> elements to letterboxed PNG data URLs.
+// html2canvas v1 ignores object-fit:contain, so we manually center the SVG
+// within the display bounding box and produce a same-size PNG.
+async function svgImgsToPng(container) {
+  const imgs = Array.from(container.querySelectorAll('img[src]'));
+  await Promise.all(imgs.map(img => new Promise(resolve => {
+    const src = img.src;
+    // @2x for retina — display dims from HTML attributes
+    const dw = (parseInt(img.getAttribute('width')) || 60) * 2;
+    const dh = (parseInt(img.getAttribute('height')) || 60) * 2;
+    const tmp = new Image();
+    tmp.onload = () => {
+      const nw = tmp.naturalWidth || dw;
+      const nh = tmp.naturalHeight || dh;
+      // Letterbox: fit SVG within display box maintaining aspect ratio
+      const svgRatio = nw / nh;
+      const boxRatio = dw / dh;
+      let sw, sh, sx, sy;
+      if (svgRatio > boxRatio) {
+        sw = dw; sh = Math.round(dw / svgRatio);
+        sx = 0; sy = Math.round((dh - sh) / 2);
+      } else {
+        sh = dh; sw = Math.round(dh * svgRatio);
+        sx = Math.round((dw - sw) / 2); sy = 0;
+      }
+      const c = document.createElement('canvas');
+      c.width = dw; c.height = dh;
+      c.getContext('2d').drawImage(tmp, sx, sy, sw, sh);
+      try {
+        img.src = c.toDataURL('image/png');
+        img.style.objectFit = 'none'; // already letterboxed in the PNG
+      } catch(e) { console.warn('[share] canvas draw failed:', src, e); }
+      resolve();
+    };
+    tmp.onerror = resolve;
+    tmp.src = src;
+  })));
+}
+
+async function shareModal() {
+  if (typeof html2canvas === 'undefined') return;
+  const btn = document.getElementById('modal-share');
+  btn.classList.add('capturing');
+  btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 16"/></svg>';
+
+  try {
+    const panel = document.querySelector('.modal-panel');
+
+    // Clone into a fixed 860px offscreen container so output is always wide
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:860px;z-index:-1;';
+    const clone = panel.cloneNode(true);
+    clone.style.cssText = 'width:860px;max-width:860px;max-height:none;overflow:visible;border-radius:14px;animation:none;';
+    // Hide interactive chrome in the clone
+    clone.querySelectorAll('.modal-actions').forEach(el => el.style.display = 'none');
+    // Swap to two-column goals layout for share card
+    clone.querySelectorAll('.modal-goals-list').forEach(el => { el.hidden = true; el.style.display = 'none'; });
+    clone.querySelectorAll('.modal-goals-grid').forEach(el => { el.hidden = false; el.style.display = 'grid'; });
+    // Remove onerror hide handlers so failed loads stay visible for debugging
+    clone.querySelectorAll('img[onerror]').forEach(img => img.removeAttribute('onerror'));
+    // Inject branding — top right, absolute so it overlays the header area
+    const brand = document.createElement('div');
+    brand.style.cssText = 'position:absolute;top:14px;right:24px;font-size:11px;font-weight:700;letter-spacing:0.1em;color:rgba(255,255,255,0.35);pointer-events:none;';
+    brand.textContent = 'hockeygamebot.com';
+    clone.appendChild(brand);
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    // Convert SVG imgs → PNG data URLs (html2canvas can't render SVG img tags)
+    await svgImgsToPng(clone);
+
+    // Wait a frame for layout
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const canvas = await html2canvas(clone, {
+      backgroundColor: '#0d0d0d',
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      logging: false,
+      width: 860,
+      windowWidth: 860,
+    });
+
+    document.body.removeChild(wrapper);
+
+    canvas.toBlob(async blob => {
+      const file = new File([blob], 'game.png', { type: 'image/png' });
+      const isMobile = navigator.maxTouchPoints > 0 && window.matchMedia('(pointer: coarse)').matches;
+      if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] }).catch(() => {});
+      } else {
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = 'game-card.png';
+        a.click();
+      }
+    }, 'image/png');
+  } catch(e) {
+    console.error('shareModal:', e);
+  } finally {
+    btn.classList.remove('capturing');
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
+  }
+}
+
+async function openModal(gameId, { push = true } = {}) {
+  const modal = document.getElementById('game-modal');
+  const content = document.getElementById('modal-content');
+  _modalOpener = document.activeElement;
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  content.innerHTML = '<div class="modal-loading">Loading…</div>';
+  document.getElementById('modal-close').focus();
+  if (push) history.pushState({ gameId }, '', `?game=${gameId}`);
+
+  let flow, eventsData;
+  try {
+    const [flowResp, evResp] = await Promise.all([
+      fetch(`${API_BASE}/v1/games/${gameId}/flow`, { cache: 'no-store' }),
+      fetch(`${API_BASE}/v1/games/${gameId}/events`, { cache: 'no-store' })
+    ]);
+
+    if (flowResp.ok) {
+      flow = await flowResp.json();
+    } else {
+      const preview = await flowResp.text().then(t => t.slice(0, 500)).catch(() => '');
+      console.warn(`[HGB flow] ${flowResp.status}${preview ? ` — ${preview}` : ''}`);
+      flow = null;
+    }
+
+    if (evResp.ok) {
+      eventsData = await evResp.json();
+    } else {
+      const preview = await evResp.text().then(t => t.slice(0, 500)).catch(() => '');
+      console.warn(`[HGB events] ${evResp.status}${preview ? ` — ${preview}` : ''}`);
+      eventsData = null;
+    }
+  } catch {
+    content.innerHTML = '<div class="modal-loading">Failed to load game data.</div>';
+    return;
+  }
+
+  const card = gameCards[gameId];
+  if (!card) { content.innerHTML = '<div class="modal-loading">Game not found.</div>'; return; }
+  modal.setAttribute('aria-label', `${card.away} at ${card.home}`);
+
+  const flowOk = flow != null;
+  const points = flowOk ? (flow.points || []).filter(p => p.wp != null).sort((a, b) => a.t - b.t) : [];
+  // Anchor line to game start at home-team advantage baseline if first data point comes in late
+  if (points.length && points[0].t > 0) points.unshift({ t: 0, wp: 0.5513 });
+  // For final games, force the last WP point to the definitive outcome (1.0 home win / 0.0 away win)
+  if (card.isFinal && points.length) {
+    const finalWp = card.homeScore > card.awayScore ? 1.0 : 0.0;
+    points[points.length - 1] = { ...points[points.length - 1], wp: finalWp };
+  }
+  const goals = flowOk ? (flow.goals || []).map(g => ({ ...g, isHome: g.is_home })) : [];
+
+  // Compute WP delta for each goal (scoring team's perspective).
+  //
+  // Problem: the bot sometimes stores WP from a previous goal's computation at the
+  // next goal's event timestamp (when the previous GOAL event had no WP in its payload).
+  // This corrupts wpB if we naively take the last WP point before each goal.
+  //
+  // Fix: two-pass approach.
+  // Pass 1 — for every goal, compute "effective post-goal WP" = after[0].wp (first WP
+  //           data point strictly after the goal timestamp — always the freshest post-goal state).
+  // Pass 2 — for each goal's wpB, prefer the effectiveWpAfter of the immediately preceding
+  //           goal over the last raw data point if that goal was more recent.
+  //           This chains goals together so a goal with no stored WP doesn't corrupt
+  //           the delta of the next goal.
+  const sortedGoals = goals.slice().sort((a, b) => a.t - b.t);
+  const effectiveWpAfter = {};
+  for (const g of sortedGoals) {
+    const after = points.filter(p => p.t > g.t);
+    effectiveWpAfter[g.t] = after.length ? after[0].wp : (points.length ? points[points.length - 1].wp : null);
+  }
+
+  for (const g of goals) {
+    const wpA = effectiveWpAfter[g.t];
+    const prevGoal     = sortedGoals.filter(pg => pg.t < g.t).pop();
+    const lastDataPt   = points.filter(p => p.t < g.t).pop();
+    let wpB = null;
+    if (prevGoal != null && effectiveWpAfter[prevGoal.t] != null
+        && (!lastDataPt || prevGoal.t >= lastDataPt.t)) {
+      wpB = effectiveWpAfter[prevGoal.t]; // use prior goal's settled WP as baseline
+    } else if (lastDataPt) {
+      wpB = lastDataPt.wp;
+    }
+    if (wpB != null && wpA != null) {
+      const rawDelta = wpA - wpB; // positive = better for home
+      const scorerDelta = g.isHome ? rawDelta : -rawDelta;
+      // Clamp to 0 — negative means corrupted/stale pre-goal WP data, never show minus badge
+      g.wpDelta    = Math.max(0, scorerDelta);
+      g.scoringWpB = (g.isHome ? wpB : 1 - wpB) * 100;
+      g.scoringWpA = (g.isHome ? wpA : 1 - wpA) * 100;
+    }
+  }
+
+  // tMax: for live games, stretch to at least the end of the current period so a
+  // single early goal doesn't collapse the chart to a tiny sliver.
+  // Playoff OT periods are 20 min (1200s); regular season OT is 5 min (300s).
+  // Infer playoff from game ID: positions 4-5 === '03' (e.g. 2025030101).
+  const lastPointT = points.length ? points[points.length - 1].t : 0;
+  const isPlayoffGame = String(card.id || '').slice(4, 6) === '03';
+  const otPeriodSecs = isPlayoffGame ? 1200 : 300;
+  const periodEndT = card.isFinal ? 0 : (() => {
+    const p = card.period || 1;
+    return p <= 3 ? p * 1200 : 3600 + (p - 3) * otPeriodSecs;
+  })();
+  const tMax = Math.max(lastPointT, periodEndT) || 3600;
+
+  const sc = (a, b) => a > b ? 'lead' : a < b ? 'trail' : 'tie';
+  const ac = sc(card.awayScore, card.homeScore);
+  const hc = sc(card.homeScore, card.awayScore);
+
+  const periodStr = card.isFinal
+    ? (card.isOT ? 'FINAL · OT' : card.period > 4 ? 'FINAL · SO' : 'FINAL')
+    : card.inIntermission
+      ? `${periodLabel(card.period, card.isOT)} INT · ${card.clock}`
+      : `${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+
+  const logoUrl = abbr => `${LOGO_BASE}/${abbr}_light.svg`;
+  const logoImg = (abbr, dim) => `<img src="${logoUrl(abbr)}" width="60" height="60" style="object-fit:contain${dim ? ';opacity:0.3;filter:grayscale(0.5)' : ''}" onerror="this.style.display='none'">`;
+
+  const xgEvents = eventsData?.events || [];
+  const xgEvents5v5 = xgEvents.filter(ev => ev.payload?.situationCode === '1551');
+
+  // Compute totals from events (more accurate than card values which are all-situations)
+  function calcXgTotals(evs) {
+    let home = 0, away = 0;
+    for (const ev of evs) {
+      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'MISSED_SHOT' && ev.event_type !== 'GOAL') continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const isHome = ev.event_team_id != null && ev.event_team_id === ev.home_team_id;
+      if (isHome) home += xg; else away += xg;
+    }
+    return { home: home.toFixed(1), away: away.toFixed(1) };
+  }
+  const totalsAll = calcXgTotals(xgEvents);
+  const totals5v5 = calcXgTotals(xgEvents5v5);
+
+  const _unavailable = `<div class="modal-no-chart" style="font-style:italic">Unavailable.</div>`;
+  const wpInner = !flowOk
+    ? _unavailable
+    : points.length >= 2
+      ? buildWpChart(points, goals, card.home, card.away, card.homeColor, card.teamColor, tMax)
+      : `<div class="modal-no-chart">Win probability chart will appear once the game is underway.</div>`;
+  const xgInner5v5 = eventsData == null ? _unavailable : buildXgFlowChart(xgEvents5v5, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
+  const xgInnerAll  = eventsData == null ? _unavailable : buildXgFlowChart(xgEvents, goals, card.home, card.away, card.homeColor, card.teamColor, tMax);
+
+  const chartHtml = `<div class="modal-chart-wrap" id="mc-${gameId}">
+    <div class="modal-tabs">
+      <button class="modal-tab-btn active" data-tab="wp">Win %</button>
+      <button class="modal-tab-btn" data-tab="xg5v5">5V5 xG</button>
+      <button class="modal-tab-btn" data-tab="xgall">All xG</button>
+    </div>
+    <div class="modal-tab-panel active" data-panel="wp">${wpInner}</div>
+    <div class="modal-tab-panel" data-panel="xg5v5">${xgInner5v5}</div>
+    <div class="modal-tab-panel" data-panel="xgall">${xgInnerAll}</div>
+  </div>`;
+
+  function goalPeriodStr(t) {
+    if (t <= 1200) return `P1 ${secToMs(t % 1200)}`;
+    if (t <= 2400) return `P2 ${secToMs(t % 1200)}`;
+    if (t <= 3600) return `P3 ${secToMs(t % 1200)}`;
+    return `OT ${secToMs(t % 1200)}`;
+  }
+  function secToMs(s) {
+    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  }
+  function strengthBadge(s) {
+    if (s === 'pp') return `<span class="modal-strength pp">PP</span>`;
+    if (s === 'sh') return `<span class="modal-strength sh">SH</span>`;
+    if (s === 'en') return `<span class="modal-strength en">EN</span>`;
+    return '';
+  }
+  function buildGoalCard(g, color, teamAbbr) {
+    const assists = (g.assists || []).join(', ');
+    const scorerLine = g.scorer
+      ? `🚨 ${g.scorer}${assists ? `<span class="modal-gc-assists"> · ${assists}</span>` : ''}`
+      : '';
+
+    // WP delta badge — team color background, white/black text based on luminance
+    let wpBadge = '';
+    if (g.wpDelta != null) {
+      const sign = g.wpDelta >= 0 ? '+' : '';
+      const tc = color && color.startsWith('#')
+        ? (() => { const r=parseInt(color.slice(1,3),16),g2=parseInt(color.slice(3,5),16),b=parseInt(color.slice(5,7),16); return (0.299*r+0.587*g2+0.114*b)>140?'#000':'#fff'; })()
+        : '#fff';
+      wpBadge = `<span class="modal-gc-wp-delta" style="color:${tc};background:${color}cc">${sign}${(g.wpDelta * 100).toFixed(1)}%</span>`;
+    }
+
+    // Play button — highlight clip only (EDGE disabled, B2 egress concern)
+    const playBtn = g.highlight_clip_id
+      ? `<button class="modal-gc-play"
+           data-url=""
+           data-clip-id="${g.highlight_clip_id || ''}"
+           data-scorer="${(g.scorer || '').replace(/"/g, '&quot;')}"
+           data-assists="${assists.replace(/"/g, '&quot;')}"
+           data-team="${teamAbbr}"
+           data-wp-b="${g.scoringWpB != null ? g.scoringWpB.toFixed(1) : ''}"
+           data-wp-a="${g.scoringWpA != null ? g.scoringWpA.toFixed(1) : ''}"
+           data-wp-delta="${g.wpDelta != null ? (g.wpDelta * 100).toFixed(1) : ''}"
+           aria-label="Watch goal replay">▶</button>`
+      : '';
+
+    return `<div class="modal-goal-card">
+      <div class="modal-gc-top">
+        <span class="modal-gc-abbr" style="color:${color}">${teamAbbr}</span>
+        ${strengthBadge(g.strength)}
+        <span class="modal-gc-score">${(g.score||'').replace('-','–')}</span>
+        <span class="modal-gc-time">${goalPeriodStr(g.t)}</span>
+        ${wpBadge}
+        ${playBtn}
+      </div>
+      ${scorerLine ? `<div class="modal-gc-scorer">${scorerLine}</div>` : ''}
+    </div>`;
+  }
+
+  // For FINAL games, force WP to 100/0 based on winner — model rarely reaches exactly 100%
+  const homeWpPct = card.isFinal
+    ? (card.homeScore >= card.awayScore ? 100 : 0)
+    : (card.winProbability != null ? Math.round(card.winProbability * 100) : null);
+  const awayWpPct = homeWpPct != null ? 100 - homeWpPct : null;
+  const awayReadable = ensureReadable(card.teamColor);
+  const homeReadable = ensureReadable(card.homeColor);
+  // Default header xG to 5v5 if we have event data, else fall back to the
+  // event-based all-situations sum. NEVER fall through to card.xgAway /
+  // card.xgHome — those are written by a different code path (game_state
+  // table) with a different model, so they can disagree with the per-event
+  // xG sum badly enough to invert (e.g. ALL 0.4 < 5v5 0.6 for TBL in the
+  // MTL@TBL G1, 2026-04-19). Both tabs now use calcXgTotals() for a
+  // consistent source. See TODO: investigate game_state xG writer drift.
+  const hasXgEvents = totals5v5.home > 0 || totals5v5.away > 0 || totalsAll.home > 0 || totalsAll.away > 0;
+  const initAwayXg = (totals5v5.home > 0 || totals5v5.away > 0) ? totals5v5.away : totalsAll.away;
+  const initHomeXg = (totals5v5.home > 0 || totals5v5.away > 0) ? totals5v5.home : totalsAll.home;
+  const initLbl = (totals5v5.home > 0 || totals5v5.away > 0) ? 'xG 5V5' : 'xG';
+  const awayXgHtml = hasXgEvents ? `<div class="modal-xg" id="modal-xg-away-${gameId}" style="color:${awayReadable}">${initAwayXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
+  const homeXgHtml = hasXgEvents ? `<div class="modal-xg" id="modal-xg-home-${gameId}" style="color:${homeReadable}">${initHomeXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
+  const statsStripHtml = homeWpPct != null ? `
+    <div class="modal-wp-lbl">WIN PROBABILITY</div>
+    <div class="modal-wp-strip">
+      <span class="modal-wp-pct away" style="color:${awayReadable}">${awayWpPct}%</span>
+      <div class="modal-wp-bar" style="background:linear-gradient(90deg,${awayReadable} ${Math.max(0,awayWpPct-8)}%,${homeReadable} ${Math.min(100,awayWpPct+8)}%)"></div>
+      <span class="modal-wp-pct home" style="color:${homeReadable}">${homeWpPct}%</span>
+    </div>` : '';
+
+  const awayGoals = goals.filter(g => !g.isHome);
+  const homeGoals = goals.filter(g => g.isHome);
+
+  function buildGoalColumn(list, color, abbr, label) {
+    return `<div class="modal-goals-col">
+      <div class="modal-goals-col-hdr" style="color:${color}">${label}</div>
+      ${list.length ? list.map(g => buildGoalCard(g, color, abbr)).join('') : '<div class="modal-no-goals">—</div>'}
+    </div>`;
+  }
+
+  // Single-column chronological list (modal view)
+  const goalsList = !flowOk
+    ? `<div class="modal-no-goals" style="font-style:italic">Goal data unavailable.</div>`
+    : goals.length
+    ? `<div class="modal-goals-list">
+        ${(() => {
+          const periodOf = t => t <= 1200 ? 'P1' : t <= 2400 ? 'P2' : t <= 3600 ? 'P3' : 'OT';
+          const sorted = [...goals].sort((a, b) => a.t - b.t);
+          let curPeriod = null;
+          return sorted.map(g => {
+            const p = periodOf(g.t);
+            const sep = p !== curPeriod ? `<div class="modal-period-sep"><span>${p}</span></div>` : '';
+            curPeriod = p;
+            const color = g.isHome ? card.homeColor : card.teamColor;
+            const abbr  = g.isHome ? card.home : card.away;
+            return sep + buildGoalCard(g, color, abbr);
+          }).join('');
+        })()}
+      </div>`
+    : '<div class="modal-no-goals">No goals yet.</div>';
+
+  // Two-column grid (share card only — hidden in normal modal view)
+  const goalsGrid = goals.length
+    ? `<div class="modal-goals-grid" hidden>
+        ${buildGoalColumn(awayGoals, card.teamColor, card.away, card.away)}
+        ${buildGoalColumn(homeGoals, card.homeColor, card.home, card.home)}
+      </div>`
+    : '';
+
+  const goalsHtml = goalsList + goalsGrid;
+
+  content.innerHTML = `
+    <div class="modal-header">
+      <div class="modal-team">
+        ${logoImg(card.away, ac === 'trail' && card.isFinal)}
+        <div class="modal-abbr ${ac}">${card.away}</div>
+        <div class="modal-city">${card.awayCity}</div>
+        ${awayXgHtml}
+      </div>
+      <div class="modal-score-center">
+        <div class="modal-scores">
+          <span class="modal-n ${ac}">${card.awayScore}</span>
+          <span class="modal-sep">–</span>
+          <span class="modal-n ${hc}">${card.homeScore}</span>
+        </div>
+        <div class="modal-period">${periodStr}</div>
+      </div>
+      <div class="modal-team">
+        ${logoImg(card.home, hc === 'trail' && card.isFinal)}
+        <div class="modal-abbr ${hc}">${card.home}</div>
+        <div class="modal-city">${card.homeCity}</div>
+        ${homeXgHtml}
+      </div>
+    </div>
+    ${card.isFinal && card.threeStars?.length ? `
+    <div class="modal-stars-section">
+      <div class="modal-wp-lbl">THREE STARS</div>
+      <div class="modal-stars-row">
+        ${card.threeStars.slice(0,3).map(s => `
+          <div class="modal-star">
+            <div class="modal-star-icons">${'⭐'.repeat(s.star || 1)}</div>
+            <div class="modal-star-name">${s.player_last_name || s.player_name || ''}${s.team_abbrev ? ` (${s.team_abbrev})` : ''}</div>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
+    ${statsStripHtml}
+    ${chartHtml}
+    <div class="modal-goals-section">
+      <div class="modal-section-label">GOALS</div>
+      ${goalsHtml}
+    </div>`;
+
+  // Wire tab buttons after innerHTML is set
+  const chartWrap = document.getElementById(`mc-${gameId}`);
+  if (chartWrap) {
+    chartWrap.querySelectorAll('.modal-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        chartWrap.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+        chartWrap.querySelectorAll('.modal-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === btn.dataset.tab));
+        // Sync header xG numbers with active xG tab
+        const awayEl = document.getElementById(`modal-xg-away-${gameId}`);
+        const homeEl = document.getElementById(`modal-xg-home-${gameId}`);
+        if (awayEl && homeEl) {
+          if (btn.dataset.tab === 'xg5v5') {
+            awayEl.innerHTML = `${totals5v5.away} <span class="modal-xg-lbl">xG 5V5</span>`;
+            homeEl.innerHTML = `${totals5v5.home} <span class="modal-xg-lbl">xG 5V5</span>`;
+          } else if (btn.dataset.tab === 'xgall') {
+            // Always use calcXgTotals(allEvents) — same function / model as
+            // the 5v5 tab, just unfiltered by situationCode. Previously fell
+            // back to game_state's card.xgAway/card.xgHome which use a
+            // different writer and can invert vs 5v5.
+            awayEl.innerHTML = `${totalsAll.away} <span class="modal-xg-lbl">xG</span>`;
+            homeEl.innerHTML = `${totalsAll.home} <span class="modal-xg-lbl">xG</span>`;
+          }
+          // WIN% tab: leave xG header unchanged
+        }
+      });
+    });
+  }
+}
+
+// Modal close handlers
+document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('modal-share').addEventListener('click', shareModal);
+document.getElementById('modal-backdrop').addEventListener('click', closeModal);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeGvp(); }
+  if (e.key === 'Tab') {
+    const modal = document.getElementById('game-modal');
+    if (modal.style.display === 'none') return;
+    const focusable = Array.from(modal.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(el => el.offsetParent !== null);
+    if (focusable.length < 2) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+});
+
+// Back/forward button support — popstate fires when history changes via browser nav
+window.addEventListener('popstate', e => {
+  if (e.state && e.state.gameId) {
+    openModal(e.state.gameId, { push: false }); // forward → reopen, don't push again
+  } else {
+    _hideModal(); // back → close without touching history (already moved)
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GOAL VIDEO POPUP
+// ─────────────────────────────────────────────────────────────────────────────
+const gvp       = document.getElementById('gvp');
+const gvpVideo  = document.getElementById('gvp-video');
+const gvpIframe = document.getElementById('gvp-iframe');
+const gvpTabs   = document.getElementById('gvp-tabs');
+const gvpScorer = document.getElementById('gvp-scorer');
+const gvpWp     = document.getElementById('gvp-wp');
+
+const BRIGHTCOVE_PLAYER = 'https://players.brightcove.net/6415718365001/EXtG1xJ7H_default/index.html';
+
+function gvpShowTab(tab) {
+  gvpTabs.querySelectorAll('.gvp-tab').forEach(b => b.classList.toggle('active', b.dataset.gvpTab === tab));
+  if (tab === 'edge') {
+    gvpVideo.hidden = false;
+    gvpIframe.hidden = true;
+    gvpIframe.src = '';
+    gvpVideo.play().catch(() => {});
+  } else {
+    gvpVideo.pause();
+    gvpVideo.hidden = true;
+    gvpIframe.hidden = false;
+    gvpIframe.src = `${BRIGHTCOVE_PLAYER}?videoId=${gvpIframe.dataset.clipId}&autoplay=true`;
+  }
+}
+
+function closeGvp() {
+  if (gvp.hidden) return;
+  gvp.hidden = true;
+  gvpVideo.pause();
+  gvpVideo.src = '';
+  gvpIframe.src = '';
+  gvpIframe.dataset.clipId = '';
+}
+
+document.getElementById('gvp-close').addEventListener('click', closeGvp);
+document.getElementById('gvp-backdrop').addEventListener('click', closeGvp);
+gvpTabs.addEventListener('click', e => {
+  const tab = e.target.closest('.gvp-tab');
+  if (tab) gvpShowTab(tab.dataset.gvpTab);
+});
+
+// Delegate clicks on play buttons (rendered dynamically inside modal)
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.modal-gc-play');
+  if (!btn) return;
+  e.stopPropagation(); // don't bubble to hcard click handler
+
+  const scorer  = btn.dataset.scorer;
+  const assists = btn.dataset.assists;
+  const team    = btn.dataset.team;
+  const wpB     = btn.dataset.wpB;
+  const wpA     = btn.dataset.wpA;
+  const delta   = btn.dataset.wpDelta;
+  const clipId  = btn.dataset.clipId;
+
+  // Scorer line
+  gvpScorer.textContent = scorer
+    ? (assists ? `${scorer} · ${assists}` : scorer)
+    : 'Goal';
+
+  // WP line
+  if (wpB && wpA && delta) {
+    const d = parseFloat(delta);
+    const sign = d >= 0 ? '+' : '';
+    const cls  = d >= 0 ? 'pos' : 'neg';
+    gvpWp.innerHTML = `${team} win probability: <strong>${wpB}%</strong> → <strong>${wpA}%</strong><span class="gvp-wp-delta ${cls}">${sign}${delta}%</span>`;
+  } else {
+    gvpWp.innerHTML = '';
+  }
+
+  const hasEdge = !!btn.dataset.url;
+  const hasClip = !!clipId;
+  const hasBoth = hasEdge && hasClip;
+
+  // Show tabs only when both sources exist
+  gvpTabs.hidden = !hasBoth;
+  gvpIframe.dataset.clipId = clipId || '';
+
+  if (hasEdge) {
+    // EDGE available — default to it
+    gvpVideo.src = btn.dataset.url;
+    gvpVideo.hidden = false;
+    gvpIframe.hidden = true;
+    gvpIframe.src = '';
+    if (hasBoth) gvpTabs.querySelectorAll('.gvp-tab').forEach(b => b.classList.toggle('active', b.dataset.gvpTab === 'edge'));
+  } else {
+    // Highlight clip only — go straight to iframe
+    gvpVideo.src = '';
+    gvpVideo.hidden = true;
+    gvpIframe.src = `${BRIGHTCOVE_PLAYER}?videoId=${clipId}&autoplay=true`;
+    gvpIframe.hidden = false;
+  }
+
+  gvp.hidden = false;
+});
+
+// Card click → open modal
+// Use event delegation on the grid wrapper and bench container
+document.addEventListener('click', e => {
+
+  const card = e.target.closest('.hcard');
+  if (card) {
+    // Find game id from SLOTS array
+    const slotIdx = SLOTS.indexOf(card.id);
+    if (slotIdx !== -1 && grid[slotIdx]) openModal(grid[slotIdx]);
+    return;
+  }
+  const bc = e.target.closest('.bc');
+  if (bc) {
+    const gameId = bc.dataset.gameId;
+    if (gameId) openModal(gameId);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// START
+// ─────────────────────────────────────────────────────────────────────────────
+window.openModal = openModal;
+// Auto-open modal if ?game=<id> is in the URL (e.g. deep link from Reddit).
+// Wait for pollAndUpdate to populate gameCards before opening, otherwise the
+// card lookup on line ~1977 returns undefined and shows "Game not found."
+// Do NOT push state — URL is already correct.
+const _autoGameId = new URLSearchParams(location.search).get('game');
+if (_autoGameId) {
+  pollAndUpdate().then(() => openModal(_autoGameId, { push: false }));
+} else {
+  pollAndUpdate();
+}
+fetchGoals();
+startPolling(POLL_INTERVAL);
+// Refresh goals ticker every 2 minutes independently of game poll
+setInterval(fetchGoals, 300_000); // 5min fallback — SSE handles real-time goal updates
+
+// Stream popup toggle
+(function() {
+  const btn = document.getElementById('stream-btn');
+  const popup = document.getElementById('stream-popup');
+  if (!btn || !popup) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    popup.hidden = !popup.hidden;
+  });
+  document.addEventListener('click', () => { popup.hidden = true; });
+})();
+</script>
