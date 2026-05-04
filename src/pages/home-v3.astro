@@ -279,6 +279,23 @@ const tonightGames: TonightEntry[] = await Promise.all(
     })))
 );
 
+// ── Editorial copy (auto-derived from game data, Haiku will replace later) ────
+function editorialCopy(g: SBGame): { tag: string; hed: string; dek: string } {
+  const awayWins = g.away_team.score > g.home_team.score;
+  const win = awayWins ? g.away_team.abbrev : g.home_team.abbrev;
+  const lose = awayWins ? g.home_team.abbrev : g.away_team.abbrev;
+  const xgW = awayWins ? (g.stats.xg_5v5.away ?? 0) : (g.stats.xg_5v5.home ?? 0);
+  const xgL = awayWins ? (g.stats.xg_5v5.home ?? 0) : (g.stats.xg_5v5.away ?? 0);
+  const winWP = Math.round(((awayWins ? g.stats.win_probability.away : g.stats.win_probability.home) ?? 0.5) * 100);
+  const isOT = (g.clock?.period ?? 0) >= 4;
+  const isUpset = xgL > xgW + 0.3;
+  if (isOT) return { tag: 'Overtime thriller', hed: `${win} SURVIVES IN OVERTIME`, dek: `${win} needed extra time to close it out, finishing with a ${winWP}% win probability after sixty tight minutes couldn't decide it.` };
+  if (isUpset) return { tag: 'Upset by xG', hed: `${win} WINS THE GAME. ${lose} WINS THE CHANCES.`, dek: `${lose} out-chanced ${win} on expected goals ${xgL.toFixed(2)} to ${xgW.toFixed(2)}, but the scoreboard disagreed. The model flagged this one all night.` };
+  if (winWP >= 90) return { tag: 'Dominant win', hed: `${win} NEVER GAVE IT A CHANCE`, dek: `Wire-to-wire — ${win} built an early lead and pushed their win probability past ${winWP}% before the third period began.` };
+  return { tag: 'Game of the night', hed: `${win} HOLDS OFF ${lose}`, dek: `${win} finished at ${winWP}% win probability in a competitive game the model tracked closely from start to finish.` };
+}
+const featCopy = featuredGame ? editorialCopy(featuredGame) : null;
+
 // ── Bot cards (static placeholders) ──────────────────────────────────────────
 const botcards = [
   { kind: 'Pre-Game', label: 'PHI @ CAR', ts: '8m ago', w: 360 },
@@ -315,6 +332,7 @@ const featAbbr = feat ? {
 <head>
 <meta charset="utf-8" />
 <title>HockeyGameBot — 32 bots, every game, all season</title>
+
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="description" content="Live NHL scores and advanced analytics from 32 automated bots — win probability, expected goals, game scores, and more.">
 <meta property="og:type" content="website">

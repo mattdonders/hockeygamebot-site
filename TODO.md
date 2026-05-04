@@ -5,6 +5,7 @@
 - [ ] WSH/NYR random WP dip — single bad data point, user chose not to fix unless cause is obvious
 - [ ] Rangers blowout: late-game goals showing +0.0% WP delta when model is already near 100% ceiling
 - [ ] **Leaderboards scatter margins** (`/stats/leaderboards` xG×Finishing plot): dots cluster upper-right, leaving large empty lower-left dead zone. The real fix is a proper axis range trim or log/sqrt x-scale — `preserveAspectRatio="none"` and `xMin=min*0.85` didn't resolve it visually. Defer to SS-7 or a dedicated scatter polish pass.
+- [ ] **Elo-flip series_id duplication on `series_predictions`** (recurring during 2026 R1/R2): when an underdog wins a series, their Elo can overtake the higher-seed team mid-series, which flips the `_series_id_for(hs, ls)` order in `scripts/playoff_morning_predictions.py` (Python bot) and creates a NEW row instead of updating the existing one. Manual D1 deletes done for `pit-phi`, `edm-ana`, `dal-min`, `tbl-mtl` so far. Fix options: (a) make `_series_id_for()` use alphabetical-sort key — `f"{min(a,b)}-{max(a,b)}"` — so the id is stable across Elo flips, or (b) migrate to NHL bracket letter (`series_a`, `series_b`, …) as the stable id. Site-side defensive fix during rewrite: dedupe by team-pair frozenset when building `SERIES` so a stale row never duplicates a card on the page.
 
 ## Pending Action Items
 
@@ -31,6 +32,9 @@
 - [ ] Wire real card images into bot cards rail (B2 CDN URLs) once bot rewrite ships
 - [ ] Decide URL architecture: promote `/home-editorial` → `/` and move scoreboard to `/live`, or keep split
 - [ ] QA live hero score alignment and ghost opacity on real live game data
+- [ ] **WP chart: fix goal dot y-position** — dots currently plot at pre-goal WP y-coordinate; should plot at post-goal WP (GOAL events store post-goal WP since Apr 2026). Fix during next WP chart pass.
+- [ ] **"Yesterday" finals section** — add SSR grid of all yesterday's games directly below "Game of the Night" section (always visible, regardless of hero state). Use same `finals-grid` card style.
+- [ ] **Bigcard right panel** — wire real event feed and restore xG mini-bars, delta-since-period-start strip from mockup reference (`public/mockups/live-hero-opus.html` lines 463–586)
 
 ## Teams Page — post-session
 
