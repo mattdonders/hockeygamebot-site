@@ -1109,16 +1109,23 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   let tonight = [];
   try { initData = JSON.parse(initEl?.textContent || '{}'); tonight = initData.tonight ?? []; } catch {}
 
+  // ?mock=STATE loads /mock/scoreboard.STATE.json instead of the live API
+  const mockState = new URLSearchParams(location.search).get('mock');
+
   async function fetchAndRender() {
     try {
-      const r = await fetch('https://api.hockeygamebot.com/v1/scoreboard');
+      const url = mockState
+        ? `/mock/scoreboard.${mockState}.json`
+        : 'https://api.hockeygamebot.com/v1/scoreboard';
+      const r = await fetch(url, { cache: mockState ? 'no-store' : 'no-store' });
       if (r.ok) { const d = await r.json(); render(d, tonight); return; }
     } catch {}
     if (initData) render(initData, tonight);
   }
 
   fetchAndRender();
-  setInterval(fetchAndRender, 30000);
+  // Don't auto-poll when in mock mode — manual refresh only
+  if (!mockState) setInterval(fetchAndRender, 30000);
 })();
 </script>
 
