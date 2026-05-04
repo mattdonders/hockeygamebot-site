@@ -80,6 +80,8 @@ export const PlayerRecordSchema = z.object({
   // the keys with null values; switching to optional would silently accept
   // a missing key if the exporter ever stops writing them.
   rapm: z.number().nullable(),
+  rapm_off: z.number().nullable(),
+  rapm_def: z.number().nullable(),
   war: z.number().nullable(),
   xgar: z.number().nullable(),
   qoc: z.number().nullable(),
