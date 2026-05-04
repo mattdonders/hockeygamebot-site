@@ -1,5 +1,6 @@
 ---
 import { loadPlayers, loadPlayerGames, type GameLogEntry, type PlayerSummary } from '../../../lib/stats-loader';
+import { pickTeamColor } from '../../../lib/team-colors';
 
 export async function getStaticPaths() {
   const players = loadPlayers();
@@ -85,6 +86,7 @@ const rapmNet = player.rapm     != null ? player.rapm     * 60 : null;
 const rapmOff = player.rapm_off != null ? player.rapm_off * 60 : null;
 const rapmDef = player.rapm_def != null ? player.rapm_def * 60 : null;
 
+const teamColor     = pickTeamColor(player.team_abbrev);
 const headshotUrl   = `https://assets.nhle.com/mugs/nhl/20252026/${player.team_abbrev}/${player.player_id}.png`;
 const recentGames   = [...playerGames].reverse().slice(0, 10);
 const totalGoals    = playerGames.reduce((s, g) => s + g.goals,   0);
@@ -127,9 +129,10 @@ const pctBars = [
       --ink-32:  rgba(13,13,20,0.32);
       --ink-48:  rgba(13,13,20,0.48);
       --ink-72:  rgba(13,13,20,0.72);
-      --display: 'Barlow Condensed', sans-serif;
-      --body:    'Barlow', sans-serif;
-      --mono:    'JetBrains Mono', monospace;
+      --display:   'Barlow Condensed', sans-serif;
+      --body:      'Barlow', sans-serif;
+      --mono:      'JetBrains Mono', monospace;
+      --grid-line: rgba(13,13,20,0.04);
     }
     html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; }
 
@@ -145,21 +148,40 @@ const pctBars = [
 
     /* Layout */
     .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
-    .breadcrumb { padding: 20px 0 0; font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-32); }
-    .breadcrumb a { color: var(--ink-32); text-decoration: none; }
-    .breadcrumb a:hover { color: var(--ink); }
 
-    /* Hero */
-    .hero { padding: 28px 0; display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; border-bottom: 2px solid var(--ink); }
+    /* Masthead — full-bleed grid (matches Teams/Home/Stats pattern) */
+    .mast {
+      position: relative; overflow: hidden;
+      border-bottom: 2px solid var(--ink);
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px;
+    }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-top a { color: var(--ink-48); text-decoration: none; }
+    .mast-top a:hover { color: var(--ink); }
+    /* White card — left border uses team color */
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); border-left-width: 4px; padding: 24px 28px; }
+    /* Hero grid inside card */
+    .hero { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; }
     .headshot-wrap { position: relative; width: 168px; flex-shrink: 0; }
     .headshot { width: 168px; height: 168px; object-fit: cover; border: 2px solid var(--ink-14); background: var(--surface); display: block; }
     .headshot-team-bar { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; }
     .hero-identity { display: flex; flex-direction: column; gap: 8px; }
-    .hero-badges { display: flex; gap: 6px; }
+    .hero-badges { display: flex; gap: 6px; flex-wrap: wrap; }
     .badge { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); border: 1px solid var(--ink-14); padding: 2px 8px; }
     .hero-name { font-family: var(--display); font-weight: 800; text-transform: uppercase; line-height: 0.92; letter-spacing: -0.01em; }
     .hero-name .first { font-size: 24px; color: var(--ink-48); font-weight: 700; }
-    .hero-name .last  { font-size: clamp(48px, 6vw, 72px); color: var(--ink); display: block; }
+    .hero-name .last  { font-size: clamp(40px, 5vw, 64px); color: var(--ink); display: block; }
 
     /* Stats table */
     .stats-table { display: grid; grid-template-columns: 110px repeat(6, 1fr); border-top: 1px solid var(--ink-10); margin-top: 10px; }
@@ -260,50 +282,57 @@ const pctBars = [
   </div>
 </nav>
 
+<!-- MASTHEAD — full-bleed grid -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div><a href="/stats">← Stats</a> &nbsp;/&nbsp; <a href="/stats">Skaters</a></div>
+      <div>{player.team_abbrev} · {player.pos} · {player.gp} GP</div>
+    </div>
+    <div class="mast-card" style={`border-left-color: ${teamColor}`}>
+      <div class="hero">
+        <div class="headshot-wrap">
+          <img class="headshot" src={headshotUrl} alt={`${player.first_name} ${player.last_name}`} width="168" height="168" />
+          <div class="headshot-team-bar" style={`background:${teamColor}`}></div>
+        </div>
+        <div class="hero-identity">
+          <div class="hero-badges">
+            <span class="badge">{player.team_abbrev}</span>
+            <span class="badge">{player.pos}</span>
+            <span class="badge">{posLabel}</span>
+            <span class="badge">#{rankInfo.rank} of {rankInfo.total} {posPlural}</span>
+          </div>
+          <div class="hero-name">
+            <span class="first">{player.first_name}</span>
+            <span class="last">{player.last_name}</span>
+          </div>
+          <div class="stats-table">
+            <div class="stats-cell col-header"></div>
+            <div class="stats-cell col-header">GP</div>
+            <div class="stats-cell col-header">G</div>
+            <div class="stats-cell col-header">A</div>
+            <div class="stats-cell col-header">PTS</div>
+            <div class="stats-cell col-header">TOI/G</div>
+            <div class="stats-cell col-header">G/60</div>
+            <div class="stats-cell season-lbl">Regular</div>
+            <div class="stats-cell stat-val">{player.gp}</div>
+            <div class="stats-cell stat-val">{totalGoals}</div>
+            <div class="stats-cell stat-val">{totalAssists}</div>
+            <div class="stats-cell stat-val">{totalGoals + totalAssists}</div>
+            <div class="stats-cell stat-val">{fmtToi(player.toi_avg_sec)}</div>
+            <div class="stats-cell stat-val">{player.rates_per_60.goals.toFixed(2)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <div class="wrap">
-
-  <div class="breadcrumb">
-    <a href="/stats">← Stats</a> &nbsp;/&nbsp; <a href="/stats">Skaters</a> &nbsp;/&nbsp; {player.last_name}
-  </div>
-
-  <!-- HERO -->
-  <div class="hero">
-    <div class="headshot-wrap">
-      <img class="headshot" src={headshotUrl} alt={`${player.first_name} ${player.last_name}`} width="168" height="168" />
-      <div class="headshot-team-bar" style={`background: var(--team-color, #888)`}></div>
-    </div>
-
-    <div class="hero-identity">
-      <div class="hero-badges">
-        <span class="badge">{player.team_abbrev}</span>
-        <span class="badge">{player.pos}</span>
-        <span class="badge">{posLabel}</span>
-        <span class="badge">#{rankInfo.rank} of {rankInfo.total} {posPlural}</span>
-      </div>
-      <div class="hero-name">
-        <span class="first">{player.first_name}</span>
-        <span class="last">{player.last_name}</span>
-      </div>
-
-      <!-- Stats strip -->
-      <div class="stats-table">
-        <div class="stats-cell col-header"></div>
-        <div class="stats-cell col-header">GP</div>
-        <div class="stats-cell col-header">G</div>
-        <div class="stats-cell col-header">A</div>
-        <div class="stats-cell col-header">PTS</div>
-        <div class="stats-cell col-header">TOI/G</div>
-        <div class="stats-cell col-header">G/60</div>
-        <div class="stats-cell season-lbl">Regular</div>
-        <div class="stats-cell stat-val">{player.gp}</div>
-        <div class="stats-cell stat-val">{totalGoals}</div>
-        <div class="stats-cell stat-val">{totalAssists}</div>
-        <div class="stats-cell stat-val">{totalGoals + totalAssists}</div>
-        <div class="stats-cell stat-val">{fmtToi(player.toi_avg_sec)}</div>
-        <div class="stats-cell stat-val">{player.rates_per_60.goals.toFixed(2)}</div>
-      </div>
-    </div>
-  </div>
 
   <!-- CONTENT GRID -->
   <div class="content">
