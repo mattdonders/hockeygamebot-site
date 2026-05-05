@@ -13,6 +13,8 @@ type SBGame = {
   home_team: { abbrev: string; score: number; short_name: string; name: string };
   clock: { period: number | null; time_remaining: string | null; in_intermission: boolean | null };
   stats: { win_probability: { away: number | null; home: number | null }; xg_5v5: { away: number | null; home: number | null } };
+  xg_home: number | null;
+  xg_away: number | null;
   three_stars: { star: number; player_name: string; player_last_name: string; team_abbrev: string }[] | null;
 };
 type Scoreboard = { date: string; games: SBGame[]; previous_day: { hockey_date: string; games: SBGame[] } };
@@ -130,8 +132,8 @@ function editCopy(g: SBGame, contested = false) {
   const aw = g.away_team.score > g.home_team.score;
   const win = aw ? g.away_team.abbrev : g.home_team.abbrev;
   const lose = aw ? g.home_team.abbrev : g.away_team.abbrev;
-  const xgW = aw ? (g.stats.xg_5v5.away ?? 0) : (g.stats.xg_5v5.home ?? 0);
-  const xgL = aw ? (g.stats.xg_5v5.home ?? 0) : (g.stats.xg_5v5.away ?? 0);
+  const xgW = aw ? (g.xg_away ?? g.stats.xg_5v5.away ?? 0) : (g.xg_home ?? g.stats.xg_5v5.home ?? 0);
+  const xgL = aw ? (g.xg_home ?? g.stats.xg_5v5.home ?? 0) : (g.xg_away ?? g.stats.xg_5v5.away ?? 0);
   const winWP = Math.round(((aw ? g.stats.win_probability.away : g.stats.win_probability.home) ?? 0.5) * 100);
   const isOT = (g.clock?.period ?? 0) >= 4;
   const isUpset = xgL > xgW + 0.3;
@@ -152,8 +154,8 @@ const wasContested = wpPts.length >= 5 && (
 const featCopy = featGame ? editCopy(featGame, wasContested) : null;
 const featWpAway = featGame?.stats.win_probability.away != null ? Math.round(featGame.stats.win_probability.away * 100) : null;
 const featWpHome = featGame?.stats.win_probability.home != null ? Math.round(featGame.stats.win_probability.home * 100) : null;
-const featXgA = featGame?.stats.xg_5v5.away;
-const featXgH = featGame?.stats.xg_5v5.home;
+const featXgA = featGame?.xg_away ?? featGame?.stats.xg_5v5.away ?? null;
+const featXgH = featGame?.xg_home ?? featGame?.stats.xg_5v5.home ?? null;
 const featStars = featGame?.three_stars ?? [];
 const featXgTotal = (featXgA ?? 0) + (featXgH ?? 0);
 const awayXgShare = featXgTotal > 0 ? Math.round((featXgA ?? 0) / featXgTotal * 100) : 50;
@@ -424,7 +426,8 @@ img { display: block; max-width: 100%; }
 .feature-main { padding: 28px 32px 32px; border-right: 1px solid var(--ink-14); }
 .feature-side { padding: 28px 24px 32px; }
 
-.feat-tag { display: inline-block; background: var(--red); color: #fff; font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; font-size: 11px; padding: 5px 10px; margin-bottom: 14px; }
+.feat-tag { position:absolute; top:14px; left:16px; font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:var(--red); pointer-events:none; }
+.feat-tag::before { content:'• '; }
 .feat-hed { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: 34px; line-height: 0.98; margin-bottom: 10px; }
 .feat-dek { font-size: 15px; color: var(--ink-72); max-width: 540px; margin-bottom: 22px; line-height: 1.55; }
 
@@ -560,6 +563,32 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
 .final-xg-bar { flex:1; height:4px; overflow:hidden; }
 .final-xg-label { font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:var(--ink-32); }
 
+/* ── RESULT CARDS (yesterday's other results) ── */
+.results-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+@media (max-width:640px) { .results-grid { grid-template-columns:1fr 1fr; } }
+.result-card { background:var(--surface); border:1px solid var(--ink-14); cursor:pointer; transition:border-color 0.15s; overflow:hidden; }
+.result-card:hover { border-color:var(--ink-32); }
+.result-accent { height:3px; display:flex; }
+.result-accent > div { flex:1; }
+.result-body { padding:22px 16px 18px; }
+.result-score-row { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px; margin-bottom:10px; }
+.result-team { display:flex; flex-direction:column; align-items:center; gap:4px; }
+.result-logo { width:40px; height:40px; object-fit:contain; }
+.result-abbr { font-family:var(--display); font-size:18px; font-weight:800; letter-spacing:0.02em; line-height:1; }
+.result-abbr.lead { color:var(--ink); }
+.result-abbr.trail { color:var(--ink-48); }
+.result-score-center { display:flex; flex-direction:column; align-items:center; gap:10px; }
+.result-scores { display:flex; align-items:baseline; gap:6px; }
+.result-n { font-family:var(--display); font-size:46px; font-weight:800; line-height:0.85; letter-spacing:-0.02em; }
+.result-n.lead { color:var(--ink); }
+.result-n.trail { color:var(--ink-48); }
+.result-sep { font-family:var(--display); font-size:46px; color:var(--ink-20); font-weight:800; line-height:0.85; }
+.result-period { font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:0.14em; color:var(--ink); text-transform:uppercase; padding:2px 6px; border:1px solid var(--ink-32); }
+.result-xg-row { display:flex; align-items:center; gap:6px; border-top:1px solid var(--ink-06); padding-top:8px; }
+.result-xg-num { font-family:var(--mono); font-size:10px; font-weight:700; white-space:nowrap; }
+.result-xg-bar { flex:1; height:4px; overflow:hidden; }
+.result-xg-lbl { font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:var(--ink-32); }
+
 /* ── RESPONSIVE ──────────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .feature { grid-template-columns: 1fr; }
@@ -675,6 +704,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
           <div style={`background:${featAC}`}></div>
           <div style={`background:${featHC}`}></div>
         </div>
+        {featCopy && <span class="feat-tag">{featCopy.tag}</span>}
         <span class="feat-cta">Full breakdown →</span>
         <div class="feat-body">
           <div class="feat-score-zone">
@@ -708,7 +738,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
                   <span class="feat-xg-pct" style={`color:${featHC}`}>{homeXgShare}%</span>
                 </div>
               </div>
-              <div class="feat-xg-lbl">xG · 5V5</div>
+              <div class="feat-xg-lbl">Expected Goals · All Situations</div>
             </div>
           )}
         </div>
@@ -720,7 +750,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
                 <div class="feat-star-item">
                   <div class="feat-star-rank">{s.star}</div>
                   <div class="feat-star-info">
-                    <div class="feat-star-name">{s.player_last_name}</div>
+                    <div class="feat-star-name">{s.player_name || s.player_last_name}</div>
                     <div class="feat-star-team" style={`color:${sc}`}>{s.team_abbrev}</div>
                   </div>
                 </div>
@@ -741,38 +771,52 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
         <h2 class="section-title yesterday-rest-title">Yesterday's <span class="accent">results</span></h2>
         <div class="section-meta">{featDateLabel}<br/>All results</div>
       </div>
-      <div class="finals-grid">
+      <div class="results-grid">
         {prevGames.filter(g => g.game_id !== featGame?.game_id).map(g => {
           const a = g.away_team.abbrev, h = g.home_team.abbrev;
           const ac = pickTeamColor(a), hc = pickTeamColor(h);
           const awayWins = g.away_team.score > g.home_team.score;
-          const xgA = g.stats?.xg_5v5?.away, xgH = g.stats?.xg_5v5?.home;
+          const isOT = (g.clock?.period ?? 0) >= 4;
+          const xgA = g.xg_away ?? g.stats?.xg_5v5?.away ?? null;
+          const xgH = g.xg_home ?? g.stats?.xg_5v5?.home ?? null;
           return (
-            <div class="final-card" data-game-id={g.game_id} style="cursor:pointer">
-              <div class="final-card-bar"><div class="a" style={`background:${ac}`}></div><div class="h" style={`background:${hc}`}></div></div>
-              <div class="final-card-tag"><span>Final</span><span>{prevDate ?? ''}</span></div>
-              <div class="final-row">
-                <img class="final-logo" src={`https://assets.nhle.com/logos/nhl/svg/${a}_light.svg`} alt={a} onerror="this.style.display='none'" />
-                <div><div class="final-abbr" style={`color:${ac}`}>{a}</div>{xgA != null && <div class="final-xg">xG {xgA.toFixed(2)}</div>}</div>
-                <div class={`final-score ${awayWins ? 'win' : 'lose'}`}>{g.away_team.score}</div>
+            <div class="result-card" data-game-id={g.game_id} style="cursor:pointer">
+              <div class="result-accent">
+                <div style={`background:${ac}`}></div>
+                <div style={`background:${hc}`}></div>
               </div>
-              <div class="final-row" style="margin-top:4px">
-                <img class="final-logo" src={`https://assets.nhle.com/logos/nhl/svg/${h}_light.svg`} alt={h} onerror="this.style.display='none'" />
-                <div><div class="final-abbr" style={`color:${hc}`}>{h}</div>{xgH != null && <div class="final-xg">xG {xgH.toFixed(2)}</div>}</div>
-                <div class={`final-score ${!awayWins ? 'win' : 'lose'}`}>{g.home_team.score}</div>
-              </div>
-              {(xgA != null && xgH != null) && (() => {
-                const tot = xgA + xgH;
-                const aShare = tot > 0 ? Math.round(xgA / tot * 100) : 50;
-                return (
-                  <div class="final-xg-row">
-                    <span class="final-xg-num" style={`color:${ac}`}>{xgA.toFixed(1)}</span>
-                    <div class="final-xg-bar" style={`background:linear-gradient(90deg,${ac} ${aShare}%,${hc} ${aShare}%)`}></div>
-                    <span class="final-xg-num" style={`color:${hc}`}>{xgH.toFixed(1)}</span>
-                    <span class="final-xg-label">xG</span>
+              <div class="result-body">
+                <div class="result-score-row">
+                  <div class="result-team">
+                    <img class="result-logo" src={`https://assets.nhle.com/logos/nhl/svg/${a}_light.svg`} alt={a} onerror="this.style.display='none'" style={awayWins ? '' : 'opacity:0.35;filter:grayscale(0.4)'} />
+                    <div class={`result-abbr ${awayWins ? 'lead' : 'trail'}`}>{a}</div>
                   </div>
-                );
-              })()}
+                  <div class="result-score-center">
+                    <div class="result-scores">
+                      <span class={`result-n ${awayWins ? 'lead' : 'trail'}`}>{g.away_team.score}</span>
+                      <span class="result-sep">–</span>
+                      <span class={`result-n ${awayWins ? 'trail' : 'lead'}`}>{g.home_team.score}</span>
+                    </div>
+                    <div class="result-period">FINAL{isOT ? ' · OT' : ''}</div>
+                  </div>
+                  <div class="result-team">
+                    <img class="result-logo" src={`https://assets.nhle.com/logos/nhl/svg/${h}_light.svg`} alt={h} onerror="this.style.display='none'" style={awayWins ? 'opacity:0.35;filter:grayscale(0.4)' : ''} />
+                    <div class={`result-abbr ${awayWins ? 'trail' : 'lead'}`}>{h}</div>
+                  </div>
+                </div>
+                {xgA != null && xgH != null && (() => {
+                  const tot = xgA + xgH;
+                  const aShare = tot > 0 ? Math.round(xgA / tot * 100) : 50;
+                  return (
+                    <div class="result-xg-row">
+                      <span class="result-xg-num" style={`color:${ac}`}>{xgA.toFixed(1)}</span>
+                      <div class="result-xg-bar" style={`background:linear-gradient(90deg,${ac} ${aShare}%,${hc} ${aShare}%)`}></div>
+                      <span class="result-xg-num" style={`color:${hc}`}>{xgH.toFixed(1)}</span>
+                      <span class="result-xg-lbl">xG</span>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           );
         })}
