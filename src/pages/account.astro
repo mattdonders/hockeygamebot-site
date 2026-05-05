@@ -1,0 +1,397 @@
+---
+// HockeyGameBot — /account page — magic-link sign-in + session state
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Account · HockeyGameBot</title>
+  <meta name="description" content="Sign in to HockeyGameBot to access your saved preferences and supporter features." />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/favicon-180x180.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<style is:global>
+/* ── TOKENS ──────────────────────────────────────────────────────────────────── */
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-86:  rgba(13,13,20,0.86);
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-04:  rgba(13,13,20,0.04);
+  --red:     #E8002D;
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+  --type-display: clamp(40px, 5vw, 64px);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+/* ── NAV ─────────────────────────────────────────────────────────────────────── */
+.nav { background: var(--bg); border-bottom: 1px solid var(--ink-14); position: sticky; top: 0; z-index: 50; }
+.nav-inner { display: flex; align-items: center; height: 60px; }
+.wordmark { font-family: var(--display); font-weight: 800; font-size: 21px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; line-height: 1; }
+.wordmark .dot { width: 6px; height: 6px; background: var(--red); border-radius: 50%; margin: 0 7px; display: inline-block; transform: translateY(-1px); }
+.nav-links { margin-left: auto; display: flex; align-items: center; gap: 0; font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+.nav-links a { padding: 5px 12px; color: var(--ink-48); transition: color .15s; }
+.nav-links a:hover, .nav-links a.active { color: var(--ink); }
+.nav-links .sep { color: var(--ink-20); }
+
+/* ── MASTHEAD ────────────────────────────────────────────────────────────────── */
+.mast {
+  position: relative;
+  padding: 56px 0 48px;
+  border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--ink-04) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ink-04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.mast-ghost {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-family: var(--display); font-weight: 800; font-size: clamp(80px, 18vw, 180px);
+  letter-spacing: -0.01em; text-transform: uppercase;
+  color: var(--ink); opacity: 0.05; pointer-events: none; white-space: nowrap; user-select: none;
+}
+.mast-corners { position: absolute; inset: 0; pointer-events: none; }
+.corner { position: absolute; width: 16px; height: 16px; opacity: 0.2; }
+.corner::before, .corner::after { content: ''; position: absolute; background: var(--ink); }
+.corner::before { width: 2px; height: 100%; }
+.corner::after  { width: 100%; height: 2px; }
+.corner.tl { top: 12px; left: 12px; }
+.corner.tr { top: 12px; right: 12px; }
+.corner.tr::before { right: 0; }
+.corner.tr::after  { right: 0; }
+.mast-inner { position: relative; display: flex; align-items: flex-start; gap: 40px; }
+.mast-top { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.mast-eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--red); }
+.mast-headline { font-family: var(--display); font-weight: 800; font-size: var(--type-display); letter-spacing: -0.01em; text-transform: uppercase; line-height: 0.95; color: var(--ink); }
+.mast-sub { font-family: var(--body); font-size: 15px; color: var(--ink-56); margin-top: 8px; max-width: 460px; line-height: 1.5; }
+.mast-card {
+  background: var(--surface);
+  border: 1.5px solid var(--ink-14);
+  padding: 32px 40px;
+  flex: 0 0 480px;
+}
+
+/* ── ACCOUNT CONTENT ─────────────────────────────────────────────────────────── */
+.content { padding: 64px 0 96px; }
+.content-inner { max-width: 680px; }
+
+/* Sign-in form */
+.signin-form { display: flex; flex-direction: column; gap: 16px; }
+.field-label { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-56); display: block; margin-bottom: 6px; }
+.field-input {
+  width: 100%;
+  font-family: var(--mono); font-size: 14px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1.5px solid var(--ink-20);
+  color: var(--ink);
+  outline: none;
+  transition: border-color .15s;
+}
+.field-input:focus { border-color: var(--ink-56); }
+.btn-primary {
+  font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+  background: var(--ink); color: var(--surface);
+  border: none; padding: 14px 24px;
+  cursor: pointer; transition: opacity .15s;
+  width: 100%;
+}
+.btn-primary:hover { opacity: 0.85; }
+.btn-primary:disabled { opacity: 0.4; cursor: default; }
+.btn-secondary {
+  font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: 0.06em;
+  background: transparent; color: var(--ink-56);
+  border: 1.5px solid var(--ink-20); padding: 10px 18px;
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+.btn-secondary:hover { border-color: var(--ink-56); color: var(--ink); }
+
+/* Status message */
+.status-msg { font-family: var(--mono); font-size: 13px; color: var(--ink-72); line-height: 1.5; padding: 12px 16px; border-left: 3px solid var(--red); background: var(--surface); display: none; }
+.status-msg.visible { display: block; }
+.status-msg.error { border-left-color: var(--red); }
+.status-msg.success { border-left-color: #14803c; }
+
+/* Authenticated state */
+.user-card { background: var(--surface); border: 1.5px solid var(--ink-14); padding: 28px 32px; }
+.user-email { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--ink); }
+.user-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); margin-top: 6px; }
+.user-tier { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 14px; }
+.tier-badge { padding: 3px 8px; font-size: 10px; background: var(--red); color: #fff; }
+.user-actions { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+
+/* States — JS toggles these */
+[data-state] { display: none; }
+[data-state].active { display: block; }
+
+/* ── FOOTER ──────────────────────────────────────────────────────────────────── */
+.footer { border-top: 1.5px solid var(--ink-14); padding: 24px 0; }
+.footer-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.footer-copy { font-family: var(--mono); font-size: 11px; color: var(--ink-32); }
+.footer-links { display: flex; gap: 16px; margin-left: auto; }
+.footer-links a { font-family: var(--mono); font-size: 11px; color: var(--ink-48); transition: color .15s; }
+.footer-links a:hover { color: var(--ink); }
+
+/* ── RESPONSIVE ──────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .mast-inner { flex-direction: column; gap: 24px; }
+  .mast-card { flex: unset; width: 100%; padding: 24px; }
+  .mast { padding: 40px 0 32px; }
+}
+@media (max-width: 480px) {
+  .wrap { padding: 0 16px; }
+  .mast-headline { font-size: clamp(36px, 12vw, 52px); }
+}
+</style>
+
+<!-- ── NAV ── -->
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a href="/" class="wordmark">Hockey<span class="dot"></span>Gamebot</a>
+    <nav class="nav-links">
+      <a href="/">Home</a><span class="sep"> · </span>
+      <a href="/scoreboard">Scoreboard</a><span class="sep"> · </span>
+      <a href="/playoffs/2026">Playoffs</a><span class="sep"> · </span>
+      <a href="/stats">Stats</a><span class="sep"> · </span>
+      <a href="/teams">Teams</a><span class="sep"> · </span>
+      <a href="/support">Support</a><span class="sep"> · </span>
+      <a href="/account" class="active">Account</a>
+    </nav>
+  </div>
+</nav>
+
+<!-- ── MASTHEAD ── -->
+<section class="mast">
+  <div class="mast-ghost">ACCOUNT</div>
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+  </div>
+  <div class="wrap mast-inner">
+    <div class="mast-top">
+      <span class="mast-eyebrow">Your Account</span>
+      <h1 class="mast-headline">Sign In</h1>
+      <p class="mast-sub" id="mast-sub">Access your saved preferences and supporter features. No password needed.</p>
+    </div>
+    <div class="mast-card">
+
+      <!-- ── STATE: loading ── -->
+      <div data-state="loading" class="active">
+        <p style="font-family:var(--mono);font-size:13px;color:var(--ink-48);">Checking session…</p>
+      </div>
+
+      <!-- ── STATE: unauthenticated ── -->
+      <div data-state="unauth">
+        <form class="signin-form" id="signin-form">
+          <div>
+            <label class="field-label" for="email-input">Email address</label>
+            <input class="field-input" type="email" id="email-input" placeholder="you@example.com" autocomplete="email" required />
+          </div>
+          <div id="status-msg" class="status-msg"></div>
+          <button class="btn-primary" type="submit" id="signin-btn">Send sign-in link</button>
+        </form>
+      </div>
+
+      <!-- ── STATE: link-sent ── -->
+      <div data-state="link-sent">
+        <div class="status-msg success visible" style="display:block;">
+          Check your email — a sign-in link is on its way. It expires in 15 minutes.
+        </div>
+        <p style="font-family:var(--mono);font-size:12px;color:var(--ink-48);margin-top:16px;">
+          Didn't get it? Check your spam folder or <button class="btn-secondary" id="try-again-btn" style="display:inline;border:none;padding:0;font-size:12px;cursor:pointer;color:var(--red);">try again</button>.
+        </p>
+      </div>
+
+      <!-- ── STATE: authenticated ── -->
+      <div data-state="auth">
+        <div class="user-card">
+          <div class="user-email" id="user-email">—</div>
+          <div class="user-meta">Signed in · <span id="user-tier-label">Free account</span></div>
+          <div class="user-actions">
+            <button class="btn-secondary" id="signout-btn">Sign out</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── CONTENT ── -->
+<section class="content">
+  <div class="wrap">
+    <div class="content-inner" id="content-panel">
+      <!-- populated by JS when authenticated -->
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer class="footer">
+  <div class="wrap footer-bar">
+    <span class="footer-copy">© 2026 HockeyGameBot</span>
+    <nav class="footer-links">
+      <a href="/support">Support</a>
+      <a href="/stats">Stats</a>
+      <a href="/teams">Teams</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+const API = 'https://api.hockeygamebot.com';
+
+function setState(name) {
+  document.querySelectorAll('[data-state]').forEach(el => {
+    el.classList.toggle('active', el.dataset.state === name);
+  });
+}
+
+function showStatus(msg, type = 'error') {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.className = `status-msg visible ${type}`;
+}
+
+// Check for ?token= in URL (magic-link verification)
+async function checkToken() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token');
+  if (!token) return false;
+
+  // Clear token from URL immediately
+  history.replaceState({}, '', '/account');
+
+  try {
+    const res = await fetch(`${API}/v1/auth/verify?token=${encodeURIComponent(token)}`, {
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (res.ok && data.user) {
+      setAuthState(data.user);
+      return true;
+    } else {
+      setState('unauth');
+      showStatus(data.error || 'Link expired or invalid. Please request a new one.', 'error');
+      return true;
+    }
+  } catch {
+    setState('unauth');
+    showStatus('Could not verify sign-in link. Please try again.', 'error');
+    return true;
+  }
+}
+
+async function checkSession() {
+  try {
+    const res = await fetch(`${API}/v1/auth/me`, { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      setAuthState(data.user);
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function setAuthState(user) {
+  setState('auth');
+  document.getElementById('user-email').textContent = user.email;
+  const tierLabel = user.patreon_tier
+    ? user.patreon_tier.charAt(0).toUpperCase() + user.patreon_tier.slice(1)
+    : 'Free account';
+  document.getElementById('user-tier-label').textContent = tierLabel;
+  document.getElementById('mast-sub').textContent = `Welcome back. You're signed in as ${user.email}.`;
+  renderAuthContent(user);
+}
+
+function renderAuthContent(user) {
+  const panel = document.getElementById('content-panel');
+  panel.innerHTML = `
+    <p style="font-family:var(--mono);font-size:12px;color:var(--ink-48);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px;">Your account</p>
+    <p style="font-family:var(--body);font-size:15px;color:var(--ink-56);line-height:1.6;max-width:460px;">
+      Followed teams and preferences sync across devices.
+      ${user.patreon_tier ? 'Your Patreon support unlocks additional features.' : 'Link your <a href="/support" style="color:var(--red)">Patreon</a> to unlock supporter features.'}
+    </p>
+  `;
+}
+
+// Init
+(async () => {
+  const handledToken = await checkToken();
+  if (!handledToken) {
+    const hasSession = await checkSession();
+    if (!hasSession) setState('unauth');
+  }
+})();
+
+// Sign-in form submit
+document.getElementById('signin-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email-input').value.trim();
+  const btn = document.getElementById('signin-btn');
+
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+
+  try {
+    const res = await fetch(`${API}/v1/auth/magic-link`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setState('link-sent');
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Send sign-in link';
+      showStatus(data.error || 'Something went wrong. Try again.', 'error');
+    }
+  } catch {
+    btn.disabled = false;
+    btn.textContent = 'Send sign-in link';
+    showStatus('Could not connect. Check your connection and try again.', 'error');
+  }
+});
+
+// Try again
+document.getElementById('try-again-btn').addEventListener('click', () => {
+  setState('unauth');
+});
+
+// Sign out
+document.getElementById('signout-btn').addEventListener('click', async () => {
+  await fetch(`${API}/v1/auth/logout`, { method: 'POST', credentials: 'include' });
+  setState('unauth');
+  document.getElementById('user-email').textContent = '—';
+  document.getElementById('content-panel').innerHTML = '';
+  document.getElementById('mast-sub').textContent = 'Access your saved preferences and supporter features. No password needed.';
+});
+</script>
+
+</body>
+</html>
