@@ -1,0 +1,153 @@
+---
+// GameModal.astro — Reusable game modal shell + all modal/gvp CSS
+// Consumed by scoreboard.astro and (eventually) index.astro.
+// JS lives in /public/js/game-modal.js (loaded via <script src> in the host page).
+---
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+
+<div id="game-modal" class="modal-overlay" style="display:none" aria-modal="true" role="dialog">
+  <div class="modal-backdrop" id="modal-backdrop"></div>
+  <div class="modal-panel">
+    <div class="modal-actions">
+      <button class="modal-share" id="modal-share" aria-label="Share"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg></button>
+      <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    </div>
+    <div id="modal-content"><div class="modal-loading">Loading…</div></div>
+  </div>
+</div>
+
+<div id="gvp" class="gvp-overlay" hidden aria-modal="true" role="dialog">
+  <div class="gvp-backdrop" id="gvp-backdrop"></div>
+  <div class="gvp-panel">
+    <button class="gvp-close" id="gvp-close" aria-label="Close">✕</button>
+    <div class="gvp-tabs" id="gvp-tabs" hidden>
+      <button class="gvp-tab active" data-gvp-tab="edge">EDGE</button>
+      <button class="gvp-tab" data-gvp-tab="highlight">HIGHLIGHT</button>
+    </div>
+    <div class="gvp-media">
+      <video id="gvp-video" controls autoplay playsinline></video>
+      <iframe id="gvp-iframe" allowfullscreen allow="autoplay; encrypted-media" hidden></iframe>
+    </div>
+    <div class="gvp-info">
+      <div class="gvp-scorer" id="gvp-scorer"></div>
+      <div class="gvp-wp" id="gvp-wp"></div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+/* ── MODAL ── */
+.modal-overlay { position:fixed; inset:0; z-index:500; display:flex; align-items:flex-end; justify-content:center; }
+.modal-backdrop { position:absolute; inset:0; background:rgba(13,13,20,0.55); }
+.modal-panel { position:relative; z-index:1; background:var(--surface); border:1px solid var(--ink-14); border-bottom:none; width:100%; max-width:860px; max-height:88vh; overflow-y:auto; border-radius:0; padding:28px 24px 40px; animation:slideUp 0.22s ease; scrollbar-width:thin; scrollbar-color:var(--ink-14) transparent; }
+.modal-panel::-webkit-scrollbar { width:4px; }
+.modal-panel::-webkit-scrollbar-track { background:transparent; }
+.modal-panel::-webkit-scrollbar-thumb { background:var(--ink-14); }
+@keyframes slideUp { from{transform:translateY(60px);opacity:0} to{transform:translateY(0);opacity:1} }
+.modal-actions { position:absolute; top:16px; right:16px; display:flex; align-items:center; gap:4px; z-index:10; }
+.modal-close { background:none; border:none; color:var(--ink-32); font-size:20px; cursor:pointer; line-height:1; padding:0 4px; }
+.modal-close:hover { color:var(--ink); }
+.modal-share { background:none; border:none; color:var(--ink-32); font-size:16px; cursor:pointer; line-height:1; padding:0 4px; transition:color 0.15s; }
+.modal-share:hover { color:var(--ink); }
+.modal-share.capturing { color:var(--cyan); pointer-events:none; }
+.modal-loading { color:var(--ink-32); font-size:13px; padding:40px 0; text-align:center; }
+.modal-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:24px; gap:8px; }
+.modal-team { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:90px; }
+.modal-team img { width:60px; height:60px; object-fit:contain; }
+.modal-abbr { font-family:var(--display); font-size:22px; font-weight:800; }
+.modal-abbr.lead { color:var(--ink); }
+.modal-abbr.trail { color:var(--ink-32); }
+.modal-abbr.tie { color:var(--ink); }
+.modal-city { font-family:var(--mono); font-size:10px; color:var(--ink-32); text-transform:uppercase; letter-spacing:0.08em; }
+.modal-score-center { display:flex; flex-direction:column; align-items:center; gap:6px; flex:1; }
+.modal-scores { display:flex; align-items:center; gap:10px; }
+.modal-n { font-family:var(--display); font-size:56px; font-weight:800; line-height:1; }
+.modal-n.lead { color:var(--ink); }
+.modal-n.trail { color:var(--ink-32); }
+.modal-n.tie { color:var(--ink); }
+.modal-sep { font-family:var(--display); font-size:28px; color:var(--ink-20); font-weight:800; }
+.modal-period { font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:0.1em; color:var(--ink-32); }
+.modal-xg { font-family:var(--mono); font-size:18px; font-weight:700; letter-spacing:0.05em; margin-top:2px; }
+.modal-xg-lbl { font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:0.15em; color:var(--ink-32); text-transform:uppercase; }
+.modal-wp-strip { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding:0 4px; }
+.modal-wp-pct { font-family:var(--mono); font-size:1.1rem; font-weight:700; white-space:nowrap; min-width:44px; }
+.modal-wp-pct.away { text-align:right; }
+.modal-wp-pct.home { text-align:left; }
+.modal-wp-bar { flex:1; height:6px; overflow:hidden; }
+.modal-wp-lbl { font-family:var(--mono); font-size:8px; font-weight:700; letter-spacing:0.12em; color:var(--ink-32); text-transform:uppercase; text-align:center; margin-bottom:10px; }
+@media(max-width:600px) {
+  .modal-xg { font-size:14px; }
+  .modal-wp-pct { font-size:0.85rem; min-width:34px; }
+  .modal-wp-bar { height:4px; }
+}
+.modal-chart-wrap { margin-bottom:24px; border:1px solid var(--ink-14); padding:12px; background:var(--bg); }
+.modal-chart-wrap svg { display:block; width:100%; height:auto; }
+.modal-no-chart { color:var(--ink-32); font-size:12px; text-align:center; padding:32px 0; }
+.modal-tabs { display:flex; gap:6px; margin-bottom:10px; }
+.modal-tab-btn { background:none; border:1px solid var(--ink-14); color:var(--ink-32); cursor:pointer; font-family:var(--display); font-size:10px; font-weight:700; letter-spacing:0.1em; padding:4px 14px; text-transform:uppercase; transition:color 0.15s, border-color 0.15s; }
+.modal-tab-btn.active { border-color:var(--ink-32); color:var(--ink-72); }
+.modal-tab-btn:hover:not(.active) { color:var(--ink-48); border-color:var(--ink-20); }
+.modal-tab-panel { display:none; }
+.modal-tab-panel.active { display:block; }
+.modal-section-label { font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:0.18em; color:var(--ink-32); margin-bottom:10px; }
+.modal-goals-section { margin-top:4px; }
+.modal-stars-section { margin-bottom:20px; }
+.modal-stars-row { display:flex; justify-content:space-around; }
+.modal-star { display:flex; flex-direction:column; align-items:center; gap:3px; flex:1; }
+.modal-star-icons { font-size:13px; letter-spacing:1px; }
+.modal-star-name { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--ink-72); text-align:center; }
+.modal-star-team { display:none; }
+.modal-no-goals { color:var(--ink-32); font-size:12px; padding:12px 0; text-align:center; }
+.modal-goals-list { display:flex; flex-direction:column; }
+.modal-period-sep { display:flex; align-items:center; gap:8px; margin:8px 0 4px; }
+.modal-period-sep::before,.modal-period-sep::after { content:''; flex:1; height:1px; background:var(--ink-10); }
+.modal-period-sep span { font-family:var(--display); font-size:10px; font-weight:700; letter-spacing:0.12em; color:var(--ink-32); }
+.modal-goals-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.modal-goals-grid[hidden] { display:none; }
+.modal-goals-col { display:flex; flex-direction:column; gap:4px; }
+.modal-goals-col-hdr { font-family:var(--display); font-size:12px; font-weight:700; letter-spacing:0.12em; margin-bottom:4px; padding-bottom:6px; border-bottom:1px solid var(--ink-10); }
+.modal-goal-card { padding:7px 0; border-bottom:1px solid var(--ink-06); }
+.modal-gc-top { display:flex; align-items:center; gap:7px; font-size:12px; }
+.modal-gc-abbr { font-family:var(--mono); font-weight:700; font-size:11px; letter-spacing:0.08em; min-width:28px; }
+.modal-gc-score { color:var(--ink); font-weight:600; flex:1; white-space:nowrap; }
+.modal-gc-time { font-family:var(--mono); color:var(--ink-32); font-size:11px; white-space:nowrap; }
+.modal-gc-scorer { font-family:var(--mono); font-size:11px; color:var(--ink-48); margin-top:3px; }
+.modal-gc-assists { font-family:var(--mono); font-size:10px; color:var(--ink-32); }
+.modal-strength { font-family:var(--mono); font-size:9px; font-weight:700; padding:1px 4px; letter-spacing:0.06em; }
+.modal-strength.pp { color:#92400e; background:rgba(146,64,14,0.10); }
+.modal-strength.sh { color:#0e7490; background:rgba(14,116,144,0.10); }
+.modal-strength.en { color:var(--red); background:rgba(232,0,45,0.08); }
+.modal-gc-wp-delta { font-family:var(--mono); font-size:11px; font-weight:700; padding:2px 6px; white-space:nowrap; }
+.modal-gc-play { background:var(--ink-06); border:none; color:var(--ink-32); cursor:pointer; font-size:8px; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; padding:0; flex-shrink:0; transition:background 0.15s,color 0.15s; }
+.modal-gc-play:hover { background:var(--ink-14); color:var(--ink); }
+
+/* ── GOAL VIDEO POPUP ── */
+.gvp-overlay { position:fixed; inset:0; z-index:600; display:flex; align-items:center; justify-content:center; }
+.gvp-overlay[hidden] { display:none; }
+.gvp-backdrop { position:absolute; inset:0; background:rgba(13,13,20,0.65); }
+.gvp-panel { position:relative; z-index:1; background:var(--surface); border:1px solid var(--ink-14); max-width:640px; width:calc(100% - 32px); overflow:hidden; box-shadow:0 24px 80px rgba(13,13,20,0.25); }
+.gvp-close { position:absolute; top:10px; right:12px; background:rgba(13,13,20,0.08); border:none; color:var(--ink-48); cursor:pointer; font-size:14px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; z-index:10; transition:color 0.15s,background 0.15s; }
+.gvp-close:hover { color:var(--ink); background:var(--ink-14); }
+.gvp-tabs { display:flex; gap:6px; padding:12px 44px 10px 14px; }
+.gvp-tabs[hidden] { display:none; }
+.gvp-tab { background:none; border:1px solid var(--ink-14); color:var(--ink-32); cursor:pointer; font-family:var(--display); font-size:10px; font-weight:700; letter-spacing:0.1em; padding:4px 14px; text-transform:uppercase; transition:color 0.15s,border-color 0.15s; }
+.gvp-tab.active { border-color:var(--ink-32); color:var(--ink-72); }
+.gvp-media { position:relative; background:#000; }
+#gvp-video { width:100%; display:block; max-height:360px; }
+#gvp-video[hidden] { display:none; }
+#gvp-iframe { width:100%; height:360px; border:none; display:block; }
+#gvp-iframe[hidden] { display:none; }
+.gvp-info { padding:12px 16px 16px; }
+.gvp-scorer { font-family:var(--mono); font-size:13px; color:var(--ink-72); font-weight:500; margin-bottom:5px; }
+.gvp-wp { font-family:var(--mono); font-size:12px; color:var(--ink-32); }
+.gvp-wp strong { color:var(--ink-72); }
+.gvp-wp-delta { font-weight:700; padding:1px 6px; margin-left:4px; }
+.gvp-wp-delta.pos { color:#166534; background:rgba(22,101,52,0.10); }
+.gvp-wp-delta.neg { color:var(--red); background:rgba(232,0,45,0.08); }
+
+/* ── RESPONSIVE: modal goals grid collapses to single column on small screens ── */
+@media (max-width: 640px) {
+  .modal-goals-grid { grid-template-columns: 1fr; gap: 8px; }
+}
+</style>
