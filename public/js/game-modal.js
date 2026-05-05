@@ -40,51 +40,39 @@
   }
 
   function buildGoalCard(g, color, teamAbbr) {
-    const assists = (g.assists || []).join(', ');
-    const scorerLine = g.scorer
-      ? `🚨 ${g.scorer}${assists ? `<span class="modal-gc-assists"> · ${assists}</span>` : ''}`
-      : '';
+    const scorer = g.scorer || '';
+    const assists = (g.assists || []).join(' · ');
+    const slug = scorer.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-    // WP delta badge — team color background, white/black text based on luminance
     let wpBadge = '';
     if (g.wpDelta != null) {
       const sign = g.wpDelta >= 0 ? '+' : '';
-      const tc = color && color.startsWith('#')
-        ? (() => {
-            const r = parseInt(color.slice(1, 3), 16);
-            const g2 = parseInt(color.slice(3, 5), 16);
-            const b = parseInt(color.slice(5, 7), 16);
-            return (0.299 * r + 0.587 * g2 + 0.114 * b) > 140 ? '#000' : '#fff';
-          })()
-        : '#fff';
-      wpBadge = `<span class="modal-gc-wp-delta" style="color:${tc};background:${color}cc">${sign}${(g.wpDelta * 100).toFixed(1)}%</span>`;
+      const r = parseInt(color.slice(1,3),16)||0, g2=parseInt(color.slice(3,5),16)||0, b=parseInt(color.slice(5,7),16)||0;
+      const tc = (0.299*r + 0.587*g2 + 0.114*b) > 140 ? '#000' : '#fff';
+      wpBadge = `<div class="modal-gc-wp-delta"><span style="color:${tc};background:${color}cc">${sign}${(g.wpDelta*100).toFixed(1)}%</span></div>`;
+    } else {
+      wpBadge = `<div class="modal-gc-wp-delta"></div>`;
     }
 
-    // Play button — highlight clip only (EDGE disabled, B2 egress concern)
     const playBtn = g.highlight_clip_id
-      ? `<button class="modal-gc-play"
-           data-url=""
-           data-clip-id="${g.highlight_clip_id || ''}"
-           data-scorer="${(g.scorer || '').replace(/"/g, '&quot;')}"
-           data-assists="${assists.replace(/"/g, '&quot;')}"
-           data-team="${teamAbbr}"
-           data-wp-b="${g.scoringWpB != null ? g.scoringWpB.toFixed(1) : ''}"
-           data-wp-a="${g.scoringWpA != null ? g.scoringWpA.toFixed(1) : ''}"
-           data-wp-delta="${g.wpDelta != null ? (g.wpDelta * 100).toFixed(1) : ''}"
-           aria-label="Watch goal replay">▶</button>`
-      : '';
+      ? `<button class="modal-gc-play" data-url="" data-clip-id="${g.highlight_clip_id}" data-scorer="${scorer.replace(/"/g,'&quot;')}" data-assists="${assists.replace(/"/g,'&quot;')}" data-team="${teamAbbr}" data-wp-b="${g.scoringWpB!=null?g.scoringWpB.toFixed(1):''}" data-wp-a="${g.scoringWpA!=null?g.scoringWpA.toFixed(1):''}" data-wp-delta="${g.wpDelta!=null?(g.wpDelta*100).toFixed(1):''}" aria-label="Watch goal replay">▶</button>`
+      : `<div></div>`;
 
     return `<div class="modal-goal-card">
-      <div class="modal-gc-top">
-        <span class="modal-gc-abbr" style="color:${color}">${teamAbbr}</span>
-        ${strengthBadge(g.strength)}
-        <span class="modal-gc-score">${(g.score || '').replace('-', '–')}</span>
-        <span class="modal-gc-time">${goalPeriodStr(g.t)}</span>
-        ${wpBadge}
-        ${playBtn}
-      </div>
-      ${scorerLine ? `<div class="modal-gc-scorer">${scorerLine}</div>` : ''}
-    </div>`;
+    <div class="modal-gc-team">
+      <span class="modal-gc-dot" style="background:${color};display:inline-block;"></span>
+      <span class="modal-gc-abbr" style="color:${color}">${teamAbbr}</span>
+      ${strengthBadge(g.strength)}
+    </div>
+    <div class="modal-gc-score">${(g.score||'').replace('-','–')}</div>
+    <div class="modal-gc-info">
+      ${scorer ? `<a class="modal-gc-scorer-link" href="/stats/player/${slug}">${scorer}</a>` : ''}
+      ${assists ? `<span class="modal-gc-assists">${assists}</span>` : ''}
+    </div>
+    <div class="modal-gc-time">${goalPeriodStr(g.t)}</div>
+    ${wpBadge}
+    ${playBtn}
+  </div>`;
   }
 
   function buildGoalColumn(list, color, abbr, label) {
@@ -344,7 +332,7 @@
         : `${periodLabel(card.period, card.isOT)} · ${card.clock}`;
 
     const logoUrl = abbr => `${LOGO_BASE}/${abbr}_light.svg`;
-    const logoImg = (abbr, dim) => `<img src="${logoUrl(abbr)}" width="60" height="60" style="object-fit:contain${dim ? ';opacity:0.3;filter:grayscale(0.5)' : ''}" onerror="this.style.display='none'">`;
+    const logoImg = (abbr, dim) => `<img src="${logoUrl(abbr)}" width="80" height="80" style="object-fit:contain${dim ? ';opacity:0.3;filter:grayscale(0.5)' : ''}" onerror="this.style.display='none'">`;
 
     const xgEvents = eventsData?.events || [];
     const xgEvents5v5 = xgEvents.filter(ev => ev.payload?.situationCode === '1551');
@@ -391,24 +379,29 @@
     const awayWpPct = homeWpPct != null ? 100 - homeWpPct : null;
     const awayReadable = ensureReadable(card.teamColor);
     const homeReadable = ensureReadable(card.homeColor);
-    // Default header xG to 5v5 if we have event data, else fall back to the
-    // event-based all-situations sum. NEVER fall through to card.xgAway /
-    // card.xgHome — those are written by a different code path (game_state
-    // table) with a different model, so they can disagree with the per-event
-    // xG sum badly enough to invert.
+    // Compute xG share for team stats
     const hasXgEvents = totals5v5.home > 0 || totals5v5.away > 0 || totalsAll.home > 0 || totalsAll.away > 0;
-    const initAwayXg = (totals5v5.home > 0 || totals5v5.away > 0) ? totals5v5.away : totalsAll.away;
-    const initHomeXg = (totals5v5.home > 0 || totals5v5.away > 0) ? totals5v5.home : totalsAll.home;
-    const initLbl = (totals5v5.home > 0 || totals5v5.away > 0) ? 'xG 5V5' : 'xG';
-    const awayXgHtml = hasXgEvents ? `<div class="modal-xg" id="modal-xg-away-${gameId}" style="color:${awayReadable}">${initAwayXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
-    const homeXgHtml = hasXgEvents ? `<div class="modal-xg" id="modal-xg-home-${gameId}" style="color:${homeReadable}">${initHomeXg} <span class="modal-xg-lbl">${initLbl}</span></div>` : '';
+    const awayXgAllNum = parseFloat(totalsAll.away) || 0;
+    const homeXgAllNum = parseFloat(totalsAll.home) || 0;
+    const xgTotal = awayXgAllNum + homeXgAllNum;
+    const awayXgShare = xgTotal > 0 ? Math.round(awayXgAllNum / xgTotal * 100) : 50;
+    const homeXgShare = 100 - awayXgShare;
+    const away5v5Num = parseFloat(totals5v5.away) || 0;
+    const home5v5Num = parseFloat(totals5v5.home) || 0;
+    const xg5v5Total = away5v5Num + home5v5Num;
+    const away5v5Share = xg5v5Total > 0 ? Math.round(away5v5Num / xg5v5Total * 100) : 50;
+    const home5v5Share = 100 - away5v5Share;
+
+    const wpLabel = card.isFinal ? 'WIN PROBABILITY · FINAL' : 'WIN PROBABILITY';
     const statsStripHtml = homeWpPct != null ? `
-      <div class="modal-wp-lbl">WIN PROBABILITY</div>
-      <div class="modal-wp-strip">
-        <span class="modal-wp-pct away" style="color:${awayReadable}">${awayWpPct}%</span>
-        <div class="modal-wp-bar" style="background:linear-gradient(90deg,${awayReadable} ${Math.max(0, awayWpPct - 8)}%,${homeReadable} ${Math.min(100, awayWpPct + 8)}%)"></div>
-        <span class="modal-wp-pct home" style="color:${homeReadable}">${homeWpPct}%</span>
-      </div>` : '';
+  <div class="modal-wp-strip-wrap">
+    <div class="modal-wp-lbl">${wpLabel}</div>
+    <div class="modal-wp-strip">
+      <span class="modal-wp-pct away" style="color:${awayReadable}">${awayWpPct}%</span>
+      <div class="modal-wp-bar" style="background:linear-gradient(90deg,${awayReadable} ${Math.max(0,awayWpPct-8)}%,${homeReadable} ${Math.min(100,awayWpPct+8)}%)"></div>
+      <span class="modal-wp-pct home" style="color:${homeReadable}">${homeWpPct}%</span>
+    </div>
+  </div>` : '';
 
     const awayGoals = goals.filter(g => !g.isHome);
     const homeGoals = goals.filter(g => g.isHome);
@@ -444,67 +437,127 @@
 
     const goalsHtml = goalsList + goalsGrid;
 
-    content.innerHTML = `
-      <div class="modal-header">
-        <div class="modal-team">
-          ${logoImg(card.away, ac === 'trail' && card.isFinal)}
-          <div class="modal-abbr ${ac}">${card.away}</div>
-          <div class="modal-city">${card.awayCity}</div>
-          ${awayXgHtml}
-        </div>
-        <div class="modal-score-center">
-          <div class="modal-scores">
-            <span class="modal-n ${ac}">${card.awayScore}</span>
-            <span class="modal-sep">–</span>
-            <span class="modal-n ${hc}">${card.homeScore}</span>
-          </div>
-          <div class="modal-period">${periodStr}</div>
-        </div>
-        <div class="modal-team">
-          ${logoImg(card.home, hc === 'trail' && card.isFinal)}
-          <div class="modal-abbr ${hc}">${card.home}</div>
-          <div class="modal-city">${card.homeCity}</div>
-          ${homeXgHtml}
-        </div>
+    const threeStarsHtml = card.isFinal && card.threeStars && card.threeStars.length
+      ? `<div class="modal-section">
+      <div class="modal-section-label">Three Stars</div>
+      <div class="modal-stars-row">
+        ${card.threeStars.slice(0,3).map(s => {
+          const abbr = s.team_abbrev || '';
+          const sc = abbr === card.home ? homeReadable : awayReadable;
+          const lastName = s.player_last_name || (s.player_name||'').split(' ').pop() || '';
+          return `<div class="modal-star">
+            <div class="modal-star-stripe" style="background:${sc};"></div>
+            <div class="modal-star-rank">${s.star||1}</div>
+            <div class="modal-star-info">
+              <div class="modal-star-name">${lastName}</div>
+              <div class="modal-star-team" style="color:${sc}">${abbr}</div>
+            </div>
+          </div>`;
+        }).join('')}
       </div>
-      ${card.isFinal && card.threeStars && card.threeStars.length ? `
-      <div class="modal-stars-section">
-        <div class="modal-wp-lbl">THREE STARS</div>
-        <div class="modal-stars-row">
-          ${card.threeStars.slice(0, 3).map(s => `
-            <div class="modal-star">
-              <div class="modal-star-icons">${'⭐'.repeat(s.star || 1)}</div>
-              <div class="modal-star-name">${s.player_last_name || s.player_name || ''}${s.team_abbrev ? ` (${s.team_abbrev})` : ''}</div>
-            </div>`).join('')}
-        </div>
-      </div>` : ''}
-      ${statsStripHtml}
-      ${chartHtml}
-      <div class="modal-goals-section">
-        <div class="modal-section-label">GOALS</div>
-        ${goalsHtml}
-      </div>`;
+    </div>`
+      : '';
 
-    // Wire tab buttons after innerHTML is set
+    // Team stats — xG live now; shots/fenwick/corsi when data pipeline ready
+    const teamStatsHtml = `<div class="modal-section" id="ts-${gameId}">
+  <div class="modal-section-label">Team Stats</div>
+  ${hasXgEvents ? `
+  <div class="modal-stats-filters">
+    <button class="modal-stats-pill active" data-strength="all">ALL</button>
+    <button class="modal-stats-pill" data-strength="5v5">5V5</button>
+  </div>
+  <div class="modal-stat-row"
+    data-phi-all="${totalsAll.away}" data-car-all="${totalsAll.home}"
+    data-phi-5v5="${totals5v5.away}" data-car-5v5="${totals5v5.home}">
+    <span class="modal-stat-label">xG</span>
+    <div class="modal-stat-side away">
+      <span class="modal-stat-num" style="color:${awayReadable}">${totalsAll.away}</span>
+      <span class="modal-stat-pct" style="color:${awayReadable}">${awayXgShare}%</span>
+    </div>
+    <div class="modal-stat-bar" style="background:linear-gradient(90deg,${awayReadable} ${awayXgShare}%,${homeReadable} ${awayXgShare}%);"></div>
+    <div class="modal-stat-side home">
+      <span class="modal-stat-num" style="color:${homeReadable}">${totalsAll.home}</span>
+      <span class="modal-stat-pct" style="color:${homeReadable}">${homeXgShare}%</span>
+    </div>
+  </div>
+  <div class="modal-no-chart" style="font-size:11px;padding:14px 0 0;text-align:left;color:var(--ink-32)">Shot &amp; possession data coming soon</div>
+  ` : `<div class="modal-no-chart">Stats unavailable.</div>`}
+</div>`;
+
+    // Goalie stats — stub until data pipeline ready
+    const goalieStatsHtml = `<div class="modal-section">
+  <div class="modal-section-label">Goalies</div>
+  <div class="modal-no-chart" style="font-size:11px">Goalie stats coming soon.</div>
+</div>`;
+
+    content.innerHTML = `
+  <div class="modal-accent-bar">
+    <div style="background:${awayReadable};"></div>
+    <div style="background:${homeReadable};"></div>
+  </div>
+  <div class="modal-body">
+    <div class="modal-header">
+      <div class="modal-team">
+        ${logoImg(card.away, ac==='trail' && card.isFinal)}
+        <div class="modal-abbr ${ac}">${card.away}</div>
+      </div>
+      <div class="modal-score-center">
+        <div class="modal-scores">
+          <span class="modal-n ${ac}">${card.awayScore}</span>
+          <span class="modal-sep">–</span>
+          <span class="modal-n ${hc}">${card.homeScore}</span>
+        </div>
+        <div class="modal-period${card.isFinal?' final':''}">${periodStr}</div>
+      </div>
+      <div class="modal-team">
+        ${logoImg(card.home, hc==='trail' && card.isFinal)}
+        <div class="modal-abbr ${hc}">${card.home}</div>
+      </div>
+    </div>
+    ${statsStripHtml}
+    ${threeStarsHtml}
+    ${chartHtml}
+    ${teamStatsHtml}
+    ${goalieStatsHtml}
+    <div class="modal-section">
+      <div class="modal-section-label">Goals</div>
+      ${goalsHtml}
+    </div>
+  </div>`;
+
+    // Wire chart tab buttons after innerHTML is set
     const chartWrap = document.getElementById(`mc-${gameId}`);
     if (chartWrap) {
       chartWrap.querySelectorAll('.modal-tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           chartWrap.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
           chartWrap.querySelectorAll('.modal-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === btn.dataset.tab));
-          // Sync header xG numbers with active xG tab
-          const awayEl = document.getElementById(`modal-xg-away-${gameId}`);
-          const homeEl = document.getElementById(`modal-xg-home-${gameId}`);
-          if (awayEl && homeEl) {
-            if (btn.dataset.tab === 'xg5v5') {
-              awayEl.innerHTML = `${totals5v5.away} <span class="modal-xg-lbl">xG 5V5</span>`;
-              homeEl.innerHTML = `${totals5v5.home} <span class="modal-xg-lbl">xG 5V5</span>`;
-            } else if (btn.dataset.tab === 'xgall') {
-              awayEl.innerHTML = `${totalsAll.away} <span class="modal-xg-lbl">xG</span>`;
-              homeEl.innerHTML = `${totalsAll.home} <span class="modal-xg-lbl">xG</span>`;
-            }
-            // WIN% tab: leave xG header unchanged
-          }
+        });
+      });
+    }
+
+    // Wire team stats pill buttons
+    const tsWrap = document.getElementById(`ts-${gameId}`);
+    if (tsWrap) {
+      const pills = tsWrap.querySelectorAll('.modal-stats-pill');
+      pills.forEach(pill => {
+        pill.addEventListener('click', () => {
+          pills.forEach(p => p.classList.remove('active'));
+          pill.classList.add('active');
+          const is5v5 = pill.dataset.strength === '5v5';
+          tsWrap.querySelectorAll('.modal-stat-row').forEach(row => {
+            const away = is5v5 ? row.dataset.phi5v5 : row.dataset.phiAll;
+            const home = is5v5 ? row.dataset.car5v5 : row.dataset.carAll;
+            if (!away || !home) return;
+            const aN = parseFloat(away), hN = parseFloat(home), tot = aN + hN;
+            const aShare = tot > 0 ? Math.round(aN/tot*100) : 50;
+            row.querySelector('.modal-stat-side.away .modal-stat-num').textContent = away;
+            row.querySelector('.modal-stat-side.away .modal-stat-pct').textContent = `${aShare}%`;
+            row.querySelector('.modal-stat-side.home .modal-stat-num').textContent = home;
+            row.querySelector('.modal-stat-side.home .modal-stat-pct').textContent = `${100-aShare}%`;
+            row.querySelector('.modal-stat-bar').style.background =
+              `linear-gradient(90deg,${awayReadable} ${aShare}%,${homeReadable} ${aShare}%)`;
+          });
         });
       });
     }

@@ -25,6 +25,28 @@
 - [ ] Player-level xGF roster plugin (ingest Evolving Hockey RAPM or MoneyPuck GAR) — biggest remaining signal
 - [ ] Fix `simulate_series_v2` hardcoded `random.Random(42)` on line ~225 (should use the caller's seed)
 
+## Game Modal Rewrite (`rewrite` branch)
+
+Mockup: `public/mockups/game-modal.html` — approved section order:
+**Score + WP strip → Three Stars (final only) → Charts → Team Stats → Goalie Stats → Goals → Bot Cards**
+
+### Port mockup → real components (once approved)
+- [ ] Move WP strip into header zone in `GameModal.astro` + `game-modal.js`
+- [ ] Three Stars: hide when not yet posted (gate on `data.three_stars` presence)
+- [ ] Charts: already wired — just carry tab structure from mockup
+- [ ] Team Stats section: pill filter (ALL/5V5/PP/SH) + split-bar rows
+- [ ] Goalie Stats: `<table>` with SV/SV%/xGA/GSAx + team-color left border per row
+- [ ] Goals: CSS grid `70px 48px 1fr 90px 68px 28px` — already in `game-modal.js`
+- [ ] Bot Cards strip: placeholder until B2 card URLs wired in
+
+### Backend data needed for Team Stats section
+- [ ] **Shots on goal**: available from NHL boxscore API (`liveData.boxscore.teams.*.teamStats.teamSkaterStats.shots`) — pull at game end or on demand
+- [ ] **Fenwick (unblocked shot attempts)**: need to sum `SHOT_ON_GOAL + MISSED_SHOT` events from D1 per team per game — or pull from NHL boxscore `blockedShots` + `shotAttempts`
+- [ ] **Corsi (all shot attempts)**: `SHOT_ON_GOAL + MISSED_SHOT + BLOCKED_SHOT` — same source
+- [ ] **xG all-situations**: already have 5v5 xG in `game_state`; need PP/SH xG summed from events payload
+- [ ] **Strength split (5v5 / PP / SH)**: filter events by `payload.situation_code` — already stored, just needs query support
+- [ ] **Recommended path**: add `team_stats` JSON blob to `game_state` table (written at game end or via 30s live poll from NHL boxscore) — site reads it from `/v1/games/:id/flow` or a new `?include=boxscore` param
+
 ## Editorial Homepage — post-session
 
 - [ ] Wire real bot activity stream into live hero bot feed (currently mocked with static entries)
