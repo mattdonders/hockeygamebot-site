@@ -30,6 +30,9 @@
 Mockup: `public/mockups/game-modal.html` — approved section order:
 **Score + WP strip → Three Stars (final only) → Charts → Team Stats → Goalie Stats → Goals → Bot Cards**
 
+### Home page polish
+- [ ] **1-2 games yesterday**: skip featured card entirely, show all games in a single "Yesterday's Results" grid — no point picking a "best" from 1-2 games
+
 ### Port mockup → real components (once approved)
 - [ ] Move WP strip into header zone in `GameModal.astro` + `game-modal.js`
 - [ ] Three Stars: hide when not yet posted (gate on `data.three_stars` presence)
