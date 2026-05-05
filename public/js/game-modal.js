@@ -392,16 +392,32 @@
     const away5v5Share = xg5v5Total > 0 ? Math.round(away5v5Num / xg5v5Total * 100) : 50;
     const home5v5Share = 100 - away5v5Share;
 
-    const wpLabel = card.isFinal ? 'WIN PROBABILITY · FINAL' : 'WIN PROBABILITY';
-    const statsStripHtml = homeWpPct != null ? `
-  <div class="modal-wp-strip-wrap">
-    <div class="modal-wp-lbl">${wpLabel}</div>
-    <div class="modal-wp-strip">
-      <span class="modal-wp-pct away" style="color:${awayReadable}">${awayWpPct}%</span>
-      <div class="modal-wp-bar" style="background:linear-gradient(90deg,${awayReadable} ${Math.max(0,awayWpPct-8)}%,${homeReadable} ${Math.min(100,awayWpPct+8)}%)"></div>
-      <span class="modal-wp-pct home" style="color:${homeReadable}">${homeWpPct}%</span>
-    </div>
-  </div>` : '';
+    // Final games: show xG split (WP is always 100/0, useless). Live: show WP.
+    const statsStripHtml = card.isFinal && hasXgEvents
+      ? `<div class="modal-wp-strip-wrap">
+          <div class="modal-wp-lbl">EXPECTED GOALS · ALL SITUATIONS</div>
+          <div class="modal-wp-strip">
+            <div class="modal-stat-side away">
+              <span class="modal-stat-num" style="color:${awayReadable}">${totalsAll.away}</span>
+              <span class="modal-stat-pct" style="color:${awayReadable}">${awayXgShare}%</span>
+            </div>
+            <div class="modal-stat-bar" style="height:12px;background:linear-gradient(90deg,${awayReadable} ${awayXgShare}%,${homeReadable} ${awayXgShare}%);"></div>
+            <div class="modal-stat-side home">
+              <span class="modal-stat-num" style="color:${homeReadable}">${totalsAll.home}</span>
+              <span class="modal-stat-pct" style="color:${homeReadable}">${homeXgShare}%</span>
+            </div>
+          </div>
+        </div>`
+      : homeWpPct != null
+        ? `<div class="modal-wp-strip-wrap">
+            <div class="modal-wp-lbl">WIN PROBABILITY</div>
+            <div class="modal-wp-strip">
+              <span class="modal-wp-pct away" style="color:${awayReadable}">${awayWpPct}%</span>
+              <div class="modal-wp-bar" style="background:linear-gradient(90deg,${awayReadable} ${Math.max(0,awayWpPct-8)}%,${homeReadable} ${Math.min(100,awayWpPct+8)}%)"></div>
+              <span class="modal-wp-pct home" style="color:${homeReadable}">${homeWpPct}%</span>
+            </div>
+          </div>`
+        : '';
 
     const awayGoals = goals.filter(g => !g.isHome);
     const homeGoals = goals.filter(g => g.isHome);
