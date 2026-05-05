@@ -1,5 +1,6 @@
 ---
 import { pickTeamColor } from '../lib/team-colors';
+import GameModal from '../components/GameModal.astro';
 
 const SCORE_URL = 'https://api.hockeygamebot.com/v1/scoreboard';
 const FLOW_URL  = 'https://api.hockeygamebot.com/v1/games';
@@ -1063,7 +1064,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
       const oac=clr(oa), ohc=clr(oh), ost=gs(g);
       const isLive  = ost==='live'||ost==='intermission';
       const isFinal = ost==='final';
-      return `<div class="also-tile">
+      return `<div class="also-tile" data-game-id="${g.game_id}" style="cursor:pointer">
         <div class="also-tile-matchup">
           <span style="color:${oac}">${oa}</span>
           <span style="color:var(--ink-32);font-size:12px;font-family:var(--mono)">@</span>
@@ -1081,7 +1082,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
     // Team logo URL
     const logoUrl = abbrev => `https://assets.nhle.com/logos/nhl/svg/${abbrev}_light.svg`;
 
-    setHtml('hero-slot', `<div class="bigcard">
+    setHtml('hero-slot', `<div class="bigcard" data-game-id="${feat.game_id}" style="cursor:pointer">
       <div class="bigcard-accent"><div class="a" style="background:${ac}"></div><div class="h" style="background:${hc}"></div></div>
       <div class="bigcard-head">
         <span class="bigcard-flag">Featured · Tightest Contest</span>
@@ -1181,7 +1182,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
       const winWP = Math.round(((awayWins?g.stats?.win_probability?.away:g.stats?.win_probability?.home)??0.5)*100);
       const winC = awayWins ? ac : hc;
       const xgA = g.stats?.xg_5v5?.away, xgH = g.stats?.xg_5v5?.home;
-      return `<div class="final-card">
+      return `<div class="final-card" data-game-id="${g.game_id}" style="cursor:pointer">
         <div class="final-card-bar"><div class="a" style="background:${ac}"></div><div class="h" style="background:${hc}"></div></div>
         <div class="final-card-tag"><span>Final</span><span>${todayDate||''}</span></div>
         <div class="final-row">
@@ -1217,8 +1218,37 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
     return `${st}::${ids}`;
   }
 
+  // Populate window.HGB_GAME_CARDS so game-modal.js can open any game
+  function syncGameCards(data) {
+    window.HGB_GAME_CARDS = window.HGB_GAME_CARDS || {};
+    const all = [...(data.games ?? []), ...(data.previous_day?.games ?? [])];
+    for (const g of all) {
+      const away = g.away_team || {}, home = g.home_team || {};
+      const isFinal = g.status === 'final';
+      const period = g.period || 0;
+      window.HGB_GAME_CARDS[g.game_id] = {
+        id: g.game_id,
+        away: away.abbrev || '???', awayCity: away.short_name || '',
+        home: home.abbrev || '???', homeCity: home.short_name || '',
+        awayScore: away.score || 0, homeScore: home.score || 0,
+        period, clock: g.time_remaining || '--:--',
+        isFinal, isOT: !isFinal && period >= 4,
+        inIntermission: g.in_intermission || false,
+        status: g.status,
+        teamColor: typeof ensureReadable !== 'undefined' ? ensureReadable(pickTeamColor(away.abbrev), 58) : clr(away.abbrev),
+        homeColor: typeof ensureReadable !== 'undefined' ? ensureReadable(pickTeamColor(home.abbrev), 58) : clr(home.abbrev),
+        winProbability: g.win_probability ?? null,
+        xgHome: g.xg_home != null ? +parseFloat(g.xg_home).toFixed(1) : null,
+        xgAway: g.xg_away != null ? +parseFloat(g.xg_away).toFixed(1) : null,
+        threeStars: Array.isArray(g.three_stars) ? g.three_stars : null,
+        recentEvents: [], lastEvent: '',
+      };
+    }
+  }
+
   function render(data, tonight) {
     const state = pageState(data);
+    syncGameCards(data);
     renderTicker(data);
     const key = heroKey(data);
     const heroChanged = key !== _lastHeroKey;
@@ -1254,8 +1284,29 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   fetchAndRender();
   // Don't auto-poll when in mock mode — manual refresh only
   if (!mockState) setInterval(fetchAndRender, 30000);
+
+  // Click delegation — open modal for any card with data-game-id
+  document.addEventListener('click', e => {
+    const card = e.target.closest('[data-game-id]');
+    if (!card) return;
+    const gameId = card.dataset.gameId;
+    if (gameId && typeof window.openModal === 'function') window.openModal(gameId);
+  });
+
+  // Deep-link: ?game=ID on load
+  const initGameId = new URLSearchParams(location.search).get('game');
+  if (initGameId) {
+    // Wait for game-modal.js to load, then open
+    window.addEventListener('load', () => {
+      if (typeof window.openModal === 'function') window.openModal(initGameId, { push: false });
+    });
+  }
 })();
 </script>
+
+<GameModal />
+<script src="/js/hgb-charts.js" defer></script>
+<script src="/js/game-modal.js" defer></script>
 
 </body>
 </html>
