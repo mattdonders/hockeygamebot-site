@@ -128,17 +128,40 @@ img { display: block; max-width: 100%; }
 }
 
 /* Card type tabs */
-.type-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--ink-14); }
+.type-tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; border: 1px solid var(--ink-14); }
 .type-tab {
-  padding: 10px 12px;
-  font-family: var(--display); font-weight: 700; font-size: 13px;
-  letter-spacing: 0.12em; text-transform: uppercase; text-align: center;
+  padding: 10px 8px;
+  font-family: var(--display); font-weight: 700; font-size: 12px;
+  letter-spacing: 0.10em; text-transform: uppercase; text-align: center;
   cursor: pointer; background: transparent; border: none; color: var(--ink-48);
   border-right: 1px solid var(--ink-14); transition: background .12s, color .12s;
 }
 .type-tab:last-child { border-right: 0; }
 .type-tab.active { background: var(--ink); color: var(--surface); }
 .type-tab:not(.active):hover { background: var(--bg-2); color: var(--ink); }
+
+/* Comparison player dropdowns */
+.compare-players {
+  display: none;
+  gap: 12px;
+  align-items: start;
+}
+.compare-players.visible { display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; }
+.compare-vs {
+  font-family: var(--display); font-weight: 800; font-size: 20px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--red); text-align: center;
+  padding-top: 28px; /* align with top of select boxes */
+  user-select: none;
+}
+.compare-slot {}
+.compare-slot .panel-label { margin-bottom: 8px; }
+.compare-slot .search-input { margin-bottom: 6px; }
+.compare-slot .player-select { height: 140px; }
+.compare-warn {
+  font-family: var(--mono); font-size: 10.5px; color: var(--red);
+  letter-spacing: 0.03em; margin-top: 8px; min-height: 16px;
+}
 
 /* Search + select */
 .search-input {
@@ -342,11 +365,12 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
           <div class="type-tabs">
             <button class="type-tab active" data-type="rapm">RAPM</button>
             <button class="type-tab" data-type="player">Player Stats</button>
+            <button class="type-tab" data-type="compare">RAPM Compare</button>
           </div>
         </div>
 
-        <!-- Player search -->
-        <div class="panel-section">
+        <!-- Single player search (hidden when compare mode active) -->
+        <div class="panel-section" id="singlePlayerSection">
           <span class="panel-label">Player</span>
           <input
             type="text"
@@ -360,6 +384,45 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
             <option disabled>Loading players...</option>
           </select>
           <div class="select-count" id="selectCount">&nbsp;</div>
+        </div>
+
+        <!-- Compare: two player dropdowns (hidden unless compare mode active) -->
+        <div class="panel-section" id="compareSection" style="display:none;">
+          <div class="compare-players" id="comparePlayers">
+            <!-- Player A -->
+            <div class="compare-slot">
+              <span class="panel-label">Player A</span>
+              <input
+                type="text"
+                class="search-input"
+                id="searchA"
+                placeholder="Filter..."
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <select class="player-select" id="selectA" size="6">
+                <option disabled>Loading...</option>
+              </select>
+            </div>
+            <!-- VS label -->
+            <div class="compare-vs">VS</div>
+            <!-- Player B -->
+            <div class="compare-slot">
+              <span class="panel-label">Player B</span>
+              <input
+                type="text"
+                class="search-input"
+                id="searchB"
+                placeholder="Filter..."
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <select class="player-select" id="selectB" size="6">
+                <option disabled>Loading...</option>
+              </select>
+            </div>
+          </div>
+          <div class="compare-warn" id="compareWarn"></div>
         </div>
 
         <!-- Mode -->
@@ -419,20 +482,30 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let _cardType  = "rapm";   // "rapm" | "player"
-let _mode      = "light";  // "light" | "dark"
-let _playerId  = null;     // selected player_id (int)
-let _allPlayers = [];      // [{player_id, full_name, name, team, position, toi_min}]
+let _cardType   = "rapm";   // "rapm" | "player" | "compare"
+let _mode       = "light";  // "light" | "dark"
+let _playerId   = null;     // selected player_id (int) — single-player modes
+let _playerIdA  = null;     // compare mode: Player A
+let _playerIdB  = null;     // compare mode: Player B
+let _allPlayers = [];       // [{player_id, full_name, name, team, position, toi_min}]
 
 // ---------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------
-const searchInput  = document.getElementById("playerSearch");
-const playerSelect = document.getElementById("playerSelect");
-const selectCount  = document.getElementById("selectCount");
-const generateBtn  = document.getElementById("generateBtn");
-const outputBody   = document.getElementById("outputBody");
-const outputTag    = document.getElementById("outputTag");
+const searchInput       = document.getElementById("playerSearch");
+const playerSelect      = document.getElementById("playerSelect");
+const selectCount       = document.getElementById("selectCount");
+const generateBtn       = document.getElementById("generateBtn");
+const outputBody        = document.getElementById("outputBody");
+const outputTag         = document.getElementById("outputTag");
+const singlePlayerSec   = document.getElementById("singlePlayerSection");
+const compareSection    = document.getElementById("compareSection");
+const comparePlayers    = document.getElementById("comparePlayers");
+const searchA           = document.getElementById("searchA");
+const selectA           = document.getElementById("selectA");
+const searchB           = document.getElementById("searchB");
+const selectB           = document.getElementById("selectB");
+const compareWarn       = document.getElementById("compareWarn");
 
 // ---------------------------------------------------------------------------
 // Tab wiring
@@ -442,6 +515,7 @@ document.querySelectorAll(".type-tab").forEach(btn => {
     document.querySelectorAll(".type-tab").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     _cardType = btn.dataset.type;
+    toggleCompareMode();
     updateGenerateBtn();
   });
 });
@@ -454,8 +528,19 @@ document.querySelectorAll(".mode-tab").forEach(btn => {
   });
 });
 
+function toggleCompareMode() {
+  const isCompare = _cardType === "compare";
+  singlePlayerSec.style.display = isCompare ? "none" : "";
+  compareSection.style.display  = isCompare ? "" : "none";
+  if (isCompare) {
+    comparePlayers.classList.add("visible");
+  } else {
+    comparePlayers.classList.remove("visible");
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Player dropdown
+// Player dropdown helpers
 // ---------------------------------------------------------------------------
 
 /** Return human-readable position group label for grouping. */
@@ -470,14 +555,21 @@ function playerSortKey(p) {
   return `${g}|${p.full_name.toLowerCase()}`;
 }
 
-function renderDropdown(players) {
-  playerSelect.innerHTML = "";
+function filterPlayers(query) {
+  if (!query.trim()) return _allPlayers.slice();
+  const q = query.toLowerCase();
+  return _allPlayers.filter(p =>
+    p.full_name.toLowerCase().includes(q) ||
+    p.team.toLowerCase().includes(q) ||
+    p.position.toLowerCase().includes(q)
+  );
+}
 
-  // Build optgroups
+/** Populate a <select> element with optgroups; re-select prevValue if still present. */
+function populateSelect(sel, players, prevValue) {
+  sel.innerHTML = "";
   const groups = { "Forwards": [], "Defense": [] };
-  for (const p of players) {
-    groups[posGroup(p.position)].push(p);
-  }
+  for (const p of players) groups[posGroup(p.position)].push(p);
 
   let totalVisible = 0;
   for (const [groupLabel, members] of Object.entries(groups)) {
@@ -491,34 +583,29 @@ function renderDropdown(players) {
       og.appendChild(opt);
       totalVisible++;
     }
-    playerSelect.appendChild(og);
+    sel.appendChild(og);
   }
 
-  selectCount.textContent = `${totalVisible} player${totalVisible !== 1 ? "s" : ""}`;
-
-  // Re-select previously chosen player if still visible
-  if (_playerId !== null) {
-    playerSelect.value = _playerId;
-    if (!playerSelect.value) {
-      _playerId = null;
-      updateGenerateBtn();
-    }
+  if (prevValue !== null) {
+    sel.value = prevValue;
+    if (!sel.value) return null; // no longer visible
   }
+  return totalVisible;
 }
 
-function filterPlayers(query) {
-  if (!query.trim()) return _allPlayers.slice();
-  const q = query.toLowerCase();
-  return _allPlayers.filter(p =>
-    p.full_name.toLowerCase().includes(q) ||
-    p.team.toLowerCase().includes(q) ||
-    p.position.toLowerCase().includes(q)
-  );
+// ── Single-player dropdown ────────────────────────────────────────────────
+
+function renderDropdown(players) {
+  const n = populateSelect(playerSelect, players, _playerId);
+  if (n === null) {
+    _playerId = null;
+    updateGenerateBtn();
+  }
+  selectCount.textContent = `${players.length} player${players.length !== 1 ? "s" : ""}`;
 }
 
 searchInput.addEventListener("input", () => {
-  const filtered = filterPlayers(searchInput.value);
-  renderDropdown(filtered);
+  renderDropdown(filterPlayers(searchInput.value));
 });
 
 playerSelect.addEventListener("change", () => {
@@ -526,8 +613,59 @@ playerSelect.addEventListener("change", () => {
   updateGenerateBtn();
 });
 
+// ── Compare dropdowns ─────────────────────────────────────────────────────
+
+function renderCompareDropdowns() {
+  const filteredA = filterPlayers(searchA.value);
+  const filteredB = filterPlayers(searchB.value);
+  const na = populateSelect(selectA, filteredA, _playerIdA);
+  const nb = populateSelect(selectB, filteredB, _playerIdB);
+  if (na === null) _playerIdA = null;
+  if (nb === null) _playerIdB = null;
+  validateCompare();
+}
+
+searchA.addEventListener("input", () => {
+  const filtered = filterPlayers(searchA.value);
+  populateSelect(selectA, filtered, _playerIdA);
+  validateCompare();
+});
+
+searchB.addEventListener("input", () => {
+  const filtered = filterPlayers(searchB.value);
+  populateSelect(selectB, filtered, _playerIdB);
+  validateCompare();
+});
+
+selectA.addEventListener("change", () => {
+  _playerIdA = selectA.value ? parseInt(selectA.value, 10) : null;
+  validateCompare();
+});
+
+selectB.addEventListener("change", () => {
+  _playerIdB = selectB.value ? parseInt(selectB.value, 10) : null;
+  validateCompare();
+});
+
+function validateCompare() {
+  if (_playerIdA !== null && _playerIdB !== null && _playerIdA === _playerIdB) {
+    compareWarn.textContent = "Select two different players";
+  } else {
+    compareWarn.textContent = "";
+  }
+  updateGenerateBtn();
+}
+
+// ---------------------------------------------------------------------------
+// Generate button state
+// ---------------------------------------------------------------------------
 function updateGenerateBtn() {
-  generateBtn.disabled = _playerId === null;
+  if (_cardType === "compare") {
+    const samePlayer = _playerIdA !== null && _playerIdA === _playerIdB;
+    generateBtn.disabled = (_playerIdA === null || _playerIdB === null || samePlayer);
+  } else {
+    generateBtn.disabled = (_playerId === null);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -552,13 +690,24 @@ async function loadPlayers() {
       return ak < bk ? -1 : ak > bk ? 1 : 0;
     });
 
+    // Populate single-player dropdown
     renderDropdown(_allPlayers);
+    // Populate both compare dropdowns
+    populateSelect(selectA, _allPlayers, null);
+    populateSelect(selectB, _allPlayers, null);
   } catch (err) {
+    const errOpt = () => {
+      const opt = document.createElement("option");
+      opt.disabled = true;
+      opt.textContent = "Failed to load players";
+      return opt;
+    };
     playerSelect.innerHTML = "";
-    const opt = document.createElement("option");
-    opt.disabled = true;
-    opt.textContent = "Failed to load players";
-    playerSelect.appendChild(opt);
+    playerSelect.appendChild(errOpt());
+    selectA.innerHTML = "";
+    selectA.appendChild(errOpt());
+    selectB.innerHTML = "";
+    selectB.appendChild(errOpt());
     selectCount.textContent = err.message || "Load failed";
   }
 }
@@ -597,10 +746,10 @@ function showError(msg) {
   outputTag.textContent = "Error";
 }
 
-function showResult(blobUrl, filename, playerLabel) {
+function showResult(blobUrl, filename, label) {
   outputBody.innerHTML = `
     <div class="result-state">
-      <img class="result-img" src="${blobUrl}" alt="Generated card for ${escHtml(playerLabel)}" />
+      <img class="result-img" src="${blobUrl}" alt="Generated card — ${escHtml(label)}" />
       <div class="result-actions">
         <a class="dl-btn" id="dlBtn" href="${blobUrl}" download="${escHtml(filename)}">
           &#8595; Download PNG
@@ -608,7 +757,7 @@ function showResult(blobUrl, filename, playerLabel) {
       </div>
       <div class="result-meta">Cached 24 hours &middot; ${escHtml(filename)}</div>
     </div>`;
-  outputTag.textContent = playerLabel;
+  outputTag.textContent = label;
 }
 
 function escHtml(s) {
@@ -619,10 +768,61 @@ function escHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+function slugify(name) {
+  return name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+}
+
 // ---------------------------------------------------------------------------
 // Generate
 // ---------------------------------------------------------------------------
 generateBtn.addEventListener("click", async () => {
+  // ── Compare mode ──────────────────────────────────────────────────────────
+  if (_cardType === "compare") {
+    if (_playerIdA === null || _playerIdB === null || _playerIdA === _playerIdB) return;
+
+    const pA = _allPlayers.find(p => p.player_id === _playerIdA);
+    const pB = _allPlayers.find(p => p.player_id === _playerIdB);
+    const labelA = pA ? pA.full_name : `Player ${_playerIdA}`;
+    const labelB = pB ? pB.full_name : `Player ${_playerIdB}`;
+    const label  = `${labelA} vs ${labelB}`;
+
+    generateBtn.disabled = true;
+    showLoading(`RAPM Compare · ${label}`);
+
+    const params = new URLSearchParams({
+      player_id_a: _playerIdA,
+      player_id_b: _playerIdB,
+      mode: _mode,
+    });
+
+    try {
+      const res = await fetch(`${CARD_API_URL}/cards/rapm/compare?${params}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${CARD_API_TOKEN}` },
+      });
+
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try { const body = await res.json(); detail = body.detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const slugA = pA ? slugify(pA.full_name) : String(_playerIdA);
+      const slugB = pB ? slugify(pB.full_name) : String(_playerIdB);
+      const filename = `hgb_rapm_compare_${slugA}_vs_${slugB}_${_mode}.png`;
+
+      showResult(blobUrl, filename, label);
+    } catch (err) {
+      showError(err.message || String(err));
+    } finally {
+      validateCompare(); // restores button state correctly
+    }
+    return;
+  }
+
+  // ── Single-player modes (rapm / player) ───────────────────────────────────
   if (_playerId === null) return;
 
   const player = _allPlayers.find(p => p.player_id === _playerId);
@@ -630,7 +830,7 @@ generateBtn.addEventListener("click", async () => {
     ? `${player.full_name} — ${player.team}`
     : `Player ${_playerId}`;
 
-  const endpoint = _cardType === "rapm" ? "/cards/rapm" : "/cards/player";
+  const endpoint      = _cardType === "rapm" ? "/cards/rapm" : "/cards/player";
   const cardTypeLabel = _cardType === "rapm" ? "RAPM" : "Player Stats";
 
   generateBtn.disabled = true;
@@ -658,9 +858,7 @@ generateBtn.addEventListener("click", async () => {
     const blob = await res.blob();
     const blobUrl = URL.createObjectURL(blob);
 
-    const slug = player
-      ? player.full_name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "")
-      : String(_playerId);
+    const slug = player ? slugify(player.full_name) : String(_playerId);
     const filename = `hgb_${_cardType}_${slug}_${_mode}.png`;
 
     showResult(blobUrl, filename, playerLabel);
