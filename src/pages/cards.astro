@@ -1,0 +1,676 @@
+---
+// HockeyGameBot — /cards page — analytics card generator (beta)
+// All card generation happens client-side via fetch to the Card API.
+// Set PUBLIC_CARD_API_URL and PUBLIC_CARD_API_TOKEN in .env before running locally.
+const CARD_API_URL   = import.meta.env.PUBLIC_CARD_API_URL   ?? "http://localhost:6969";
+const CARD_API_TOKEN = import.meta.env.PUBLIC_CARD_API_TOKEN ?? "";
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Card Generator · HockeyGameBot Analytics</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="Generate analytics cards for any NHL player — RAPM ratings, HGB player stats, and more. Beta tool by HockeyGameBot." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="HockeyGameBot" />
+<meta property="og:title" content="Card Generator · HockeyGameBot Analytics" />
+<meta property="og:description" content="Generate analytics cards for any NHL player — RAPM ratings, HGB player stats, and more." />
+<meta property="og:url" content="https://hockeygamebot.com/cards" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/favicon-180x180.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style is:global>
+/* ── TOKENS ──────────────────────────────────────────────────────────────────── */
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-86:  rgba(13,13,20,0.86);
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-03:  rgba(13,13,20,0.03);
+  --red:     #E8002D;
+  --grid-line: rgba(13,13,20,0.04);
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+  --type-jumbo:   clamp(52px, 8vw, 96px);
+  --type-display: clamp(40px, 5vw, 64px);
+  --type-section: clamp(26px, 3.5vw, 44px);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+/* ── NAV ─────────────────────────────────────────────────────────────────────── */
+.nav { background: var(--bg); border-bottom: 1px solid var(--ink-14); position: sticky; top: 0; z-index: 50; }
+.nav-inner { display: flex; align-items: center; height: 60px; gap: 0; }
+.wordmark { font-family: var(--display); font-weight: 800; font-size: 21px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; line-height: 1; }
+.wordmark .dot { width: 6px; height: 6px; background: var(--red); border-radius: 50%; margin: 0 7px; display: inline-block; transform: translateY(-1px); }
+.nav-links { margin-left: auto; display: flex; align-items: center; gap: 0; font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+.nav-links a { padding: 5px 12px; color: var(--ink-48); transition: color .15s; }
+.nav-links a:hover, .nav-links a.active { color: var(--ink); }
+.nav-links .sep { color: var(--ink-20); }
+
+/* ── MASTHEAD ────────────────────────────────────────────────────────────────── */
+.mast {
+  position: relative; overflow: hidden;
+  padding: 56px 0 48px;
+  border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+.mast-ghost {
+  position: absolute; pointer-events: none; user-select: none; z-index: 0;
+  font-family: var(--display); font-weight: 800; font-size: 360px; line-height: 0.86;
+  text-transform: uppercase; letter-spacing: -0.02em; white-space: nowrap;
+  color: rgba(13,13,20,0.07);
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+}
+.mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+.mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-inner { position: relative; z-index: 2; }
+.mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 28px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+.mast-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; }
+.mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+.mast-meta { font-size: 10px; opacity: 0.6; text-align: right; }
+.mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; position: relative; }
+.mast-headline { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: var(--type-display); line-height: 0.92; letter-spacing: -0.01em; max-width: 900px; }
+.mast-headline .accent { color: var(--red); }
+.mast-headline em { font-style: normal; color: var(--ink-32); }
+.mast-dek { font-size: 17px; color: var(--ink-72); max-width: 620px; margin-top: 18px; line-height: 1.5; }
+
+/* ── GENERATOR BODY ──────────────────────────────────────────────────────────── */
+.gen-body { padding: 48px 0 80px; }
+.gen-layout { display: grid; grid-template-columns: 380px 1fr; gap: 32px; align-items: start; }
+
+/* ── CONTROL PANEL ───────────────────────────────────────────────────────────── */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  position: relative;
+}
+.panel-header {
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--ink-14);
+  font-family: var(--display); font-weight: 800; font-size: 13px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+}
+.panel-section {
+  padding: 20px;
+  border-bottom: 1px solid var(--ink-06);
+}
+.panel-section:last-child { border-bottom: 0; }
+.panel-label {
+  font-family: var(--display); font-weight: 700; font-size: 10.5px;
+  letter-spacing: 0.20em; text-transform: uppercase; color: var(--ink-56);
+  display: block; margin-bottom: 10px;
+}
+
+/* Card type tabs */
+.type-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--ink-14); }
+.type-tab {
+  padding: 10px 12px;
+  font-family: var(--display); font-weight: 700; font-size: 13px;
+  letter-spacing: 0.12em; text-transform: uppercase; text-align: center;
+  cursor: pointer; background: transparent; border: none; color: var(--ink-48);
+  border-right: 1px solid var(--ink-14); transition: background .12s, color .12s;
+}
+.type-tab:last-child { border-right: 0; }
+.type-tab.active { background: var(--ink); color: var(--surface); }
+.type-tab:not(.active):hover { background: var(--bg-2); color: var(--ink); }
+
+/* Search + select */
+.search-input {
+  width: 100%; padding: 9px 12px;
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.02em;
+  border: 1px solid var(--ink-14); background: var(--bg);
+  color: var(--ink); outline: none;
+  transition: border-color .12s;
+  margin-bottom: 8px;
+  -webkit-appearance: none; appearance: none;
+}
+.search-input::placeholder { color: var(--ink-32); }
+.search-input:focus { border-color: var(--ink); }
+
+.player-select {
+  width: 100%; padding: 9px 12px;
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.02em;
+  border: 1px solid var(--ink-14); background: var(--bg);
+  color: var(--ink); outline: none;
+  -webkit-appearance: none; appearance: none;
+  cursor: pointer; height: 200px;
+  transition: border-color .12s;
+}
+.player-select:focus { border-color: var(--ink); }
+.select-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); margin-top: 6px; letter-spacing: 0.04em; }
+
+/* Mode toggle */
+.mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--ink-14); }
+.mode-tab {
+  padding: 9px 12px;
+  font-family: var(--display); font-weight: 700; font-size: 12px;
+  letter-spacing: 0.14em; text-transform: uppercase; text-align: center;
+  cursor: pointer; background: transparent; border: none; color: var(--ink-48);
+  border-right: 1px solid var(--ink-14); transition: background .12s, color .12s;
+}
+.mode-tab:last-child { border-right: 0; }
+.mode-tab.active { background: var(--ink); color: var(--surface); }
+.mode-tab:not(.active):hover { background: var(--bg-2); color: var(--ink); }
+
+/* Generate button */
+.gen-btn {
+  width: 100%; padding: 14px 20px;
+  font-family: var(--display); font-weight: 800; font-size: 17px;
+  letter-spacing: 0.10em; text-transform: uppercase;
+  background: var(--red); color: #fff; border: none; cursor: pointer;
+  transition: opacity .15s;
+}
+.gen-btn:hover:not(:disabled) { opacity: 0.88; }
+.gen-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Beta notice */
+.beta-notice {
+  padding: 14px 20px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48);
+  letter-spacing: 0.03em; line-height: 1.6;
+  border-top: 1px solid var(--ink-06);
+}
+
+/* ── OUTPUT PANEL ────────────────────────────────────────────────────────────── */
+.output-panel {
+  background: var(--surface);
+  border: 1px solid var(--ink);
+  min-height: 480px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.output-header {
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--ink-14);
+  font-family: var(--display); font-weight: 800; font-size: 13px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.output-tag {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-48);
+  letter-spacing: 0.08em;
+}
+.output-body { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px; }
+
+/* Empty state */
+.empty-state { text-align: center; }
+.empty-icon {
+  font-family: var(--display); font-weight: 800; font-size: 72px; line-height: 1;
+  color: rgba(13,13,20,0.07); margin-bottom: 16px; letter-spacing: -0.02em;
+}
+.empty-label { font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Loading state */
+.loading-state { text-align: center; }
+.spinner {
+  width: 32px; height: 32px; margin: 0 auto 20px;
+  border: 2px solid var(--ink-14);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-label { font-family: var(--mono); font-size: 11px; color: var(--ink-56); letter-spacing: 0.06em; text-transform: uppercase; }
+.loading-sub { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; margin-top: 6px; }
+
+/* Error state */
+.error-state { text-align: center; max-width: 400px; }
+.error-label { font-family: var(--display); font-weight: 800; font-size: 20px; color: var(--red); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+.error-msg { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.02em; line-height: 1.6; word-break: break-word; }
+
+/* Result state */
+.result-state { width: 100%; }
+.result-img { width: 100%; height: auto; display: block; border: 1px solid var(--ink-10); }
+.result-actions { margin-top: 16px; display: flex; gap: 10px; }
+.dl-btn {
+  flex: 1; padding: 11px 16px;
+  font-family: var(--display); font-weight: 800; font-size: 13px;
+  letter-spacing: 0.12em; text-transform: uppercase; text-align: center;
+  border: 1px solid var(--ink); background: transparent; cursor: pointer; color: var(--ink);
+  transition: background .12s, color .12s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.dl-btn:hover { background: var(--ink); color: var(--surface); }
+.result-meta { margin-top: 10px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+
+/* ── FOOTER ──────────────────────────────────────────────────────────────────── */
+footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); padding: 48px 0 24px; }
+.foot-inner { display: grid; grid-template-columns: auto 1fr auto; align-items: end; gap: 32px; padding-bottom: 32px; }
+.foot-wordmark { font-family: var(--display); font-weight: 800; font-size: 30px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; }
+.foot-wordmark .dot { width: 6px; height: 6px; background: var(--red); border-radius: 50%; margin: 0 7px; display: inline-block; transform: translateY(-1px); }
+.foot-ghost { font-family: var(--display); font-weight: 800; font-size: 38px; line-height: 0.95; text-transform: uppercase; color: rgba(255,255,255,0.07); text-align: center; white-space: nowrap; }
+.foot-tag { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(255,255,255,0.32); text-align: right; line-height: 1.8; }
+.foot-bar { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 16px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10.5px; color: rgba(255,255,255,0.24); letter-spacing: 0.04em; }
+
+/* ── RESPONSIVE ──────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .gen-layout { grid-template-columns: 1fr; }
+  .output-panel { min-height: 360px; }
+}
+@media (max-width: 720px) {
+  .wrap { padding: 0 20px; }
+  .nav-links { display: none; }
+  .mast { padding: 40px 0 36px; }
+  .gen-body { padding: 32px 0 60px; }
+}
+@media (max-width: 480px) {
+  .wrap { padding: 0 16px; }
+  .mast-headline { font-size: clamp(28px, 7vw, 44px); }
+  .foot-ghost { display: none; }
+  .foot-bar { flex-direction: column; gap: 6px; }
+  .foot-inner { grid-template-columns: 1fr; gap: 20px; }
+  .foot-tag { text-align: left; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── NAV ── -->
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a href="/" class="wordmark">Hockey<span class="dot"></span>Gamebot</a>
+    <nav class="nav-links">
+      <a href="/">Home</a><span class="sep"> · </span>
+      <a href="/scoreboard">Scoreboard</a><span class="sep"> · </span>
+      <a href="/playoffs/2026">Playoffs</a><span class="sep"> · </span>
+      <a href="/stats">Stats</a><span class="sep"> · </span>
+      <a href="/teams">Teams</a><span class="sep"> · </span>
+      <a href="/cards" class="active">Cards</a><span class="sep"> · </span>
+      <a href="/support">Support</a>
+    </nav>
+  </div>
+</nav>
+
+<!-- ── MASTHEAD ── -->
+<section class="mast">
+  <div class="mast-ghost">CARDS</div>
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="wrap mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> ANALYTICS · CARD GENERATOR</div>
+      <div class="mast-meta">Beta · 2025–26</div>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">Card <span class="accent">Generator</span></h1>
+      <p class="mast-dek">Generate analytics cards for any NHL player &middot; 2025&ndash;26 season &middot; RAPM ratings and player stats</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── GENERATOR ── -->
+<section class="gen-body">
+  <div class="wrap">
+    <div class="gen-layout">
+
+      <!-- Control panel -->
+      <div class="panel">
+        <div class="panel-header">Configure</div>
+
+        <!-- Card type -->
+        <div class="panel-section">
+          <span class="panel-label">Card Type</span>
+          <div class="type-tabs">
+            <button class="type-tab active" data-type="rapm">RAPM</button>
+            <button class="type-tab" data-type="player">Player Stats</button>
+          </div>
+        </div>
+
+        <!-- Player search -->
+        <div class="panel-section">
+          <span class="panel-label">Player</span>
+          <input
+            type="text"
+            class="search-input"
+            id="playerSearch"
+            placeholder="Filter players..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <select class="player-select" id="playerSelect" size="8">
+            <option disabled>Loading players...</option>
+          </select>
+          <div class="select-count" id="selectCount">&nbsp;</div>
+        </div>
+
+        <!-- Mode -->
+        <div class="panel-section">
+          <span class="panel-label">Mode</span>
+          <div class="mode-tabs">
+            <button class="mode-tab active" data-mode="light">Light</button>
+            <button class="mode-tab" data-mode="dark">Dark</button>
+          </div>
+        </div>
+
+        <!-- Generate -->
+        <div class="panel-section" style="padding-bottom:0;border-bottom:0;">
+          <button class="gen-btn" id="generateBtn" disabled>Generate Card</button>
+        </div>
+
+        <!-- Beta note -->
+        <div class="beta-notice">
+          Beta &middot; Cards are cached for 24 hours &middot; hockeygamebot.com
+        </div>
+      </div>
+
+      <!-- Output panel -->
+      <div class="output-panel">
+        <div class="output-header">
+          <span>Output</span>
+          <span class="output-tag" id="outputTag">—</span>
+        </div>
+        <div class="output-body" id="outputBody">
+          <div class="empty-state">
+            <div class="empty-icon">PNG</div>
+            <div class="empty-label">Select a player and click Generate</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="foot-wordmark" href="/">Hockey<span class="dot"></span>Gamebot</a>
+      <div class="foot-ghost">Analytics Cards · 2025&ndash;26</div>
+      <div class="foot-tag">Beta tool · shared by URL<br/>not yet public</div>
+    </div>
+    <div class="foot-bar">
+      <span>© 2026 HockeyGameBot · Not affiliated with the NHL</span>
+      <span>hockeygamebot.com</span>
+    </div>
+  </div>
+</footer>
+
+<script define:vars={{ CARD_API_URL, CARD_API_TOKEN }}>
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let _cardType  = "rapm";   // "rapm" | "player"
+let _mode      = "light";  // "light" | "dark"
+let _playerId  = null;     // selected player_id (int)
+let _allPlayers = [];      // [{player_id, full_name, name, team, position, toi_min}]
+
+// ---------------------------------------------------------------------------
+// DOM refs
+// ---------------------------------------------------------------------------
+const searchInput  = document.getElementById("playerSearch");
+const playerSelect = document.getElementById("playerSelect");
+const selectCount  = document.getElementById("selectCount");
+const generateBtn  = document.getElementById("generateBtn");
+const outputBody   = document.getElementById("outputBody");
+const outputTag    = document.getElementById("outputTag");
+
+// ---------------------------------------------------------------------------
+// Tab wiring
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".type-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".type-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    _cardType = btn.dataset.type;
+    updateGenerateBtn();
+  });
+});
+
+document.querySelectorAll(".mode-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mode-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    _mode = btn.dataset.mode;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Player dropdown
+// ---------------------------------------------------------------------------
+
+/** Return human-readable position group label for grouping. */
+function posGroup(pos) {
+  if (pos === "D") return "Defense";
+  return "Forwards";
+}
+
+/** Sort key: Forwards first, then Defense; alpha within. */
+function playerSortKey(p) {
+  const g = p.position === "D" ? 1 : 0;
+  return `${g}|${p.full_name.toLowerCase()}`;
+}
+
+function renderDropdown(players) {
+  playerSelect.innerHTML = "";
+
+  // Build optgroups
+  const groups = { "Forwards": [], "Defense": [] };
+  for (const p of players) {
+    groups[posGroup(p.position)].push(p);
+  }
+
+  let totalVisible = 0;
+  for (const [groupLabel, members] of Object.entries(groups)) {
+    if (!members.length) continue;
+    const og = document.createElement("optgroup");
+    og.label = groupLabel;
+    for (const p of members) {
+      const opt = document.createElement("option");
+      opt.value = p.player_id;
+      opt.textContent = `${p.full_name} — ${p.team}`;
+      og.appendChild(opt);
+      totalVisible++;
+    }
+    playerSelect.appendChild(og);
+  }
+
+  selectCount.textContent = `${totalVisible} player${totalVisible !== 1 ? "s" : ""}`;
+
+  // Re-select previously chosen player if still visible
+  if (_playerId !== null) {
+    playerSelect.value = _playerId;
+    if (!playerSelect.value) {
+      _playerId = null;
+      updateGenerateBtn();
+    }
+  }
+}
+
+function filterPlayers(query) {
+  if (!query.trim()) return _allPlayers.slice();
+  const q = query.toLowerCase();
+  return _allPlayers.filter(p =>
+    p.full_name.toLowerCase().includes(q) ||
+    p.team.toLowerCase().includes(q) ||
+    p.position.toLowerCase().includes(q)
+  );
+}
+
+searchInput.addEventListener("input", () => {
+  const filtered = filterPlayers(searchInput.value);
+  renderDropdown(filtered);
+});
+
+playerSelect.addEventListener("change", () => {
+  _playerId = playerSelect.value ? parseInt(playerSelect.value, 10) : null;
+  updateGenerateBtn();
+});
+
+function updateGenerateBtn() {
+  generateBtn.disabled = _playerId === null;
+}
+
+// ---------------------------------------------------------------------------
+// Load players on page load
+// ---------------------------------------------------------------------------
+async function loadPlayers() {
+  try {
+    const res = await fetch(`${CARD_API_URL}/players`, {
+      headers: { Authorization: `Bearer ${CARD_API_TOKEN}` },
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`API returned ${res.status}: ${body}`);
+    }
+
+    const data = await res.json();
+    // Sort: Forwards first, then Defense; alpha within each group
+    _allPlayers = data.slice().sort((a, b) => {
+      const ak = playerSortKey(a);
+      const bk = playerSortKey(b);
+      return ak < bk ? -1 : ak > bk ? 1 : 0;
+    });
+
+    renderDropdown(_allPlayers);
+  } catch (err) {
+    playerSelect.innerHTML = "";
+    const opt = document.createElement("option");
+    opt.disabled = true;
+    opt.textContent = "Failed to load players";
+    playerSelect.appendChild(opt);
+    selectCount.textContent = err.message || "Load failed";
+  }
+}
+
+loadPlayers();
+
+// ---------------------------------------------------------------------------
+// Output helpers
+// ---------------------------------------------------------------------------
+
+function showEmpty() {
+  outputBody.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-icon">PNG</div>
+      <div class="empty-label">Select a player and click Generate</div>
+    </div>`;
+  outputTag.textContent = "—";
+}
+
+function showLoading(label) {
+  outputBody.innerHTML = `
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <div class="loading-label">Generating card</div>
+      <div class="loading-sub">This takes a few seconds&hellip;</div>
+    </div>`;
+  outputTag.textContent = label;
+}
+
+function showError(msg) {
+  outputBody.innerHTML = `
+    <div class="error-state">
+      <div class="error-label">Generation failed</div>
+      <div class="error-msg">${escHtml(msg)}</div>
+    </div>`;
+  outputTag.textContent = "Error";
+}
+
+function showResult(blobUrl, filename, playerLabel) {
+  outputBody.innerHTML = `
+    <div class="result-state">
+      <img class="result-img" src="${blobUrl}" alt="Generated card for ${escHtml(playerLabel)}" />
+      <div class="result-actions">
+        <a class="dl-btn" id="dlBtn" href="${blobUrl}" download="${escHtml(filename)}">
+          &#8595; Download PNG
+        </a>
+      </div>
+      <div class="result-meta">Cached 24 hours &middot; ${escHtml(filename)}</div>
+    </div>`;
+  outputTag.textContent = playerLabel;
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ---------------------------------------------------------------------------
+// Generate
+// ---------------------------------------------------------------------------
+generateBtn.addEventListener("click", async () => {
+  if (_playerId === null) return;
+
+  const player = _allPlayers.find(p => p.player_id === _playerId);
+  const playerLabel = player
+    ? `${player.full_name} — ${player.team}`
+    : `Player ${_playerId}`;
+
+  const endpoint = _cardType === "rapm" ? "/cards/rapm" : "/cards/player";
+  const cardTypeLabel = _cardType === "rapm" ? "RAPM" : "Player Stats";
+
+  generateBtn.disabled = true;
+  showLoading(`${cardTypeLabel} · ${playerLabel}`);
+
+  try {
+    const res = await fetch(`${CARD_API_URL}${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CARD_API_TOKEN}`,
+      },
+      body: JSON.stringify({ player_id: _playerId, mode: _mode }),
+    });
+
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        detail = body.detail || detail;
+      } catch (_) { /* ignore */ }
+      throw new Error(detail);
+    }
+
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    const slug = player
+      ? player.full_name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "")
+      : String(_playerId);
+    const filename = `hgb_${_cardType}_${slug}_${_mode}.png`;
+
+    showResult(blobUrl, filename, playerLabel);
+  } catch (err) {
+    showError(err.message || String(err));
+  } finally {
+    generateBtn.disabled = (_playerId === null);
+  }
+});
+</script>
+
+</body>
+</html>
