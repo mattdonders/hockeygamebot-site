@@ -1,0 +1,840 @@
+---
+// HockeyGameBot — /analytics/interactive — Beta tech-stack validation
+// Sortable table + Observable Plot scatter — client-side, CDN-only
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Interactive Analytics — Beta · HockeyGameBot</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="Beta: sortable leaderboard table and interactive scatter plot for 715 NHL players. 2025–26 season analytics." />
+<meta name="robots" content="noindex" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/favicon-180x180.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<style is:global>
+/* ── TOKENS ──────────────────────────────────────────────── */
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-86:  rgba(13,13,20,0.86);
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-04:  rgba(13,13,20,0.04);
+  --red:     #E8002D;
+  --green:   #4ade80;
+  --grid-line: rgba(13,13,20,0.04);
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+
+/* ── NAV ─────────────────────────────────────────────────── */
+.nav { background: var(--bg); border-bottom: 1px solid var(--ink-14); position: sticky; top: 0; z-index: 50; }
+.nav-inner { max-width: 1280px; margin: 0 auto; padding: 0 32px; height: 60px; display: flex; align-items: center; }
+.wordmark { font-family: var(--display); font-weight: 800; font-size: 21px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; line-height: 1; }
+.wordmark .dot { width: 6px; height: 6px; background: var(--red); border-radius: 50%; margin: 0 7px; display: inline-block; transform: translateY(-1px); }
+.nav-links { margin-left: auto; display: flex; align-items: center; gap: 0; font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+.nav-links a { padding: 5px 12px; color: var(--ink-48); transition: color .15s; }
+.nav-links a:hover, .nav-links a.active { color: var(--ink); }
+.nav-links .sep { color: var(--ink-20); }
+
+/* ── MASTHEAD ────────────────────────────────────────────── */
+.mast {
+  position: relative; overflow: hidden;
+  padding: 0;
+  border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+.mast-ghost {
+  position: absolute; pointer-events: none; user-select: none; z-index: 0;
+  font-family: var(--display); font-weight: 800; font-size: 260px; line-height: 0.86;
+  text-transform: uppercase; letter-spacing: -0.02em; white-space: nowrap;
+  color: rgba(13,13,20,0.07);
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+}
+.mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+.mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-inner {
+  position: relative; z-index: 2;
+  max-width: 1280px; margin: 0 auto;
+  padding: 48px 32px 40px;
+}
+.mast-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--display); font-weight: 700;
+  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ink-48); margin-bottom: 16px;
+}
+.mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+.mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+.mast-headline {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(36px, 5.5vw, 64px);
+  text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em;
+  color: var(--ink); margin-bottom: 14px; display: flex; align-items: center; gap: 16px;
+}
+.beta-pill {
+  display: inline-flex; align-items: center;
+  background: var(--red); color: #fff;
+  font-family: var(--display); font-weight: 700;
+  font-size: 11px; letter-spacing: 0.18em;
+  text-transform: uppercase; padding: 3px 9px;
+  line-height: 1; vertical-align: middle;
+  transform: translateY(-4px);
+  flex-shrink: 0;
+}
+.mast-lede { font-size: 14px; line-height: 1.65; color: var(--ink-56); max-width: 640px; }
+.mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
+
+/* ── CONTENT ─────────────────────────────────────────────── */
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px 80px; }
+
+/* ── LOADING ─────────────────────────────────────────────── */
+#loading-state {
+  padding: 80px 0; text-align: center;
+  font-family: var(--mono); font-size: 13px;
+  color: var(--ink-48); letter-spacing: 0.06em;
+}
+#loading-state .spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--ink-14);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin: 0 auto 14px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#main-content { display: none; }
+
+/* ── SECTION HEADERS ─────────────────────────────────────── */
+.section-block { padding: 40px 0 0; }
+.section-head {
+  display: flex; align-items: baseline;
+  justify-content: space-between; gap: 24px;
+  margin-bottom: 6px;
+}
+.section-head h2 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(20px, 2.5vw, 28px);
+  text-transform: uppercase; letter-spacing: 0.01em;
+  color: var(--ink);
+}
+.section-meta {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ink-32);
+}
+.section-lede {
+  font-size: 13px; color: var(--ink-48);
+  max-width: 780px; line-height: 1.6; margin-bottom: 16px;
+}
+
+/* ── CONTROLS ────────────────────────────────────────────── */
+.controls {
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 12px;
+}
+.btn-group { display: inline-flex; border: 1px solid var(--ink-14); }
+.btn-group button {
+  background: var(--surface); border: none; border-right: 1px solid var(--ink-14);
+  padding: 6px 14px; cursor: pointer;
+  font-family: var(--body); font-weight: 600; font-size: 11.5px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-48); transition: background 0.1s, color 0.1s;
+}
+.btn-group button:last-child { border-right: none; }
+.btn-group button.active { background: var(--ink); color: var(--bg); }
+.btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
+
+.search-wrap {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--ink-14); background: var(--surface);
+  padding: 0 10px; gap: 6px; flex: 1; min-width: 180px; max-width: 280px;
+}
+.search-wrap svg { flex-shrink: 0; color: var(--ink-32); }
+#search-input {
+  border: none; background: transparent; outline: none;
+  font-family: var(--body); font-size: 13px;
+  color: var(--ink); width: 100%; padding: 6px 0;
+}
+#search-input::placeholder { color: var(--ink-32); }
+
+/* ── TABLE ───────────────────────────────────────────────── */
+.tbl-wrap {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  overflow-x: auto;
+}
+table {
+  width: 100%; border-collapse: collapse;
+  font-family: var(--body); font-size: 13px;
+}
+thead { position: sticky; top: 60px; z-index: 10; background: var(--surface); }
+thead tr { border-bottom: 2px solid var(--ink); }
+th {
+  padding: 9px 12px; text-align: right;
+  font-family: var(--display); font-weight: 700;
+  font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ink-48); white-space: nowrap;
+  cursor: pointer; user-select: none;
+  transition: color 0.1s;
+}
+th:first-child, th:nth-child(2), th:nth-child(3) { text-align: left; }
+th:hover { color: var(--ink); }
+th.sorted { color: var(--ink); }
+th .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.4; font-size: 9px; }
+th.sorted .sort-arrow { opacity: 1; color: var(--red); }
+
+tbody tr {
+  border-bottom: 1px solid var(--ink-06);
+  transition: background 0.1s;
+}
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--ink-04); }
+td {
+  padding: 8px 12px; text-align: right;
+  font-family: var(--mono); font-size: 12px; color: var(--ink);
+  white-space: nowrap;
+}
+td:first-child { text-align: left; font-family: var(--body); font-weight: 600; font-size: 13px; color: var(--ink); }
+td:nth-child(2) { text-align: left; font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
+td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
+
+/* Percentile cells */
+.pct-cell {
+  display: inline-block; padding: 2px 6px; min-width: 36px;
+  font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+  text-align: center; line-height: 1.4;
+}
+.pct-80  { background: #4ade80; color: #0d2010; }
+.pct-60  { background: #a3e635; color: #1a2a08; }
+.pct-40  { background: #d1d5db; color: #374151; }
+.pct-20  { background: #fb923c; color: #3b1200; }
+.pct-low { background: #f87171; color: #2d0808; }
+
+/* Show-all row */
+.tbl-more {
+  border-top: 1px solid var(--ink-14);
+  padding: 12px; text-align: center;
+}
+.tbl-more button {
+  background: none; border: 1px solid var(--ink-20);
+  padding: 6px 20px; cursor: pointer;
+  font-family: var(--body); font-weight: 600; font-size: 12px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-48); transition: all 0.15s;
+}
+.tbl-more button:hover { border-color: var(--ink); color: var(--ink); }
+.tbl-count {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-32); letter-spacing: 0.06em;
+  margin-top: 8px;
+}
+
+/* ── SCATTER ─────────────────────────────────────────────── */
+.scatter-wrap {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  padding: 24px; position: relative;
+}
+#scatter-container { width: 100%; min-height: 480px; }
+
+/* Observable Plot overrides — keep brand language */
+#scatter-container svg { overflow: visible; }
+#scatter-container .plot-dot { cursor: pointer; }
+
+/* Custom tooltip */
+#scatter-tooltip {
+  position: fixed; z-index: 100;
+  background: var(--ink); color: var(--bg);
+  padding: 10px 14px; pointer-events: none;
+  font-family: var(--body); font-size: 12.5px; line-height: 1.5;
+  max-width: 200px; display: none;
+}
+#scatter-tooltip .tt-name { font-family: var(--display); font-weight: 800; font-size: 15px; text-transform: uppercase; }
+#scatter-tooltip .tt-meta { font-family: var(--mono); font-size: 10.5px; color: rgba(239,238,232,0.6); margin-top: 2px; }
+#scatter-tooltip .tt-stats { margin-top: 8px; display: grid; gap: 2px; }
+#scatter-tooltip .tt-row { display: flex; justify-content: space-between; gap: 16px; font-family: var(--mono); font-size: 11px; }
+#scatter-tooltip .tt-row .lbl { color: rgba(239,238,232,0.55); }
+#scatter-tooltip .tt-row .val { font-weight: 600; }
+
+/* ── SCATTER CONTROLS ────────────────────────────────────── */
+.scatter-controls {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+
+/* ── FOOTER ─────────────────────────────────────────────── */
+.foot {
+  border-top: 1px solid var(--ink-14);
+  padding: 32px 0;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-48); letter-spacing: 0.04em;
+}
+.foot-inner { max-width: 1280px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.foot-wordmark { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; }
+.foot-wordmark .dot { width: 5px; height: 5px; background: var(--red); border-radius: 50%; margin: 0 6px; display: inline-block; }
+
+@media (max-width: 680px) {
+  .nav-links { display: none; }
+  .mast-inner { padding: 32px 20px 28px; }
+  .wrap { padding: 0 20px 60px; }
+  .section-head { flex-direction: column; gap: 4px; }
+  th, td { padding: 7px 8px; }
+  .mast-ghost { font-size: 120px; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="wordmark">Hockey<span class="dot"></span>Gamebot</a>
+    <nav class="nav-links">
+      <a href="/">Home</a><span class="sep"> · </span>
+      <a href="/scoreboard">Scoreboard</a><span class="sep"> · </span>
+      <a href="/playoffs/2026">Playoffs</a><span class="sep"> · </span>
+      <a href="/stats" class="active">Stats</a><span class="sep"> · </span>
+      <a href="/teams">Teams</a><span class="sep"> · </span>
+      <a href="/support">Support</a>
+    </nav>
+  </div>
+</nav>
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-ghost">ANALYTICS</div>
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-eyebrow"><span class="pip"></span>HockeyGameBot Stats</div>
+    <div class="mast-card">
+      <h1 class="mast-headline">
+        Interactive Analytics
+        <span class="beta-pill">Beta</span>
+      </h1>
+      <p class="mast-lede">
+        2025–26 season · Sortable leaderboard table and scatter plot ·
+        <span class="mono">715 players</span> · Tech-stack validation build.
+        All data from <span class="mono">percentiles_vs_pos</span> and <span class="mono">rates_per_60</span>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- MAIN CONTENT -->
+<div class="wrap">
+
+  <!-- LOADING STATE -->
+  <div id="loading-state">
+    <div class="spinner"></div>
+    Loading player data...
+  </div>
+
+  <div id="main-content">
+
+    <!-- SECTION 1: LEADERBOARD TABLE -->
+    <div class="section-block">
+      <div class="section-head">
+        <h2>Leaderboard</h2>
+        <span class="section-meta" id="tbl-meta"></span>
+      </div>
+      <p class="section-lede">
+        Sorted by Game Score percentile by default. Click any column header to sort. Filter by position group or search by name. Percentile cells use green (elite) to red (bottom) shading vs. position group.
+      </p>
+
+      <div class="controls">
+        <div class="btn-group" id="tbl-pos-filter">
+          <button class="active" data-pos="all">All</button>
+          <button data-pos="F">Forwards</button>
+          <button data-pos="D">Defense</button>
+        </div>
+        <div class="search-wrap">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input type="text" id="search-input" placeholder="Search player..." autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table id="lb-table">
+          <thead>
+            <tr>
+              <th data-col="display_name">Player <span class="sort-arrow"></span></th>
+              <th data-col="team_abbrev">Team <span class="sort-arrow"></span></th>
+              <th data-col="pos">Pos <span class="sort-arrow"></span></th>
+              <th data-col="gp">GP <span class="sort-arrow"></span></th>
+              <th data-col="ev_offence">EV Off % <span class="sort-arrow"></span></th>
+              <th data-col="ev_defence">EV Def % <span class="sort-arrow"></span></th>
+              <th data-col="finishing">Finishing % <span class="sort-arrow"></span></th>
+              <th data-col="goals_60">Goals/60 <span class="sort-arrow"></span></th>
+              <th data-col="a1_60">1st A/60 <span class="sort-arrow"></span></th>
+              <th data-col="game_score">GS % <span class="sort-arrow"></span></th>
+            </tr>
+          </thead>
+          <tbody id="lb-tbody"></tbody>
+        </table>
+        <div class="tbl-more" id="tbl-more-row" style="display:none">
+          <button id="tbl-show-all-btn">Show All Players</button>
+          <div class="tbl-count" id="tbl-count-label"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2: SCATTER PLOT -->
+    <div class="section-block" style="padding-bottom: 24px;">
+      <div class="section-head">
+        <h2>Scatter: EV Off vs EV Def</h2>
+        <span class="section-meta" id="scatter-meta"></span>
+      </div>
+      <p class="section-lede">
+        Each dot is one player. X axis = EV Offense percentile, Y axis = EV Defense percentile. Dot color = Game Score percentile (green = elite, red = limited). Hover for details.
+        Quadrant lines at 50 / 50.
+      </p>
+
+      <div class="scatter-controls">
+        <div class="btn-group" id="scatter-pos-filter">
+          <button class="active" data-pos="all">All</button>
+          <button data-pos="F">Forwards</button>
+          <button data-pos="D">Defense</button>
+        </div>
+      </div>
+
+      <div class="scatter-wrap">
+        <div id="scatter-container"></div>
+      </div>
+    </div>
+
+  </div><!-- /main-content -->
+</div><!-- /wrap -->
+
+<!-- TOOLTIP -->
+<div id="scatter-tooltip">
+  <div class="tt-name" id="tt-name"></div>
+  <div class="tt-meta" id="tt-meta"></div>
+  <div class="tt-stats">
+    <div class="tt-row"><span class="lbl">EV Off %</span><span class="val" id="tt-evoff"></span></div>
+    <div class="tt-row"><span class="lbl">EV Def %</span><span class="val" id="tt-evdef"></span></div>
+    <div class="tt-row"><span class="lbl">GS %</span><span class="val" id="tt-gs"></span></div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer class="foot">
+  <div class="foot-inner">
+    <span class="foot-wordmark">Hockey<span class="dot"></span>Gamebot</span>
+    <span>Beta · Analytics · 2025–26</span>
+  </div>
+</footer>
+
+<!-- Observable Plot from CDN — is:inline prevents Astro from bundling/dropping this -->
+<script is:inline src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/dist/plot.umd.min.js"></script>
+
+<script is:inline>
+(function () {
+  'use strict';
+
+  // ── STATE ──────────────────────────────────────────────────────────────────
+  let allPlayers = [];
+  let tblPosFilter = 'all';
+  let scatterPosFilter = 'all';
+  let searchQuery = '';
+  let sortCol = 'game_score';
+  let sortAsc = false;
+  let showAll = false;
+  const TOP_N = 50;
+
+  // ── PERCENTILE COLOR ───────────────────────────────────────────────────────
+  function pctClass(v) {
+    if (v == null) return '';
+    if (v >= 80) return 'pct-80';
+    if (v >= 60) return 'pct-60';
+    if (v >= 40) return 'pct-40';
+    if (v >= 20) return 'pct-20';
+    return 'pct-low';
+  }
+  // Scatter dot fill based on gs_pct (green-red scale)
+  function pctFill(v) {
+    if (v == null) return '#d1d5db';
+    if (v >= 80) return '#4ade80';
+    if (v >= 60) return '#a3e635';
+    if (v >= 40) return '#d1d5db';
+    if (v >= 20) return '#fb923c';
+    return '#f87171';
+  }
+
+  // ── FIELD ACCESSOR ─────────────────────────────────────────────────────────
+  function getField(p, col) {
+    switch (col) {
+      case 'display_name':  return p.display_name ?? '';
+      case 'team_abbrev':   return p.team_abbrev ?? '';
+      case 'pos':           return p.pos ?? '';
+      case 'gp':            return p.gp ?? 0;
+      case 'ev_offence':    return p.percentiles_vs_pos?.ev_offence ?? null;
+      case 'ev_defence':    return p.percentiles_vs_pos?.ev_defence ?? null;
+      case 'finishing':     return p.percentiles_vs_pos?.finishing ?? null;
+      case 'goals_60':      return p.rates_per_60?.goals ?? null;
+      case 'a1_60':         return p.rates_per_60?.a1 ?? null;
+      case 'game_score':    return p.percentiles_vs_pos?.game_score ?? p.gs_pct ?? null;
+      default: return null;
+    }
+  }
+
+  // ── FILTER + SORT ──────────────────────────────────────────────────────────
+  function applyFilters(players, posFilter, query) {
+    let out = players;
+    if (posFilter !== 'all') {
+      out = out.filter(p => p.pos_group === posFilter);
+    }
+    if (query) {
+      const q = query.toLowerCase();
+      out = out.filter(p =>
+        (p.display_name ?? '').toLowerCase().includes(q) ||
+        (p.first_name ?? '').toLowerCase().includes(q) ||
+        (p.last_name ?? '').toLowerCase().includes(q) ||
+        (p.team_abbrev ?? '').toLowerCase().includes(q)
+      );
+    }
+    return out;
+  }
+
+  function sortPlayers(players, col, asc) {
+    return [...players].sort((a, b) => {
+      const av = getField(a, col);
+      const bv = getField(b, col);
+      // Nulls to bottom always
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'string') return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+      return asc ? av - bv : bv - av;
+    });
+  }
+
+  // ── TABLE RENDER ───────────────────────────────────────────────────────────
+  function renderTable() {
+    const filtered = applyFilters(allPlayers, tblPosFilter, searchQuery);
+    const sorted = sortPlayers(filtered, sortCol, sortAsc);
+    const shown = showAll ? sorted : sorted.slice(0, TOP_N);
+
+    const tbody = document.getElementById('lb-tbody');
+    const fragment = document.createDocumentFragment();
+
+    shown.forEach(p => {
+      const evOff = p.percentiles_vs_pos?.ev_offence ?? null;
+      const evDef = p.percentiles_vs_pos?.ev_defence ?? null;
+      const fin   = p.percentiles_vs_pos?.finishing ?? null;
+      const goals60 = p.rates_per_60?.goals ?? null;
+      const a160   = p.rates_per_60?.a1 ?? null;
+      const gs     = p.percentiles_vs_pos?.game_score ?? p.gs_pct ?? null;
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escHtml(p.display_name ?? '')}</td>
+        <td>${escHtml(p.team_abbrev ?? '')}</td>
+        <td>${escHtml(p.pos ?? '')}</td>
+        <td>${p.gp ?? '—'}</td>
+        <td>${pctCell(evOff)}</td>
+        <td>${pctCell(evDef)}</td>
+        <td>${pctCell(fin)}</td>
+        <td>${goals60 != null ? goals60.toFixed(2) : '—'}</td>
+        <td>${a160 != null ? a160.toFixed(2) : '—'}</td>
+        <td>${pctCell(gs)}</td>
+      `;
+      fragment.appendChild(tr);
+    });
+
+    tbody.innerHTML = '';
+    tbody.appendChild(fragment);
+
+    // Meta label
+    document.getElementById('tbl-meta').textContent =
+      `${shown.length} of ${filtered.length} players`;
+
+    // Show-all toggle
+    const moreRow = document.getElementById('tbl-more-row');
+    const countLabel = document.getElementById('tbl-count-label');
+    if (!showAll && filtered.length > TOP_N) {
+      moreRow.style.display = '';
+      countLabel.textContent = `Showing top ${TOP_N} — ${filtered.length - TOP_N} more hidden`;
+    } else {
+      moreRow.style.display = 'none';
+    }
+
+    // Update column sort arrows
+    document.querySelectorAll('#lb-table th').forEach(th => {
+      const col = th.dataset.col;
+      const arrow = th.querySelector('.sort-arrow');
+      if (col === sortCol) {
+        th.classList.add('sorted');
+        arrow.textContent = sortAsc ? ' ↑' : ' ↓';
+      } else {
+        th.classList.remove('sorted');
+        arrow.textContent = '';
+      }
+    });
+  }
+
+  function pctCell(v) {
+    if (v == null) return '<span class="pct-cell" style="color:var(--ink-32)">—</span>';
+    return `<span class="pct-cell ${pctClass(v)}">${Math.round(v)}</span>`;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── SCATTER RENDER ─────────────────────────────────────────────────────────
+  function renderScatter() {
+    if (typeof Plot === 'undefined') {
+      document.getElementById('scatter-container').innerHTML =
+        '<p style="padding:40px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--ink-48)">Observable Plot failed to load. Check network.</p>';
+      return;
+    }
+
+    const filtered = applyFilters(allPlayers, scatterPosFilter, '');
+    document.getElementById('scatter-meta').textContent = `${filtered.length} players`;
+
+    const container = document.getElementById('scatter-container');
+    container.innerHTML = '';
+
+    const tooltip = document.getElementById('scatter-tooltip');
+
+    const plot = Plot.plot({
+      width: container.clientWidth || 800,
+      height: 480,
+      marginLeft: 48,
+      marginBottom: 44,
+      marginTop: 24,
+      marginRight: 24,
+      style: {
+        background: 'transparent',
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '11px',
+        color: 'rgba(13,13,20,0.48)',
+        overflow: 'visible',
+      },
+      x: {
+        label: 'EV Offense Percentile →',
+        domain: [0, 100],
+        ticks: [0, 25, 50, 75, 100],
+        labelAnchor: 'center',
+        grid: true,
+      },
+      y: {
+        label: '↑ EV Defense Percentile',
+        domain: [0, 100],
+        ticks: [0, 25, 50, 75, 100],
+        labelAnchor: 'center',
+        grid: true,
+      },
+      marks: [
+        // Quadrant lines at 50/50
+        Plot.ruleX([50], { stroke: 'rgba(13,13,20,0.15)', strokeWidth: 1, strokeDasharray: '4 3' }),
+        Plot.ruleY([50], { stroke: 'rgba(13,13,20,0.15)', strokeWidth: 1, strokeDasharray: '4 3' }),
+
+        // Quadrant labels
+        Plot.text(
+          [
+            { x: 75, y: 90, label: 'ELITE TWO-WAY' },
+            { x: 75, y: 10, label: 'OFFENSIVE' },
+            { x: 25, y: 90, label: 'DEFENSIVE' },
+            { x: 25, y: 10, label: 'LIMITED' },
+          ],
+          {
+            x: 'x', y: 'y', text: 'label',
+            fontSize: 9, fontWeight: 700,
+            fontFamily: '"Barlow Condensed", sans-serif',
+            letterSpacing: '0.12em',
+            fill: 'rgba(13,13,20,0.18)',
+            textAnchor: 'middle',
+          }
+        ),
+
+        // Player dots
+        Plot.dot(filtered, {
+          x: d => d.percentiles_vs_pos?.ev_offence ?? 50,
+          y: d => d.percentiles_vs_pos?.ev_defence ?? 50,
+          r: 5,
+          fill: d => pctFill(d.percentiles_vs_pos?.game_score ?? d.gs_pct),
+          stroke: 'rgba(13,13,20,0.25)',
+          strokeWidth: 0.5,
+          opacity: 0.85,
+          title: d => d.display_name,
+          // Observable Plot renders title as SVG <title> — we handle hover ourselves
+        }),
+      ],
+    });
+
+    container.appendChild(plot);
+
+    // Attach hover events to SVG circles
+    const dots = plot.querySelectorAll('circle');
+    dots.forEach((dot, i) => {
+      const player = filtered[i];
+      if (!player) return;
+      dot.style.cursor = 'pointer';
+      dot.addEventListener('mouseenter', (e) => {
+        dot.setAttribute('r', '8');
+        dot.style.strokeWidth = '1.5';
+
+        // Fill tooltip
+        document.getElementById('tt-name').textContent = player.display_name ?? '';
+        document.getElementById('tt-meta').textContent =
+          `${player.team_abbrev ?? ''} · ${player.pos ?? ''} · ${player.gp ?? 0} GP`;
+        document.getElementById('tt-evoff').textContent =
+          Math.round(player.percentiles_vs_pos?.ev_offence ?? 0);
+        document.getElementById('tt-evdef').textContent =
+          Math.round(player.percentiles_vs_pos?.ev_defence ?? 0);
+        document.getElementById('tt-gs').textContent =
+          Math.round(player.percentiles_vs_pos?.game_score ?? player.gs_pct ?? 0);
+
+        tooltip.style.display = 'block';
+        positionTooltip(e);
+      });
+      dot.addEventListener('mousemove', positionTooltip);
+      dot.addEventListener('mouseleave', () => {
+        dot.setAttribute('r', '5');
+        dot.style.strokeWidth = '0.5';
+        tooltip.style.display = 'none';
+      });
+    });
+  }
+
+  function positionTooltip(e) {
+    const tooltip = document.getElementById('scatter-tooltip');
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    const margin = 14;
+    let x = e.clientX + margin;
+    let y = e.clientY - th / 2;
+    if (x + tw > window.innerWidth - 8) x = e.clientX - tw - margin;
+    if (y < 8) y = 8;
+    if (y + th > window.innerHeight - 8) y = window.innerHeight - th - 8;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+  }
+
+  // ── EVENT WIRING ───────────────────────────────────────────────────────────
+  function wireEvents() {
+    // Table column sort
+    document.querySelectorAll('#lb-table th[data-col]').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.col;
+        if (sortCol === col) {
+          sortAsc = !sortAsc;
+        } else {
+          sortCol = col;
+          sortAsc = col === 'display_name' || col === 'team_abbrev' || col === 'pos';
+        }
+        showAll = false;
+        renderTable();
+      });
+    });
+
+    // Table pos filter
+    document.querySelectorAll('#tbl-pos-filter button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#tbl-pos-filter button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        tblPosFilter = btn.dataset.pos;
+        showAll = false;
+        renderTable();
+      });
+    });
+
+    // Search
+    document.getElementById('search-input').addEventListener('input', e => {
+      searchQuery = e.target.value.trim();
+      showAll = false;
+      renderTable();
+    });
+
+    // Show-all button
+    document.getElementById('tbl-show-all-btn').addEventListener('click', () => {
+      showAll = true;
+      document.getElementById('tbl-more-row').style.display = 'none';
+      renderTable();
+    });
+
+    // Scatter pos filter
+    document.querySelectorAll('#scatter-pos-filter button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#scatter-pos-filter button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        scatterPosFilter = btn.dataset.pos;
+        renderScatter();
+      });
+    });
+
+    // Re-render scatter on resize
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(renderScatter, 200);
+    });
+  }
+
+  // ── INIT ───────────────────────────────────────────────────────────────────
+  async function init() {
+    try {
+      const res = await fetch('https://hockeygamebot.com/stats/players.json');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      allPlayers = await res.json();
+    } catch (err) {
+      document.getElementById('loading-state').innerHTML =
+        `<p style="font-family:var(--mono);font-size:13px;color:var(--red)">Failed to load player data: ${err.message}</p>`;
+      return;
+    }
+
+    // Hide loading, show content
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('main-content').style.display = 'block';
+
+    wireEvents();
+    renderTable();
+    renderScatter();
+  }
+
+  init();
+})();
+</script>
+
+</body>
+</html>
