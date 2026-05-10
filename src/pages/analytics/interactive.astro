@@ -269,11 +269,7 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
   background: var(--surface); border: 1px solid var(--ink-14);
   padding: 24px; position: relative;
 }
-#scatter-container { width: 100%; min-height: 480px; }
-
-/* Observable Plot overrides — keep brand language */
-#scatter-container svg { overflow: visible; }
-#scatter-container .plot-dot { cursor: pointer; }
+#scatter-container { width: 100%; height: 480px; }
 
 /* Custom tooltip */
 #scatter-tooltip {
@@ -437,7 +433,7 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
       </div>
 
       <div class="scatter-wrap">
-        <div id="scatter-container"></div>
+        <canvas id="scatter-container"></canvas>
       </div>
     </div>
 
@@ -463,8 +459,7 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
   </div>
 </footer>
 
-<!-- Observable Plot from CDN — is:inline prevents Astro from bundling/dropping this -->
-<script is:inline src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/dist/plot.umd.min.js"></script>
+<script is:inline src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
 <script is:inline>
 (function () {
@@ -620,135 +615,131 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // ── SCATTER RENDER ─────────────────────────────────────────────────────────
-  function renderScatter() {
-    if (typeof Plot === 'undefined') {
-      document.getElementById('scatter-container').innerHTML =
-        '<p style="padding:40px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--ink-48)">Observable Plot failed to load. Check network.</p>';
-      return;
-    }
+  // ── SCATTER RENDER (Chart.js) ───────────────────────────────────────────────
+  let scatterChart = null;
 
+  function pctFillRgba(v, alpha) {
+    if (v == null) return `rgba(156,163,175,${alpha})`;
+    if (v >= 80) return `rgba(74,222,128,${alpha})`;
+    if (v >= 60) return `rgba(163,230,53,${alpha})`;
+    if (v >= 40) return `rgba(156,163,175,${alpha})`;
+    if (v >= 20) return `rgba(251,146,60,${alpha})`;
+    return `rgba(248,113,113,${alpha})`;
+  }
+
+  function renderScatter() {
     const filtered = applyFilters(allPlayers, scatterPosFilter, '');
     document.getElementById('scatter-meta').textContent = `${filtered.length} players`;
 
-    const container = document.getElementById('scatter-container');
-    container.innerHTML = '';
+    const points = filtered.map(p => ({
+      x: p.percentiles_vs_pos?.ev_offence ?? 50,
+      y: p.percentiles_vs_pos?.ev_defence ?? 50,
+      gs: p.percentiles_vs_pos?.game_score ?? p.gs_pct ?? 50,
+      name: p.display_name ?? '',
+      team: p.team_abbrev ?? '',
+      pos: p.pos ?? '',
+      gp: p.gp ?? 0,
+    }));
 
+    if (scatterChart) {
+      scatterChart.data.datasets[0].data = points;
+      scatterChart.data.datasets[0].backgroundColor = points.map(p => pctFillRgba(p.gs, 0.82));
+      scatterChart.data.datasets[0].borderColor   = points.map(() => 'rgba(13,13,20,0.25)');
+      scatterChart.update('none');
+      return;
+    }
+
+    const canvas = document.getElementById('scatter-container');
     const tooltip = document.getElementById('scatter-tooltip');
 
-    const plot = Plot.plot({
-      width: container.clientWidth || 800,
-      height: 480,
-      marginLeft: 48,
-      marginBottom: 44,
-      marginTop: 24,
-      marginRight: 24,
-      style: {
-        background: 'transparent',
-        fontFamily: '"JetBrains Mono", monospace',
-        fontSize: '11px',
-        color: 'rgba(13,13,20,0.48)',
-        overflow: 'visible',
+    scatterChart = new Chart(canvas, {
+      type: 'scatter',
+      data: {
+        datasets: [{
+          data: points,
+          backgroundColor: points.map(p => pctFillRgba(p.gs, 0.82)),
+          borderColor: points.map(() => 'rgba(13,13,20,0.25)'),
+          borderWidth: 0.5,
+          pointRadius: 5,
+          pointHoverRadius: 8,
+        }],
       },
-      x: {
-        label: 'EV Offense Percentile →',
-        domain: [0, 100],
-        ticks: [0, 25, 50, 75, 100],
-        labelAnchor: 'center',
-        grid: true,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false },
+        },
+        scales: {
+          x: {
+            min: 0, max: 100,
+            title: { display: true, text: 'EV Offense Percentile →',
+              font: { family: '"JetBrains Mono", monospace', size: 11 },
+              color: 'rgba(13,13,20,0.48)' },
+            grid: { color: 'rgba(13,13,20,0.07)' },
+            ticks: { font: { family: '"JetBrains Mono", monospace', size: 11 },
+              color: 'rgba(13,13,20,0.48)', values: [0,25,50,75,100] },
+          },
+          y: {
+            min: 0, max: 100,
+            title: { display: true, text: '↑ EV Defense Percentile',
+              font: { family: '"JetBrains Mono", monospace', size: 11 },
+              color: 'rgba(13,13,20,0.48)' },
+            grid: { color: 'rgba(13,13,20,0.07)' },
+            ticks: { font: { family: '"JetBrains Mono", monospace', size: 11 },
+              color: 'rgba(13,13,20,0.48)', values: [0,25,50,75,100] },
+          },
+        },
+        onHover: (e, elements) => {
+          canvas.style.cursor = elements.length ? 'pointer' : 'default';
+        },
       },
-      y: {
-        label: '↑ EV Defense Percentile',
-        domain: [0, 100],
-        ticks: [0, 25, 50, 75, 100],
-        labelAnchor: 'center',
-        grid: true,
-      },
-      marks: [
-        // Quadrant lines at 50/50
-        Plot.ruleX([50], { stroke: 'rgba(13,13,20,0.15)', strokeWidth: 1, strokeDasharray: '4 3' }),
-        Plot.ruleY([50], { stroke: 'rgba(13,13,20,0.15)', strokeWidth: 1, strokeDasharray: '4 3' }),
-
-        // Quadrant labels
-        Plot.text(
-          [
-            { x: 75, y: 90, label: 'ELITE TWO-WAY' },
-            { x: 75, y: 10, label: 'OFFENSIVE' },
-            { x: 25, y: 90, label: 'DEFENSIVE' },
-            { x: 25, y: 10, label: 'LIMITED' },
-          ],
-          {
-            x: 'x', y: 'y', text: 'label',
-            fontSize: 9, fontWeight: 700,
-            fontFamily: '"Barlow Condensed", sans-serif',
-            letterSpacing: '0.12em',
-            fill: 'rgba(13,13,20,0.18)',
-            textAnchor: 'middle',
-          }
-        ),
-
-        // Player dots
-        Plot.dot(filtered, {
-          x: d => d.percentiles_vs_pos?.ev_offence ?? 50,
-          y: d => d.percentiles_vs_pos?.ev_defence ?? 50,
-          r: 5,
-          fill: d => pctFill(d.percentiles_vs_pos?.game_score ?? d.gs_pct),
-          stroke: 'rgba(13,13,20,0.25)',
-          strokeWidth: 0.5,
-          opacity: 0.85,
-          title: d => d.display_name,
-          // Observable Plot renders title as SVG <title> — we handle hover ourselves
-        }),
-      ],
+      plugins: [{
+        id: 'quadrantLines',
+        afterDraw(chart) {
+          const {ctx, chartArea: {left,right,top,bottom}, scales: {x,y}} = chart;
+          const mx = x.getPixelForValue(50);
+          const my = y.getPixelForValue(50);
+          ctx.save();
+          ctx.strokeStyle = 'rgba(13,13,20,0.15)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath(); ctx.moveTo(mx, top); ctx.lineTo(mx, bottom); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(left, my); ctx.lineTo(right, my); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'rgba(13,13,20,0.18)';
+          ctx.font = '700 9px "Barlow Condensed", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('ELITE TWO-WAY', (mx+right)/2, top+14);
+          ctx.fillText('OFFENSIVE',     (mx+right)/2, bottom-8);
+          ctx.fillText('DEFENSIVE',     (left+mx)/2,  top+14);
+          ctx.fillText('LIMITED',       (left+mx)/2,  bottom-8);
+          ctx.restore();
+        },
+      }],
     });
 
-    container.appendChild(plot);
-
-    // Attach hover events to SVG circles
-    const dots = plot.querySelectorAll('circle');
-    dots.forEach((dot, i) => {
-      const player = filtered[i];
-      if (!player) return;
-      dot.style.cursor = 'pointer';
-      dot.addEventListener('mouseenter', (e) => {
-        dot.setAttribute('r', '8');
-        dot.style.strokeWidth = '1.5';
-
-        // Fill tooltip
-        document.getElementById('tt-name').textContent = player.display_name ?? '';
-        document.getElementById('tt-meta').textContent =
-          `${player.team_abbrev ?? ''} · ${player.pos ?? ''} · ${player.gp ?? 0} GP`;
-        document.getElementById('tt-evoff').textContent =
-          Math.round(player.percentiles_vs_pos?.ev_offence ?? 0);
-        document.getElementById('tt-evdef').textContent =
-          Math.round(player.percentiles_vs_pos?.ev_defence ?? 0);
-        document.getElementById('tt-gs').textContent =
-          Math.round(player.percentiles_vs_pos?.game_score ?? player.gs_pct ?? 0);
-
-        tooltip.style.display = 'block';
-        positionTooltip(e);
-      });
-      dot.addEventListener('mousemove', positionTooltip);
-      dot.addEventListener('mouseleave', () => {
-        dot.setAttribute('r', '5');
-        dot.style.strokeWidth = '0.5';
-        tooltip.style.display = 'none';
-      });
+    canvas.addEventListener('mousemove', e => {
+      const pts = scatterChart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false);
+      if (!pts.length) { tooltip.style.display = 'none'; return; }
+      const p = points[pts[0].index];
+      document.getElementById('tt-name').textContent = p.name;
+      document.getElementById('tt-meta').textContent = `${p.team} · ${p.pos} · ${p.gp} GP`;
+      document.getElementById('tt-evoff').textContent = Math.round(p.x);
+      document.getElementById('tt-evdef').textContent = Math.round(p.y);
+      document.getElementById('tt-gs').textContent    = Math.round(p.gs);
+      tooltip.style.display = 'block';
+      const tw = tooltip.offsetWidth, th = tooltip.offsetHeight, m = 14;
+      let tx = e.clientX + m, ty = e.clientY - th/2;
+      if (tx + tw > window.innerWidth - 8) tx = e.clientX - tw - m;
+      if (ty < 8) ty = 8;
+      if (ty + th > window.innerHeight - 8) ty = window.innerHeight - th - 8;
+      tooltip.style.left = tx + 'px';
+      tooltip.style.top  = ty + 'px';
     });
-  }
-
-  function positionTooltip(e) {
-    const tooltip = document.getElementById('scatter-tooltip');
-    const tw = tooltip.offsetWidth;
-    const th = tooltip.offsetHeight;
-    const margin = 14;
-    let x = e.clientX + margin;
-    let y = e.clientY - th / 2;
-    if (x + tw > window.innerWidth - 8) x = e.clientX - tw - margin;
-    if (y < 8) y = 8;
-    if (y + th > window.innerHeight - 8) y = window.innerHeight - th - 8;
-    tooltip.style.left = x + 'px';
-    tooltip.style.top = y + 'px';
+    canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
   }
 
   // ── EVENT WIRING ───────────────────────────────────────────────────────────
@@ -803,12 +794,7 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
       });
     });
 
-    // Re-render scatter on resize
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(renderScatter, 200);
-    });
+    // Chart.js handles canvas resize natively via maintainAspectRatio: false
   }
 
   // ── INIT ───────────────────────────────────────────────────────────────────
