@@ -671,18 +671,37 @@ function updateGenerateBtn() {
 // ---------------------------------------------------------------------------
 // Load players on page load
 // ---------------------------------------------------------------------------
+const _PLAYERS_CACHE_KEY = "hgb_players_v1";
+const _PLAYERS_CACHE_TTL = 60 * 60 * 24 * 1000; // 24h in ms
+
 async function loadPlayers() {
   try {
-    const res = await fetch(`${CARD_API_URL}/players`, {
-      headers: { Authorization: `Bearer ${CARD_API_TOKEN}` },
-    });
+    let data = null;
 
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`API returned ${res.status}: ${body}`);
+    // Check localStorage cache first
+    try {
+      const cached = localStorage.getItem(_PLAYERS_CACHE_KEY);
+      if (cached) {
+        const { ts, players } = JSON.parse(cached);
+        if (Date.now() - ts < _PLAYERS_CACHE_TTL) {
+          data = players;
+        }
+      }
+    } catch (_) { /* storage unavailable — fall through to fetch */ }
+
+    if (!data) {
+      const res = await fetch(`${CARD_API_URL}/players`, {
+        headers: { Authorization: `Bearer ${CARD_API_TOKEN}` },
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`API returned ${res.status}: ${body}`);
+      }
+      data = await res.json();
+      try {
+        localStorage.setItem(_PLAYERS_CACHE_KEY, JSON.stringify({ ts: Date.now(), players: data }));
+      } catch (_) { /* storage full — fine, just skip caching */ }
     }
-
-    const data = await res.json();
     // Sort: Forwards first, then Defense; alpha within each group
     _allPlayers = data.slice().sort((a, b) => {
       const ak = playerSortKey(a);
