@@ -35,6 +35,7 @@
   --ink-06:  rgba(13,13,20,0.06);
   --ink-04:  rgba(13,13,20,0.04);
   --red:     #E8002D;
+  --green:   #14803c;
   --display: "Barlow Condensed", sans-serif;
   --body:    "Barlow", sans-serif;
   --mono:    "JetBrains Mono", monospace;
@@ -96,7 +97,7 @@ img { display: block; max-width: 100%; }
 
 /* ── ACCOUNT CONTENT ─────────────────────────────────────────────────────────── */
 .content { padding: 64px 0 96px; }
-.content-inner { max-width: 680px; }
+.content-inner { max-width: 720px; }
 
 /* Sign-in form */
 .signin-form { display: flex; flex-direction: column; gap: 16px; }
@@ -133,7 +134,7 @@ img { display: block; max-width: 100%; }
 .status-msg { font-family: var(--mono); font-size: 13px; color: var(--ink-72); line-height: 1.5; padding: 12px 16px; border-left: 3px solid var(--red); background: var(--surface); display: none; }
 .status-msg.visible { display: block; }
 .status-msg.error { border-left-color: var(--red); }
-.status-msg.success { border-left-color: #14803c; }
+.status-msg.success { border-left-color: var(--green); }
 
 /* Authenticated state */
 .user-card { background: var(--surface); border: 1.5px solid var(--ink-14); padding: 28px 32px; }
@@ -146,6 +147,89 @@ img { display: block; max-width: 100%; }
 /* States — JS toggles these */
 [data-state] { display: none; }
 [data-state].active { display: block; }
+
+/* ── PREFS UI ────────────────────────────────────────────────────────────────── */
+.prefs-intro-row {
+  display: flex; align-items: center; gap: 16px;
+  margin-bottom: 48px;
+}
+.prefs-intro {
+  font-family: var(--body); font-size: 15px; color: var(--ink-56); line-height: 1.6; flex: 1;
+}
+.save-indicator {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--green); opacity: 0; transition: opacity .25s; white-space: nowrap;
+}
+.save-indicator.visible { opacity: 1; }
+
+.prefs-section { margin-bottom: 52px; }
+.prefs-section-header {
+  display: flex; align-items: baseline; gap: 12px;
+  border-bottom: 1.5px solid var(--ink); padding-bottom: 10px; margin-bottom: 20px;
+}
+.prefs-section-label {
+  font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.prefs-section-meta {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-48); margin-left: auto;
+}
+
+/* Team chips */
+.team-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.team-chip {
+  font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+  padding: 7px 14px;
+  border: 1.5px solid var(--ink-20);
+  background: transparent; color: var(--ink-56);
+  cursor: pointer; transition: background .1s, border-color .1s, color .1s;
+}
+.team-chip:hover:not(:disabled) { border-color: var(--ink-56); color: var(--ink); }
+.team-chip.selected { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.team-chip:disabled { opacity: 0.3; cursor: default; }
+.prefs-loading {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-48); padding: 8px 0;
+}
+
+/* Player search */
+.player-search-wrap { position: relative; margin-bottom: 16px; }
+.player-results {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: var(--surface); border: 1.5px solid var(--ink-20); border-top: none;
+  max-height: 220px; overflow-y: auto;
+  z-index: 20;
+  display: none;
+}
+.player-results.open { display: block; }
+.player-result {
+  padding: 10px 14px;
+  font-family: var(--mono); font-size: 12px;
+  cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid var(--ink-06);
+  transition: background .1s;
+}
+.player-result:last-child { border-bottom: none; }
+.player-result:hover { background: var(--bg-2); }
+.player-result-name { color: var(--ink); }
+.player-result-meta { color: var(--ink-48); font-size: 11px; }
+
+/* Player tags */
+.player-tags { display: flex; flex-wrap: wrap; gap: 8px; min-height: 36px; }
+.player-tag {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 12px;
+  padding: 6px 8px 6px 12px;
+  background: var(--surface); border: 1.5px solid var(--ink-20); color: var(--ink);
+}
+.player-tag-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  font-size: 14px; line-height: 1; cursor: pointer; color: var(--ink-48);
+  background: none; border: none; padding: 0; transition: color .12s;
+}
+.player-tag-remove:hover { color: var(--red); }
+.player-tags-empty {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-48); padding: 8px 0;
+}
 
 /* ── FOOTER ──────────────────────────────────────────────────────────────────── */
 .footer { border-top: 1.5px solid var(--ink-14); padding: 24px 0; }
@@ -264,6 +348,48 @@ img { display: block; max-width: 100%; }
 <script>
 const API = 'https://api.hockeygamebot.com';
 
+const NHL_TEAMS = [
+  { abbr: 'ANA', name: 'Anaheim Ducks' },
+  { abbr: 'BOS', name: 'Boston Bruins' },
+  { abbr: 'BUF', name: 'Buffalo Sabres' },
+  { abbr: 'CAR', name: 'Carolina Hurricanes' },
+  { abbr: 'CBJ', name: 'Columbus Blue Jackets' },
+  { abbr: 'CGY', name: 'Calgary Flames' },
+  { abbr: 'CHI', name: 'Chicago Blackhawks' },
+  { abbr: 'COL', name: 'Colorado Avalanche' },
+  { abbr: 'DAL', name: 'Dallas Stars' },
+  { abbr: 'DET', name: 'Detroit Red Wings' },
+  { abbr: 'EDM', name: 'Edmonton Oilers' },
+  { abbr: 'FLA', name: 'Florida Panthers' },
+  { abbr: 'LAK', name: 'Los Angeles Kings' },
+  { abbr: 'MIN', name: 'Minnesota Wild' },
+  { abbr: 'MTL', name: 'Montréal Canadiens' },
+  { abbr: 'NJD', name: 'New Jersey Devils' },
+  { abbr: 'NSH', name: 'Nashville Predators' },
+  { abbr: 'NYI', name: 'New York Islanders' },
+  { abbr: 'NYR', name: 'New York Rangers' },
+  { abbr: 'OTT', name: 'Ottawa Senators' },
+  { abbr: 'PHI', name: 'Philadelphia Flyers' },
+  { abbr: 'PIT', name: 'Pittsburgh Penguins' },
+  { abbr: 'SEA', name: 'Seattle Kraken' },
+  { abbr: 'SJS', name: 'San Jose Sharks' },
+  { abbr: 'STL', name: 'St. Louis Blues' },
+  { abbr: 'TBL', name: 'Tampa Bay Lightning' },
+  { abbr: 'TOR', name: 'Toronto Maple Leafs' },
+  { abbr: 'UTA', name: 'Utah Hockey Club' },
+  { abbr: 'VAN', name: 'Vancouver Canucks' },
+  { abbr: 'VGK', name: 'Vegas Golden Knights' },
+  { abbr: 'WPG', name: 'Winnipeg Jets' },
+  { abbr: 'WSH', name: 'Washington Capitals' },
+];
+
+// Prefs state
+let _trackedTeams = new Set();
+let _trackedPlayers = []; // array of player_id ints
+let _allPlayers = [];     // full player list from API
+
+// ── State machine ─────────────────────────────────────────────────────────────
+
 function setState(name) {
   document.querySelectorAll('[data-state]').forEach(el => {
     el.classList.toggle('active', el.dataset.state === name);
@@ -276,13 +402,13 @@ function showStatus(msg, type = 'error') {
   el.className = `status-msg visible ${type}`;
 }
 
-// Check for ?token= in URL (magic-link verification)
+// ── Auth flow ─────────────────────────────────────────────────────────────────
+
 async function checkToken() {
   const params = new URLSearchParams(location.search);
   const token = params.get('token');
   if (!token) return false;
 
-  // Clear token from URL immediately
   history.replaceState({}, '', '/account');
 
   try {
@@ -328,18 +454,222 @@ function setAuthState(user) {
   renderAuthContent(user);
 }
 
+// ── Content panel ─────────────────────────────────────────────────────────────
+
 function renderAuthContent(user) {
   const panel = document.getElementById('content-panel');
   panel.innerHTML = `
-    <p style="font-family:var(--mono);font-size:12px;color:var(--ink-48);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px;">Your account</p>
-    <p style="font-family:var(--body);font-size:15px;color:var(--ink-56);line-height:1.6;max-width:460px;">
-      Followed teams and preferences sync across devices.
-      ${user.patreon_tier ? 'Your Patreon support unlocks additional features.' : 'Link your <a href="/support" style="color:var(--red)">Patreon</a> to unlock supporter features.'}
-    </p>
+    <div class="prefs-intro-row">
+      <p class="prefs-intro">
+        Tracked teams and players sync across devices.
+        ${user.patreon_tier
+          ? 'Your Patreon support unlocks additional features.'
+          : 'Link your <a href="/support" style="color:var(--red)">Patreon</a> to unlock supporter features.'}
+      </p>
+      <span class="save-indicator" id="save-indicator">Saved</span>
+    </div>
+
+    <div class="prefs-section">
+      <div class="prefs-section-header">
+        <span class="prefs-section-label">Tracked Teams</span>
+        <span class="prefs-section-meta" id="teams-meta">— / 10</span>
+      </div>
+      <div class="team-chips" id="team-chips">
+        <span class="prefs-loading">Loading…</span>
+      </div>
+    </div>
+
+    <div class="prefs-section">
+      <div class="prefs-section-header">
+        <span class="prefs-section-label">Tracked Players</span>
+        <span class="prefs-section-meta" id="players-meta">— / 20</span>
+      </div>
+      <div class="player-search-wrap">
+        <input class="field-input" id="player-search" type="search" placeholder="Search by name…" autocomplete="off" />
+        <div class="player-results" id="player-results"></div>
+      </div>
+      <div class="player-tags" id="player-tags">
+        <span class="prefs-loading">Loading…</span>
+      </div>
+    </div>
   `;
+
+  loadPrefs();
 }
 
-// Init
+// ── Prefs: load ───────────────────────────────────────────────────────────────
+
+async function loadPrefs() {
+  const [prefsRes, playersRes] = await Promise.all([
+    fetch(`${API}/v1/account/prefs`, { credentials: 'include' }).catch(() => null),
+    fetch(`${API}/v1/stats/players`).catch(() => null),
+  ]);
+
+  if (playersRes?.ok) {
+    const raw = await playersRes.json();
+    _allPlayers = Array.isArray(raw) ? raw : (raw.players || []);
+  }
+
+  if (prefsRes?.ok) {
+    const prefs = await prefsRes.json();
+    _trackedTeams = new Set(prefs.tracked_teams || []);
+    _trackedPlayers = prefs.tracked_players || [];
+  }
+
+  renderTeamChips();
+  renderPlayerTags();
+  setupPlayerSearch();
+}
+
+// ── Teams ─────────────────────────────────────────────────────────────────────
+
+function renderTeamChips() {
+  const container = document.getElementById('team-chips');
+  if (!container) return;
+  const atMax = _trackedTeams.size >= 10;
+
+  container.innerHTML = NHL_TEAMS.map(t => {
+    const sel = _trackedTeams.has(t.abbr);
+    const disabled = !sel && atMax;
+    return `<button class="team-chip${sel ? ' selected' : ''}" data-team="${t.abbr}" title="${t.name}"${disabled ? ' disabled' : ''}>${t.abbr}</button>`;
+  }).join('');
+
+  document.getElementById('teams-meta').textContent = `${_trackedTeams.size} / 10`;
+
+  container.querySelectorAll('.team-chip').forEach(btn => {
+    btn.addEventListener('click', () => toggleTeam(btn.dataset.team));
+  });
+}
+
+function toggleTeam(abbr) {
+  if (_trackedTeams.has(abbr)) {
+    _trackedTeams.delete(abbr);
+  } else if (_trackedTeams.size < 10) {
+    _trackedTeams.add(abbr);
+  }
+  renderTeamChips();
+  savePrefs();
+}
+
+// ── Players ───────────────────────────────────────────────────────────────────
+
+function renderPlayerTags() {
+  const container = document.getElementById('player-tags');
+  if (!container) return;
+
+  document.getElementById('players-meta').textContent = `${_trackedPlayers.length} / 20`;
+
+  if (_trackedPlayers.length === 0) {
+    container.innerHTML = '<span class="player-tags-empty">No players tracked yet — search above to add.</span>';
+    return;
+  }
+
+  container.innerHTML = _trackedPlayers.map(id => {
+    const p = _allPlayers.find(pl => pl.player_id === id);
+    const label = p ? `${p.first_name} ${p.last_name}` : `#${id}`;
+    const meta = p?.team_abbrev || '';
+    return `
+      <div class="player-tag">
+        <span>${label}${meta ? `<span style="color:var(--ink-48);margin-left:6px">${meta}</span>` : ''}</span>
+        <button class="player-tag-remove" data-player-id="${id}" aria-label="Remove ${label}">×</button>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.player-tag-remove').forEach(btn => {
+    btn.addEventListener('click', () => removePlayer(parseInt(btn.dataset.playerId, 10)));
+  });
+}
+
+function removePlayer(id) {
+  _trackedPlayers = _trackedPlayers.filter(p => p !== id);
+  renderPlayerTags();
+  savePrefs();
+}
+
+function setupPlayerSearch() {
+  const input = document.getElementById('player-search');
+  const results = document.getElementById('player-results');
+  if (!input || !results) return;
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    if (q.length < 2) {
+      results.classList.remove('open');
+      results.innerHTML = '';
+      return;
+    }
+
+    const matches = _allPlayers
+      .filter(p => !_trackedPlayers.includes(p.player_id))
+      .filter(p => `${p.first_name} ${p.last_name}`.toLowerCase().includes(q))
+      .slice(0, 12);
+
+    if (matches.length === 0) {
+      results.classList.remove('open');
+      results.innerHTML = '';
+      return;
+    }
+
+    results.innerHTML = matches.map(p => `
+      <div class="player-result" data-player-id="${p.player_id}">
+        <span class="player-result-name">${p.first_name} ${p.last_name}</span>
+        <span class="player-result-meta">${p.pos || ''} · ${p.team_abbrev || ''}</span>
+      </div>
+    `).join('');
+    results.classList.add('open');
+
+    results.querySelectorAll('.player-result').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = parseInt(el.dataset.playerId, 10);
+        if (!_trackedPlayers.includes(id) && _trackedPlayers.length < 20) {
+          _trackedPlayers.push(id);
+          renderPlayerTags();
+          savePrefs();
+        }
+        input.value = '';
+        results.classList.remove('open');
+        results.innerHTML = '';
+        input.focus();
+      });
+    });
+  });
+
+  document.addEventListener('click', e => {
+    if (!input.contains(e.target) && !results.contains(e.target)) {
+      results.classList.remove('open');
+    }
+  });
+}
+
+// ── Prefs: save ───────────────────────────────────────────────────────────────
+
+async function savePrefs() {
+  try {
+    await fetch(`${API}/v1/account/prefs`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        tracked_teams: [..._trackedTeams],
+        tracked_players: _trackedPlayers,
+      }),
+    });
+    flashSaved();
+  } catch (err) {
+    console.error('[prefs] save failed', err);
+  }
+}
+
+function flashSaved() {
+  const el = document.getElementById('save-indicator');
+  if (!el) return;
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 1800);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
 (async () => {
   const handledToken = await checkToken();
   if (!handledToken) {
@@ -348,7 +678,6 @@ function renderAuthContent(user) {
   }
 })();
 
-// Sign-in form submit
 document.getElementById('signin-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const email = document.getElementById('email-input').value.trim();
@@ -378,13 +707,14 @@ document.getElementById('signin-form').addEventListener('submit', async (e) => {
   }
 });
 
-// Try again
 document.getElementById('try-again-btn').addEventListener('click', () => {
   setState('unauth');
 });
 
-// Sign out
 document.getElementById('signout-btn').addEventListener('click', async () => {
+  _trackedTeams = new Set();
+  _trackedPlayers = [];
+  _allPlayers = [];
   await fetch(`${API}/v1/auth/logout`, { method: 'POST', credentials: 'include' });
   setState('unauth');
   document.getElementById('user-email').textContent = '—';
