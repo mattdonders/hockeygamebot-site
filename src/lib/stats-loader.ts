@@ -1,15 +1,8 @@
-import playersData from '../data/stats/players.json';
-import leaderboardsData from '../data/stats/leaderboards.json';
-import methodologyData from '../data/stats/methodology.json';
-import metaData from '../data/stats/_meta.json';
-import playerGamesData from '../data/stats/player_games.json';
-
 import {
   PlayerRecordsSchema,
   LeaderboardsSchema,
   PlayerGamesSchema,
   StatsMetaSchema,
-  MethodologySchema,
   parseOrThrow,
   type PlayerRecord,
   type LeaderboardEntry as ZLeaderboardEntry,
@@ -17,20 +10,29 @@ import {
   type StatsMeta,
 } from './stats-schemas';
 
-// Build-time validation — runs once at module load. On failure the build
-// errors out with a path-aware message instead of silently rendering NaN
-// on pages that depend on these types. See `stats-schemas.ts` for the
-// cross-repo contract.
-const VALIDATED_PLAYERS = parseOrThrow(PlayerRecordsSchema, playersData, 'players.json');
-const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema, leaderboardsData, 'leaderboards.json');
-const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema, playerGamesData, 'player_games.json');
-const VALIDATED_META = parseOrThrow(StatsMetaSchema, metaData, '_meta.json');
-// Methodology schema is loose; parse to catch gross type errors but allow
-// extra keys silently.
-parseOrThrow(MethodologySchema, methodologyData, 'methodology.json');
+const _BASE = 'https://api.hockeygamebot.com/v1/stats';
+
+async function _fetchJSON(path: string) {
+  const res = await fetch(`${_BASE}/${path}`);
+  if (!res.ok) throw new Error(`stats-loader: GET ${path} returned ${res.status}`);
+  return res.json();
+}
+
+// Fetch all stats data once at build time. Astro runs this module once
+// during the build and shares the resolved values across all pages.
+const [playersData, leaderboardsData, playerGamesData, metaData] = await Promise.all([
+  _fetchJSON('players'),
+  _fetchJSON('leaderboards'),
+  _fetchJSON('player-games'),
+  _fetchJSON('meta'),
+]);
+
+const VALIDATED_PLAYERS = parseOrThrow(PlayerRecordsSchema, playersData, 'players');
+const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema, leaderboardsData, 'leaderboards');
+const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema, playerGamesData, 'player-games');
+const VALIDATED_META = parseOrThrow(StatsMetaSchema, metaData, 'meta');
 
 // ── Public types ────────────────────────────────────────────────────────────
-// Re-exported under their prior names so existing pages keep compiling.
 
 export type RatesPer60 = PlayerRecord['rates_per_60'];
 export type Percentiles = PlayerRecord['percentiles_vs_pos'];
@@ -71,10 +73,6 @@ export function loadPlayerGames(playerId: number): GameLogEntry[] {
   return VALIDATED_PLAYER_GAMES[String(playerId)] ?? [];
 }
 
-// TODO: Once hgb-bot scripts/export_stats_data.py writes _meta.player_of_the_week
-// (7-day rolling window, min 3 GP, min 40 min TOI), read it from _meta directly here
-// and expose the "PLAYER OF THE WEEK" label. Until then, falls back to season-avg top
-// avg_gs_display with a min 20 GP threshold — labeled "SEASON LEADER" on the site.
 export function loadPlayerOfTheWeek(): PlayerSummary {
   const players = loadPlayers();
   const eligible = players.filter(p => p.gp >= 20);
