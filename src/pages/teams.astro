@@ -307,6 +307,12 @@ img { display: block; max-width: 100%; }
 .lede-handle:hover { color: var(--ink); border-color: var(--ink); background: var(--bg-2); }
 .lede-handle svg { width: 12px; height: 12px; flex-shrink: 0; }
 
+/* ── YOUR TRACKED TEAMS ──────────────────────────────────────────────────────── */
+#tracked-section { display: none; padding: 40px 0 32px; border-bottom: 1px solid var(--ink-14); }
+.tracked-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid var(--ink); }
+.tracked-title { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: var(--type-section); line-height: 0.95; letter-spacing: -0.005em; }
+.tracked-title .accent { color: var(--red); }
+
 /* ── ROSTER ──────────────────────────────────────────────────────────────────── */
 .roster { padding: 48px 0 80px; }
 .roster-head {
@@ -622,6 +628,16 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   </div>
 </section>
 
+<!-- ── YOUR TRACKED TEAMS ── -->
+<section id="tracked-section">
+  <div class="wrap">
+    <div class="tracked-head">
+      <h2 class="tracked-title">Your <span class="accent">tracked teams</span></h2>
+    </div>
+    <div class="team-grid" id="tracked-grid"></div>
+  </div>
+</section>
+
 <!-- ── ROSTER (TEAM CARDS BY DIVISION) ── -->
 <section class="roster">
   <div class="wrap">
@@ -724,6 +740,85 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
     </div>
   </div>
 </footer>
+
+<script is:inline define:vars={{
+  _teamRows: Object.fromEntries(
+    divisions.flatMap(d => d.rows).map(r => [r.abbr, r])
+  ),
+  _playoffMode: playoffMode,
+}}>
+(function () {
+  const ROWS = _teamRows;
+  const PLAYOFF = _playoffMode;
+  const API = 'https://api.hockeygamebot.com';
+
+  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function renderCard(row) {
+    const cls = `team-card${row.isPlayoff ? ' is-playoff' : ''}${row.isEliminated ? ' is-eliminated' : ''}`;
+    const statusVal = PLAYOFF
+      ? (row.isPlayoff ? 'Playoffs' : row.isEliminated ? 'Eliminated' : row.record)
+      : row.record;
+    const statusCls = `team-status-val${row.isPlayoff ? ' playoffs' : ''}${row.isEliminated ? ' eliminated' : ''}`;
+    const status = row.record ? `
+      <div class="team-status">
+        <span class="team-status-lbl">${PLAYOFF ? 'Status' : 'Record'}</span>
+        <span class="${statusCls}">${esc(statusVal)}</span>
+      </div>` : '';
+    return `<article class="${cls}">
+      <div class="team-bar">
+        <div class="team-bar-l" style="background:${row.paletteA}"></div>
+        <div class="team-bar-r" style="background:${row.paletteB}"></div>
+      </div>
+      <a class="team-head" href="/teams/${row.abbr.toLowerCase()}">
+        <img src="${esc(row.logoUrl)}" alt="${esc(row.name)} logo" class="team-logo" width="56" height="56" loading="lazy" onerror="this.style.visibility='hidden'" />
+        <div class="team-id">
+          <div class="team-abbr" style="color:${row.abbrColor}">${esc(row.abbr)}</div>
+          <div class="team-name">${esc(row.name)}</div>
+        </div>
+      </a>
+      ${status}
+      <div class="team-handles">
+        <a href="${esc(row.xUrl)}" class="team-handle" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          <span class="platform">X</span>
+          <span class="h-name">@${esc(row.xHandle)}</span>
+          <span class="arrow">→</span>
+        </a>
+        <a href="${esc(row.bskyUrl)}" class="team-handle" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
+          <span class="platform">BSKY</span>
+          <span class="h-name">${esc(row.bskyHandle)}</span>
+          <span class="arrow">→</span>
+        </a>
+      </div>
+    </article>`;
+  }
+
+  async function init() {
+    let token;
+    try { token = localStorage.getItem('hgb_session'); } catch {}
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API}/v1/account/prefs`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const prefs = await res.json();
+      const tracked = (prefs.tracked_teams || []).filter(a => ROWS[a]);
+      if (!tracked.length) return;
+
+      const grid = document.getElementById('tracked-grid');
+      const section = document.getElementById('tracked-section');
+      grid.innerHTML = tracked.map(a => renderCard(ROWS[a])).join('');
+      section.style.display = '';
+    } catch {}
+  }
+
+  init();
+})();
+</script>
 
 </body>
 </html>
