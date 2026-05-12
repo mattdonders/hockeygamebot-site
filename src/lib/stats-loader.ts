@@ -2,11 +2,13 @@ import {
   PlayerRecordsSchema,
   LeaderboardsSchema,
   PlayerGamesSchema,
+  TeamGameStatsSchema,
   StatsMetaSchema,
   parseOrThrow,
   type PlayerRecord,
   type LeaderboardEntry as ZLeaderboardEntry,
   type GameLogEntry as ZGameLogEntry,
+  type TeamGameEntry as ZTeamGameEntry,
   type StatsMeta,
 } from './stats-schemas';
 
@@ -20,17 +22,19 @@ async function _fetchJSON(path: string) {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData] = await Promise.all([
   _fetchJSON('players'),
   _fetchJSON('leaderboards'),
   _fetchJSON('player-games'),
   _fetchJSON('meta'),
+  _fetchJSON('team-game-stats').catch(() => ({})),  // graceful fallback before export runs
 ]);
 
-const VALIDATED_PLAYERS = parseOrThrow(PlayerRecordsSchema, playersData, 'players');
-const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema, leaderboardsData, 'leaderboards');
-const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema, playerGamesData, 'player-games');
-const VALIDATED_META = parseOrThrow(StatsMetaSchema, metaData, 'meta');
+const VALIDATED_PLAYERS      = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
+const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema,   leaderboardsData,   'leaderboards');
+const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema,    playerGamesData,    'player-games');
+const VALIDATED_META         = parseOrThrow(StatsMetaSchema,      metaData,           'meta');
+const VALIDATED_TEAM_GAMES   = parseOrThrow(TeamGameStatsSchema,  teamGameStatsData,  'team-game-stats');
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -39,6 +43,7 @@ export type Percentiles = PlayerRecord['percentiles_vs_pos'];
 export type PlayerSummary = PlayerRecord;
 export type LeaderboardEntry = ZLeaderboardEntry;
 export type GameLogEntry = ZGameLogEntry;
+export type TeamGameEntry = ZTeamGameEntry;
 export type MetaData = StatsMeta;
 
 // ── Loaders ─────────────────────────────────────────────────────────────────
@@ -71,6 +76,22 @@ export function loadMeta(): MetaData {
 
 export function loadPlayerGames(playerId: number): GameLogEntry[] {
   return VALIDATED_PLAYER_GAMES[String(playerId)] ?? [];
+}
+
+export function loadTeamGames(abbr: string): TeamGameEntry[] {
+  return VALIDATED_TEAM_GAMES[abbr.toUpperCase()] ?? [];
+}
+
+export function loadAllTeamGames(): Record<string, TeamGameEntry[]> {
+  return VALIDATED_TEAM_GAMES;
+}
+
+/** Returns all game log entries for players on a given team, keyed by player_id. */
+export function loadTeamPlayerGames(abbr: string): Record<number, GameLogEntry[]> {
+  const teamPlayers = loadPlayers().filter(p => p.team_abbrev === abbr.toUpperCase());
+  return Object.fromEntries(
+    teamPlayers.map(p => [p.player_id, VALIDATED_PLAYER_GAMES[String(p.player_id)] ?? []])
+  );
 }
 
 export function loadPlayerOfTheWeek(): PlayerSummary {

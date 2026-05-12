@@ -127,6 +127,10 @@ export const GameLogEntrySchema = z.object({
   gs_display: z.number(),
   team_score: z.number().int().nonnegative(),
   opp_score: z.number().int().nonnegative(),
+  // Enriched fields added in export v2 — optional for backward compat
+  toi_sec: z.number().int().nonnegative().optional(),
+  ixg:     z.number().nonnegative().optional(),
+  shots:   z.number().int().nonnegative().optional(),
 });
 
 /** Map of player_id (as string) -> game log entries. */
@@ -136,6 +140,26 @@ export const PlayerGamesSchema = z.record(
 );
 export type GameLogEntry = z.infer<typeof GameLogEntrySchema>;
 export type PlayerGames = z.infer<typeof PlayerGamesSchema>;
+
+// ── Team game stats (team_game_stats.json) ──────────────────────────────────
+
+export const TeamGameEntrySchema = z.object({
+  game_date:  z.string(),
+  opp_abbrev: z.string(),
+  is_home:    z.boolean(),
+  gf:         z.number().int().nonnegative(),
+  ga:         z.number().int().nonnegative(),
+  result:     z.enum(['W', 'L', 'OT']),
+  xgf_5v5:   z.number().nonnegative(),
+  xga_5v5:   z.number().nonnegative(),
+});
+
+/** Map of team_abbrev -> per-game team entries, sorted chronologically. */
+export const TeamGameStatsSchema = z.record(
+  z.string(),
+  z.array(TeamGameEntrySchema),
+);
+export type TeamGameEntry = z.infer<typeof TeamGameEntrySchema>;
 
 // ── Meta (_meta.json) ───────────────────────────────────────────────────────
 

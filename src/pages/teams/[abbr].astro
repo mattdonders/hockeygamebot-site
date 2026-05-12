@@ -1,10 +1,14 @@
 ---
-// HockeyGameBot — /teams/[abbr] — per-team bot landing page
-// Generates one static page per team at build time.
-// Tonight's game is fetched client-side from hgb-api.
+// HockeyGameBot — /teams/[abbr] — Team analytics hub + bot landing page
+// Static generation: one page per team. Season data embedded at build time.
+// Tonight's game and opponent filter are client-side.
+
+import Nav from '../../components/Nav.astro';
+import { loadPlayers, loadAllTeamGames, loadTeamPlayerGames } from '../../lib/stats-loader';
+import { pickTeamColor } from '../../lib/team-colors';
 
 export async function getStaticPaths() {
-  const teams = [
+  const TEAMS = [
     { abbr: 'ANA', name: 'Anaheim Ducks' },
     { abbr: 'BOS', name: 'Boston Bruins' },
     { abbr: 'BUF', name: 'Buffalo Sabres' },
@@ -38,9 +42,13 @@ export async function getStaticPaths() {
     { abbr: 'WSH', name: 'Washington Capitals' },
     { abbr: 'WPG', name: 'Winnipeg Jets' },
   ];
+  // Full-name lookup passed as prop for client-side opponent dropdown
+  const TEAM_NAMES: Record<string, string> = Object.fromEntries(TEAMS.map(t => [t.abbr, t.name]));
+  const allPlayers  = loadPlayers();
+  const allTeamGames = loadAllTeamGames();
 
-  // Fetch standings once for all pages
-  const teamStats = new Map<string, { clinch: string | null; record: string }>();
+  // Fetch standings once for all 32 pages
+  const standings = new Map<string, { clinch: string | null; record: string }>();
   let playoffMode = false;
   try {
     const res = await fetch('https://api-web.nhle.com/v1/standings/now');
@@ -49,363 +57,807 @@ export async function getStaticPaths() {
       for (const t of data.standings ?? []) {
         const a: string = t.teamAbbrev?.default ?? '';
         const clinch: string | null = t.clinchIndicator ?? null;
-        teamStats.set(a, { clinch, record: `${t.wins ?? 0}-${t.losses ?? 0}-${t.otLosses ?? 0}` });
+        standings.set(a, { clinch, record: `${t.wins ?? 0}-${t.losses ?? 0}-${t.otLosses ?? 0}` });
         if (clinch === 'x' || clinch === 'y' || clinch === 'z') playoffMode = true;
       }
     }
   } catch {}
 
-  return teams.map((team) => ({
-    params: { abbr: team.abbr.toLowerCase() },
-    props: {
-      abbr: team.abbr,
-      name: team.name,
-      xHandle: team.xHandle ?? `${team.abbr}GameBot`,
-      stats: teamStats.get(team.abbr) ?? null,
-      playoffMode,
-    },
-  }));
+  return TEAMS.map(team => {
+    const { abbr } = team;
+    const teamPlayers = allPlayers
+      .filter(p => p.team_abbrev === abbr)
+      .sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
+    const playerGameMap = loadTeamPlayerGames(abbr);
+    const teamGames     = allTeamGames[abbr] ?? [];
+    const stats         = standings.get(abbr) ?? null;
+
+    return {
+      params: { abbr: abbr.toLowerCase() },
+      props:  { abbr, name: team.name,
+                xHandle: (team as any).xHandle ?? `${abbr}GameBot`,
+                stats, playoffMode,
+                teamPlayers, playerGameMap, teamGames, TEAM_NAMES },
+    };
+  });
 }
 
-const { abbr, name, xHandle, stats, playoffMode } = Astro.props;
-const bskyHandle = `${abbr.toLowerCase()}.hockeygamebot.com`;
-const xUrl    = `https://x.com/${xHandle}`;
-const bskyUrl = `https://bsky.app/profile/${bskyHandle}`;
-const logoUrl = `https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg`;
+const { abbr, name, xHandle, stats, playoffMode,
+        teamPlayers, playerGameMap, teamGames, TEAM_NAMES } = Astro.props;
 
-const clinch = stats?.clinch ?? null;
+const teamColor  = pickTeamColor(abbr);
+const logoUrl    = `https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg`;
+const bskyHandle = `${abbr.toLowerCase()}.hockeygamebot.com`;
+
+const clinch      = stats?.clinch ?? null;
 const isPlayoff   = clinch === 'x' || clinch === 'y' || clinch === 'z';
 const isEliminated = clinch === 'e';
-const statusLabel = isPlayoff ? '★ PLAYOFFS' : isEliminated ? 'ELIMINATED' : (stats?.record ?? null);
-const statusClass = isPlayoff ? 'badge--playoffs' : isEliminated ? 'badge--eliminated' : 'badge--record';
+const recordLabel = isPlayoff ? '★ Playoffs' : isEliminated ? 'Eliminated' : (stats?.record ?? '—');
+
+// Season aggregate stats for Team Overview card (full season, no filter)
+const allTeamGf  = teamGames.reduce((s, g) => s + g.gf, 0);
+const allTeamGa  = teamGames.reduce((s, g) => s + g.ga, 0);
+const allXgf     = teamGames.reduce((s, g) => s + g.xgf_5v5, 0);
+const allXga     = teamGames.reduce((s, g) => s + g.xga_5v5, 0);
+const seasonXgfPct = allXgf + allXga > 0 ? ((allXgf / (allXgf + allXga)) * 100).toFixed(1) : '—';
+const seasonRecord = (() => {
+  const w = teamGames.filter(g => g.result === 'W').length;
+  const l = teamGames.filter(g => g.result === 'L').length;
+  const ot = teamGames.filter(g => g.result === 'OT').length;
+  return teamGames.length ? `${w}-${l}-${ot}` : recordLabel;
+})();
 ---
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{name} Bot · @{xHandle} | HockeyGameBot</title>
-  <meta name="description" content={`Follow ${name} live game updates on X (@${xHandle}) and Bluesky. Real-time goals, WP, milestones, and chart graphics — every game, every night.`}>
+  <title>{name} Stats — HGB Analytics</title>
+  <meta name="description" content={`${name} 2025-26 player stats, WAR leaderboard, and head-to-head opponent filters. Powered by HockeyGameBot analytics.`}>
   <link rel="canonical" href={`https://hockeygamebot.com/teams/${abbr.toLowerCase()}`}>
-
-  <!-- Open Graph -->
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="HockeyGameBot">
-  <meta property="og:title" content={`${name} Bot · @${xHandle}`}>
-  <meta property="og:description" content={`Live ${name} game updates: goals, WP, milestones, analytics. Every game, every night.`}>
+  <meta property="og:title" content={`${name} · HGB Analytics`}>
   <meta property="og:url" content={`https://hockeygamebot.com/teams/${abbr.toLowerCase()}`}>
-  <meta property="og:image" content="https://hockeygamebot.com/og/teams.png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content={`${name} Bot · HockeyGameBot`}>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #EFEEE8;
+      --ink:      #0d0d14;
+      --red:      #E8002D;
+      --surface:  #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
 
-  <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:site" content={`@${xHandle}`}>
-  <meta name="twitter:creator" content={`@${xHandle}`}>
-  <meta name="twitter:title" content={`${name} Bot · @${xHandle}`}>
-  <meta name="twitter:description" content={`Live ${name} game updates: goals, WP, milestones, analytics. Every game, every night.`}>
-  <meta name="twitter:image" content="https://hockeygamebot.com/og/teams.png">
+    /* ── Masthead ── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; padding: 36px 0; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-top a { color: var(--ink-48); text-decoration: none; }
+    .mast-top a:hover { color: var(--ink); }
 
-  <link rel="icon" href="/favicon.ico" sizes="any">
-  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
-  <link rel="apple-touch-icon" href="/favicon-180x180.png">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 24px 28px;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; }
+    .mast-identity { display: flex; align-items: center; gap: 20px; }
+    .mast-logo { width: 80px; height: 80px; object-fit: contain; flex-shrink: 0; }
+    .mast-info { display: flex; flex-direction: column; gap: 8px; }
+    .mast-name { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 48px);
+      text-transform: uppercase; line-height: 0.95; letter-spacing: -0.01em; color: var(--ink); }
+    .mast-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .badge { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; border: 1px solid var(--ink-14); padding: 2px 8px; color: var(--ink-48); }
+    .badge--team { color: var(--ink); border-color: var(--ink-32); }
+    .badge--playoffs { color: #14803c; border-color: rgba(20,128,60,0.4); }
+    .badge--record { color: var(--ink-48); }
+
+    /* Tonight mini-widget (masthead right) */
+    .tonight-widget { flex-shrink: 0; min-width: 180px; }
+    .tonight-label { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--ink-32); margin-bottom: 8px; }
+    .tonight-content { font-family: var(--mono); font-size: 12px; color: var(--ink-48); }
+    .tonight-matchup { font-family: var(--display); font-weight: 800; font-size: 18px;
+      text-transform: uppercase; letter-spacing: 0.02em; color: var(--ink); margin-bottom: 2px; }
+    .tonight-time { font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
+    .tonight-live { color: var(--red); font-weight: 700; animation: pulse 1.4s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    /* ── Wrap ── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+
+    /* ── Content ── */
+    .content { padding: 32px 0 80px; display: flex; flex-direction: column; gap: 24px; }
+
+    /* ── Filter bar ── */
+    .filter-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .filter-controls { display: flex; align-items: center; gap: 10px; }
+    .filter-select {
+      font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.16em;
+      text-transform: uppercase; padding: 7px 32px 7px 12px;
+      border: 1px solid var(--ink-14); background: var(--surface); color: var(--ink);
+      cursor: pointer; appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%230d0d14' opacity='.4'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center;
+      transition: border-color 0.1s;
+    }
+    .filter-select:focus { outline: none; border-color: var(--ink); }
+    .filter-select.active { border-color: var(--ink); color: var(--ink); }
+    .filter-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+
+    /* Sample size warning */
+    .sample-warning { background: rgba(232,160,0,0.08); border: 1px solid rgba(232,160,0,0.3);
+      padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+    .sample-warning-text { font-family: var(--mono); font-size: 11px; color: #7a5200; letter-spacing: 0.04em; }
+
+    /* ── Team overview card ── */
+    .overview-card { background: var(--surface); border: 1px solid var(--ink-14); }
+    .overview-head { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
+      display: flex; align-items: baseline; justify-content: space-between; }
+    .overview-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px;
+      letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); }
+    .overview-eyebrow .accent { color: var(--red); }
+    .overview-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .overview-stats { display: grid; grid-template-columns: repeat(4, 1fr); }
+    @media (max-width: 640px) { .overview-stats { grid-template-columns: repeat(2, 1fr); } }
+    .ov-cell { padding: 18px 20px; border-right: 1px solid var(--ink-06); text-align: center; }
+    .ov-cell:last-child { border-right: none; }
+    .ov-val { font-family: var(--display); font-weight: 800; font-size: 36px;
+      line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--ink); }
+    .ov-val.pos { color: #14803c; }
+    .ov-val.neg { color: var(--red); }
+    .ov-label { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--ink-32); margin-top: 4px; }
+
+    /* ── Player table ── */
+    .table-card { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+    .table-head { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
+      display: flex; align-items: baseline; justify-content: space-between; }
+    .table-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px;
+      letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); }
+    .table-eyebrow .accent { color: var(--red); }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { padding: 9px 10px 7px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
+      border-bottom: 2px solid var(--ink-14); text-align: right;
+      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s; }
+    thead th:first-child  { text-align: left; padding-left: 16px; cursor: default; }
+    thead th.th-player    { text-align: left; cursor: default; min-width: 140px; }
+    thead th:hover        { color: var(--ink); }
+    thead th.sorted       { color: var(--ink); }
+    .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.4; font-size: 8px; }
+    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
+    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
+    tbody tr:last-child   { border-bottom: none; }
+    tbody tr:hover        { background: var(--ink-04); }
+    td { padding: 8px 10px; vertical-align: middle; }
+    td:first-child        { padding-left: 16px; }
+    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
+      text-align: left; font-variant-numeric: tabular-nums; }
+    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
+    .td-player { display: flex; align-items: center; gap: 10px; min-width: 140px; }
+    .td-logo   { width: 22px; height: 22px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
+    .td-info   { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .td-name   { font-family: var(--body); font-size: 15px; font-weight: 600; color: var(--ink);
+      text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .td-name:hover { color: var(--red); }
+    .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); white-space: nowrap; }
+    .td-pos    { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); text-align: center; }
+    .td-stat   { text-align: right; white-space: nowrap; }
+    .sv { display: block; font-family: var(--mono); font-size: 13px; font-weight: 700;
+      font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.25; }
+    .sv.pos { color: #14803c; }
+    .sv.neg { color: var(--red); }
+    .sv.nil { color: var(--ink-32); font-weight: 400; font-size: 12px; }
+    .sp { display: block; font-family: var(--mono); font-size: 9px;
+      font-variant-numeric: tabular-nums; line-height: 1.2; }
+    .pe { color: #00c078; }
+    .pg { color: #60a5fa; }
+    .pa { color: var(--ink-32); }
+    .pl { color: var(--red); opacity: 0.65; }
+
+    /* ── Game log ── */
+    .gl-card { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+    .gl-head { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
+      display: flex; align-items: baseline; justify-content: space-between; }
+    .gl-table { width: 100%; border-collapse: collapse; }
+    .gl-table th { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--ink-32); padding: 9px 14px; border-bottom: 1px solid var(--ink-10); text-align: right; }
+    .gl-table th:first-child { text-align: left; }
+    .gl-table td { padding: 8px 14px; border-bottom: 1px solid var(--ink-06);
+      font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
+    .gl-table td:first-child { text-align: left; }
+    .gl-table tr:last-child td { border-bottom: none; }
+    .gl-table tr:hover td { background: var(--bg); }
+    .gl-w  { color: #14803c; font-weight: 700; }
+    .gl-l  { color: var(--red); font-weight: 700; }
+    .gl-ot { color: var(--ink-48); font-weight: 700; }
+    .gl-empty { padding: 32px 18px; text-align: center; font-family: var(--mono);
+      font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
+
+    /* ── Follow section ── */
+    .follow-section { background: var(--ink); padding: 48px 0; border-top: 2px solid var(--ink); }
+    .follow-inner { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+    .follow-eyebrow { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.16em;
+      text-transform: uppercase; color: rgba(239,238,232,0.32); margin-bottom: 6px; }
+    .follow-title { font-family: var(--display); font-weight: 800; font-size: 24px;
+      text-transform: uppercase; color: #fff; margin-bottom: 20px; letter-spacing: 0.01em; }
+    .follow-links { display: flex; gap: 12px; flex-wrap: wrap; }
+    .follow-btn { display: inline-flex; align-items: center; gap: 10px;
+      padding: 10px 20px; border: 1px solid rgba(239,238,232,0.16);
+      font-family: var(--display); font-weight: 700; font-size: 13px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: rgba(239,238,232,0.72); text-decoration: none;
+      transition: all 0.12s; }
+    .follow-btn:hover { background: rgba(239,238,232,0.08); color: #fff; border-color: rgba(239,238,232,0.4); }
+
+    /* ── Footer ── */
+    footer { background: var(--ink); border-top: 1px solid rgba(239,238,232,0.08);
+      padding: 20px 0; font-family: var(--mono); font-size: 10px;
+      color: rgba(239,238,232,0.24); letter-spacing: 0.08em; text-align: center; }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .mast-inner { padding: 28px 0; }
+      .mast-card  { flex-direction: column; gap: 20px; padding: 20px; }
+      .tonight-widget { min-width: 0; width: 100%; }
+      .wrap { padding: 0 20px; }
+      .content { padding: 24px 0 60px; }
+      .c-a60, .c-imp { display: none; }
+    }
+    @media (max-width: 480px) {
+      .mast-card { padding: 16px; }
+      .wrap { padding: 0 16px; }
+      .c-fin, .c-pos { display: none; }
+      .td-sub { display: none; }
+    }
+  </style>
 </head>
 <body>
 
-<!-- TOP BAR -->
-<div class="topbar">
-  <a href="/" class="brand">HGB</a>
-  <div class="brand-sub">HockeyGameBot</div>
-  <div class="topbar-right">
-    <nav class="topbar-nav">
-      <a href="/" class="topbar-link">SCORES</a>
-      <a href="/teams" class="topbar-link topbar-link--active">TEAMS</a>
-      <a href="/support" class="topbar-link topbar-link--support">
-        <svg class="support-heart" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-        <span class="support-label">SUPPORT</span>
-      </a>
-    </nav>
+<Nav currentPath="/teams" />
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="wrap">
+    <div class="mast-inner">
+      <div class="mast-top">
+        <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · <a href="/teams">Teams</a> · {abbr}</div>
+        <div>2025–26 regular season</div>
+      </div>
+      <div class="mast-card" style={`border-left: 4px solid ${teamColor}`}>
+        <div class="mast-identity">
+          <img src={logoUrl} alt={`${name} logo`} class="mast-logo" width="80" height="80">
+          <div class="mast-info">
+            <div class="mast-name">{name}</div>
+            <div class="mast-badges">
+              <span class="badge badge--team">{abbr}</span>
+              <span class={`badge ${isPlayoff ? 'badge--playoffs' : 'badge--record'}`}>{recordLabel}</span>
+              {teamGames.length > 0 && <span class="badge">{teamGames.length} GP</span>}
+            </div>
+          </div>
+        </div>
+        <!-- Tonight's game (client-side) -->
+        <div class="tonight-widget">
+          <div class="tonight-label">Tonight</div>
+          <div id="tonight-content" class="tonight-content">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MAIN CONTENT -->
+<div class="wrap">
+  <div class="content">
+
+    <!-- FILTER BAR -->
+    <div class="filter-bar">
+      <div class="filter-controls">
+        <select class="filter-select" id="opp-filter">
+          <option value="">All opponents</option>
+          <!-- populated by JS -->
+        </select>
+      </div>
+      <span class="filter-meta" id="filter-meta">{teamPlayers.length} players · {teamGames.length} games</span>
+    </div>
+
+    <!-- SAMPLE WARNING (shown when < 5 games vs opponent) -->
+    <div class="sample-warning" id="sample-warning" style="display:none">
+      <span class="sample-warning-text" id="sample-warning-text"></span>
+    </div>
+
+    <!-- TEAM OVERVIEW CARD -->
+    <div class="overview-card">
+      <div class="overview-head">
+        <span class="overview-eyebrow">Team overview &nbsp;<span class="accent" id="overview-accent">Season</span></span>
+        <span class="overview-meta" id="overview-meta">5v5 · 2025–26</span>
+      </div>
+      <div class="overview-stats" id="overview-stats">
+        <div class="ov-cell">
+          <div class="ov-val" id="ov-record">{seasonRecord}</div>
+          <div class="ov-label">Record</div>
+        </div>
+        <div class="ov-cell">
+          <div class="ov-val" id="ov-xgfpct">{seasonXgfPct}{teamGames.length > 0 ? '%' : ''}</div>
+          <div class="ov-label">xGF% 5v5</div>
+        </div>
+        <div class="ov-cell">
+          <div class="ov-val" id="ov-gf">{allTeamGf}</div>
+          <div class="ov-label">Goals For</div>
+        </div>
+        <div class="ov-cell">
+          <div class="ov-val" id="ov-ga">{allTeamGa}</div>
+          <div class="ov-label">Goals Against</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PLAYER TABLE -->
+    <div class="table-card">
+      <div class="table-head">
+        <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;Skaters</span>
+        <span class="filter-meta" id="table-meta">season stats</span>
+      </div>
+      <table>
+        <colgroup>
+          <col style="width:40px"><!-- rank -->
+          <col><!-- player -->
+          <col class="c-pos" style="width:36px"><!-- pos -->
+          <col style="width:42px"><!-- gp -->
+          <col style="width:82px"><!-- war/col1 -->
+          <col style="width:72px"><!-- g/60 or G -->
+          <col class="c-a60" style="width:72px"><!-- a1/60 or A -->
+          <col style="width:72px"><!-- xg/60 -->
+          <col class="c-fin" style="width:72px"><!-- fin or pts -->
+          <col class="c-imp" style="width:72px"><!-- impact -->
+        </colgroup>
+        <thead id="player-thead">
+          <tr>
+            <th>#</th>
+            <th class="th-player">Player</th>
+            <th class="c-pos">Pos</th>
+            <th data-sort="gp">GP<span class="sort-arrow"></span></th>
+            <th data-sort="war">WAR<span class="sort-arrow">↓</span></th>
+            <th data-sort="g60">G/60<span class="sort-arrow"></span></th>
+            <th class="c-a60" data-sort="a60">A1/60<span class="sort-arrow"></span></th>
+            <th data-sort="x60">xG/60<span class="sort-arrow"></span></th>
+            <th class="c-fin" data-sort="fin">Fin<span class="sort-arrow"></span></th>
+            <th class="c-imp" data-sort="imp">Impact<span class="sort-arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="player-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- GAME LOG -->
+    <div class="gl-card">
+      <div class="gl-head">
+        <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;<span id="gl-title">Last 10 Games</span></span>
+        <span class="filter-meta" id="gl-meta"></span>
+      </div>
+      <table class="gl-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Opp</th>
+            <th>Result</th>
+            <th>GF</th>
+            <th>GA</th>
+            <th>xGF%</th>
+            <th>xGF</th>
+            <th>xGA</th>
+          </tr>
+        </thead>
+        <tbody id="gl-tbody">
+          <tr><td colspan="8" class="gl-empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
   </div>
 </div>
 
-<main>
-  <section class="hero">
-    <div class="hero-inner">
-      <a href="/teams" class="back-link">← All Teams</a>
-      <img src={logoUrl} alt={`${name} logo`} class="hero-logo" width="96" height="96" />
-      <h1 class="hero-name">{name}</h1>
-      {statusLabel && (
-        <span class={`badge ${statusClass}`}>{statusLabel}</span>
-      )}
+<!-- FOLLOW THE BOTS -->
+<section class="follow-section">
+  <div class="follow-inner">
+    <div class="follow-eyebrow">Live game updates</div>
+    <div class="follow-title">Follow the {abbr} Bot</div>
+    <div class="follow-links">
+      <a href={`https://x.com/${xHandle}`} class="follow-btn" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        @{xHandle}
+      </a>
+      <a href={`https://bsky.app/profile/${bskyHandle}`} class="follow-btn" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
+        @{bskyHandle}
+      </a>
+      <a href="https://twitch.tv/hockeygamebot" class="follow-btn" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>
+        Twitch
+      </a>
     </div>
-  </section>
-
-  <section class="content-section">
-    <div class="content-inner">
-
-      <!-- Follow section -->
-      <div class="card">
-        <div class="card-label">Follow the Bot</div>
-        <div class="follow-links">
-          <a href={xUrl} class="follow-btn follow-btn--x" target="_blank" rel="noopener">
-            <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-            <div>
-              <div class="btn-platform">X / Twitter</div>
-              <div class="btn-handle">@{xHandle}</div>
-            </div>
-          </a>
-          <a href={bskyUrl} class="follow-btn follow-btn--bsky" target="_blank" rel="noopener">
-            <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
-            <div>
-              <div class="btn-platform">Bluesky</div>
-              <div class="btn-handle">@{bskyHandle}</div>
-            </div>
-          </a>
-        </div>
-      </div>
-
-      <!-- Tonight's game — client-side -->
-      <div class="card" id="game-card">
-        <div class="card-label">Tonight's Game</div>
-        <div id="game-content" class="game-loading">Loading…</div>
-      </div>
-
-      <!-- Watch live — injected by JS when game is live -->
-      <div class="card card--stream" id="stream-card" style="display:none">
-        <div class="card-label">Watch Live</div>
-        <p class="app-desc" id="stream-desc"></p>
-        <div class="stream-links">
-          <a href="https://twitch.tv/hockeygamebot" class="stream-btn stream-btn--twitch" target="_blank" rel="noopener">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>
-            Twitch
-          </a>
-          <a href="https://youtube.com/channel/UCZUxvx3_JZeC8SqGiQZ9akw/live" class="stream-btn stream-btn--youtube" target="_blank" rel="noopener">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-            YouTube
-          </a>
-        </div>
-      </div>
-
-      <!-- Support -->
-      <div class="card card--support">
-        <div class="card-label">Support HockeyGameBot</div>
-        <p class="app-desc">32 bots, running every game night. If HGB adds to your game-day experience, a coffee goes a long way.</p>
-        <a href="https://ko-fi.com/hockeygamebot" class="app-btn app-btn--kofi" target="_blank" rel="noopener">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Support on Ko-fi
-        </a>
-      </div>
-
-    </div>
-  </section>
-</main>
-
-<footer class="site-footer">
-  <div class="footer-inner">
-    <span class="footer-brand">HGB</span>
-    <span class="footer-sep">·</span>
-    <a href="/" class="footer-link">Scores</a>
-    <a href="/teams" class="footer-link">Teams</a>
-    <a href="/support" class="footer-link">Support</a>
-    <span class="footer-copy">Built with 🏒 by <a href="https://twitter.com/mattdonders" class="footer-link" target="_blank" rel="noopener">@mattdonders</a></span>
   </div>
-</footer>
+</section>
 
-<script define:vars={{ abbr }}>
-  const API = 'https://api.hockeygamebot.com';
-
-  async function loadGame() {
-    const el = document.getElementById('game-content');
-    try {
-      const res = await fetch(`${API}/v1/games/today`);
-      if (!res.ok) throw new Error('API error');
-      const data = await res.json();
-      const games = data.games ?? [];
-
-      const game = games.find(g =>
-        g.away_team?.abbrev === abbr || g.home_team?.abbrev === abbr
-      );
-
-      if (!game) {
-        el.innerHTML = '<span class="game-none">No game scheduled today</span>';
-        return;
-      }
-
-      const away = game.away_team;
-      const home = game.home_team;
-      const status = game.status ?? 'upcoming';  // 'upcoming' | 'live' | 'final'
-      const isLive  = status === 'live';
-      const isFinal = status === 'final';
-
-      const awayLogo = `https://assets.nhle.com/logos/nhl/svg/${away.abbrev}_light.svg`;
-      const homeLogo = `https://assets.nhle.com/logos/nhl/svg/${home.abbrev}_light.svg`;
-
-      let statusHtml = '';
-      if (isLive) {
-        const period = game.period ?? '';
-        const periodLabel = period === 4 ? 'OT' : period === 5 ? 'SO' : `P${period}`;
-        const clock = game.time_remaining ?? '';
-        statusHtml = `<span class="game-live">● LIVE ${periodLabel}${clock ? ' ' + clock : ''}</span>`;
-      } else if (isFinal) {
-        statusHtml = `<span class="game-final">FINAL</span>`;
-      } else {
-        const startUtc = game.start_time;
-        const time = startUtc
-          ? new Date(startUtc).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
-          : '';
-        statusHtml = `<span class="game-time">${time}</span>`;
-      }
-
-      const awayScore = away.score ?? '';
-      const homeScore = home.score ?? '';
-      const showScore = isLive || isFinal;
-
-      el.innerHTML = `
-        <div class="game-matchup">
-          <div class="game-team">
-            <img src="${awayLogo}" class="game-logo" width="40" height="40" alt="${away.abbrev}" />
-            <span class="game-abbr">${away.abbrev}</span>
-            ${showScore ? `<span class="game-score">${awayScore}</span>` : ''}
-          </div>
-          <div class="game-vs">
-            ${statusHtml}
-          </div>
-          <div class="game-team game-team--home">
-            ${showScore ? `<span class="game-score">${homeScore}</span>` : ''}
-            <span class="game-abbr">${home.abbrev}</span>
-            <img src="${homeLogo}" class="game-logo" width="40" height="40" alt="${home.abbrev}" />
-          </div>
-        </div>
-        <a href="/" class="game-link">Watch live on hockeygamebot.com →</a>
-      `;
-
-      // Show stream card when game is live
-      if (isLive) {
-        const streamCard = document.getElementById('stream-card');
-        const streamDesc = document.getElementById('stream-desc');
-        if (streamCard) streamCard.style.display = '';
-        if (streamDesc) streamDesc.textContent = `${away.abbrev} @ ${home.abbrev} is live now — watch the HGB stream.`;
-      }
-    } catch {
-      el.innerHTML = '<span class="game-none">Unable to load game data</span>';
-    }
-  }
-
-  loadGame();
-</script>
+<footer>HOCKEYGAMEBOT.COM · {abbr} · 2025–2026</footer>
 
 </body>
 </html>
 
-<style is:global>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --bg: #090909;
-  --card: #111;
-  --border: #1c1c1c;
-  --border2: #252525;
-  --muted: #555;
-  --text: #999;
-  --text-secondary: #777;
-  --white: #f5f5f5;
-  --red: #ff3d3d;
+<script define:vars={{ teamPlayers, playerGameMap, teamGames, teamAbbr: abbr, TEAM_NAMES }}>
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function sgn(n) { return n >= 0 ? '+' : ''; }
+function pctCls(p) {
+  if (p == null) return 'pa';
+  return p >= 90 ? 'pe' : p >= 70 ? 'pg' : p >= 40 ? 'pa' : 'pl';
 }
-html, body {
-  background: var(--bg);
-  font-family: 'Space Grotesk', sans-serif;
-  color: var(--text);
-  line-height: 1.65;
-  min-height: 100vh;
+function ordinal(p) {
+  if (p == null) return '—';
+  const s = (p % 100 >= 11 && p % 100 <= 13) ? 'th'
+    : p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
+  return `${p}${s}`;
+}
+function statCell(val, pct, signed) {
+  if (val == null) return `<span class="sv nil">—</span>`;
+  const cls = signed ? (val >= 0 ? ' pos' : ' neg') : '';
+  const v = signed ? `${sgn(val)}${val.toFixed(2)}` : val.toFixed(2);
+  return `<span class="sv${cls}">${v}</span><span class="sp ${pctCls(pct)}">${ordinal(pct)}</span>`;
+}
+function countCell(n) {
+  return `<span class="sv">${n}</span>`;
+}
+function fmt2(n) { return n != null ? n.toFixed(2) : '—'; }
+function fmtDate(d) {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const [, mm, dd] = d.split('-');
+  return `${months[parseInt(mm) - 1]} ${parseInt(dd)}`;
 }
 
-/* ── TOP BAR ── */
-.topbar { height: 44px; background: var(--red); display: flex; align-items: center; padding: 0 24px; gap: 16px; position: sticky; top: 0; z-index: 100; }
-.brand { font-family: 'Oswald', sans-serif; font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0.1em; text-decoration: none; }
-.brand-sub { font-size: 11px; color: rgba(255,255,255,0.65); letter-spacing: 0.14em; }
-.topbar-right { margin-left: auto; }
-.topbar-nav { display: flex; gap: 6px; }
-.topbar-link { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: rgba(255,255,255,0.7); text-decoration: none; padding: 4px 10px; border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; transition: color 0.15s, border-color 0.15s; }
-.topbar-link:hover, .topbar-link--active { color: #fff; border-color: rgba(255,255,255,0.5); }
-.topbar-link--support { display: flex; align-items: center; gap: 5px; }
-.support-heart { flex-shrink: 0; opacity: 0.9; }
+// ── State ─────────────────────────────────────────────────────────────────────
 
-/* ── HERO ── */
-.hero { padding: 56px 24px 48px; text-align: center; border-bottom: 1px solid var(--border); }
-.hero-inner { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.back-link { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); text-decoration: none; align-self: flex-start; transition: color 0.15s; }
-.back-link:hover { color: var(--white); }
-.hero-logo { width: 88px; height: 88px; object-fit: contain; }
-.hero-name { font-family: 'Oswald', sans-serif; font-size: clamp(24px, 5vw, 38px); font-weight: 700; color: var(--white); letter-spacing: 0.02em; line-height: 1.1; }
-.badge { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; padding: 4px 12px; border-radius: 4px; }
-.badge--playoffs { color: #4ade80; background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.25); }
-.badge--eliminated { color: #ff6b6b; background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.25); }
-.badge--record { color: var(--muted); background: var(--card); border: 1px solid var(--border2); }
+let activeOpp   = '';   // '' = all opponents
+let sortKey     = 'war';
+let sortAsc     = false;
 
-/* ── CONTENT ── */
-.content-section { padding: 40px 24px 80px; }
-.content-inner { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+// ── Build opponent dropdown ───────────────────────────────────────────────────
 
-/* ── CARDS ── */
-.card { background: var(--card); border: 1px solid var(--border2); border-radius: 10px; padding: 22px; }
-.card-label { font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+const opps = [...new Set(teamGames.map(g => g.opp_abbrev))].sort();
+const sel  = document.getElementById('opp-filter');
+opps.forEach(opp => {
+  const gamesVs = teamGames.filter(g => g.opp_abbrev === opp).length;
+  const opt = document.createElement('option');
+  opt.value = opp;
+  opt.textContent = `vs ${TEAM_NAMES[opp] ?? opp} (${gamesVs})`;
+  sel.appendChild(opt);
+});
 
-/* ── FOLLOW BUTTONS ── */
-.follow-links { display: flex; flex-direction: column; gap: 10px; }
-.follow-btn { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 8px; border: 1px solid var(--border2); text-decoration: none; transition: border-color 0.15s, background 0.15s; }
-.follow-btn:hover { background: rgba(255,255,255,0.03); border-color: #333; }
-.follow-btn--bsky:hover { border-color: rgba(91,184,255,0.3); }
-.btn-icon { width: 20px; height: 20px; flex-shrink: 0; color: var(--muted); }
-.follow-btn--bsky .btn-icon { color: #5bb8ff; }
-.btn-platform { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--text-secondary); margin-bottom: 2px; }
-.btn-handle { font-size: 14px; font-weight: 600; color: var(--white); }
+// ── URL param: auto-apply opponent ────────────────────────────────────────────
 
-/* ── TONIGHT'S GAME ── */
-.game-loading { color: var(--muted); font-size: 13px; }
-.game-none { color: var(--muted); font-size: 13px; }
-.game-matchup { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.game-team { display: flex; align-items: center; gap: 10px; }
-.game-team--home { flex-direction: row-reverse; }
-.game-logo { width: 40px; height: 40px; object-fit: contain; }
-.game-abbr { font-family: 'Oswald', sans-serif; font-size: 22px; font-weight: 700; color: var(--white); letter-spacing: 0.04em; }
-.game-score { font-family: 'Oswald', sans-serif; font-size: 28px; font-weight: 700; color: var(--white); min-width: 24px; text-align: center; }
-.game-vs { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.game-live { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: #4ade80; background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.25); padding: 4px 10px; border-radius: 4px; }
-.game-final { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
-.game-time { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
-.game-link { font-size: 12px; font-weight: 600; color: var(--red); text-decoration: none; display: block; transition: opacity 0.15s; }
-.game-link:hover { opacity: 0.8; }
-
-/* ── STREAM CARD ── */
-.card--stream { border-color: rgba(145,70,255,0.2); }
-.stream-links { display: flex; gap: 10px; }
-.stream-btn { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; padding: 9px 16px; border-radius: 6px; text-decoration: none; transition: opacity 0.15s; color: #fff; }
-.stream-btn:hover { opacity: 0.85; }
-.stream-btn--twitch { background: #9146ff; }
-.stream-btn--youtube { background: #ff0000; }
-
-/* ── SUPPORT CARD ── */
-.card--support { border-color: rgba(255,61,61,0.15); }
-.app-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; }
-.app-btn { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--white); background: var(--red); padding: 10px 18px; border-radius: 6px; text-decoration: none; transition: opacity 0.15s; }
-.app-btn:hover { opacity: 0.85; }
-.app-btn--kofi { background: #ff5e5b; }
-
-/* ── FOOTER ── */
-.site-footer { background: #050505; border-top: 1px solid var(--border); padding: 28px 24px; }
-.footer-inner { max-width: 480px; margin: 0 auto; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.footer-brand { font-family: 'Oswald', sans-serif; font-size: 16px; font-weight: 700; color: var(--red); letter-spacing: 0.1em; }
-.footer-sep { color: var(--border2); }
-.footer-link { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted); text-decoration: none; transition: color 0.15s; }
-.footer-link:hover { color: var(--white); }
-.footer-copy { margin-left: auto; font-size: 12px; color: var(--muted); }
-
-@media (max-width: 640px) {
-  .topbar { padding: 0 16px; gap: 10px; }
-  .brand-sub, .support-label { display: none; }
-  .hero { padding: 40px 20px 36px; }
-  .content-section { padding: 28px 16px 60px; }
-  .footer-copy { margin-left: 0; width: 100%; }
+const urlOpp = new URLSearchParams(window.location.search).get('opponent')?.toUpperCase() ?? '';
+if (urlOpp && opps.includes(urlOpp)) {
+  activeOpp = urlOpp;
+  sel.value = urlOpp;
+  sel.classList.add('active');
 }
-</style>
+
+// ── Overview card update ──────────────────────────────────────────────────────
+
+function updateOverview() {
+  const games = activeOpp ? teamGames.filter(g => g.opp_abbrev === activeOpp) : teamGames;
+  const w   = games.filter(g => g.result === 'W').length;
+  const l   = games.filter(g => g.result === 'L').length;
+  const ot  = games.filter(g => g.result === 'OT').length;
+  const gf  = games.reduce((s, g) => s + g.gf, 0);
+  const ga  = games.reduce((s, g) => s + g.ga, 0);
+  const xgf = games.reduce((s, g) => s + g.xgf_5v5, 0);
+  const xga = games.reduce((s, g) => s + g.xga_5v5, 0);
+  const xgfPct = xgf + xga > 0 ? ((xgf / (xgf + xga)) * 100).toFixed(1) + '%' : '—';
+
+  document.getElementById('ov-record').textContent = games.length ? `${w}-${l}-${ot}` : '—';
+  document.getElementById('ov-xgfpct').textContent = xgfPct;
+  document.getElementById('ov-gf').textContent     = String(gf);
+  document.getElementById('ov-ga').textContent     = String(ga);
+  document.getElementById('overview-accent').textContent = activeOpp
+    ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp}` : 'Season';
+  document.getElementById('overview-meta').textContent = activeOpp
+    ? `5v5 · ${games.length} games` : '5v5 · 2025–26';
+}
+
+// ── Player table ──────────────────────────────────────────────────────────────
+
+function buildPlayerRows() {
+  if (!activeOpp) {
+    // Season view: use pre-computed PlayerRecord values
+    return teamPlayers.map(p => ({
+      slug:    p.slug,
+      name:    p.display_name,
+      team:    p.team_abbrev,
+      pos:     p.pos,
+      war:     p.rapm != null ? +(p.rapm * 60).toFixed(2) : null,
+      war_p:   null,  // percentile not available per-team
+      gp:      p.gp,
+      g60:     +p.rates_per_60.goals.toFixed(2),
+      g60_p:   Math.round(p.percentiles_vs_pos.goals),
+      a60:     +p.rates_per_60.a1.toFixed(2),
+      a60_p:   Math.round(p.percentiles_vs_pos.a1),
+      x60:     +p.rates_per_60.ixg.toFixed(2),
+      x60_p:   Math.round(p.percentiles_vs_pos.ixg),
+      fin:     +p.rates_per_60.finishing.toFixed(2),
+      fin_p:   Math.round(p.percentiles_vs_pos.finishing),
+      imp:     +p.avg_gs_display.toFixed(2),
+      imp_p:   Math.round(p.gs_pct),
+      mode:    'season',
+    }));
+  }
+
+  // Opponent-filtered view: aggregate from game logs
+  return teamPlayers.map(p => {
+    const games = (playerGameMap[p.player_id] ?? []).filter(g => g.opp_abbrev === activeOpp);
+    if (!games.length) return null;
+    const g   = games.reduce((s, x) => s + x.goals, 0);
+    const a   = games.reduce((s, x) => s + x.assists, 0);
+    const toi = games.reduce((s, x) => s + (x.toi_sec ?? 0), 0);
+    const ixg = games.reduce((s, x) => s + (x.ixg ?? 0), 0);
+    const imp = games.reduce((s, x) => s + x.gs_display, 0) / games.length;
+    const toi60 = toi / 3600 || null;
+    return {
+      slug: p.slug,
+      name: p.display_name,
+      team: p.team_abbrev,
+      pos:  p.pos,
+      war:  p.rapm != null ? +(p.rapm * 60).toFixed(2) : null,
+      war_p: null,
+      gp:   games.length,
+      g60:  toi60 ? +(g / toi60).toFixed(2) : null,
+      g60_p: null,
+      a60:  toi60 ? +(a / toi60).toFixed(2) : null,
+      a60_p: null,
+      x60:  toi60 ? +(ixg / toi60).toFixed(2) : null,
+      x60_p: null,
+      fin:  null,
+      fin_p: null,
+      imp:  +imp.toFixed(2),
+      imp_p: null,
+      rawG: g, rawA: a,
+      mode: 'opp',
+    };
+  }).filter(Boolean);
+}
+
+function renderPlayerTable() {
+  const rows = buildPlayerRows();
+  rows.sort((a, b) => {
+    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    return sortAsc ? av - bv : bv - av;
+  });
+
+  const tbody = document.getElementById('player-tbody');
+  const isOpp = activeOpp !== '';
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="10" class="gl-empty">No qualifying players vs this opponent.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map((r, i) => `<tr>
+    <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
+    <td><div class="td-player">
+      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" width="22" height="22" loading="lazy">
+      <div class="td-info">
+        <a href="/stats/player/${r.slug}" class="td-name">${r.name}</a>
+        <span class="td-sub">${r.pos} · ${r.gp} GP${isOpp ? ' vs ' + activeOpp : ''}</span>
+      </div>
+    </div></td>
+    <td class="td-pos c-pos">${r.pos}</td>
+    <td class="td-stat">${countCell(r.gp)}</td>
+    <td class="td-stat">${r.war != null
+      ? `<span class="sv ${r.war >= 0 ? 'pos' : 'neg'}">${sgn(r.war)}${r.war.toFixed(2)}</span>${isOpp ? '<span class="sv nil" style="font-size:9px">season</span>' : '<span class="sp pa">&nbsp;</span>'}`
+      : '<span class="sv nil">—</span>'
+    }</td>
+    <td class="td-stat">${isOpp && r.rawG != null
+      ? countCell(r.rawG)
+      : statCell(r.g60, r.g60_p, false)
+    }</td>
+    <td class="td-stat c-a60">${isOpp && r.rawA != null
+      ? countCell(r.rawA)
+      : statCell(r.a60, r.a60_p, false)
+    }</td>
+    <td class="td-stat">${statCell(r.x60, r.x60_p, false)}</td>
+    <td class="td-stat c-fin">${isOpp
+      ? (r.x60 != null ? `<span class="sv">${r.x60.toFixed(2)}</span><span class="sp pa">xG/60</span>` : '<span class="sv nil">—</span>')
+      : statCell(r.fin, r.fin_p, true)
+    }</td>
+    <td class="td-stat c-imp"><span class="sv">${r.imp != null ? r.imp.toFixed(2) : '—'}</span>${r.imp_p != null ? `<span class="sp ${pctCls(r.imp_p)}">${ordinal(r.imp_p)}</span>` : '<span class="sp pa">avg</span>'}</td>
+  </tr>`).join('');
+
+  // Update headers for opp mode
+  const headers = document.querySelectorAll('#player-thead th[data-sort]');
+  const labels = isOpp
+    ? { gp: 'GP', war: 'WAR', g60: 'G', a60: 'A', x60: 'xG/60', fin: 'xG/60', imp: 'Imp' }
+    : { gp: 'GP', war: 'WAR', g60: 'G/60', a60: 'A1/60', x60: 'xG/60', fin: 'Fin', imp: 'Impact' };
+  headers.forEach(th => {
+    const k = th.dataset.sort;
+    const arrow = th.querySelector('.sort-arrow');
+    const base = labels[k] ?? k;
+    th.childNodes[0].textContent = base + ' ';
+    if (arrow) {
+      th.classList.toggle('sorted', k === sortKey);
+      arrow.textContent = k === sortKey ? (sortAsc ? '↑' : '↓') : '';
+    }
+  });
+
+  document.getElementById('table-meta').textContent = isOpp
+    ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp} · ${rows.length} players`
+    : `season · ${rows.length} players`;
+}
+
+// Sort click
+document.querySelectorAll('#player-thead th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.sort;
+    if (sortKey === k) sortAsc = !sortAsc;
+    else { sortKey = k; sortAsc = false; }
+    renderPlayerTable();
+  });
+});
+
+// ── Game log ──────────────────────────────────────────────────────────────────
+
+function renderGameLog() {
+  const all   = activeOpp ? teamGames.filter(g => g.opp_abbrev === activeOpp) : [...teamGames].reverse().slice(0, 10);
+  const tbody = document.getElementById('gl-tbody');
+  const title = document.getElementById('gl-title');
+  title.textContent = activeOpp
+    ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp}`
+    : `Last ${all.length} Games`;
+
+  if (!all.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="gl-empty">No games found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = all.map(g => {
+    const xgfPct = g.xgf_5v5 + g.xga_5v5 > 0
+      ? ((g.xgf_5v5 / (g.xgf_5v5 + g.xga_5v5)) * 100).toFixed(1) + '%' : '—';
+    const resCls = g.result === 'W' ? 'gl-w' : g.result === 'OT' ? 'gl-ot' : 'gl-l';
+    const ha = g.is_home ? 'vs' : '@';
+    return `<tr>
+      <td>${fmtDate(g.game_date)}</td>
+      <td>${ha} ${g.opp_abbrev}</td>
+      <td class="${resCls}">${g.result} ${g.gf}–${g.ga}</td>
+      <td>${g.gf}</td>
+      <td>${g.ga}</td>
+      <td>${xgfPct}</td>
+      <td>${g.xgf_5v5.toFixed(2)}</td>
+      <td>${g.xga_5v5.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('gl-meta').textContent = activeOpp
+    ? `${all.length} games` : '';
+}
+
+// ── Sample warning ────────────────────────────────────────────────────────────
+
+function updateSampleWarning() {
+  const warn = document.getElementById('sample-warning');
+  const txt  = document.getElementById('sample-warning-text');
+  if (activeOpp) {
+    const n = teamGames.filter(g => g.opp_abbrev === activeOpp).length;
+    if (n < 5) {
+      txt.textContent = `Small sample · ${n} game${n === 1 ? '' : 's'} vs ${TEAM_NAMES[activeOpp] ?? activeOpp} this season`;
+      warn.style.display = '';
+    } else {
+      warn.style.display = 'none';
+    }
+  } else {
+    warn.style.display = 'none';
+  }
+}
+
+// ── Filter meta ───────────────────────────────────────────────────────────────
+
+function updateFilterMeta() {
+  const games = activeOpp ? teamGames.filter(g => g.opp_abbrev === activeOpp) : teamGames;
+  document.getElementById('filter-meta').textContent =
+    `${teamPlayers.length} players · ${games.length} games`;
+}
+
+// ── Opponent change ───────────────────────────────────────────────────────────
+
+function applyFilter() {
+  updateOverview();
+  renderPlayerTable();
+  renderGameLog();
+  updateSampleWarning();
+  updateFilterMeta();
+}
+
+sel.addEventListener('change', () => {
+  activeOpp = sel.value;
+  sel.classList.toggle('active', activeOpp !== '');
+  applyFilter();
+});
+
+// ── Tonight's game ────────────────────────────────────────────────────────────
+
+async function loadTonightGame() {
+  const el = document.getElementById('tonight-content');
+  try {
+    const res = await fetch('https://api.hockeygamebot.com/v1/games/today');
+    if (!res.ok) { el.textContent = 'No game tonight'; return; }
+    const data = await res.json();
+    const games = data.games ?? [];
+    const abbr = teamAbbr.toUpperCase();
+    const game = games.find(g => g.homeTeam?.abbrev === abbr || g.awayTeam?.abbrev === abbr);
+    if (!game) { el.textContent = 'No game tonight'; return; }
+
+    const isHome  = game.homeTeam?.abbrev === abbr;
+    const opp     = isHome ? game.awayTeam?.abbrev : game.homeTeam?.abbrev;
+    const isLive  = game.gameState === 'LIVE' || game.gameState === 'CRIT';
+    const isFinal = game.gameState === 'FINAL' || game.gameState === 'OFF';
+    const ha      = isHome ? 'vs' : '@';
+
+    if (isLive) {
+      const hs = game.homeTeam?.score ?? 0, as2 = game.awayTeam?.score ?? 0;
+      const myScore = isHome ? hs : as2, theirScore = isHome ? as2 : hs;
+      el.innerHTML = `<div class="tonight-matchup">${ha} ${opp}</div>
+        <div class="tonight-time"><span class="tonight-live">● LIVE</span> ${myScore}–${theirScore}</div>`;
+    } else if (isFinal) {
+      const hs = game.homeTeam?.score ?? 0, as2 = game.awayTeam?.score ?? 0;
+      const myScore = isHome ? hs : as2, theirScore = isHome ? as2 : hs;
+      el.innerHTML = `<div class="tonight-matchup">${ha} ${opp}</div>
+        <div class="tonight-time">Final ${myScore}–${theirScore}</div>`;
+    } else {
+      const utc = game.startTimeUTC;
+      let timeStr = '—';
+      if (utc) {
+        const d = new Date(utc);
+        timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+      }
+      el.innerHTML = `<div class="tonight-matchup">${ha} ${opp}</div>
+        <div class="tonight-time">${timeStr}</div>`;
+    }
+  } catch {
+    el.textContent = 'No game tonight';
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+applyFilter();
+loadTonightGame();
+
+</script>
