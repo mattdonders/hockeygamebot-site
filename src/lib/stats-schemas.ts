@@ -119,6 +119,7 @@ export type Leaderboards = z.infer<typeof LeaderboardsSchema>;
 // ── Player games (player_games.json) ────────────────────────────────────────
 
 export const GameLogEntrySchema = z.object({
+  game_id:   z.string().optional(),
   game_date: z.string(),
   opp_abbrev: z.string(),
   is_home: z.boolean(),
@@ -144,6 +145,7 @@ export type PlayerGames = z.infer<typeof PlayerGamesSchema>;
 // ── Team game stats (team_game_stats.json) ──────────────────────────────────
 
 export const TeamGameEntrySchema = z.object({
+  game_id:    z.string().optional(),
   game_date:  z.string(),
   opp_abbrev: z.string(),
   is_home:    z.boolean(),
