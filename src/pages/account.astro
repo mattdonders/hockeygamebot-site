@@ -416,6 +416,31 @@ let _trackedTeams = new Set();
 let _trackedPlayers = []; // array of player_id ints
 let _allPlayers = [];     // full player list from API
 
+// ── Session token storage (localStorage + Bearer for Safari ITP compat) ───────
+
+const SESSION_KEY = 'hgb_session';
+
+function saveToken(token) {
+  try { localStorage.setItem(SESSION_KEY, token); } catch {}
+}
+
+function loadToken() {
+  try { return localStorage.getItem(SESSION_KEY) || null; } catch { return null; }
+}
+
+function clearToken() {
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
+
+// Wraps fetch: always sends credentials (cookie) + Authorization header if
+// we have a localStorage token, so both Safari (Bearer) and Chrome (cookie) work.
+function apiFetch(url, opts = {}) {
+  const token = loadToken();
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers['authorization'] = `Bearer ${token}`;
+  return fetch(url, { ...opts, credentials: 'include', headers });
+}
+
 // ── State machine ─────────────────────────────────────────────────────────────
 
 function setState(name) {
@@ -433,6 +458,16 @@ function showStatus(msg, type = 'error') {
 // ── Auth flow ─────────────────────────────────────────────────────────────────
 
 async function checkToken() {
+  // Google OAuth callback: token in URL hash (#t=TOKEN)
+  if (location.hash.startsWith('#t=')) {
+    const token = location.hash.slice(3);
+    history.replaceState({}, '', '/account');
+    saveToken(token);
+    const ok = await checkSession();
+    if (!ok) { setState('unauth'); showStatus('Sign-in failed. Please try again.', 'error'); }
+    return true;
+  }
+
   const params = new URLSearchParams(location.search);
 
   const authError = params.get('auth_error');
@@ -450,6 +485,7 @@ async function checkToken() {
     return true;
   }
 
+  // Magic-link: token in ?token= query param
   const token = params.get('token');
   if (!token) return false;
 
@@ -461,6 +497,7 @@ async function checkToken() {
     });
     const data = await res.json();
     if (res.ok && data.user) {
+      if (data.session_token) saveToken(data.session_token);
       setAuthState(data.user);
       return true;
     } else {
@@ -477,7 +514,7 @@ async function checkToken() {
 
 async function checkSession() {
   try {
-    const res = await fetch(`${API}/v1/auth/me`, { credentials: 'include' });
+    const res = await apiFetch(`${API}/v1/auth/me`);
     if (res.ok) {
       const data = await res.json();
       setAuthState(data.user);
@@ -549,7 +586,7 @@ function renderAuthContent(user) {
 
 async function loadPrefs() {
   const [prefsRes, playersRes] = await Promise.all([
-    fetch(`${API}/v1/account/prefs`, { credentials: 'include' }).catch(() => null),
+    apiFetch(`${API}/v1/account/prefs`).catch(() => null),
     fetch(`${API}/v1/stats/players`).catch(() => null),
   ]);
 
@@ -697,10 +734,9 @@ function setupPlayerSearch() {
 
 async function savePrefs() {
   try {
-    const res = await fetch(`${API}/v1/account/prefs`, {
+    const res = await apiFetch(`${API}/v1/account/prefs`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({
         tracked_teams: [..._trackedTeams],
         tracked_players: _trackedPlayers,
@@ -788,7 +824,8 @@ document.getElementById('signout-btn').addEventListener('click', async () => {
   _trackedTeams = new Set();
   _trackedPlayers = [];
   _allPlayers = [];
-  await fetch(`${API}/v1/auth/logout`, { method: 'POST', credentials: 'include' });
+  clearToken();
+  await apiFetch(`${API}/v1/auth/logout`, { method: 'POST' });
   setState('unauth');
   document.getElementById('user-email').textContent = '—';
   document.getElementById('content-panel').innerHTML = '';
