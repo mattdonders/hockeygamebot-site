@@ -539,6 +539,9 @@
       <div class="modal-section-label">Goals</div>
       ${goalsHtml}
     </div>
+    <div style="padding:16px 20px 20px;text-align:center">
+      <a href="/games/${gameId}" style="display:inline-flex;align-items:center;gap:6px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-56);border:1px solid var(--ink-14);padding:7px 16px;text-decoration:none;transition:color 0.15s,border-color 0.15s" onmouseover="this.style.color='var(--ink)';this.style.borderColor='var(--ink-48)'" onmouseout="this.style.color='var(--ink-56)';this.style.borderColor='var(--ink-14)'">Full Game Page →</a>
+    </div>
   </div>`;
 
     // Wire chart tab buttons after innerHTML is set
