@@ -47,6 +47,11 @@ const devOnlyRoutes = {
 export default defineConfig({
   output: 'static',
   site: 'https://hockeygamebot.com',
+  redirects: {
+    '/analytics/lines':       '/stats/lines',
+    '/analytics/wowy':        '/stats/wowy',
+    '/analytics/interactive': '/stats/interactive',
+  },
   integrations: [devOnlyRoutes],
   vite: {
     server: {
