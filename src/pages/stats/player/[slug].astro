@@ -24,11 +24,12 @@ export async function getStaticPaths() {
   rapmAll.forEach((p, i) => { const r = rapmRankMap.get(p.player_id); if (r) r.rankAll = i + 1; });
 
   function findPeers(all: PlayerSummary[], current: PlayerSummary) {
+    const curWar = (current.rapm ?? 0) * 60;
     const candidates = all
       .filter(p => p.player_id !== current.player_id && p.pos_group === current.pos_group)
-      .sort((a, b) => Math.abs(a.avg_gs_display - current.avg_gs_display) - Math.abs(b.avg_gs_display - current.avg_gs_display));
-    for (const band of [0.25, 0.50, 0.75]) {
-      const inBand = candidates.filter(p => Math.abs(p.avg_gs_display - current.avg_gs_display) <= band);
+      .sort((a, b) => Math.abs((a.rapm ?? 0) * 60 - curWar) - Math.abs((b.rapm ?? 0) * 60 - curWar));
+    for (const band of [2, 5, 10]) {
+      const inBand = candidates.filter(p => Math.abs((p.rapm ?? 0) * 60 - curWar) <= band);
       if (inBand.length >= 3) return inBand.slice(0, 4);
     }
     return candidates.slice(0, 4);
@@ -177,6 +178,8 @@ const pctBars = [
 
     /* Stats table */
     .stats-table { display: grid; grid-template-columns: 110px repeat(6, 1fr); border-top: 1px solid var(--ink-10); margin-top: 10px; }
+    .stat-val.war-pos { color: #14803c; }
+    .stat-val.war-neg { color: var(--red); }
     .stats-cell { padding: 8px 6px 6px; }
     .stats-cell.col-header { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); padding-bottom: 4px; border-bottom: 1px solid var(--ink-10); text-align: center; }
     .stats-cell.season-lbl { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); border-bottom: 1px solid var(--ink-06); display: flex; align-items: center; }
@@ -319,7 +322,7 @@ const pctBars = [
             <span class="badge">{player.team_abbrev}</span>
             <span class="badge">{player.pos}</span>
             <span class="badge">{posLabel}</span>
-            <span class="badge">#{rankInfo.rank} of {rankInfo.total} {posPlural}</span>
+            {rapmRank && <span class="badge">#{rapmRank.rankPos} WAR · {posPlural}</span>}
           </div>
           <div class="hero-name">
             <span class="first">{player.first_name}</span>
@@ -327,18 +330,20 @@ const pctBars = [
           </div>
           <div class="stats-table">
             <div class="stats-cell col-header"></div>
+            <div class="stats-cell col-header">WAR</div>
             <div class="stats-cell col-header">GP</div>
             <div class="stats-cell col-header">G</div>
             <div class="stats-cell col-header">A</div>
             <div class="stats-cell col-header">PTS</div>
-            <div class="stats-cell col-header">TOI/G</div>
             <div class="stats-cell col-header">G/60</div>
             <div class="stats-cell season-lbl">Regular</div>
+            <div class={`stats-cell stat-val${rapmNet != null ? (rapmNet >= 0 ? ' war-pos' : ' war-neg') : ''}`}>
+              {rapmNet != null ? `${sign(rapmNet)}${rapmNet.toFixed(1)}` : '—'}
+            </div>
             <div class="stats-cell stat-val">{player.gp}</div>
             <div class="stats-cell stat-val">{totalGoals}</div>
             <div class="stats-cell stat-val">{totalAssists}</div>
             <div class="stats-cell stat-val">{totalGoals + totalAssists}</div>
-            <div class="stats-cell stat-val">{fmtToi(player.toi_avg_sec)}</div>
             <div class="stats-cell stat-val">{player.rates_per_60.goals.toFixed(2)}</div>
           </div>
         </div>
@@ -466,7 +471,7 @@ const pctBars = [
           <span class="cta-fmt">Game Log</span>
           <span class="cta-fmt">With / Without</span>
         </div>
-        <button class="cta-btn" disabled>Coming Soon</button>
+        <a href={`/cards?player=${player.player_id}`} class="cta-btn">Generate Card →</a>
         <div class="cta-note">3 free per day · Unlimited with Patreon</div>
       </div>
 
