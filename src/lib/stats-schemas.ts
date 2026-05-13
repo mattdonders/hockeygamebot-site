@@ -174,6 +174,27 @@ export const GoalieGameSchema = z.object({
   gsax: z.number(),
 });
 
+export const GoalieBinSchema = z.object({
+  xg_bin:        z.number().int(),
+  bin_label:     z.string(),
+  sa:            z.number().int().nonnegative(),
+  ga:            z.number().int().nonnegative(),
+  expected_ga:   z.number(),
+  gsax:          z.number(),
+  sv_pct:        z.number().nullable(),
+  league_sv_pct: z.number(),
+});
+
+export const GoalieTypeSchema = z.object({
+  shot_type_group: z.string(),
+  sa:              z.number().int().nonnegative(),
+  ga:              z.number().int().nonnegative(),
+  expected_ga:     z.number(),
+  gsax:            z.number(),
+  sv_pct:          z.number(),
+  league_sv_pct:   z.number(),
+});
+
 export const GoalieRecordSchema = z.object({
   goalie_id:   z.number().int(),
   name:        z.string(),
@@ -186,10 +207,14 @@ export const GoalieRecordSchema = z.object({
   sa_5v5: z.number().int().nonnegative(),
   ga_5v5: z.number().int().nonnegative(),
   games: z.array(GoalieGameSchema),
+  bins:  z.array(GoalieBinSchema).optional().default([]),
+  types: z.array(GoalieTypeSchema).optional().default([]),
 });
 
 export const GoaliesSchema = z.array(GoalieRecordSchema);
 export type GoalieGame   = z.infer<typeof GoalieGameSchema>;
+export type GoalieBin    = z.infer<typeof GoalieBinSchema>;
+export type GoalieType   = z.infer<typeof GoalieTypeSchema>;
 export type GoalieRecord = z.infer<typeof GoalieRecordSchema>;
 
 // ── Meta (_meta.json) ───────────────────────────────────────────────────────
