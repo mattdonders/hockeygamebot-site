@@ -375,22 +375,27 @@ function formatShort(iso: string): string {
   const d = parseDate(iso);
   return `${MON_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
+// Local timezone abbreviation for display next to game times
+const _localTZ = (() => {
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+      .formatToParts(new Date())
+      .find(p => p.type === 'timeZoneName')?.value ?? '';
+  } catch { return ''; }
+})();
+
 function formatGameTime(utcStr: string): string {
   if (!utcStr) return '';
   try {
-    const d = new Date(utcStr);
-    const h = d.getUTCHours(), m = d.getUTCMinutes();
-    // Convert to ET (UTC-4 in summer)
-    const etH = ((h - 4) + 24) % 24;
-    const ampm = etH >= 12 ? 'PM' : 'AM';
-    const h12 = etH % 12 || 12;
-    return `${h12}:${m.toString().padStart(2,'0')} ${ampm}`;
+    return new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    }).format(new Date(utcStr));
   } catch { return ''; }
 }
 
 // ── fetch ─────────────────────────────────────────────────────
 type Team = { abbrev: string; name: string; short_name: string; score: number };
-type Game = { game_id: string; status: string; period: number; start_time: string; home_team: Team; away_team: Team; xg_home?: number; xg_away?: number };
+type Game = { game_id: string; status: string; period: number; last_period_type?: string | null; start_time: string; home_team: Team; away_team: Team; xg_home?: number; xg_away?: number };
 
 async function fetchDate(date: string): Promise<{ date: string; games: Game[] }> {
   try {
@@ -412,6 +417,11 @@ async function loadWeek(anchorDate: string): Promise<{ date: string; games: Game
 // ── status helpers ────────────────────────────────────────────
 function statusLabel(game: Game): string {
   if (game.status === 'final') {
+    // last_period_type from NHL API is authoritative for past games
+    const lpt = game.last_period_type;
+    if (lpt === 'SO') return 'FINAL/SO';
+    if (lpt === 'OT') return 'FINAL/OT';
+    // Fallback: use period from D1 game_state (bot-tracked games)
     const p = game.period ?? 3;
     if (p >= 5) return 'FINAL/SO';
     if (p >= 4) return 'FINAL/OT';
@@ -462,7 +472,7 @@ function renderGame(g: Game): string {
     scoreHtml = `
       <div class="time-only">
         <div class="time-val">${t || 'TBD'}</div>
-        <div class="time-tz">ET</div>
+        <div class="time-tz">${_localTZ}</div>
       </div>`;
   }
 
