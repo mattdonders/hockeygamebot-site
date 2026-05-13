@@ -160,8 +160,8 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 .str-sh { background: rgba(59,130,246,0.15); color: #1e3a5f; }
 .str-en { background: rgba(13,13,20,0.08); color: var(--ink-56); }
 .goal-score { font-family: var(--mono); font-size: 11px; color: var(--ink-48); font-variant-numeric: tabular-nums; }
-.video-link { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--red); opacity: 0.8; transition: opacity 0.15s; display: inline-flex; align-items: center; gap: 3px; }
-.video-link:hover { opacity: 1; }
+.video-link { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--red); opacity: 0.85; transition: opacity 0.15s; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px solid rgba(232,0,45,0.25); background: rgba(232,0,45,0.04); }
+.video-link:hover { opacity: 1; background: rgba(232,0,45,0.08); }
 .wp-swing { font-family: var(--mono); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .wp-swing.pos { color: var(--green); }
 .wp-swing.neg { color: var(--red); }
@@ -174,11 +174,13 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 .player-team-label { font-family: var(--display); font-weight: 800; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-48); }
 table.ps { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.ps thead tr { border-bottom: 1px solid var(--ink-14); }
-table.ps th { padding: 6px 8px; font-family: var(--display); font-weight: 700; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-32); white-space: nowrap; cursor: pointer; user-select: none; }
+table.ps th { padding: 6px 8px; font-family: var(--display); font-weight: 700; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-32); white-space: nowrap; cursor: pointer; user-select: none; text-align: center; }
+table.ps th:nth-child(2) { text-align: left; }
 table.ps th:hover { color: var(--ink); }
 table.ps th.sort-asc::after { content: " ↑"; }
 table.ps th.sort-desc::after { content: " ↓"; }
-table.ps td { padding: 6px 8px; border-bottom: 1px solid var(--ink-04); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.ps td { padding: 6px 8px; border-bottom: 1px solid var(--ink-04); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: center; }
+table.ps td:nth-child(2) { text-align: left; }
 table.ps tr:last-child td { border-bottom: none; }
 table.ps tbody tr:hover { background: var(--ink-04); }
 .ps-name { font-family: var(--body); font-weight: 600; font-size: 12px; }
@@ -189,10 +191,10 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .ps-divider { padding: 5px 8px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-top: 1px solid var(--ink-14); }
 
 /* ── SHOT MAP ── */
-.shot-map-outer { position: relative; background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; }
+.shot-map-outer { position: relative; background: #EBF3F8; border: 1px solid var(--ink-14); overflow: hidden; }
 .shot-map-svg { width: 100%; display: block; }
-.shot-map-legend { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; padding: 10px 14px; border-top: 1px solid var(--ink-06); font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; }
-.shot-map-legend-team { display: flex; align-items: center; gap: 10px; }
+.shot-map-legend { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: center; padding: 10px 14px; border-top: 1px solid rgba(13,13,20,0.08); font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; background: var(--surface); }
+.shot-map-legend-team { display: flex; align-items: center; gap: 8px; }
 .sml-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .sml-sep { width: 1px; height: 12px; background: var(--ink-14); }
 .sml-key { display: flex; align-items: center; gap: 5px; }
@@ -574,7 +576,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     const ctx = document.getElementById('mast-context');
     if (ctx) {
       const gt = boxscore.gameType;
-      ctx.textContent = gt === 3 ? '2025 Stanley Cup Playoffs' : gt === 1 ? '2025-26 Preseason' : '2025-26 Regular Season';
+      ctx.textContent = gt === 3 ? '2026 Stanley Cup Playoffs' : gt === 1 ? '2025-26 Preseason' : '2025-26 Regular Season';
     }
 
     document.getElementById('away-logo').src = logoUrl(awayAbbr);
@@ -1145,9 +1147,18 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 
     const markers = shots.map((ev, i) => {
       const d = ev.payload?.details || {};
-      const x = toX(d.xCoord).toFixed(1);
-      const y = toY(d.yCoord).toFixed(1);
       const isHome = ev.event_team_id != null && String(ev.event_team_id) === String(ev.home_team_id);
+      const period = ev.period || 1;
+
+      // Normalize coordinates so home shots always appear on +x (right) half,
+      // away shots on -x (left) half.
+      // P1/P3/OT-odd: home attacks +x. P2/OT-even: home attacks -x.
+      const homeAttacksRight = (period % 2 === 1);
+      const needsFlip = (isHome && !homeAttacksRight) || (!isHome && homeAttacksRight);
+      const nx = needsFlip ? -d.xCoord : d.xCoord;
+      const ny = needsFlip ? -d.yCoord : d.yCoord;
+      const x = toX(nx).toFixed(1);
+      const y = toY(ny).toFixed(1);
       const color = isHome ? homeColor : awayColor;
       const abbr  = isHome ? homeAbbr : awayAbbr;
       const type  = ev.event_type;
@@ -1194,25 +1205,31 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     svg.innerHTML = rink + markers;
 
     // ── Legend ───────────────────────────────────────────────────────────────
-    const awayCount = shots.filter(ev => String(ev.event_team_id) !== String(ev.home_team_id)).length;
-    const homeCount = shots.length - awayCount;
-    const awayGoals = shots.filter(ev => ev.event_type === 'GOAL' && String(ev.event_team_id) !== String(ev.home_team_id)).length;
-    const homeGoals = shots.filter(ev => ev.event_type === 'GOAL' && String(ev.event_team_id) === String(ev.home_team_id)).length;
+    const isAway = ev => String(ev.event_team_id) !== String(ev.home_team_id);
+    const awayAttempts = shots.filter(ev => isAway(ev)).length;
+    const homeAttempts = shots.length - awayAttempts;
+    const awaySog   = shots.filter(ev => isAway(ev)  && (ev.event_type === 'SHOT_ON_GOAL' || ev.event_type === 'GOAL')).length;
+    const homeSog   = shots.filter(ev => !isAway(ev) && (ev.event_type === 'SHOT_ON_GOAL' || ev.event_type === 'GOAL')).length;
+    const awayGoals = shots.filter(ev => isAway(ev)  && ev.event_type === 'GOAL').length;
+    const homeGoals = shots.filter(ev => !isAway(ev) && ev.event_type === 'GOAL').length;
 
     document.getElementById('shot-map-legend').innerHTML = `
       <div class="shot-map-legend-team">
         <div class="sml-dot" style="background:${awayColor}"></div>
-        <span>${esc(awayAbbr)} · ${awayCount} attempts · ${awayGoals}G</span>
-      </div>
-      <div class="shot-map-legend-team">
-        <div class="sml-dot" style="background:${homeColor}"></div>
-        <span>${esc(homeAbbr)} · ${homeCount} attempts · ${homeGoals}G</span>
+        <span style="color:${awayColor};font-weight:600">${esc(awayAbbr)}</span>
+        <span>${awayAttempts} att · ${awaySog} SOG · ${awayGoals}G</span>
       </div>
       <div class="sml-sep"></div>
-      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="4.5" fill="#666" stroke="#fff" stroke-width="1.5"/></svg> Goal</div>
-      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" fill="#666" fill-opacity="0.75"/></svg> Shot on goal</div>
-      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" fill="none" stroke="#666" stroke-width="1.2"/></svg> Missed</div>
-      <div class="sml-key"><svg width="10" height="10"><line x1="2" y1="2" x2="8" y2="8" stroke="#666" stroke-width="1.5"/><line x1="8" y1="2" x2="2" y2="8" stroke="#666" stroke-width="1.5"/></svg> Blocked</div>
+      <div class="shot-map-legend-team">
+        <div class="sml-dot" style="background:${homeColor}"></div>
+        <span style="color:${homeColor};font-weight:600">${esc(homeAbbr)}</span>
+        <span>${homeAttempts} att · ${homeSog} SOG · ${homeGoals}G</span>
+      </div>
+      <div class="sml-sep"></div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="4.5" fill="#888" stroke="#fff" stroke-width="1.5"/></svg> Goal</div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" fill="#888" fill-opacity="0.75"/></svg> SOG</div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" fill="none" stroke="#888" stroke-width="1.2"/></svg> Missed</div>
+      <div class="sml-key"><svg width="10" height="10"><line x1="2" y1="2" x2="8" y2="8" stroke="#888" stroke-width="1.5"/><line x1="8" y1="2" x2="2" y2="8" stroke="#888" stroke-width="1.5"/></svg> Blocked</div>
     `;
 
     // ── Tooltip ──────────────────────────────────────────────────────────────
@@ -1284,7 +1301,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     }
 
     // Sort state per team card: { col, dir }
-    const sortState = { away: { col: 'toi', dir: -1 }, home: { col: 'toi', dir: -1 } };
+    const sortState = { away: { col: 'ixg', dir: -1 }, home: { col: 'ixg', dir: -1 } };
 
     function toiToSecs(toi) {
       if (!toi) return 0;
