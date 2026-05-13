@@ -168,17 +168,18 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 .gvp-overlay { position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; }
 .gvp-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.75); }
 .gvp-panel { position: relative; z-index: 1; background: #111; border-radius: 8px; width: 100%; max-width: 620px; overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
-.gvp-close { position: absolute; top: 10px; right: 12px; background: none; border: none; color: rgba(255,255,255,0.5); font-size: 20px; cursor: pointer; line-height: 1; z-index: 2; padding: 4px 8px; transition: color 0.15s; }
+.gvp-header { display: flex; align-items: stretch; background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.08); min-height: 38px; }
+.gvp-tabs-bar { flex: 1; display: flex; }
+.gvp-tab-btn { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; padding: 0 16px; height: 38px; border: none; border-bottom: 2px solid transparent; background: none; color: rgba(255,255,255,0.4); cursor: pointer; transition: color 0.15s; }
+.gvp-tab-btn.active { color: #fff; border-bottom-color: #fff; }
+.gvp-close { flex-shrink: 0; background: none; border: none; color: rgba(255,255,255,0.4); font-size: 18px; cursor: pointer; padding: 0 16px; line-height: 38px; transition: color 0.15s; }
 .gvp-close:hover { color: #fff; }
-.gvp-tabs-bar { display: flex; background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.08); }
-.gvp-tab-btn { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; padding: 8px 16px; border: none; background: none; color: rgba(255,255,255,0.4); cursor: pointer; transition: color 0.15s; }
-.gvp-tab-btn.active { color: #fff; border-bottom: 2px solid #fff; margin-bottom: -1px; }
 .gvp-media { background: #000; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; }
 .gvp-media video, .gvp-media iframe { width: 100%; height: 100%; display: block; border: none; }
 .gvp-info { padding: 14px 18px 16px; }
 .gvp-scorer-line { font-family: var(--display); font-weight: 700; font-size: 14px; color: #fff; letter-spacing: 0.04em; }
 .gvp-wp-line { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 4px; letter-spacing: 0.04em; }
-.gvp-wp-delta { font-weight: 700; color: var(--green); margin-left: 6px; }
+.gvp-wp-delta { font-weight: 700; margin-left: 6px; }
 
 /* ── FOOTER ── */
 .foot { margin-top: 48px; border-top: 1px solid var(--ink-14); padding: 24px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
@@ -354,10 +355,12 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 <div id="gvp" class="gvp-overlay" style="display:none" aria-modal="true" role="dialog">
   <div class="gvp-backdrop" id="gvp-backdrop"></div>
   <div class="gvp-panel">
-    <button class="gvp-close" id="gvp-close" aria-label="Close">✕</button>
-    <div class="gvp-tabs-bar" id="gvp-tabs" style="display:none">
-      <button class="gvp-tab-btn active" data-gvp-tab="gif">HGB GIF</button>
-      <button class="gvp-tab-btn" data-gvp-tab="highlight">NHL Highlight</button>
+    <div class="gvp-header">
+      <div class="gvp-tabs-bar" id="gvp-tabs" style="display:none">
+        <button class="gvp-tab-btn active" data-gvp-tab="gif">HGB GIF</button>
+        <button class="gvp-tab-btn" data-gvp-tab="highlight">NHL Highlight</button>
+      </div>
+      <button class="gvp-close" id="gvp-close" aria-label="Close">✕</button>
     </div>
     <div class="gvp-media">
       <video id="gvp-video" controls autoplay playsinline style="display:none"></video>
@@ -662,64 +665,89 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       <text x="4" y="${(H-PAD+5).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${awayColor}" fill-opacity="0.75">${esc(awayAbbr)}</text>`;
   }
 
-  // ── xG Step Chart ───────────────────────────────────────────────────────────
+  // ── xG Step Chart (5v5, built from events endpoint) ─────────────────────────
 
-  function renderXgChart(flow, homeColor, awayColor, homeAbbr, awayAbbr) {
+  function renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr) {
     const svg    = document.getElementById('xg-chart');
     const noData = document.getElementById('xg-no-data');
-    const xgPts  = (flow.points || [])
-      .filter(p => p.xg_home != null && p.xg_away != null && p.t != null)
-      .sort((a, b) => a.t - b.t);
 
-    if (xgPts.length < 2) { svg.style.display = 'none'; noData.style.display = ''; return; }
+    function toGameSecs(period, tip) {
+      if (!tip || !period) return null;
+      const ci = tip.indexOf(':');
+      if (ci === -1) return null;
+      const m = parseInt(tip.slice(0, ci), 10), s = parseInt(tip.slice(ci + 1), 10);
+      if (isNaN(m) || isNaN(s)) return null;
+      const e = m * 60 + s;
+      return period <= 3 ? (period - 1) * 1200 + e : 3600 + (period - 4) * 300 + e;
+    }
+
+    const homeShots = [], awayShots = [];
+    for (const ev of (eventsData?.events || [])) {
+      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'MISSED_SHOT' && ev.event_type !== 'GOAL') continue;
+      if (ev.payload?.situationCode !== '1551') continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const t = toGameSecs(ev.period, ev.payload?.timeInPeriod);
+      if (t === null) continue;
+      const isHome = ev.event_team_id != null && String(ev.event_team_id) === String(ev.home_team_id);
+      (isHome ? homeShots : awayShots).push({ t, xg });
+    }
+    homeShots.sort((a, b) => a.t - b.t);
+    awayShots.sort((a, b) => a.t - b.t);
+
+    if (!homeShots.length && !awayShots.length) { svg.style.display = 'none'; noData.style.display = ''; return; }
+
+    function buildCum(shots) {
+      let c = 0; const r = [{ t: 0, c: 0 }];
+      for (const s of shots) { c += s.xg; r.push({ t: s.t, c }); }
+      return r;
+    }
+    const homeCum = buildCum(homeShots);
+    const awayCum = buildCum(awayShots);
+
+    const homeTotal = homeCum[homeCum.length - 1]?.c ?? 0;
+    const awayTotal = awayCum[awayCum.length - 1]?.c ?? 0;
+    const rawMax = Math.max(homeTotal, awayTotal, 0.5);
+    const yMax = Math.ceil(rawMax * 2) / 2 + 0.3;
+
+    // Derive tMax from flow points so period dividers cover the full game
+    const flowPts = (flow.points || []).filter(p => p.t != null);
+    const tMax = flowPts.length
+      ? Math.max(...flowPts.map(p => p.t))
+      : Math.max(...homeShots.map(s => s.t), ...awayShots.map(s => s.t), 3600);
 
     const W = 840, H = 220;
     const PAD = { l: 34, r: 16, t: 14, b: 24 };
     const cW = W - PAD.l - PAD.r;
     const cH = H - PAD.t - PAD.b;
-    const maxT   = Math.max(...xgPts.map(p => p.t));
-    const maxXg  = Math.max(...xgPts.map(p => Math.max(p.xg_home, p.xg_away)));
-    const yMax   = Math.ceil(maxXg) + 0.5;
-
-    const cx = t  => PAD.l + (t / maxT) * cW;
+    const cx = t  => PAD.l + (t / tMax) * cW;
     const cy = xg => PAD.t + (1 - xg / yMax) * cH;
 
-    function stepPath(vals) {
-      if (!vals.length) return '';
-      let d = `M${cx(vals[0].t).toFixed(1)},${cy(vals[0].v).toFixed(1)}`;
-      for (let i = 1; i < vals.length; i++) {
-        d += ` H${cx(vals[i].t).toFixed(1)} V${cy(vals[i].v).toFixed(1)}`;
+    function stepPath(pts) {
+      if (!pts.length) return '';
+      let d = `M${cx(0).toFixed(1)},${cy(0).toFixed(1)}`;
+      for (let i = 1; i < pts.length; i++) {
+        d += ` H${cx(pts[i].t).toFixed(1)} V${cy(pts[i].c).toFixed(1)}`;
       }
+      d += ` H${cx(tMax).toFixed(1)}`;
       return d;
     }
 
-    // Only keep points where xG actually changed (filter out non-shot events)
-    const homePts = xgPts
-      .map(p => ({ t: p.t, v: p.xg_home }))
-      .filter((p, i, a) => i === 0 || p.v !== a[i - 1].v);
-    const awayPts = xgPts
-      .map(p => ({ t: p.t, v: p.xg_away }))
-      .filter((p, i, a) => i === 0 || p.v !== a[i - 1].v);
-
     const yTicks = [];
-    for (let v = 0; v <= Math.ceil(maxXg); v++) yTicks.push(v);
+    for (let v = 0; v <= Math.ceil(rawMax); v++) yTicks.push(v);
 
-    const periodLines = [1200, 2400, 3600].filter(t => t < maxT);
+    const periodLines = [1200, 2400, 3600].filter(t => t < tMax);
     const periodZones = [];
-    if (maxT > 1200) periodZones.push({ x: cx(1200) + 3, label: 'P2' });
-    if (maxT > 2400) periodZones.push({ x: cx(2400) + 3, label: 'P3' });
-    if (maxT > 3600) periodZones.push({ x: cx(3600) + 3, label: 'OT' });
+    if (tMax > 1200) periodZones.push({ x: cx(1200) + 3, label: 'P2' });
+    if (tMax > 2400) periodZones.push({ x: cx(2400) + 3, label: 'P3' });
+    if (tMax > 3600) periodZones.push({ x: cx(3600) + 3, label: 'OT' });
 
-    const goalDots = (flow.goals || []).filter(g => g.t <= maxT).map(g => {
-      const xgAtGoal = g.is_home
-        ? xgPts.slice().reverse().find(p => p.t <= g.t)?.xg_home ?? 0
-        : xgPts.slice().reverse().find(p => p.t <= g.t)?.xg_away ?? 0;
+    function cumAt(pts, t) { let v = 0; for (const p of pts) { if (p.t > t) break; v = p.c; } return v; }
+    const goalDots = (flow.goals || []).filter(g => g.t >= 0 && g.t <= tMax).map(g => {
+      const cum = cumAt(g.is_home ? homeCum : awayCum, g.t);
       const color = g.is_home ? homeColor : awayColor;
-      return `<circle cx="${cx(g.t).toFixed(1)}" cy="${cy(xgAtGoal).toFixed(1)}" r="3.5" fill="${color}" stroke="#fff" stroke-width="1.2"/>`;
+      return `<circle cx="${cx(g.t).toFixed(1)}" cy="${cy(cum).toFixed(1)}" r="3.5" fill="${color}" stroke="#fff" stroke-width="1.2"/>`;
     }).join('');
-
-    const lastHome = homePts[homePts.length - 1]?.v ?? 0;
-    const lastAway = awayPts[awayPts.length - 1]?.v ?? 0;
 
     svg.innerHTML = `
       ${yTicks.map(v => {
@@ -728,13 +756,13 @@ table.goals tbody tr:hover { background: var(--ink-04); }
                 <text x="${(PAD.l - 5).toFixed(1)}" y="${(parseFloat(y) + 4).toFixed(1)}" text-anchor="end" font-family="'JetBrains Mono',monospace" font-size="9" fill="rgba(13,13,20,0.45)">${v}</text>`;
       }).join('')}
       ${periodLines.map(t => `<line x1="${cx(t).toFixed(1)}" y1="${PAD.t}" x2="${cx(t).toFixed(1)}" y2="${PAD.t + cH}" stroke="rgba(13,13,20,0.07)" stroke-width="1" stroke-dasharray="4,3"/>`).join('')}
-      <path d="${stepPath(awayPts)}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="${stepPath(homePts)}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="${stepPath(awayPts)}" fill="none" stroke="${awayColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="${stepPath(homePts)}" fill="none" stroke="${homeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${stepPath(awayCum)}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${stepPath(homeCum)}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${stepPath(awayCum)}" fill="none" stroke="${awayColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${stepPath(homeCum)}" fill="none" stroke="${homeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
       ${goalDots}
       ${periodZones.map(z => `<text x="${z.x}" y="${(PAD.t + 10).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="9" fill="rgba(13,13,20,0.28)" letter-spacing="0.08em">${z.label}</text>`).join('')}
-      `;
+    `;
   }
 
   // ── Goal log with WP SWING ───────────────────────────────────────────────────
@@ -770,8 +798,10 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       const wpBefore = swing != null
         ? ([...pts].filter(p => p.wp != null && p.t < g.t).reverse()[0]?.wp ?? null)
         : null;
+      // _wpBefore/_wpAfter are from home team's perspective (matches the WP chart)
       const wpAfter = wpBefore != null && swing != null ? wpBefore + (g.is_home ? swing : -swing) : null;
-      return { ...g, _wpBefore: wpBefore, _wpAfter: wpAfter };
+      // _swing is from SCORING team's perspective (always positive when scoring team gains)
+      return { ...g, _swing: swing, _wpBefore: wpBefore, _wpAfter: wpAfter };
     });
 
     const hasWp = pts.some(p => p.wp != null);
@@ -849,32 +879,34 @@ table.goals tbody tr:hover { background: var(--ink-04); }
     const assists = (g.assists || []).join(', ');
     scorer.textContent = g.scorer ? (assists ? `${g.scorer} · ${assists}` : g.scorer) : 'Goal';
 
-    // WP swing info
-    if (g._wpBefore != null && g._wpAfter != null) {
-      const delta = ((g._wpAfter - g._wpBefore) * 100).toFixed(1);
-      const sign  = delta >= 0 ? '+' : '';
-      wpEl.innerHTML = `Win probability: <strong>${(g._wpBefore * 100).toFixed(1)}%</strong> → <strong>${(g._wpAfter * 100).toFixed(1)}%</strong><span class="gvp-wp-delta">${sign}${delta}%</span>`;
+    // WP swing — show from scoring team's perspective (matches goal log)
+    if (g._swing != null && g._wpBefore != null && g._wpAfter != null) {
+      const swingPct = (g._swing * 100).toFixed(1);
+      const sign     = g._swing >= 0 ? '+' : '';
+      const color    = g._swing >= 0 ? 'var(--green)' : 'var(--red)';
+      wpEl.innerHTML = `Win probability (home): <strong>${(g._wpBefore * 100).toFixed(1)}%</strong> → <strong>${(g._wpAfter * 100).toFixed(1)}%</strong><span class="gvp-wp-delta" style="color:${color}">${sign}${swingPct}%</span>`;
     } else {
       wpEl.textContent = '';
     }
 
     // Tabs — only when both sources available
     tabs.style.display = hasBoth ? 'flex' : 'none';
-    tabs.querySelectorAll('.gvp-tab-btn').forEach(b => b.classList.remove('active'));
 
     function showGif() {
+      tabs.querySelectorAll('.gvp-tab-btn').forEach(b => b.classList.remove('active'));
+      tabs.querySelector('[data-gvp-tab="gif"]')?.classList.add('active');
       video.src = g.goal_video_url;
       video.style.display = 'block';
       iframe.style.display = 'none';
       iframe.src = '';
-      tabs.querySelector('[data-gvp-tab="gif"]')?.classList.add('active');
     }
     function showHighlight() {
+      tabs.querySelectorAll('.gvp-tab-btn').forEach(b => b.classList.remove('active'));
+      tabs.querySelector('[data-gvp-tab="highlight"]')?.classList.add('active');
       iframe.src = `${BRIGHTCOVE}?videoId=${g.highlight_clip_id}&autoplay=true`;
       iframe.style.display = 'block';
       video.style.display = 'none';
       video.src = '';
-      tabs.querySelector('[data-gvp-tab="highlight"]')?.classList.add('active');
     }
 
     // Default: prefer GIF (our content), fall back to Brightcove
@@ -905,25 +937,27 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 
   // ── Three stars — OFF state only ─────────────────────────────────────────────
 
-  function renderThreeStars(boxscore) {
-    const stars = boxscore.threeStars;
-    if (!stars || !stars.length) return;
+  function renderThreeStars(threeStars) {
+    if (!threeStars || !threeStars.length) return;
 
     const starColors = ['#F59E0B', '#94A3B8', '#92400e'];
 
-    const cards = stars.slice(0, 3).map((s, i) => {
+    const cards = threeStars.slice(0, 3).map((s, i) => {
+      // D1 format: player_last_name / player_name / team_abbrev / star
+      const name = s.player_last_name || s.player_name || s.name?.default || '';
+      const team = s.team_abbrev || s.teamAbbrev || '';
+
       const statLine = [
-        s.goals    != null ? `${s.goals}G`   : null,
-        s.assists  != null ? `${s.assists}A`  : null,
-        s.saves    != null ? `${s.saves} SV`  : null,
+        s.goals    != null ? `${s.goals}G`    : null,
+        s.assists  != null ? `${s.assists}A`   : null,
+        s.saves    != null ? `${s.saves} SV`   : null,
         s.savePctg != null ? `${(s.savePctg * 100).toFixed(1)}%` : null,
-        s.toi      ? `${s.toi} TOI` : null,
       ].filter(Boolean).join(' · ');
 
       return `<div class="star-card">
         <div class="star-rank"><span style="color:${starColors[i]}">★</span> ${i + 1}${['st','nd','rd'][i]} Star</div>
-        <div class="star-name">${esc(s.name || s.firstName?.default || '')} ${esc(s.lastName?.default || '')}</div>
-        <div class="star-team">${esc(s.teamAbbrev || '')}</div>
+        <div class="star-name">${esc(name)}</div>
+        <div class="star-team">${esc(team)}</div>
         ${statLine ? `<div class="star-stat-line">${esc(statLine)}</div>` : ''}
       </div>`;
     }).join('');
@@ -935,7 +969,7 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 
   // ── Main render ─────────────────────────────────────────────────────────────
 
-  function renderGame(boxscore, flow, state) {
+  function renderGame(boxscore, flow, eventsData, state) {
     const { awayAbbr, homeAbbr, awayColor, homeColor, awayScore, homeScore } =
       renderHeader(boxscore, state);
 
@@ -945,14 +979,15 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       document.getElementById('section-game-body').style.display = '';
       renderStats(flow, boxscore, awayAbbr, homeAbbr, awayColor, homeColor);
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
-      renderXgChart(flow, homeColor, awayColor, homeAbbr, awayAbbr);
+      renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
       renderGoals(flow, homeAbbr, awayAbbr);
 
       if (state === 'live') {
         document.getElementById('refresh-indicator').style.display = 'flex';
-        document.getElementById('chart-section-meta').textContent = 'HGB xG model · 5v5 · live';
+        document.getElementById('chart-section-meta').textContent = '5v5 · HGB xG model · live';
       } else {
-        renderThreeStars(boxscore);
+        document.getElementById('chart-section-meta').textContent = '5v5 · HGB xG model';
+        renderThreeStars(flow.three_stars);
       }
     }
   }
@@ -960,7 +995,7 @@ table.goals tbody tr:hover { background: var(--ink-04); }
   // ── Init + live-refresh ──────────────────────────────────────────────────────
 
   async function fetchAll(gameId) {
-    const EMPTY_FLOW = { points: [], goals: [] };
+    const EMPTY_FLOW = { points: [], goals: [], three_stars: null };
     let boxscoreRes;
     try {
       boxscoreRes = await fetch(`${HGB_API}/v1/games/${gameId}/boxscore`);
@@ -969,9 +1004,13 @@ table.goals tbody tr:hover { background: var(--ink-04); }
     }
     if (!boxscoreRes.ok) throw new Error(`Game ${gameId} not found (HTTP ${boxscoreRes.status})`);
     const boxscore = await boxscoreRes.json();
-    const flowRes = await fetch(`${HGB_API}/v1/games/${gameId}/flow`).catch(() => null);
+    const [flowRes, eventsRes] = await Promise.all([
+      fetch(`${HGB_API}/v1/games/${gameId}/flow`).catch(() => null),
+      fetch(`${HGB_API}/v1/games/${gameId}/events?sort=asc`).catch(() => null),
+    ]);
     const flow = flowRes?.ok ? await flowRes.json().catch(() => EMPTY_FLOW) : EMPTY_FLOW;
-    return { boxscore, flow };
+    const eventsData = eventsRes?.ok ? await eventsRes.json().catch(() => null) : null;
+    return { boxscore, flow, eventsData };
   }
 
   async function init() {
@@ -985,10 +1024,10 @@ table.goals tbody tr:hover { background: var(--ink-04); }
     }
 
     try {
-      const { boxscore, flow } = await fetchAll(gameId);
+      const { boxscore, flow, eventsData } = await fetchAll(gameId);
       const state = gameState(boxscore.gameState);
 
-      renderGame(boxscore, flow, state);
+      renderGame(boxscore, flow, eventsData, state);
 
       document.getElementById('loading-state').style.display = 'none';
       document.getElementById('game-content').style.display = 'block';
@@ -996,9 +1035,9 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       if (state === 'live') {
         const interval = setInterval(async () => {
           try {
-            const { boxscore: bs, flow: fl } = await fetchAll(gameId);
+            const { boxscore: bs, flow: fl, eventsData: ev } = await fetchAll(gameId);
             const newState = gameState(bs.gameState);
-            renderGame(bs, fl, newState);
+            renderGame(bs, fl, ev, newState);
             if (newState !== 'live') {
               clearInterval(interval);
               document.getElementById('refresh-indicator').style.display = 'none';
