@@ -188,6 +188,20 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .ps-ixg { font-family: var(--mono); font-size: 11px; font-weight: 600; }
 .ps-divider { padding: 5px 8px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-top: 1px solid var(--ink-14); }
 
+/* ── SHOT MAP ── */
+.shot-map-outer { position: relative; background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; }
+.shot-map-svg { width: 100%; display: block; }
+.shot-map-legend { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; padding: 10px 14px; border-top: 1px solid var(--ink-06); font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; }
+.shot-map-legend-team { display: flex; align-items: center; gap: 10px; }
+.sml-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.sml-sep { width: 1px; height: 12px; background: var(--ink-14); }
+.sml-key { display: flex; align-items: center; gap: 5px; }
+/* Tooltip */
+#shot-tooltip { position: fixed; pointer-events: none; z-index: 200; background: #0d0d14; color: #fff; border-radius: 4px; padding: 8px 11px; font-family: var(--mono); font-size: 11px; line-height: 1.5; letter-spacing: 0.02em; box-shadow: 0 4px 16px rgba(0,0,0,0.35); display: none; max-width: 200px; }
+#shot-tooltip .stt-player { font-family: var(--display); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; margin-bottom: 3px; }
+#shot-tooltip .stt-xg { font-weight: 600; }
+#shot-tooltip .stt-meta { color: rgba(255,255,255,0.5); font-size: 10px; margin-top: 2px; }
+
 /* ── FROM THE BOT (cards + posts) ── */
 .bot-row-label { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px; }
 .hscroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px; scrollbar-width: thin; scrollbar-color: var(--ink-20) transparent; -webkit-overflow-scrolling: touch; }
@@ -398,6 +412,18 @@ table.ps tbody tr:hover { background: var(--ink-04); }
         <div id="goals-container"></div>
       </div>
 
+      <!-- SHOT MAP -->
+      <div class="section" id="section-shotmap" style="display:none">
+        <div class="section-head">
+          <h2 class="section-title">Shot <span class="accent">Map</span></h2>
+          <span class="section-meta" id="shotmap-meta">All situations · HGB xG model</span>
+        </div>
+        <div class="shot-map-outer">
+          <svg id="shot-map-svg" class="shot-map-svg" viewBox="0 0 800 340" preserveAspectRatio="xMidYMid meet"></svg>
+          <div class="shot-map-legend" id="shot-map-legend"></div>
+        </div>
+      </div>
+
       <!-- PLAYER STATS -->
       <div class="section" id="section-player-stats" style="display:none">
         <div class="section-head">
@@ -434,7 +460,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       <!-- PHASE 2 PLACEHOLDER -->
       <div class="section" id="section-coming-soon" style="padding-bottom:48px">
         <div class="no-data-msg" style="color:var(--ink-32);font-family:var(--mono);font-size:11px;letter-spacing:0.06em">
-          Shot map · Phase 2
+          On-ice xGF/xGA · Phase 2
         </div>
       </div>
 
@@ -463,6 +489,13 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       <div class="gvp-wp-line" id="gvp-wp"></div>
     </div>
   </div>
+</div>
+
+<!-- SHOT TOOLTIP -->
+<div id="shot-tooltip" role="tooltip">
+  <div class="stt-player" id="stt-player"></div>
+  <div class="stt-xg" id="stt-xg"></div>
+  <div class="stt-meta" id="stt-meta"></div>
 </div>
 
 <footer class="foot">
@@ -1036,6 +1069,189 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     document.body.style.overflow = '';
   }
 
+  // ── Shot Map ────────────────────────────────────────────────────────────────
+
+  function renderShotMap(eventsData, flow, awayAbbr, homeAbbr, awayColor, homeColor) {
+    const SHOT_EVENTS = new Set(['SHOT_ON_GOAL', 'MISSED_SHOT', 'BLOCKED_SHOT', 'GOAL']);
+    const shots = (eventsData?.events || []).filter(ev =>
+      SHOT_EVENTS.has(ev.event_type) &&
+      ev.payload?.details?.xCoord != null &&
+      ev.payload?.details?.yCoord != null
+    );
+    if (!shots.length) return;
+
+    // NHL rink: x ∈ [-100, 100] ft, y ∈ [-42.5, 42.5] ft
+    // SVG: 800 × 340 px @ 4px/ft. Center = (400, 170).
+    const toX = x => 400 + x * 4;
+    const toY = y => 170 - y * 4;
+
+    // ── Rink background ──────────────────────────────────────────────────────
+    const rink = `
+      <rect x="0" y="0" width="800" height="340" rx="28" fill="#EBF3F8"/>
+      <rect x="0" y="0" width="800" height="340" rx="28" fill="none" stroke="rgba(13,13,20,0.15)" stroke-width="1.5"/>
+      <!-- Center red line -->
+      <line x1="400" y1="14" x2="400" y2="326" stroke="#C8102E" stroke-width="3.5"/>
+      <!-- Blue lines -->
+      <line x1="300" y1="0" x2="300" y2="340" stroke="#003DA5" stroke-width="2.5"/>
+      <line x1="500" y1="0" x2="500" y2="340" stroke="#003DA5" stroke-width="2.5"/>
+      <!-- Goal lines -->
+      <line x1="44" y1="0" x2="44" y2="340" stroke="#C8102E" stroke-width="1.2"/>
+      <line x1="756" y1="0" x2="756" y2="340" stroke="#C8102E" stroke-width="1.2"/>
+      <!-- Center circle + dot -->
+      <circle cx="400" cy="170" r="60" fill="none" stroke="#C8102E" stroke-width="1.2"/>
+      <circle cx="400" cy="170" r="3" fill="#C8102E"/>
+      <!-- Offensive zone face-off circles: x=±69ft, y=±22ft -->
+      <circle cx="${toX(-69)}" cy="${toY(22)}" r="48" fill="none" stroke="#C8102E" stroke-width="1"/>
+      <circle cx="${toX(-69)}" cy="${toY(-22)}" r="48" fill="none" stroke="#C8102E" stroke-width="1"/>
+      <circle cx="${toX(69)}" cy="${toY(22)}" r="48" fill="none" stroke="#C8102E" stroke-width="1"/>
+      <circle cx="${toX(69)}" cy="${toY(-22)}" r="48" fill="none" stroke="#C8102E" stroke-width="1"/>
+      <!-- Neutral zone face-off dots: x=±20ft, y=±22ft -->
+      <circle cx="${toX(-20)}" cy="${toY(22)}" r="3" fill="#C8102E"/>
+      <circle cx="${toX(-20)}" cy="${toY(-22)}" r="3" fill="#C8102E"/>
+      <circle cx="${toX(20)}" cy="${toY(22)}" r="3" fill="#C8102E"/>
+      <circle cx="${toX(20)}" cy="${toY(-22)}" r="3" fill="#C8102E"/>
+      <!-- Goal creases (simplified D): radius 6ft = 24px -->
+      <path d="M44,${toY(3)} A24,24 0 0 1 44,${toY(-3)} Q${toX(-83)},170 44,${toY(3)}" fill="rgba(0,61,165,0.10)" stroke="#003DA5" stroke-width="1"/>
+      <path d="M756,${toY(3)} A24,24 0 0 0 756,${toY(-3)} Q${toX(83)},170 756,${toY(3)}" fill="rgba(0,61,165,0.10)" stroke="#003DA5" stroke-width="1"/>
+      <!-- Goal nets (behind goal line) -->
+      <rect x="${toX(-100)}" y="${toY(3)}" width="${4*11}" height="${4*6}" fill="none" stroke="rgba(13,13,20,0.25)" stroke-width="1.5"/>
+      <rect x="${toX(89)}" y="${toY(3)}" width="${4*11}" height="${4*6}" fill="none" stroke="rgba(13,13,20,0.25)" stroke-width="1.5"/>
+    `;
+
+    // ── Shot markers ─────────────────────────────────────────────────────────
+    function periodToSecs(period, tip) {
+      if (!tip || !period) return null;
+      const ci = tip.indexOf(':');
+      if (ci === -1) return null;
+      const m = parseInt(tip.slice(0, ci), 10), s = parseInt(tip.slice(ci + 1), 10);
+      if (isNaN(m) || isNaN(s)) return null;
+      const e = m * 60 + s;
+      return period <= 3 ? (period - 1) * 1200 + e : 3600 + (period - 4) * 300 + e;
+    }
+
+    const markers = shots.map((ev, i) => {
+      const d = ev.payload?.details || {};
+      const x = toX(d.xCoord).toFixed(1);
+      const y = toY(d.yCoord).toFixed(1);
+      const isHome = ev.event_team_id != null && String(ev.event_team_id) === String(ev.home_team_id);
+      const color = isHome ? homeColor : awayColor;
+      const abbr  = isHome ? homeAbbr : awayAbbr;
+      const type  = ev.event_type;
+      const xgVal = parseFloat(ev.payload?.xg);
+      const xgStr = !isNaN(xgVal) && xgVal > 0 ? xgVal.toFixed(3) : null;
+
+      // Determine player name
+      const player = d.shootingPlayerName || d.scoringPlayerName || d.blockingPlayerName || '';
+      // Time label
+      const p = ev.period || 1;
+      const tip = ev.payload?.timeInPeriod || '';
+      const pLabel = p > 3 ? 'OT' : `P${p}`;
+      const timeLabel = tip ? `${pLabel} ${tip}` : pLabel;
+      const shotLabel = type === 'GOAL' ? 'Goal' : type === 'SHOT_ON_GOAL' ? 'Shot on goal' : type === 'MISSED_SHOT' ? 'Missed shot' : 'Blocked shot';
+
+      // Encode tooltip data as JSON in data attribute
+      const tipData = JSON.stringify({
+        player: player || abbr,
+        team: abbr,
+        shot: shotLabel,
+        xg: xgStr,
+        time: timeLabel,
+        type,
+      });
+
+      if (type === 'GOAL') {
+        // Larger circle with white ring
+        return `<circle cx="${x}" cy="${y}" r="6.5" fill="${color}" stroke="#fff" stroke-width="2" data-tip='${tipData.replace(/'/g,"&#39;")}' style="cursor:pointer"/>`;
+      } else if (type === 'SHOT_ON_GOAL') {
+        return `<circle cx="${x}" cy="${y}" r="4" fill="${color}" fill-opacity="0.75" stroke="${color}" stroke-width="0.5" data-tip='${tipData.replace(/'/g,"&#39;")}' style="cursor:pointer"/>`;
+      } else if (type === 'MISSED_SHOT') {
+        return `<circle cx="${x}" cy="${y}" r="3.5" fill="none" stroke="${color}" stroke-opacity="0.5" stroke-width="1.2" data-tip='${tipData.replace(/'/g,"&#39;")}' style="cursor:pointer"/>`;
+      } else {
+        // Blocked: small X
+        const s = 3;
+        return `<g transform="translate(${x},${y})" data-tip='${tipData.replace(/'/g,"&#39;")}' style="cursor:pointer">
+          <line x1="${-s}" y1="${-s}" x2="${s}" y2="${s}" stroke="${color}" stroke-opacity="0.4" stroke-width="1.5"/>
+          <line x1="${s}" y1="${-s}" x2="${-s}" y2="${s}" stroke="${color}" stroke-opacity="0.4" stroke-width="1.5"/>
+        </g>`;
+      }
+    }).join('');
+
+    const svg = document.getElementById('shot-map-svg');
+    svg.innerHTML = rink + markers;
+
+    // ── Legend ───────────────────────────────────────────────────────────────
+    const awayCount = shots.filter(ev => String(ev.event_team_id) !== String(ev.home_team_id)).length;
+    const homeCount = shots.length - awayCount;
+    const awayGoals = shots.filter(ev => ev.event_type === 'GOAL' && String(ev.event_team_id) !== String(ev.home_team_id)).length;
+    const homeGoals = shots.filter(ev => ev.event_type === 'GOAL' && String(ev.event_team_id) === String(ev.home_team_id)).length;
+
+    document.getElementById('shot-map-legend').innerHTML = `
+      <div class="shot-map-legend-team">
+        <div class="sml-dot" style="background:${awayColor}"></div>
+        <span>${esc(awayAbbr)} · ${awayCount} attempts · ${awayGoals}G</span>
+      </div>
+      <div class="shot-map-legend-team">
+        <div class="sml-dot" style="background:${homeColor}"></div>
+        <span>${esc(homeAbbr)} · ${homeCount} attempts · ${homeGoals}G</span>
+      </div>
+      <div class="sml-sep"></div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="4.5" fill="#666" stroke="#fff" stroke-width="1.5"/></svg> Goal</div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" fill="#666" fill-opacity="0.75"/></svg> Shot on goal</div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" fill="none" stroke="#666" stroke-width="1.2"/></svg> Missed</div>
+      <div class="sml-key"><svg width="10" height="10"><line x1="2" y1="2" x2="8" y2="8" stroke="#666" stroke-width="1.5"/><line x1="8" y1="2" x2="2" y2="8" stroke="#666" stroke-width="1.5"/></svg> Blocked</div>
+    `;
+
+    // ── Tooltip ──────────────────────────────────────────────────────────────
+    const tooltip  = document.getElementById('shot-tooltip');
+    const sttPlayer = document.getElementById('stt-player');
+    const sttXg    = document.getElementById('stt-xg');
+    const sttMeta  = document.getElementById('stt-meta');
+
+    function showTip(e, data) {
+      sttPlayer.textContent = data.player;
+      sttXg.innerHTML = `${esc(data.shot)}${data.xg ? ` · <span style="color:#4ade80">${data.xg} xG</span>` : ''}`;
+      sttMeta.textContent = `${data.team} · ${data.time}`;
+      tooltip.style.display = 'block';
+      moveTip(e);
+    }
+    function moveTip(e) {
+      const pad = 14;
+      const tw  = tooltip.offsetWidth;
+      const th  = tooltip.offsetHeight;
+      let lx = e.clientX + pad;
+      let ly = e.clientY - th / 2;
+      if (lx + tw > window.innerWidth - 8) lx = e.clientX - tw - pad;
+      if (ly < 4) ly = 4;
+      if (ly + th > window.innerHeight - 4) ly = window.innerHeight - th - 4;
+      tooltip.style.left = lx + 'px';
+      tooltip.style.top  = ly + 'px';
+    }
+    function hideTip() { tooltip.style.display = 'none'; }
+
+    svg.addEventListener('mouseover', e => {
+      const t = e.target.closest('[data-tip]');
+      if (!t) return hideTip();
+      try { showTip(e, JSON.parse(t.dataset.tip)); } catch { hideTip(); }
+    });
+    svg.addEventListener('mousemove', e => {
+      if (tooltip.style.display === 'block') moveTip(e);
+    });
+    svg.addEventListener('mouseout', e => {
+      if (!e.target.closest('[data-tip]')) hideTip();
+    });
+    // Mobile tap
+    svg.addEventListener('click', e => {
+      const t = e.target.closest('[data-tip]');
+      if (!t) return hideTip();
+      try {
+        showTip(e, JSON.parse(t.dataset.tip));
+        setTimeout(hideTip, 3000);
+      } catch { hideTip(); }
+    });
+
+    document.getElementById('section-shotmap').style.display = '';
+  }
+
   // ── Player Stats ─────────────────────────────────────────────────────────────
 
   function renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor) {
@@ -1335,6 +1551,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
       renderGoals(flow, homeAbbr, awayAbbr);
+      renderShotMap(eventsData, flow, awayAbbr, homeAbbr, awayColor, homeColor);
       renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
       if (!renderGame._botLoaded) {
         renderGame._botLoaded = true;
