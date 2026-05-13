@@ -32,9 +32,9 @@ const chartGoalies = hasGameData
       .slice(0, 12)
   : [];
 
-// SVG dimensions
+// SVG dimensions — no right-side labels, legend goes below
 const SVG_W = 840, SVG_H = 260;
-const PAD = { t: 20, r: 96, b: 36, l: 48 };
+const PAD = { t: 20, r: 20, b: 36, l: 48 };
 const cW = SVG_W - PAD.l - PAD.r;
 const cH = SVG_H - PAD.t - PAD.b;
 
@@ -78,17 +78,9 @@ function makePath(points: CumPoint[]): string {
   return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.game).toFixed(1)},${py(p.gsax).toFixed(1)}`).join(' ');
 }
 
-// Anti-overlap final labels
-type LabelEntry = { y: number; name: string; team: string; final: number; color: string };
-const sortedLabels: LabelEntry[] = chartLines
-  .map(l => ({ y: py(l.final), name: l.name, team: l.team, final: l.final, color: l.color }))
-  .sort((a, b) => a.y - b.y);
-for (let i = 1; i < sortedLabels.length; i++) {
-  if (sortedLabels[i].y - sortedLabels[i-1].y < 14) {
-    sortedLabels[i-1].y -= 7;
-    sortedLabels[i].y += 7;
-  }
-}
+// Legend sorted by final GSAx descending
+const legendItems = [...chartLines].sort((a, b) => b.final - a.final);
+const sgn = (v: number) => v >= 0 ? '+' : '';
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -155,10 +147,29 @@ for (let i = 1; i < sortedLabels.length; i++) {
     .section-title { font-family: var(--display); font-weight: 800; font-size: 22px;
       text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
     .section-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
-    .chart-wrap { background: var(--surface); border: 1px solid var(--ink-14); padding: 20px; }
+    .chart-wrap { background: var(--surface); border: 1px solid var(--ink-14); padding: 20px 20px 12px; }
     .chart-placeholder { padding: 48px 0; text-align: center; font-family: var(--mono); font-size: 11px;
       letter-spacing: 0.06em; color: var(--ink-32); }
     .chart-svg { width: 100%; height: auto; display: block; }
+
+    /* ── Chart legend ── */
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 12px 0 4px;
+      border-top: 1px solid var(--ink-06); margin-top: 8px; }
+    .legend-chip { display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+      padding: 3px 6px 3px 0; border-radius: 2px; transition: opacity 0.15s; user-select: none; }
+    .legend-chip:hover { opacity: 0.75; }
+    .legend-chip.dimmed { opacity: 0.25; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .legend-name { font-family: var(--display); font-size: 11px; font-weight: 700;
+      letter-spacing: 0.04em; color: var(--ink); }
+    .legend-val { font-family: var(--mono); font-size: 10px; color: var(--ink-48); }
+
+    /* ── Chart tooltip ── */
+    #ctip { position: fixed; pointer-events: none; display: none; z-index: 100;
+      background: var(--ink); color: var(--bg); padding: 6px 10px; font-family: var(--mono);
+      font-size: 11px; letter-spacing: 0.04em; white-space: nowrap; border-radius: 2px; }
+    #ctip .ctip-name { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+    #ctip .ctip-val  { color: rgba(239,238,232,0.7); font-size: 10px; }
 
     /* ── Table section ── */
     .lb-section { padding: 40px 0 0; }
@@ -171,7 +182,7 @@ for (let i = 1; i < sortedLabels.length; i++) {
     thead th {
       padding: 10px 12px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
       letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
-      border-bottom: 2px solid var(--ink-14); text-align: right;
+      border-bottom: 2px solid var(--ink-14); text-align: center;
       cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
     }
     thead th:first-child { text-align: left; padding-left: 16px; cursor: default; }
@@ -197,7 +208,7 @@ for (let i = 1; i < sortedLabels.length; i++) {
     .td-name   { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; }
     .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
 
-    .td-num { font-family: var(--mono); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+    .td-num { font-family: var(--mono); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
     .sv { font-weight: 700; }
     .sv.pos { color: #1a7a3e; }
     .sv.neg { color: var(--red); }
@@ -281,38 +292,52 @@ for (let i = 1; i < sortedLabels.length; i++) {
             dominant-baseline="middle" font-family="JetBrains Mono, monospace"
             font-size="8" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">AVG</text>
 
-          <!-- Goalie lines -->
+          <!-- Goalie lines: thin visible path + wide transparent hit area -->
           {chartLines.map(line => (
-            <path d={makePath(line.points)} fill="none"
-              stroke={line.color} stroke-width="1.8"
-              stroke-linejoin="round" stroke-linecap="round"
-              data-goalie={line.goalie_id} data-name={line.name}
-              style="cursor:crosshair" />
-          ))}
-
-          <!-- End-of-line labels -->
-          {sortedLabels.map(lbl => (
-            <g>
-              <text x={(PAD.l + cW + 6).toFixed(1)} y={lbl.y.toFixed(1)}
-                dominant-baseline="middle" font-family="Barlow Condensed, sans-serif"
-                font-size="10" font-weight="700" fill={lbl.color}>
-                {lbl.name.split('.').pop()?.trim() ?? lbl.name}
-              </text>
+            <g class="goalie-line" data-id={line.goalie_id}>
+              <path d={makePath(line.points)} fill="none"
+                stroke={line.color} stroke-width="1.8"
+                stroke-linejoin="round" stroke-linecap="round"
+                class="line-vis" style="transition:opacity 0.15s;pointer-events:none" />
+              <path d={makePath(line.points)} fill="none"
+                stroke="transparent" stroke-width="14"
+                stroke-linejoin="round" stroke-linecap="round"
+                class="line-hit" style="cursor:crosshair"
+                data-id={line.goalie_id}
+                data-name={line.name}
+                data-team={line.team}
+                data-final={line.final} />
             </g>
           ))}
 
           <!-- X-axis label -->
           <text x={(PAD.l + cW / 2).toFixed(1)} y={(SVG_H - 4).toFixed(1)}
             text-anchor="middle" font-family="JetBrains Mono, monospace"
-            font-size="9" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">GAME</text>
+            font-size="9" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">GAME #</text>
         </svg>
       ) : (
         <div class="chart-placeholder">
           CUMULATIVE CHART AVAILABLE AFTER NEXT PIPELINE RUN
         </div>
       )}
+
+      <!-- Legend: colored chips sorted by final GSAx -->
+      {hasGameData && (
+        <div class="chart-legend" id="chart-legend">
+          {legendItems.map(l => (
+            <div class="legend-chip" data-id={l.goalie_id}>
+              <span class="legend-dot" style={`background:${l.color}`}></span>
+              <span class="legend-name">{l.name.split('.').pop()?.trim() ?? l.name}</span>
+              <span class="legend-val">{l.final >= 0 ? '+' : ''}{l.final.toFixed(1)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   </section>
+
+  <!-- Floating tooltip -->
+  <div id="ctip"><div class="ctip-name" id="ctip-name"></div><div class="ctip-val" id="ctip-val"></div></div>
 
   <!-- ── Sortable table ── -->
   <section class="lb-section">
@@ -432,6 +457,99 @@ for (let i = 1; i < sortedLabels.length; i++) {
 
   renderTable();
   updateHeaders();
+</script>
+
+<script>
+  // ── Chart interactivity: hover tooltip + click-to-isolate ─────────────────
+  const svg    = document.querySelector('.chart-svg');
+  if (!svg) { /* no chart data yet */ }
+  else {
+    const tip     = document.getElementById('ctip');
+    const tipName = document.getElementById('ctip-name');
+    const tipVal  = document.getElementById('ctip-val');
+    const allVis  = () => document.querySelectorAll('.goalie-line');
+
+    let lockedId = null;
+
+    function setFocus(id) {
+      allVis().forEach(g => {
+        const vis = g.querySelector('.line-vis');
+        if (!vis) return;
+        vis.style.opacity  = (id === null || g.dataset.id === id) ? '1'    : '0.1';
+        vis.style.strokeWidth = (id !== null && g.dataset.id === id) ? '2.5' : '1.8';
+      });
+      // Sync legend chips
+      document.querySelectorAll('.legend-chip').forEach(chip => {
+        chip.classList.toggle('dimmed', id !== null && chip.dataset.id !== id);
+      });
+    }
+
+    function showTip(e, name, team, final) {
+      const sgn = v => v >= 0 ? '+' : '';
+      tipName.textContent = name.split('.').pop()?.trim() ?? name;
+      tipVal.textContent  = `${team}  ·  GSAx ${sgn(final)}${parseFloat(final).toFixed(2)}`;
+      tip.style.display = 'block';
+      moveTip(e);
+    }
+    function moveTip(e) {
+      const x = e.clientX + 14, y = e.clientY - 28;
+      tip.style.left = (x + tip.offsetWidth > window.innerWidth - 8 ? e.clientX - tip.offsetWidth - 8 : x) + 'px';
+      tip.style.top  = Math.max(4, y) + 'px';
+    }
+    function hideTip() { tip.style.display = 'none'; }
+
+    // Hit-area paths: hover + click
+    document.querySelectorAll('.line-hit').forEach(path => {
+      const id    = path.dataset.id;
+      const name  = path.dataset.name;
+      const team  = path.dataset.team;
+      const final = path.dataset.final;
+
+      path.addEventListener('mouseenter', e => {
+        if (!lockedId) setFocus(id);
+        showTip(e, name, team, final);
+      });
+      path.addEventListener('mousemove', moveTip);
+      path.addEventListener('mouseleave', () => {
+        if (!lockedId) setFocus(null);
+        hideTip();
+      });
+      path.addEventListener('click', e => {
+        e.stopPropagation();
+        if (lockedId === id) { lockedId = null; setFocus(null); }
+        else { lockedId = id; setFocus(id); }
+      });
+    });
+
+    // Legend chips: click-to-isolate
+    document.querySelectorAll('.legend-chip').forEach(chip => {
+      const id    = chip.dataset.id;
+      const hit   = document.querySelector(`.line-hit[data-id="${id}"]`);
+      const name  = hit?.dataset.name ?? '';
+      const team  = hit?.dataset.team ?? '';
+      const final = hit?.dataset.final ?? '0';
+
+      chip.addEventListener('mouseenter', e => {
+        if (!lockedId) setFocus(id);
+        showTip(e, name, team, final);
+      });
+      chip.addEventListener('mousemove', moveTip);
+      chip.addEventListener('mouseleave', () => {
+        if (!lockedId) setFocus(null);
+        hideTip();
+      });
+      chip.addEventListener('click', e => {
+        e.stopPropagation();
+        if (lockedId === id) { lockedId = null; setFocus(null); }
+        else { lockedId = id; setFocus(id); }
+      });
+    });
+
+    // Click outside chart → unlock
+    document.addEventListener('click', () => {
+      if (lockedId) { lockedId = null; setFocus(null); }
+    });
+  }
 </script>
 
 </body>
