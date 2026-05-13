@@ -16,8 +16,10 @@ interface Props { goalie: GoalieRecord }
 const { goalie } = Astro.props;
 
 const teamColor  = pickTeamColor(goalie.team_abbrev);
+const initial    = goalie.name.split('.')[0]?.trim() ?? '';
 const lastName   = goalie.name.split('.').pop()?.trim() ?? goalie.name;
 const gsaxSign   = goalie.gsax >= 0 ? '+' : '';
+const headshotUrl = `https://assets.nhle.com/mugs/nhl/20252026/${goalie.team_abbrev}/${goalie.goalie_id}.png`;
 const vsExp      = goalie.sv_pct != null && goalie.sa > 0
   ? +((goalie.sv_pct - (1 - goalie.xga / goalie.sa)) * 100).toFixed(2)
   : null;
@@ -119,18 +121,26 @@ const BIN_SHORT: Record<string, string> = {
       text-decoration: none; }
     .back-link:hover { color: var(--ink); }
 
-    /* ── Hero card ── */
-    .hero-card { background: var(--surface); border: 1px solid var(--ink); display: grid;
-      grid-template-columns: auto 1fr; overflow: hidden; }
-    .hero-accent { width: 6px; background: var(--team-color, #0d0d14); flex-shrink: 0; }
-    .hero-body { padding: 24px 28px; }
-    .hero-name { font-family: var(--display); font-weight: 800;
-      font-size: clamp(40px, 6vw, 72px); text-transform: uppercase;
-      line-height: 1.0; letter-spacing: -0.01em; color: var(--ink); margin-bottom: 4px; }
-    .hero-meta { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
-      color: var(--ink-48); margin-bottom: 20px; }
-    .hero-stats { display: flex; flex-wrap: wrap; gap: 0; }
-    .stat-cell { padding: 12px 20px 12px 0; min-width: 80px; }
+    /* ── Hero card (matches player page) ── */
+    .mast-top a { color: var(--ink-48); text-decoration: none; }
+    .mast-top a:hover { color: var(--ink); }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); border-left-width: 4px; padding: 24px 28px; }
+    .hero { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; }
+    .headshot-wrap { position: relative; width: 168px; flex-shrink: 0; }
+    .headshot { width: 168px; height: 168px; object-fit: cover; border: 2px solid var(--ink-14);
+      background: var(--surface); display: block; }
+    .headshot-team-bar { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; }
+    .hero-identity { display: flex; flex-direction: column; gap: 8px; }
+    .hero-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+    .badge { display: inline-block; font-family: var(--mono); font-size: 9px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase; padding: 2px 7px;
+      border: 1px solid var(--ink-20); color: var(--ink-48); }
+    .hero-name { font-family: var(--display); font-weight: 800; text-transform: uppercase;
+      line-height: 0.92; letter-spacing: -0.01em; }
+    .hero-name .first { font-size: 22px; color: var(--ink-48); font-weight: 700; }
+    .hero-name .last  { font-size: clamp(40px, 5vw, 64px); color: var(--ink); display: block; }
+    .hero-stats { display: flex; flex-wrap: wrap; gap: 0; margin-top: 8px; }
+    .stat-cell { padding: 10px 20px 10px 0; min-width: 80px; }
     .stat-cell + .stat-cell { border-left: 1px solid var(--ink-10); padding-left: 20px; }
     .stat-label { font-family: var(--mono); font-size: 9px; font-weight: 700;
       letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 4px; }
@@ -138,6 +148,11 @@ const BIN_SHORT: Record<string, string> = {
       line-height: 1.0; letter-spacing: -0.01em; }
     .stat-value.pos { color: var(--green); }
     .stat-value.neg { color: var(--red); }
+    @media (max-width: 640px) {
+      .hero { grid-template-columns: 1fr; gap: 16px; }
+      .headshot-wrap { width: 100px; }
+      .headshot { width: 100px; height: 100px; }
+    }
 
     /* ── Layout ── */
     .wrap { max-width: 1100px; margin: 0 auto; padding: 0 32px 80px; }
@@ -173,7 +188,8 @@ const BIN_SHORT: Record<string, string> = {
       width: 52px; flex-shrink: 0; }
     .bin-gsax.pos { color: var(--green); }
     .bin-gsax.neg { color: var(--red); }
-    .bin-svpct { font-family: var(--mono); font-size: 9px; color: var(--ink-48); white-space: nowrap; }
+    .bin-svpct { font-family: var(--mono); font-size: 9px; white-space: nowrap;
+      min-width: 48px; text-align: right; }
 
     /* ── Shot-type table ── */
     .type-table { width: 100%; border-collapse: collapse; }
@@ -209,52 +225,56 @@ const BIN_SHORT: Record<string, string> = {
   </div>
   <div class="mast-inner">
     <div class="mast-top">
-      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Goalies</div>
-      <a href="/stats/goalies" class="back-link">← All Goalies</a>
+      <div><a href="/stats/goalies">← Goalies</a></div>
+      <div>{goalie.team_abbrev} · G · {goalie.sa.toLocaleString()} SA · 2025–26</div>
     </div>
 
-    <!-- Hero card -->
-    <div class="hero-card" style={`--team-color:${teamColor}`}>
-      <div class="hero-accent"></div>
-      <div class="hero-body">
-        <div class="hero-name">{lastName}</div>
-        <div class="hero-meta">
-          <img src={`https://assets.nhle.com/logos/nhl/svg/${goalie.team_abbrev}_light.svg`}
-            alt={goalie.team_abbrev} width="16" height="16"
-            style="vertical-align:middle;margin-right:6px;opacity:0.7"
-            onerror="this.style.display='none'" />
-          {goalie.team_abbrev} · Goalie · {goalie.sa.toLocaleString()} SA · 2025–26 Regular Season
+    <div class="mast-card" style={`border-left-color:${teamColor}`}>
+      <div class="hero">
+        <div class="headshot-wrap">
+          <img class="headshot" src={headshotUrl} alt={goalie.name} width="168" height="168"
+            onerror="this.src='https://assets.nhle.com/logos/nhl/svg/${goalie.team_abbrev}_light.svg';this.style.objectFit='contain';this.style.padding='24px'" />
+          <div class="headshot-team-bar" style={`background:${teamColor}`}></div>
         </div>
-        <div class="hero-stats">
-          <div class="stat-cell">
-            <div class="stat-label">GSAx</div>
-            <div class={`stat-value ${goalie.gsax >= 0 ? 'pos' : 'neg'}`}>
-              {gsaxSign}{goalie.gsax.toFixed(1)}
-            </div>
+        <div class="hero-identity">
+          <div class="hero-badges">
+            <span class="badge">{goalie.team_abbrev}</span>
+            <span class="badge">G</span>
+            <span class="badge">{gsaxSign}{goalie.gsax.toFixed(1)} GSAx</span>
           </div>
-          <div class="stat-cell">
-            <div class="stat-label">SV%</div>
-            <div class="stat-value">{goalie.sv_pct != null ? (goalie.sv_pct * 100).toFixed(2) : '—'}</div>
+          <div class="hero-name">
+            <span class="first">{initial}.</span>
+            <span class="last">{lastName}</span>
           </div>
-          <div class="stat-cell">
-            <div class="stat-label">xGA</div>
-            <div class="stat-value">{goalie.xga.toFixed(1)}</div>
-          </div>
-          <div class="stat-cell">
-            <div class="stat-label">GA</div>
-            <div class="stat-value">{goalie.ga}</div>
-          </div>
-          {vsExp != null && (
+          <div class="hero-stats">
             <div class="stat-cell">
-              <div class="stat-label">vs Exp</div>
-              <div class={`stat-value ${vsExp >= 0 ? 'pos' : 'neg'}`}>
-                {vsExp >= 0 ? '+' : ''}{vsExp.toFixed(2)}%
-              </div>
+              <div class="stat-label">GSAx</div>
+              <div class={`stat-value ${goalie.gsax >= 0 ? 'pos' : 'neg'}`}>{gsaxSign}{goalie.gsax.toFixed(1)}</div>
             </div>
-          )}
-          <div class="stat-cell">
-            <div class="stat-label">5v5 SA</div>
-            <div class="stat-value">{goalie.sa_5v5.toLocaleString()}</div>
+            <div class="stat-cell">
+              <div class="stat-label">SV%</div>
+              <div class="stat-value">{goalie.sv_pct != null ? goalie.sv_pct.toFixed(3) : '—'}</div>
+            </div>
+            <div class="stat-cell">
+              <div class="stat-label">xGA</div>
+              <div class="stat-value">{goalie.xga.toFixed(1)}</div>
+            </div>
+            <div class="stat-cell">
+              <div class="stat-label">GA</div>
+              <div class="stat-value">{goalie.ga}</div>
+            </div>
+            {vsExp != null && (
+              <div class="stat-cell">
+                <div class="stat-label">vs Exp</div>
+                <div class={`stat-value ${vsExp >= 0 ? 'pos' : 'neg'}`}>
+                  {vsExp >= 0 ? '+' : ''}{vsExp.toFixed(2)}%
+                </div>
+              </div>
+            )}
+            <div class="stat-cell">
+              <div class="stat-label">5v5 SA</div>
+              <div class="stat-value">{goalie.sa_5v5.toLocaleString()}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -263,6 +283,48 @@ const BIN_SHORT: Record<string, string> = {
 </header>
 
 <main class="wrap">
+
+  <!-- ── Cumulative GSAx chart (first) ── -->
+  {cumPoints.length > 1 && (
+    <div class="chart-full">
+      <div class="sec-card">
+        <div class="sec-head">
+          <div class="sec-title">Cumulative GSAx — Season</div>
+          <div class="sec-sub">{cumPoints.length} games · final: {gsaxSign}{goalie.gsax.toFixed(2)}</div>
+        </div>
+        <div style="padding:16px 16px 8px">
+          <svg class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet">
+            {[...Array(5)].map((_, i) => {
+              const gv = yMin + (i / 4) * (yMax - yMin);
+              const gy = cpy(gv).toFixed(1);
+              return (
+                <g>
+                  <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy} stroke="rgba(13,13,20,0.06)" stroke-width="1" />
+                  <text x={(PAD.l - 6).toFixed(1)} y={gy} text-anchor="end" dominant-baseline="middle"
+                    font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
+                    {gv >= 0 ? '+' : ''}{gv.toFixed(0)}
+                  </text>
+                </g>
+              );
+            })}
+            <line x1={PAD.l} y1={cpy0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={cpy0.toFixed(1)}
+              stroke="rgba(13,13,20,0.28)" stroke-width="1.5" stroke-dasharray="4 3" />
+            {areaPath && <path d={areaPath} fill={teamColor} fill-opacity="0.07" />}
+            <path d={path} fill="none" stroke={teamColor} stroke-width="2"
+              stroke-linejoin="round" stroke-linecap="round" />
+            {cumPoints.length > 0 && (
+              <circle cx={cpx(cumPoints[cumPoints.length-1].game).toFixed(1)}
+                cy={cpy(cumPoints[cumPoints.length-1].gsax).toFixed(1)}
+                r="3.5" fill={teamColor} />
+            )}
+            <text x={(PAD.l + cW / 2).toFixed(1)} y={(SVG_H - 4).toFixed(1)}
+              text-anchor="middle" font-family="JetBrains Mono, monospace"
+              font-size="9" fill="rgba(13,13,20,0.28)" letter-spacing="0.08em">GAME #</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  )}
 
   <!-- ── Two-column: xG bins + shot types ── -->
   <div class="two-col">
@@ -291,10 +353,13 @@ const BIN_SHORT: Record<string, string> = {
                     <div class={`bin-bar ${isPos ? 'pos' : 'neg'}`} style={`width:${barW}px`}></div>
                   </div>
                   <div class={`bin-gsax ${isPos ? 'pos' : 'neg'}`}>{isPos ? '+' : ''}{b.gsax.toFixed(1)}</div>
-                  {svDiff != null && (
-                    <div class="bin-svpct" style={`color:${svDiff >= 0 ? 'var(--green)' : 'var(--red)'}`}>
-                      {svDiff >= 0 ? '+' : ''}{svDiff}%
+                  {svDiff != null && svDiff !== 0 && (
+                    <div class="bin-svpct" style={`color:${svDiff > 0 ? 'var(--green)' : 'var(--red)'}`}>
+                      {svDiff > 0 ? '+' : ''}{svDiff.toFixed(1)}%
                     </div>
+                  )}
+                  {svDiff != null && svDiff === 0 && (
+                    <div class="bin-svpct" style="color:var(--ink-32)">±0%</div>
                   )}
                 </div>
               );
@@ -336,8 +401,8 @@ const BIN_SHORT: Record<string, string> = {
                   <tr>
                     <td>{t.shot_type_group}</td>
                     <td>{t.sa}</td>
-                    <td>{(t.sv_pct * 100).toFixed(1)}%</td>
-                    <td style="color:var(--ink-48)">{(t.league_sv_pct * 100).toFixed(1)}%</td>
+                    <td>{t.sv_pct.toFixed(3)}</td>
+                    <td style="color:var(--ink-48)">{t.league_sv_pct.toFixed(3)}</td>
                     <td><span class={`sv ${isPos ? 'pos' : 'neg'}`}>{isPos ? '+' : ''}{t.gsax.toFixed(1)}</span></td>
                   </tr>
                 );
@@ -353,57 +418,6 @@ const BIN_SHORT: Record<string, string> = {
     </div>
   </div>
 
-  <!-- ── Cumulative GSAx chart ── -->
-  {cumPoints.length > 1 && (
-    <div class="chart-full">
-      <div class="sec-card">
-        <div class="sec-head">
-          <div class="sec-title">Cumulative GSAx — Season</div>
-          <div class="sec-sub">{cumPoints.length} games · final: {gsaxSign}{goalie.gsax.toFixed(2)}</div>
-        </div>
-        <div style="padding:16px 16px 8px">
-          <svg class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet">
-            <!-- Grid lines -->
-            {[...Array(5)].map((_, i) => {
-              const gv = yMin + (i / 4) * (yMax - yMin);
-              const gy = cpy(gv).toFixed(1);
-              return (
-                <g>
-                  <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy}
-                    stroke="rgba(13,13,20,0.06)" stroke-width="1" />
-                  <text x={(PAD.l - 6).toFixed(1)} y={gy} text-anchor="end" dominant-baseline="middle"
-                    font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
-                    {gv >= 0 ? '+' : ''}{gv.toFixed(0)}
-                  </text>
-                </g>
-              );
-            })}
-            <!-- Zero line -->
-            <line x1={PAD.l} y1={cpy0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={cpy0.toFixed(1)}
-              stroke="rgba(13,13,20,0.28)" stroke-width="1.5" stroke-dasharray="4 3" />
-            <!-- Area fill -->
-            {areaPath && (
-              <path d={areaPath} fill={teamColor} fill-opacity="0.07" />
-            )}
-            <!-- Main line -->
-            <path d={path} fill="none" stroke={teamColor} stroke-width="2"
-              stroke-linejoin="round" stroke-linecap="round" />
-            <!-- End dot -->
-            {cumPoints.length > 0 && (
-              <circle
-                cx={cpx(cumPoints[cumPoints.length - 1].game).toFixed(1)}
-                cy={cpy(cumPoints[cumPoints.length - 1].gsax).toFixed(1)}
-                r="3.5" fill={teamColor} />
-            )}
-            <!-- X-axis label -->
-            <text x={(PAD.l + cW / 2).toFixed(1)} y={(SVG_H - 4).toFixed(1)}
-              text-anchor="middle" font-family="JetBrains Mono, monospace"
-              font-size="9" fill="rgba(13,13,20,0.28)" letter-spacing="0.08em">GAME #</text>
-          </svg>
-        </div>
-      </div>
-    </div>
-  )}
 
 </main>
 
