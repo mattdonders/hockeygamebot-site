@@ -164,6 +164,22 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 
 .no-data-msg { padding: 32px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-32); letter-spacing: 0.04em; border: 1px solid var(--ink-14); background: var(--surface); }
 
+/* ── GOAL VIDEO POPUP ── */
+.gvp-overlay { position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; }
+.gvp-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.75); }
+.gvp-panel { position: relative; z-index: 1; background: #111; border-radius: 8px; width: 100%; max-width: 620px; overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
+.gvp-close { position: absolute; top: 10px; right: 12px; background: none; border: none; color: rgba(255,255,255,0.5); font-size: 20px; cursor: pointer; line-height: 1; z-index: 2; padding: 4px 8px; transition: color 0.15s; }
+.gvp-close:hover { color: #fff; }
+.gvp-tabs-bar { display: flex; background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.08); }
+.gvp-tab-btn { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; padding: 8px 16px; border: none; background: none; color: rgba(255,255,255,0.4); cursor: pointer; transition: color 0.15s; }
+.gvp-tab-btn.active { color: #fff; border-bottom: 2px solid #fff; margin-bottom: -1px; }
+.gvp-media { background: #000; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; }
+.gvp-media video, .gvp-media iframe { width: 100%; height: 100%; display: block; border: none; }
+.gvp-info { padding: 14px 18px 16px; }
+.gvp-scorer-line { font-family: var(--display); font-weight: 700; font-size: 14px; color: #fff; letter-spacing: 0.04em; }
+.gvp-wp-line { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 4px; letter-spacing: 0.04em; }
+.gvp-wp-delta { font-weight: 700; color: var(--green); margin-left: 6px; }
+
 /* ── FOOTER ── */
 .foot { margin-top: 48px; border-top: 1px solid var(--ink-14); padding: 24px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
 .foot-inner { max-width: 1280px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
@@ -333,6 +349,26 @@ table.goals tbody tr:hover { background: var(--ink-04); }
   </div>
 
 </div><!-- /game-content -->
+
+<!-- GOAL VIDEO POPUP -->
+<div id="gvp" class="gvp-overlay" style="display:none" aria-modal="true" role="dialog">
+  <div class="gvp-backdrop" id="gvp-backdrop"></div>
+  <div class="gvp-panel">
+    <button class="gvp-close" id="gvp-close" aria-label="Close">✕</button>
+    <div class="gvp-tabs-bar" id="gvp-tabs" style="display:none">
+      <button class="gvp-tab-btn active" data-gvp-tab="gif">HGB GIF</button>
+      <button class="gvp-tab-btn" data-gvp-tab="highlight">NHL Highlight</button>
+    </div>
+    <div class="gvp-media">
+      <video id="gvp-video" controls autoplay playsinline style="display:none"></video>
+      <iframe id="gvp-iframe" allowfullscreen allow="autoplay; encrypted-media" style="display:none"></iframe>
+    </div>
+    <div class="gvp-info">
+      <div class="gvp-scorer-line" id="gvp-scorer"></div>
+      <div class="gvp-wp-line" id="gvp-wp"></div>
+    </div>
+  </div>
+</div>
 
 <footer class="foot">
   <div class="foot-inner">
@@ -724,8 +760,19 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 
     if (!goals.length) {
       container.innerHTML = '<div class="no-data-msg">No goals yet.</div>';
+      _gvpGoals = [];
       return;
     }
+
+    // Pre-compute WP swing and store for the video popup to reference
+    _gvpGoals = goals.map(g => {
+      const swing = computeWpSwing(g.t, g.is_home, pts);
+      const wpBefore = swing != null
+        ? ([...pts].filter(p => p.wp != null && p.t < g.t).reverse()[0]?.wp ?? null)
+        : null;
+      const wpAfter = wpBefore != null && swing != null ? wpBefore + (g.is_home ? swing : -swing) : null;
+      return { ...g, _wpBefore: wpBefore, _wpAfter: wpAfter };
+    });
 
     const hasWp = pts.some(p => p.wp != null);
 
@@ -738,8 +785,9 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       const s = (sec % 60).toString().padStart(2, '0');
       const periodLabel = period > 3 ? 'OT' : `P${period}`;
       const timeLabel = `${periodLabel} ${m}:${s}`;
-      const videoHtml = g.goal_video_url
-        ? `<a class="video-link" href="${esc(g.goal_video_url)}" target="_blank" rel="noopener">▶ GIF</a>`
+      const hasVideo = g.goal_video_url || g.highlight_clip_id;
+      const videoHtml = hasVideo
+        ? `<button class="video-link" onclick="openGoalVideo(${i})" type="button">▶ Watch</button>`
         : '';
 
       let swingHtml = '<span style="color:var(--ink-32)">–</span>';
@@ -775,6 +823,84 @@ table.goals tbody tr:hover { background: var(--ink-04); }
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+  }
+
+  // ── Goal Video Popup ─────────────────────────────────────────────────────────
+
+  const BRIGHTCOVE = 'https://players.brightcove.net/6415718365001/EXtG1xJ7H_default/index.html';
+  let _gvpGoals = [];  // set by renderGoals so onclick buttons can reference by index
+
+  function openGoalVideo(idx) {
+    const g = _gvpGoals[idx];
+    if (!g) return;
+
+    const hasGif       = !!g.goal_video_url;
+    const hasHighlight = !!g.highlight_clip_id;
+    const hasBoth      = hasGif && hasHighlight;
+
+    const gvp     = document.getElementById('gvp');
+    const tabs    = document.getElementById('gvp-tabs');
+    const video   = document.getElementById('gvp-video');
+    const iframe  = document.getElementById('gvp-iframe');
+    const scorer  = document.getElementById('gvp-scorer');
+    const wpEl    = document.getElementById('gvp-wp');
+
+    // Scorer info
+    const assists = (g.assists || []).join(', ');
+    scorer.textContent = g.scorer ? (assists ? `${g.scorer} · ${assists}` : g.scorer) : 'Goal';
+
+    // WP swing info
+    if (g._wpBefore != null && g._wpAfter != null) {
+      const delta = ((g._wpAfter - g._wpBefore) * 100).toFixed(1);
+      const sign  = delta >= 0 ? '+' : '';
+      wpEl.innerHTML = `Win probability: <strong>${(g._wpBefore * 100).toFixed(1)}%</strong> → <strong>${(g._wpAfter * 100).toFixed(1)}%</strong><span class="gvp-wp-delta">${sign}${delta}%</span>`;
+    } else {
+      wpEl.textContent = '';
+    }
+
+    // Tabs — only when both sources available
+    tabs.style.display = hasBoth ? 'flex' : 'none';
+    tabs.querySelectorAll('.gvp-tab-btn').forEach(b => b.classList.remove('active'));
+
+    function showGif() {
+      video.src = g.goal_video_url;
+      video.style.display = 'block';
+      iframe.style.display = 'none';
+      iframe.src = '';
+      tabs.querySelector('[data-gvp-tab="gif"]')?.classList.add('active');
+    }
+    function showHighlight() {
+      iframe.src = `${BRIGHTCOVE}?videoId=${g.highlight_clip_id}&autoplay=true`;
+      iframe.style.display = 'block';
+      video.style.display = 'none';
+      video.src = '';
+      tabs.querySelector('[data-gvp-tab="highlight"]')?.classList.add('active');
+    }
+
+    // Default: prefer GIF (our content), fall back to Brightcove
+    if (hasGif) showGif(); else showHighlight();
+
+    // Wire tab clicks (replace to avoid duplicate listeners)
+    tabs.querySelectorAll('.gvp-tab-btn').forEach(btn => {
+      const clone = btn.cloneNode(true);
+      btn.parentNode.replaceChild(clone, btn);
+      clone.addEventListener('click', () => {
+        clone.dataset.gvpTab === 'gif' ? showGif() : showHighlight();
+      });
+    });
+
+    gvp.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeGvp() {
+    const gvp   = document.getElementById('gvp');
+    const video = document.getElementById('gvp-video');
+    const iframe = document.getElementById('gvp-iframe');
+    gvp.style.display = 'none';
+    video.src = '';
+    iframe.src = '';
+    document.body.style.overflow = '';
   }
 
   // ── Three stars — OFF state only ─────────────────────────────────────────────
@@ -887,6 +1013,14 @@ table.goals tbody tr:hover { background: var(--ink-04); }
          <a href="/" style="font-family:var(--mono);font-size:12px;color:var(--ink-48)">← Home</a>`;
     }
   }
+
+  // GVP close handlers
+  document.getElementById('gvp-close').addEventListener('click', closeGvp);
+  document.getElementById('gvp-backdrop').addEventListener('click', closeGvp);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGvp(); });
+
+  // Expose to inline onclick (IIFE scope workaround)
+  window.openGoalVideo = openGoalVideo;
 
   init();
 })();
