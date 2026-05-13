@@ -90,9 +90,27 @@ const rapmDef = player.rapm_def != null ? player.rapm_def * 60 : null;
 
 const teamColor     = pickTeamColor(player.team_abbrev);
 const headshotUrl   = `https://assets.nhle.com/mugs/nhl/20252026/${player.team_abbrev}/${player.player_id}.png`;
-const recentGames   = [...playerGames].reverse().slice(0, 10);
+const allGames      = [...playerGames].sort((a, b) => a.game_date.localeCompare(b.game_date));
+const recentGames   = [...allGames].reverse();  // all games, newest first
 const totalGoals    = playerGames.reduce((s, g) => s + g.goals,   0);
 const totalAssists  = playerGames.reduce((s, g) => s + g.assists, 0);
+
+// ── Impact season trend chart ─────────────────────────────────────────────
+const IW = 680, IH = 110;
+const IP = { t: 10, r: 8, b: 20, l: 38 };
+const iCW = IW - IP.l - IP.r, iCH = IH - IP.t - IP.b;
+const iN   = allGames.length || 1;
+const iGS  = allGames.map(g => g.gs_display);
+const iMin = -5, iMax = 12;  // fixed scale matches sparklines
+const ipx  = (i: number) => IP.l + (i / (iN - 1 || 1)) * iCW;
+const ipy  = (v: number) => IP.t + iCH - ((v - iMin) / (iMax - iMin)) * iCH;
+const ipy0 = ipy(0);
+const iPath = allGames.map((g, i) =>
+  `${i === 0 ? 'M' : 'L'}${ipx(i).toFixed(1)},${ipy(g.gs_display).toFixed(1)}`
+).join(' ');
+const iArea = allGames.length >= 2
+  ? `${iPath} L${ipx(iN-1).toFixed(1)},${ipy0.toFixed(1)} L${IP.l},${ipy0.toFixed(1)} Z`
+  : '';
 const posLabel      = player.pos_group === 'F' ? 'Forward' : 'Defenseman';
 const posPlural     = player.pos_group === 'F' ? 'forwards' : 'defensemen';
 
@@ -231,6 +249,20 @@ const pctBars = [
     .gl-win  { color: #14803c; font-weight: 700; }
     .gl-loss { color: var(--red); font-weight: 700; }
     .gl-muted { color: var(--ink-32); }
+    .gl-imp { font-weight: 700; }
+    .gl-imp.pos { color: #14803c; }
+    .gl-imp.neg { color: var(--red); }
+    .gl-table th.th-impact { text-align: center; }
+    .gl-table td.td-impact { text-align: center; }
+
+    /* ── Impact trend chart ── */
+    .impact-chart-wrap { padding: 0 2px 4px; }
+    .impact-chart-svg  { width: 100%; height: auto; display: block; overflow: visible; }
+    .impact-dot { cursor: crosshair; }
+    #imp-tip { position: fixed; pointer-events: none; display: none; z-index: 100;
+      background: var(--ink); color: var(--bg); padding: 5px 9px;
+      font-family: var(--mono); font-size: 10px; white-space: nowrap; border-radius: 2px; }
+    .gl-table-wrap { max-height: 420px; overflow-y: auto; }
     .gl-game-link { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-14); transition: border-color 0.15s; }
     .gl-game-link:hover { border-color: var(--red); color: var(--ink); }
 
@@ -421,46 +453,93 @@ const pctBars = [
         </div>
       </div>
 
+      <!-- IMPACT TREND -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-eyebrow">HGB <span class="accent">Impact</span> — Season Trend</span>
+          <span class="card-meta">Avg {player.avg_gs_display >= 0 ? '+' : ''}{player.avg_gs_display.toFixed(2)} · {allGames.length} games</span>
+        </div>
+        {allGames.length > 1 && (
+          <div class="impact-chart-wrap">
+            <svg class="impact-chart-svg" viewBox={`0 0 ${IW} ${IH}`} preserveAspectRatio="xMidYMid meet">
+              <!-- Zero line -->
+              <line x1={IP.l} y1={ipy0.toFixed(1)} x2={(IP.l+iCW).toFixed(1)} y2={ipy0.toFixed(1)}
+                stroke="rgba(13,13,20,0.18)" stroke-width="1" stroke-dasharray="3 3" />
+              <!-- Y-axis labels -->
+              {[-4, 0, 4, 8, 12].map(v => (
+                <text x={(IP.l-4).toFixed(1)} y={ipy(v).toFixed(1)} text-anchor="end"
+                  dominant-baseline="middle" font-family="JetBrains Mono,monospace"
+                  font-size="8" fill="rgba(13,13,20,0.28)">
+                  {v >= 0 ? '+' : ''}{v}
+                </text>
+              ))}
+              <!-- Area fill -->
+              {iArea && <path d={iArea} fill={teamColor} fill-opacity="0.06" />}
+              <!-- Line -->
+              <path d={iPath} fill="none" stroke={teamColor} stroke-width="1.5"
+                stroke-linejoin="round" stroke-linecap="round" />
+              <!-- Hover dots (transparent, wide target) -->
+              {allGames.map((g, i) => {
+                const cx = ipx(i).toFixed(1), cy = ipy(g.gs_display).toFixed(1);
+                const sgn = g.gs_display >= 0 ? '+' : '';
+                const tip = `${g.game_date} ${g.is_home ? 'vs' : '@'} ${g.opp_abbrev} · ${sgn}${g.gs_display.toFixed(2)}`;
+                return (
+                  <circle cx={cx} cy={cy} r="5" fill="transparent" class="impact-dot"
+                    data-tip={tip} data-val={g.gs_display} />
+                );
+              })}
+            </svg>
+            <div id="imp-tip"></div>
+          </div>
+        )}
+      </div>
+
       <!-- GAME LOG -->
       <div class="card">
         <div class="card-head">
           <span class="card-eyebrow">Game log &nbsp;<span class="accent">2025–26</span></span>
-          <span class="card-meta">Last {recentGames.length} of {playerGames.length} games</span>
+          <span class="card-meta">{recentGames.length} games · newest first</span>
         </div>
-        <table class="gl-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Opp</th>
-              <th>Result</th>
-              <th>G</th>
-              <th>A</th>
-              <th>PTS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recentGames.map(g => {
-              const win    = g.team_score > g.opp_score;
-              const result = win ? 'W' : (g.team_score < g.opp_score ? 'L' : 'T');
-              const vs     = g.is_home ? 'vs' : '@';
-              const href   = g.game_id ? `/games/${g.game_id}` : null;
-              return (
-                <tr>
-                  <td class="gl-muted">
-                    {href ? <a href={href} class="gl-game-link">{fmtDate(g.game_date)}</a> : fmtDate(g.game_date)}
-                  </td>
-                  <td>
-                    {href ? <a href={href} class="gl-game-link">{vs} {g.opp_abbrev}</a> : `${vs} ${g.opp_abbrev}`}
-                  </td>
-                  <td class={win ? 'gl-win' : 'gl-loss'}>{result} {g.team_score}–{g.opp_score}</td>
-                  <td>{g.goals}</td>
-                  <td>{g.assists}</td>
-                  <td>{g.goals + g.assists}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div class="gl-table-wrap">
+          <table class="gl-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Opp</th>
+                <th>Result</th>
+                <th>G</th>
+                <th>A</th>
+                <th>PTS</th>
+                <th class="th-impact">Impact</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentGames.map(g => {
+                const win    = g.team_score > g.opp_score;
+                const result = win ? 'W' : (g.team_score < g.opp_score ? 'L' : 'T');
+                const vs     = g.is_home ? 'vs' : '@';
+                const href   = g.game_id ? `/games/${g.game_id}` : null;
+                const impCls = g.gs_display >= 0 ? 'pos' : 'neg';
+                const impSign = g.gs_display >= 0 ? '+' : '';
+                return (
+                  <tr>
+                    <td class="gl-muted">
+                      {href ? <a href={href} class="gl-game-link">{fmtDate(g.game_date)}</a> : fmtDate(g.game_date)}
+                    </td>
+                    <td>
+                      {href ? <a href={href} class="gl-game-link">{vs} {g.opp_abbrev}</a> : `${vs} ${g.opp_abbrev}`}
+                    </td>
+                    <td class={win ? 'gl-win' : 'gl-loss'}>{result} {g.team_score}–{g.opp_score}</td>
+                    <td>{g.goals}</td>
+                    <td>{g.assists}</td>
+                    <td>{g.goals + g.assists}</td>
+                    <td class="td-impact"><span class={`gl-imp ${impCls}`}>{impSign}{g.gs_display.toFixed(2)}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div>
@@ -523,6 +602,30 @@ const pctBars = [
 </div>
 
 <footer>hockeygamebot.com · HGB Stats · 2025–26</footer>
+
+<script>
+  // Impact trend chart — dot hover tooltips
+  const tip = document.getElementById('imp-tip');
+  if (tip) {
+    document.querySelectorAll('.impact-dot').forEach(dot => {
+      dot.addEventListener('mouseenter', e => {
+        tip.textContent = dot.dataset.tip ?? '';
+        const val = parseFloat(dot.dataset.val ?? '0');
+        tip.style.color = val >= 0 ? '#1a7a3e' : '#E8002D';
+        tip.style.display = 'block';
+        const x = e.clientX + 12, y = e.clientY - 28;
+        tip.style.left = (x + tip.offsetWidth > window.innerWidth - 8 ? e.clientX - tip.offsetWidth - 8 : x) + 'px';
+        tip.style.top  = Math.max(4, y) + 'px';
+      });
+      dot.addEventListener('mousemove', e => {
+        const x = e.clientX + 12, y = e.clientY - 28;
+        tip.style.left = (x + tip.offsetWidth > window.innerWidth - 8 ? e.clientX - tip.offsetWidth - 8 : x) + 'px';
+        tip.style.top  = Math.max(4, y) + 'px';
+      });
+      dot.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    });
+  }
+</script>
 
 </body>
 </html>

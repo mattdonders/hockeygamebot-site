@@ -3,6 +3,15 @@
 // SPA shell. Client JS reads game_id from pathname, detects game state,
 // and renders one of three distinct layouts: pregame / live / final.
 import Nav from '../../components/Nav.astro';
+import { loadPlayers, loadPlayerGames } from '../../lib/stats-loader';
+
+// Build sparkline map at build time: player_id → last-10 gs_display values
+const _sparklineMap: Record<number, number[]> = {};
+for (const p of loadPlayers()) {
+  const games = (loadPlayerGames(p.player_id) ?? [])
+    .sort((a, b) => a.game_date.localeCompare(b.game_date));
+  _sparklineMap[p.player_id] = games.slice(-10).map(g => +g.gs_display.toFixed(2));
+}
 ---
 <!doctype html>
 <html lang="en">
@@ -547,6 +556,10 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     <span>Analytics by HGB · xG model XGBoost AUC 0.77</span>
   </div>
 </footer>
+
+<script define:vars={{ _sparklineMap }}>
+  window._HGB_SPARKLINES = _sparklineMap;
+</script>
 
 <script is:inline>
 (function () {
@@ -1506,6 +1519,8 @@ table.ps tbody tr:hover { background: var(--ink-04); }
             const v = ixgByPlayer[p.playerId];
             return v != null ? v.toFixed(2) : '–';
           }, num: p => ixgByPlayer[p.playerId] ?? 0, hgb: true },
+        { key: 'l10',           label: 'L10 Impact', val: p => '',
+          num: p => 0, spark: true },
       ];
 
       const ss = sortState[teamKey];
@@ -1517,14 +1532,39 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       });
 
       const ths = colDefs.map(c => {
+        if (c.spark) return `<th data-col="${c.key}" data-team="${teamKey}" style="color:${color};opacity:0.85">${esc(c.label)}</th>`;
         const cls = ss.col === c.key ? (ss.dir === 1 ? 'sort-asc' : 'sort-desc') : '';
         return `<th class="${cls}" data-col="${c.key}" data-team="${teamKey}" style="${c.hgb ? `color:${color};opacity:0.85` : ''}">${esc(c.label)}</th>`;
       }).join('');
+
+      const GS_MIN = -5, GS_MAX = 12;
+      function sparkSvg(vals) {
+        const smap = window._HGB_SPARKLINES || {};
+        const v = vals;
+        if (!v || !v.length) return '<span style="color:var(--ink-20);font-size:10px">—</span>';
+        const W = 64, H = 18, P = 2;
+        const n = v.length;
+        const xs = i => (n > 1 ? P + (i / (n-1)) * (W - 2*P) : W/2).toFixed(1);
+        const ys = val => (P + (H - 2*P) - ((val - GS_MIN) / (GS_MAX - GS_MIN)) * (H - 2*P)).toFixed(1);
+        const zero = ys(0);
+        const path = v.map((val, i) => `${i===0?'M':'L'}${xs(i)},${ys(val)}`).join(' ');
+        const avg = v.reduce((s, x) => s + x, 0) / v.length;
+        const c = avg >= 0 ? '#1a7a3e' : '#E8002D';
+        return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block">
+          <line x1="${P}" y1="${zero}" x2="${W-P}" y2="${zero}" stroke="rgba(13,13,20,0.10)" stroke-width="1"/>
+          <path d="${path}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linejoin="round"/>
+          <circle cx="${xs(n-1)}" cy="${ys(v[n-1])}" r="2" fill="${c}"/>
+        </svg>`;
+      }
 
       const rows = sorted.map(p => {
         const ixgVal = ixgByPlayer[p.playerId];
         const ixgStyle = ixgVal != null && ixgVal > 0 ? `color:${color};` : 'color:var(--ink-32)';
         return `<tr>${colDefs.map((c, ci) => {
+          if (c.spark) {
+            const sv = (window._HGB_SPARKLINES || {})[p.playerId];
+            return `<td style="padding:2px 8px;vertical-align:middle">${sparkSvg(sv)}</td>`;
+          }
           let td = esc(String(c.val(p)));
           if (ci === 0) td = `<span class="ps-num">${td}</span>`;
           else if (ci === 1) td = `<span class="ps-name">${td}</span>`;

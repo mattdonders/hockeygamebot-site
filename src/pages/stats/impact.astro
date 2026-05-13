@@ -242,6 +242,11 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
         </thead>
         <tbody id="impact-tbody"></tbody>
       </table>
+      <!-- Pagination controls -->
+      <div id="impact-pager" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--ink-06);background:var(--surface)">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--ink-32);letter-spacing:0.06em" id="pager-info"></div>
+        <div style="display:flex;gap:4px" id="pager-btns"></div>
+      </div>
     </div>
 
     <!-- Methodology strip -->
@@ -292,6 +297,8 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
   let sortKey = 'avg';
   let sortAsc = false;
   let posFilter = 'all';
+  let currentPage = 0;
+  const PAGE_SIZE = 50;
 
   function filtered() {
     return tableRows.filter(r => posFilter === 'all' || r.group === posFilter);
@@ -306,17 +313,46 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     });
   }
 
+  function renderPager(total, page) {
+    const pages = Math.ceil(total / PAGE_SIZE);
+    const info  = document.getElementById('pager-info');
+    const btns  = document.getElementById('pager-btns');
+    const from  = page * PAGE_SIZE + 1, to = Math.min((page + 1) * PAGE_SIZE, total);
+    if (info) info.textContent = `${from}–${to} OF ${total} SKATERS`;
+    if (!btns) return;
+    const btnStyle = (active) =>
+      `font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 10px;border:1px solid ${active ? 'var(--ink)' : 'var(--ink-14)'};background:${active ? 'var(--ink)' : 'transparent'};color:${active ? 'var(--bg)' : 'var(--ink-48)'};cursor:pointer`;
+    let html = `<button style="${btnStyle(false)}" id="pg-prev" ${page === 0 ? 'disabled' : ''}>← Prev</button>`;
+    for (let p = 0; p < pages; p++) {
+      if (pages <= 8 || Math.abs(p - page) <= 1 || p === 0 || p === pages - 1) {
+        html += `<button style="${btnStyle(p === page)}" data-page="${p}">${p + 1}</button>`;
+      } else if (Math.abs(p - page) === 2) {
+        html += `<span style="font-family:var(--mono);font-size:10px;color:var(--ink-32);padding:0 4px">…</span>`;
+      }
+    }
+    html += `<button style="${btnStyle(false)}" id="pg-next" ${page >= pages - 1 ? 'disabled' : ''}>Next →</button>`;
+    btns.innerHTML = html;
+    btns.querySelectorAll('[data-page]').forEach(b => {
+      b.addEventListener('click', () => { currentPage = parseInt(b.dataset.page); renderTable(); });
+    });
+    document.getElementById('pg-prev')?.addEventListener('click', () => { currentPage = Math.max(0, page - 1); renderTable(); });
+    document.getElementById('pg-next')?.addEventListener('click', () => { currentPage = Math.min(pages - 1, page + 1); renderTable(); });
+  }
+
   function renderTable() {
-    const rows = sorted(filtered());
+    const allRows = sorted(filtered());
+    const start = currentPage * PAGE_SIZE;
+    const rows  = allRows.slice(start, start + PAGE_SIZE);
     const tbody = document.getElementById('impact-tbody');
 
     tbody.innerHTML = rows.map((r, i) => {
+      const rank = start + i + 1;
       const avgCls = r.avg >= 0 ? 'pos' : 'neg';
       const l10Cls = r.l10a != null ? (r.l10a >= 0 ? 'pos' : 'neg') : '';
       const bestStr = `<span class="sv pos">${sgn(r.best)}${r.best.toFixed(2)}</span>`;
       const worstStr = `<span class="sv neg">${sgn(r.worst)}${r.worst.toFixed(2)}</span>`;
       return `<tr data-id="${r.id}">
-        <td class="td-rk">${i + 1}</td>
+        <td class="td-rk">${rank}</td>
         <td>
           <div class="td-player">
             <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" onerror="this.style.display='none'">
@@ -336,8 +372,9 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
       </tr>`;
     }).join('');
 
+    renderPager(allRows.length, currentPage);
     const countEl = document.getElementById('lb-count');
-    if (countEl) countEl.textContent = `${rows.length} skater${rows.length !== 1 ? 's' : ''} · click any column to sort`;
+    if (countEl) countEl.textContent = `${allRows.length} skater${allRows.length !== 1 ? 's' : ''} · click any column to sort`;
   }
 
   function updateHeaders() {
@@ -355,6 +392,7 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
       const key = th.dataset.sort;
       if (sortKey === key) { sortAsc = !sortAsc; }
       else { sortKey = key; sortAsc = key === 'worst'; }
+      currentPage = 0;
       updateHeaders();
       renderTable();
     });
@@ -365,6 +403,7 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     btn.addEventListener('click', () => {
       posFilter = btn.dataset.pos;
       document.querySelectorAll('.lb-tab[data-pos]').forEach(b => b.classList.toggle('active', b.dataset.pos === posFilter));
+      currentPage = 0;
       renderTable();
     });
   });
