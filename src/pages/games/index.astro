@@ -114,9 +114,9 @@ img { display: block; max-width: 100%; }
 .stat-bar-home, .stat-bar-away { height: 100%; transition: width 0.5s ease; }
 
 /* ── WP CHART ── */
-.chart-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; }
+.chart-wrap { background: #12121a; border: 1px solid var(--ink-14); overflow: hidden; }
 #wp-chart { width: 100%; display: block; }
-.chart-no-data { padding: 40px 0; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-32); letter-spacing: 0.06em; }
+.chart-no-data { padding: 40px 0; text-align: center; font-family: var(--mono); font-size: 12px; color: rgba(255,255,255,0.3); letter-spacing: 0.06em; }
 
 /* ── LIVE REFRESH INDICATOR ── */
 .refresh-bar { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.08em; }
@@ -536,11 +536,12 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       makeRow(homeAbbr, homeTotal, homeWin);
   }
 
-  // ── WP Chart ────────────────────────────────────────────────────────────────
+  // ── WP Chart (dark, split-color — matches modal quality) ───────────────────
 
-  function renderChart(flow, homeColor, awayColor) {
-    const svg = document.getElementById('wp-chart');
+  function renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr) {
+    const svg    = document.getElementById('wp-chart');
     const noData = document.getElementById('chart-no-data');
+    const wrap   = document.querySelector('.chart-wrap');
     const pts = (flow.points || []).filter(p => p.wp != null && p.t != null);
 
     if (pts.length < 2) {
@@ -549,71 +550,75 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       return;
     }
 
-    const W = 900, H = 200;
-    const PAD = { l: 44, r: 16, t: 20, b: 28 };
-    const cW = W - PAD.l - PAD.r;
-    const cH = H - PAD.t - PAD.b;
-    const maxT = Math.max(...(flow.points || []).map(p => p.t));
-    const periods = Math.ceil(maxT / 1200);
-    const cx = t  => PAD.l + (t / maxT) * cW;
-    const cy = wp => PAD.t + (1 - wp) * cH;
-    const midY = cy(0.5);
+    // Dark background to match modal
+    if (wrap) wrap.style.background = '#12121a';
 
-    let out = `<defs>
-      <linearGradient id="home-grad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${homeColor}" stop-opacity="0.35"/>
-        <stop offset="100%" stop-color="${homeColor}" stop-opacity="0.05"/>
-      </linearGradient>
-      <linearGradient id="away-grad" x1="0" y1="1" x2="0" y2="0">
-        <stop offset="0%" stop-color="${awayColor}" stop-opacity="0.35"/>
-        <stop offset="100%" stop-color="${awayColor}" stop-opacity="0.05"/>
-      </linearGradient>
-    </defs>`;
+    const W = 800, H = 220, PAD = 18;
+    const midY = H / 2;
+    const maxT = Math.max(...pts.map(p => p.t));
+    const px = t  => (t / maxT) * W;
+    const py = wp => PAD + (1 - wp) * (H - 2 * PAD);
+    const uid = Math.random().toString(36).slice(2, 8);
 
-    for (let p = 1; p < periods; p++) {
-      const x = cx(p * 1200);
-      out += `<line x1="${x}" y1="${PAD.t}" x2="${x}" y2="${PAD.t + cH}" stroke="rgba(13,13,20,0.1)" stroke-width="1" stroke-dasharray="4 3"/>`;
-    }
-    for (let p = 1; p <= periods; p++) {
-      const x = cx((p - 0.5) * 1200);
-      const lbl = p > 3 ? 'OT' : `P${p}`;
-      out += `<text x="${x}" y="${H - 8}" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="9" fill="rgba(13,13,20,0.3)" letter-spacing="0.06em">${lbl}</text>`;
-    }
+    const coords   = pts.map(p => ({ x: px(p.t), y: py(p.wp) }));
+    const linePts  = coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+    const areaPath = [
+      `0,${py(pts[0].wp).toFixed(1)}`,
+      ...coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`),
+      `${coords[coords.length-1].x.toFixed(1)},${midY}`,
+      `0,${midY}`,
+    ].join(' ');
 
-    out += `<line x1="${PAD.l}" y1="${midY}" x2="${PAD.l + cW}" y2="${midY}" stroke="rgba(13,13,20,0.15)" stroke-width="1" stroke-dasharray="5 4"/>`;
-    out += `<text x="${PAD.l - 4}" y="${midY + 3.5}" text-anchor="end" font-family="'JetBrains Mono',monospace" font-size="8" fill="rgba(13,13,20,0.3)">50%</text>`;
-    [[0.75,'75%'],[0.25,'25%']].forEach(([wp, lbl]) => {
-      out += `<text x="${PAD.l - 4}" y="${cy(wp) + 3.5}" text-anchor="end" font-family="'JetBrains Mono',monospace" font-size="8" fill="rgba(13,13,20,0.2)">${lbl}</text>`;
-    });
+    const periodLines = [1200, 2400, 3600].filter(t => t < maxT);
+    const periodZones = [];
+    if (maxT > 1200) periodZones.push({ x: px(1200) + 4, label: 'P2' });
+    if (maxT > 2400) periodZones.push({ x: px(2400) + 4, label: 'P3' });
+    if (maxT > 3600) periodZones.push({ x: px(3600) + 4, label: 'OT' });
 
-    const wpPath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${cx(p.t).toFixed(1)},${cy(p.wp).toFixed(1)}`).join(' ');
-    const x0 = cx(pts[0].t).toFixed(1);
-    const xN = cx(pts[pts.length - 1].t).toFixed(1);
-
-    out += `<path d="${wpPath} L${xN},${PAD.t} L${x0},${PAD.t} Z" fill="url(#home-grad)"/>`;
-    out += `<path d="${wpPath} L${xN},${PAD.t + cH} L${x0},${PAD.t + cH} Z" fill="url(#away-grad)"/>`;
-
-    const xgPts = (flow.points || []).filter(p => p.xg_home != null && p.xg_away != null && p.t != null);
-    if (xgPts.length > 2) {
-      const maxXg = Math.max(...xgPts.map(p => Math.max(p.xg_home, p.xg_away))) || 5;
-      const xgDiffPts = xgPts.map(p => {
-        const diff = (p.xg_home - p.xg_away) / (maxXg * 2);
-        const wpEquiv = 0.5 + diff * 0.4;
-        return `${cx(p.t).toFixed(1)},${cy(Math.max(0.05, Math.min(0.95, wpEquiv))).toFixed(1)}`;
-      }).join(' ');
-      out += `<polyline points="${xgDiffPts}" fill="none" stroke="rgba(13,13,20,0.18)" stroke-width="1.2" stroke-dasharray="4 3"/>`;
+    // Interpolate WP at a given time t for goal marker placement
+    function interpWp(t) {
+      const before = [...pts].reverse().find(p => p.t <= t);
+      const after  = pts.find(p => p.t >= t);
+      if (!before) return after?.wp ?? 0.5;
+      if (!after || before === after) return before.wp;
+      const frac = (t - before.t) / (after.t - before.t);
+      return before.wp + frac * (after.wp - before.wp);
     }
 
-    out += `<polyline points="${pts.map(p => `${cx(p.t).toFixed(1)},${cy(p.wp).toFixed(1)}`).join(' ')}" fill="none" stroke="rgba(13,13,20,0.75)" stroke-width="1.5"/>`;
-
-    (flow.goals || []).forEach(g => {
-      const x = cx(g.t).toFixed(1);
+    const goalMarkers = (flow.goals || []).map((g, i) => {
+      const gx    = px(g.t).toFixed(1);
+      const gy    = py(interpWp(g.t)).toFixed(1);
       const color = g.is_home ? homeColor : awayColor;
-      out += `<line x1="${x}" y1="${PAD.t}" x2="${x}" y2="${PAD.t + cH}" stroke="${color}" stroke-width="1.5" stroke-opacity="0.7"/>`;
-      out += `<circle cx="${x}" cy="${PAD.t + 2}" r="3.5" fill="${color}"/>`;
-    });
+      const abbr  = g.is_home ? homeAbbr : awayAbbr;
+      const prev  = (flow.goals || []).slice(0, i).filter(
+        p => p.is_home === g.is_home && Math.abs(px(p.t) - px(g.t)) < 30
+      ).length;
+      const baseOff = g.is_home ? -13 : 17;
+      const labelY  = (parseFloat(gy) + baseOff + (g.is_home ? -1 : 1) * prev * 13).toFixed(1);
+      return `<circle cx="${gx}" cy="${gy}" r="3.5" fill="${color}" fill-opacity="0.95"/>
+        <text x="${gx}" y="${labelY}" text-anchor="middle" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${color}" fill-opacity="0.9" letter-spacing="0.05em">${esc(abbr)}</text>`;
+    }).join('');
 
-    svg.innerHTML = out;
+    svg.innerHTML = `
+      <defs>
+        <clipPath id="cu-${uid}"><rect x="0" y="0" width="${W}" height="${midY}"/></clipPath>
+        <clipPath id="cl-${uid}"><rect x="0" y="${midY}" width="${W}" height="${H - midY}"/></clipPath>
+      </defs>
+      ${periodLines.map(t => `<line x1="${px(t).toFixed(1)}" y1="0" x2="${px(t).toFixed(1)}" y2="${H}" stroke="rgba(255,255,255,0.18)" stroke-width="1.5" stroke-dasharray="4,3"/>`).join('')}
+      <line x1="0" y1="${midY}" x2="${W}" y2="${midY}" stroke="rgba(255,255,255,0.12)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      ${[{wp:0.75,lbl:'75%'},{wp:0.25,lbl:'25%'}].map(r => {
+        const ry = py(r.wp).toFixed(1);
+        return `<line x1="0" y1="${ry}" x2="${W}" y2="${ry}" stroke="rgba(255,255,255,0.05)" stroke-width="0.6"/>
+                <text x="${W - 3}" y="${(parseFloat(ry)+6).toFixed(1)}" text-anchor="end" font-family="'JetBrains Mono',monospace" font-size="7" fill="rgba(255,255,255,0.2)">${r.lbl}</text>`;
+      }).join('')}
+      <polygon points="${areaPath}" fill="${homeColor}" fill-opacity="0.15" clip-path="url(#cu-${uid})"/>
+      <polygon points="${areaPath}" fill="${awayColor}" fill-opacity="0.15" clip-path="url(#cl-${uid})"/>
+      <polyline points="${linePts}" fill="none" stroke="${homeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#cu-${uid})"/>
+      <polyline points="${linePts}" fill="none" stroke="${awayColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#cl-${uid})"/>
+      ${goalMarkers}
+      ${periodZones.map(z => `<text x="${z.x.toFixed(1)}" y="${(PAD+9).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="9" fill="rgba(255,255,255,0.35)" letter-spacing="0.08em">${z.label}</text>`).join('')}
+      <text x="4" y="${(PAD+7).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${homeColor}" fill-opacity="0.7">${esc(homeAbbr)}</text>
+      <text x="4" y="${(H-PAD+5).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${awayColor}" fill-opacity="0.7">${esc(awayAbbr)}</text>`;
   }
 
   // ── Goal log ────────────────────────────────────────────────────────────────
@@ -706,7 +711,7 @@ table.goals tbody tr:hover { background: var(--ink-04); }
     } else {
       document.getElementById('section-game-body').style.display = '';
       renderStats(flow, awayAbbr, homeAbbr, awayColor, homeColor);
-      renderChart(flow, homeColor, awayColor);
+      renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr);
       renderGoals(flow, homeAbbr, awayAbbr);
       renderPeriodTable(boxscore, awayAbbr, homeAbbr, awayScore, homeScore);
 
