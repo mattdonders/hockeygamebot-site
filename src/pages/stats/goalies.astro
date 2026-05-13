@@ -1,0 +1,438 @@
+---
+import Nav from '../../components/Nav.astro';
+import { loadGoalies } from '../../lib/stats-loader';
+import { pickTeamColor } from '../../lib/team-colors';
+
+const allGoalies = loadGoalies();
+
+// Build table rows — all qualifying goalies
+const tableRows = allGoalies.map(g => ({
+  goalie_id:   g.goalie_id,
+  name:        g.name,
+  team:        g.team_abbrev,
+  sa:          g.sa,
+  ga:          g.ga,
+  xga:         +g.xga.toFixed(2),
+  gsax:        +g.gsax.toFixed(2),
+  sv_pct:      g.sv_pct != null ? +(g.sv_pct * 100).toFixed(2) : null,
+  vs_exp:      g.sv_pct != null && g.sa > 0
+                 ? +((g.sv_pct - (1 - g.xga / g.sa)) * 100).toFixed(2)
+                 : null,
+}));
+
+// ── Cumulative chart data ────────────────────────────────────────────────────
+
+const hasGameData = allGoalies.some(g => g.games.length > 0);
+
+// Pick top 12 by |GSAx| for chart (mix good + bad)
+const chartGoalies = hasGameData
+  ? [...allGoalies]
+      .filter(g => g.games.length > 0)
+      .sort((a, b) => Math.abs(b.gsax) - Math.abs(a.gsax))
+      .slice(0, 12)
+  : [];
+
+// SVG dimensions
+const SVG_W = 840, SVG_H = 260;
+const PAD = { t: 20, r: 96, b: 36, l: 48 };
+const cW = SVG_W - PAD.l - PAD.r;
+const cH = SVG_H - PAD.t - PAD.b;
+
+// Compute cumulative paths for each chart goalie
+type CumPoint = { game: number; gsax: number };
+type ChartLine = { goalie_id: number; name: string; team: string; color: string; points: CumPoint[]; final: number };
+
+let chartLines: ChartLine[] = [];
+let yMin = 0, yMax = 0, xMax = 1;
+
+if (hasGameData) {
+  chartLines = chartGoalies.map(g => {
+    const sorted = [...g.games].sort((a, b) => a.game_date.localeCompare(b.game_date));
+    let cum = 0;
+    const points: CumPoint[] = sorted.map((gm, i) => {
+      cum += gm.gsax;
+      return { game: i + 1, gsax: +cum.toFixed(2) };
+    });
+    return {
+      goalie_id: g.goalie_id,
+      name: g.name,
+      team: g.team_abbrev,
+      color: pickTeamColor(g.team_abbrev),
+      points,
+      final: +cum.toFixed(2),
+    };
+  });
+  xMax = Math.max(...chartLines.map(l => l.points.length), 1);
+  yMin = Math.min(0, ...chartLines.flatMap(l => l.points.map(p => p.gsax)));
+  yMax = Math.max(0, ...chartLines.flatMap(l => l.points.map(p => p.gsax)));
+  const yPad = (yMax - yMin) * 0.08;
+  yMin -= yPad; yMax += yPad;
+}
+
+const px = (game: number) => PAD.l + (game / xMax) * cW;
+const py = (gsax: number) => PAD.t + cH - ((gsax - yMin) / (yMax - yMin)) * cH;
+const py0 = py(0);
+
+function makePath(points: CumPoint[]): string {
+  if (!points.length) return '';
+  return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.game).toFixed(1)},${py(p.gsax).toFixed(1)}`).join(' ');
+}
+
+// Anti-overlap final labels
+type LabelEntry = { y: number; name: string; team: string; final: number; color: string };
+const sortedLabels: LabelEntry[] = chartLines
+  .map(l => ({ y: py(l.final), name: l.name, team: l.team, final: l.final, color: l.color }))
+  .sort((a, b) => a.y - b.y);
+for (let i = 1; i < sortedLabels.length; i++) {
+  if (sortedLabels[i].y - sortedLabels[i-1].y < 14) {
+    sortedLabels[i-1].y -= 7;
+    sortedLabels[i].y += 7;
+  }
+}
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Goalie GSAx — HGB Stats — HockeyGameBot</title>
+  <meta name="description" content="NHL goalie leaderboard ranked by Goals Saved Above Expected (GSAx). XGBoost xG model, all situations, min 500 SA, 2025–26 season." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #EFEEE8;
+      --ink:      #0d0d14;
+      --red:      #E8002D;
+      --surface:  #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    /* ── Masthead ── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
+
+    /* ── Layout ── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+    /* ── Chart section ── */
+    .chart-section { padding: 40px 0 0; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      margin-bottom: 16px; flex-wrap: wrap; }
+    .section-title { font-family: var(--display); font-weight: 800; font-size: 22px;
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .section-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .chart-wrap { background: var(--surface); border: 1px solid var(--ink-14); padding: 20px; }
+    .chart-placeholder { padding: 48px 0; text-align: center; font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.06em; color: var(--ink-32); }
+    .chart-svg { width: 100%; height: auto; display: block; }
+
+    /* ── Table section ── */
+    .lb-section { padding: 40px 0 0; }
+    .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    colgroup .c-rank  { width: 44px; }
+    colgroup .c-stat  { width: 80px; }
+    colgroup .c-wide  { width: 100px; }
+
+    thead th {
+      padding: 10px 12px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
+      border-bottom: 2px solid var(--ink-14); text-align: right;
+      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
+    }
+    thead th:first-child { text-align: left; padding-left: 16px; cursor: default; }
+    thead th.th-player  { text-align: left; cursor: default; }
+    thead th:hover { color: var(--ink); }
+    thead th.sorted { color: var(--ink); }
+    .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.4; font-size: 8px; transition: opacity 0.1s; }
+    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
+
+    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--ink-04); }
+    td { padding: 8px 12px; vertical-align: middle; }
+    td:first-child { padding-left: 16px; }
+
+    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
+      text-align: left; font-variant-numeric: tabular-nums; }
+    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
+
+    .td-player { display: flex; align-items: center; gap: 10px; min-width: 160px; }
+    .td-logo   { width: 22px; height: 22px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
+    .td-info   { display: flex; flex-direction: column; gap: 1px; }
+    .td-name   { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+    .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+
+    .td-num { font-family: var(--mono); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+    .sv { font-weight: 700; }
+    .sv.pos { color: #1a7a3e; }
+    .sv.neg { color: var(--red); }
+
+    /* ── Method strip ── */
+    .lb-method { padding: 28px 0 0; }
+    .lb-method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
+    .lb-method-card { padding: 16px 20px; border: 1px solid var(--ink-14); margin: -1px 0 0 -1px; }
+    .lb-method-card .k { font-family: var(--mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink); margin-bottom: 6px; }
+    .lb-method-card .v { font-size: 12px; line-height: 1.5; color: var(--ink-48); }
+    .badge { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; padding: 1px 5px; border-radius: 2px; margin-left: 6px; }
+    .badge-core { background: var(--ink); color: var(--bg); }
+
+    /* ── Footer ── */
+    .lb-footer { max-width: 1200px; margin: 0 auto; padding: 20px 32px;
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--ink-20); }
+
+    @media (max-width: 768px) {
+      .wrap, .mast-inner { padding-left: 16px; padding-right: 16px; }
+      .mast-top { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<Nav currentPath="/stats/goalies" />
+
+<!-- ── Masthead ── -->
+<header class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Goalies</div>
+      <span>{allGoalies.length} qualifying goalies · min 500 SA · 2025–26</span>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">Goalie <em>GSAx</em></h1>
+      <p class="mast-lede">Goals Saved Above Expected — all-situations, calibrated against league-average save% within each xG tier. HGB XGBoost model (AUC 0.77). Positive = saved more than expected; negative = allowed more.</p>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ── Cumulative chart ── -->
+  <section class="chart-section">
+    <div class="section-head">
+      <div class="section-title">Cumulative <span style="color:var(--red)">GSAx</span></div>
+      <div class="section-meta">Top 12 goalies by |GSAx| · season running total</div>
+    </div>
+    <div class="chart-wrap">
+      {hasGameData ? (
+        <svg class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet">
+          <!-- Grid lines -->
+          {[...Array(5)].map((_, i) => {
+            const gv = yMin + (i / 4) * (yMax - yMin);
+            const gy = py(gv).toFixed(1);
+            return (
+              <g>
+                <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy}
+                  stroke="rgba(13,13,20,0.06)" stroke-width="1" />
+                <text x={(PAD.l - 6).toFixed(1)} y={gy}
+                  text-anchor="end" dominant-baseline="middle"
+                  font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
+                  {gv >= 0 ? '+' : ''}{gv.toFixed(0)}
+                </text>
+              </g>
+            );
+          })}
+
+          <!-- Zero line -->
+          <line x1={PAD.l} y1={py0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={py0.toFixed(1)}
+            stroke="rgba(13,13,20,0.32)" stroke-width="1.5" stroke-dasharray="4 3" />
+          <text x={(PAD.l + cW + 4).toFixed(1)} y={py0.toFixed(1)}
+            dominant-baseline="middle" font-family="JetBrains Mono, monospace"
+            font-size="8" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">AVG</text>
+
+          <!-- Goalie lines -->
+          {chartLines.map(line => (
+            <path d={makePath(line.points)} fill="none"
+              stroke={line.color} stroke-width="1.8"
+              stroke-linejoin="round" stroke-linecap="round"
+              data-goalie={line.goalie_id} data-name={line.name}
+              style="cursor:crosshair" />
+          ))}
+
+          <!-- End-of-line labels -->
+          {sortedLabels.map(lbl => (
+            <g>
+              <text x={(PAD.l + cW + 6).toFixed(1)} y={lbl.y.toFixed(1)}
+                dominant-baseline="middle" font-family="Barlow Condensed, sans-serif"
+                font-size="10" font-weight="700" fill={lbl.color}>
+                {lbl.name.split('.').pop()?.trim() ?? lbl.name}
+              </text>
+            </g>
+          ))}
+
+          <!-- X-axis label -->
+          <text x={(PAD.l + cW / 2).toFixed(1)} y={(SVG_H - 4).toFixed(1)}
+            text-anchor="middle" font-family="JetBrains Mono, monospace"
+            font-size="9" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">GAME</text>
+        </svg>
+      ) : (
+        <div class="chart-placeholder">
+          CUMULATIVE CHART AVAILABLE AFTER NEXT PIPELINE RUN
+        </div>
+      )}
+    </div>
+  </section>
+
+  <!-- ── Sortable table ── -->
+  <section class="lb-section">
+    <div class="section-head">
+      <div class="section-title">Season <span style="color:var(--red)">Leaderboard</span></div>
+      <div class="section-meta">{tableRows.length} goalies · click any column to sort</div>
+    </div>
+    <div class="lb-wrap">
+      <table id="goalie-table">
+        <colgroup>
+          <col class="c-rank">
+          <col style="min-width:160px">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-wide">
+          <col class="c-stat">
+          <col class="c-stat">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="th-player">#</th>
+            <th class="th-player">Goalie</th>
+            <th data-sort="sa">SA<span class="sort-arrow">↕</span></th>
+            <th data-sort="ga">GA<span class="sort-arrow">↕</span></th>
+            <th data-sort="xga">xGA<span class="sort-arrow">↕</span></th>
+            <th data-sort="gsax" class="sorted">GSAx<span class="sort-arrow">↓</span></th>
+            <th data-sort="sv_pct">SV%<span class="sort-arrow">↕</span></th>
+            <th data-sort="vs_exp">vs Exp<span class="sort-arrow">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="goalie-tbody">
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Methodology strip -->
+    <div class="lb-method">
+      <div class="lb-method-grid">
+        <div class="lb-method-card">
+          <div class="k">GSAx <span class="badge badge-core">CORE</span></div>
+          <div class="v">Goals Saved Above Expected — actual GA subtracted from expected GA within each xG percentile bin. Calibrated against league-average, so 0 = average goalie by xG quality faced.</div>
+        </div>
+        <div class="lb-method-card">
+          <div class="k">xGA</div>
+          <div class="v">Expected goals against using HGB XGBoost model (AUC 0.77), trained on shot location, angle, type, rebound, and rush context. Fenwick shots only — blocked and empty-net excluded.</div>
+        </div>
+        <div class="lb-method-card">
+          <div class="k">vs Exp</div>
+          <div class="v">Actual SV% minus expected SV% (xGA ÷ SA). Positive means the goalie is outperforming their expected save rate; negative = underperforming. Rate-based complement to the cumulative GSAx.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · GOALIES GSAx</footer>
+
+<script define:vars={{ tableRows }}>
+  const sgn  = v => v >= 0 ? '+' : '';
+  const fmt2 = v => v != null ? `${sgn(v)}${v.toFixed(2)}` : '—';
+
+  let sortKey = 'gsax';
+  let sortAsc = false;
+
+  function renderTable() {
+    const rows = [...tableRows].sort((a, b) => {
+      const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+      const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+      return sortAsc ? av - bv : bv - av;
+    });
+
+    const tbody = document.getElementById('goalie-tbody');
+    tbody.innerHTML = rows.map((r, i) => {
+      const gsaxCls = r.gsax >= 0 ? 'pos' : 'neg';
+      const veCls   = r.vs_exp != null ? (r.vs_exp >= 0 ? 'pos' : 'neg') : '';
+      return `<tr>
+        <td class="td-rk">${i + 1}</td>
+        <td>
+          <div class="td-player">
+            <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" onerror="this.style.display='none'">
+            <div class="td-info">
+              <span class="td-name">${r.name}</span>
+              <span class="td-sub">${r.team}</span>
+            </div>
+          </div>
+        </td>
+        <td class="td-num">${r.sa.toLocaleString()}</td>
+        <td class="td-num">${r.ga}</td>
+        <td class="td-num">${r.xga.toFixed(2)}</td>
+        <td class="td-num"><span class="sv ${gsaxCls}">${fmt2(r.gsax)}</span></td>
+        <td class="td-num">${r.sv_pct != null ? r.sv_pct.toFixed(2) + '%' : '—'}</td>
+        <td class="td-num">${r.vs_exp != null ? `<span class="sv ${veCls}">${fmt2(r.vs_exp)}%</span>` : '—'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function updateHeaders() {
+    document.querySelectorAll('#goalie-table thead th[data-sort]').forEach(th => {
+      const key = th.dataset.sort;
+      const arrow = th.querySelector('.sort-arrow');
+      th.classList.toggle('sorted', key === sortKey);
+      if (arrow) arrow.textContent = key === sortKey ? (sortAsc ? '↑' : '↓') : '↕';
+    });
+  }
+
+  document.querySelectorAll('#goalie-table thead th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (sortKey === key) { sortAsc = !sortAsc; }
+      else { sortKey = key; sortAsc = false; }
+      updateHeaders();
+      renderTable();
+    });
+  });
+
+  renderTable();
+  updateHeaders();
+</script>
+
+</body>
+</html>

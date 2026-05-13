@@ -3,12 +3,14 @@ import {
   LeaderboardsSchema,
   PlayerGamesSchema,
   TeamGameStatsSchema,
+  GoaliesSchema,
   StatsMetaSchema,
   parseOrThrow,
   type PlayerRecord,
   type LeaderboardEntry as ZLeaderboardEntry,
   type GameLogEntry as ZGameLogEntry,
   type TeamGameEntry as ZTeamGameEntry,
+  type GoalieRecord,
   type StatsMeta,
 } from './stats-schemas';
 
@@ -22,12 +24,13 @@ async function _fetchJSON(path: string) {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData] = await Promise.all([
   _fetchJSON('players'),
   _fetchJSON('leaderboards'),
   _fetchJSON('player-games'),
   _fetchJSON('meta'),
   _fetchJSON('team-game-stats').catch(() => ({})),  // graceful fallback before export runs
+  _fetchJSON('goalies').catch(() => []),             // graceful fallback before pipeline adds it
 ]);
 
 const VALIDATED_PLAYERS      = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
@@ -35,6 +38,7 @@ const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema,   leaderboardsDa
 const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema,    playerGamesData,    'player-games');
 const VALIDATED_META         = parseOrThrow(StatsMetaSchema,      metaData,           'meta');
 const VALIDATED_TEAM_GAMES   = parseOrThrow(TeamGameStatsSchema,  teamGameStatsData,  'team-game-stats');
+const VALIDATED_GOALIES      = parseOrThrow(GoaliesSchema,        goaliesData,        'goalies');
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -44,6 +48,7 @@ export type PlayerSummary = PlayerRecord;
 export type LeaderboardEntry = ZLeaderboardEntry;
 export type GameLogEntry = ZGameLogEntry;
 export type TeamGameEntry = ZTeamGameEntry;
+export type GoalieData = GoalieRecord;
 export type MetaData = StatsMeta;
 
 // ── Loaders ─────────────────────────────────────────────────────────────────
@@ -176,4 +181,9 @@ export function loadTopGoals60(n = 10): LeaderboardSectionEntry[] {
     .sort((a, b) => b.rates_per_60.goals - a.rates_per_60.goals)
     .slice(0, n);
   return toSectionEntries(sorted, p => p.rates_per_60.goals, p => p.percentiles_vs_pos.goals);
+}
+
+
+export function loadGoalies(): GoalieData[] {
+  return VALIDATED_GOALIES;
 }
