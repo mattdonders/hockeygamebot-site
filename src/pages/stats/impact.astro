@@ -1,0 +1,377 @@
+---
+import Nav from '../../components/Nav.astro';
+import { loadPlayers, loadPlayerGames } from '../../lib/stats-loader';
+
+const allPlayers = loadPlayers().filter(p => p.gp >= 20);
+
+// Build per-player impact rows at build time
+type ImpactRow = {
+  id: number; slug: string; name: string;
+  team: string; pos: string; group: 'F' | 'D'; gp: number;
+  avg: number; l10: number[]; l10a: number | null;
+  best: number; worst: number;
+};
+
+const tableRows: ImpactRow[] = allPlayers.map(p => {
+  const games = (loadPlayerGames(p.player_id) ?? [])
+    .sort((a, b) => a.game_date.localeCompare(b.game_date));
+  const last10 = games.slice(-10).map(g => +g.gs_display.toFixed(2));
+  const l10a = last10.length ? +(last10.reduce((s, v) => s + v, 0) / last10.length).toFixed(2) : null;
+  const allGs = games.map(g => g.gs_display);
+  return {
+    id: p.player_id, slug: p.slug, name: p.display_name,
+    team: p.team_abbrev, pos: p.pos, group: p.pos_group, gp: p.gp,
+    avg: +p.avg_gs_display.toFixed(2),
+    l10: last10, l10a,
+    best:  allGs.length ? +Math.max(...allGs).toFixed(2) : 0,
+    worst: allGs.length ? +Math.min(...allGs).toFixed(2) : 0,
+  };
+});
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HGB Impact — Player Leaderboard — HockeyGameBot</title>
+  <meta name="description" content="HGB Impact per-player leaderboard — per-game blend of goals, assists, xG, and two-way play with last-10-game trend sparklines. 2025–26 season." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #EFEEE8;
+      --ink:      #0d0d14;
+      --red:      #E8002D;
+      --green:    #1a7a3e;
+      --surface:  #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    /* ── Masthead ── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
+    .mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
+
+    /* ── Layout ── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+    /* ── Table section ── */
+    .lb-section { padding: 40px 0 0; }
+    .lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      margin-bottom: 16px; flex-wrap: wrap; }
+    .lb-title { font-family: var(--display); font-weight: 800; font-size: 22px;
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+
+    /* ── Filter tabs ── */
+    .lb-filters { display: flex; align-items: center; gap: 6px; }
+    .lb-tab {
+      font-family: var(--display); font-weight: 700; font-size: 10.5px;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      padding: 5px 12px; border: 1px solid var(--ink-14);
+      background: transparent; color: var(--ink-48); cursor: pointer; transition: all 0.1s;
+    }
+    .lb-tab:hover { background: var(--ink-06); color: var(--ink); }
+    .lb-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* ── Table ── */
+    .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    colgroup .c-rank  { width: 44px; }
+    colgroup .c-stat  { width: 80px; }
+    colgroup .c-spark { width: 88px; }
+    colgroup .c-sm    { width: 48px; }
+
+    thead th {
+      padding: 10px 12px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
+      border-bottom: 2px solid var(--ink-14); text-align: right;
+      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
+    }
+    thead th:first-child  { text-align: left; padding-left: 16px; cursor: default; }
+    thead th.th-player    { text-align: left; cursor: default; }
+    thead th.th-spark     { text-align: left; }
+    thead th:hover        { color: var(--ink); }
+    thead th.sorted       { color: var(--ink); }
+    .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.4; font-size: 8px; transition: opacity 0.1s; }
+    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
+
+    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--ink-04); }
+    td { padding: 7px 12px; vertical-align: middle; }
+    td:first-child { padding-left: 16px; }
+
+    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
+      text-align: left; font-variant-numeric: tabular-nums; }
+    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
+
+    .td-player { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+    .td-logo   { width: 22px; height: 22px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
+    .td-info   { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .td-name   { font-size: 15px; font-weight: 600; color: var(--ink);
+      text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .td-name:hover { color: var(--red); }
+    .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+
+    .td-num { font-family: var(--mono); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+    .sv { font-weight: 700; }
+    .sv.pos { color: var(--green); }
+    .sv.neg { color: var(--red); }
+
+    .td-spark { padding: 4px 12px; vertical-align: middle; }
+
+    /* ── Method strip ── */
+    .lb-method { padding: 28px 0 0; }
+    .lb-method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
+    .lb-method-card { padding: 16px 20px; border: 1px solid var(--ink-14); margin: -1px 0 0 -1px; }
+    .lb-method-card .k { font-family: var(--mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink); margin-bottom: 6px; }
+    .lb-method-card .v { font-size: 12px; line-height: 1.5; color: var(--ink-48); }
+    .badge { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; padding: 1px 5px; border-radius: 2px; margin-left: 6px; }
+    .badge-core { background: var(--ink); color: var(--bg); }
+
+    /* ── Footer ── */
+    .lb-footer { max-width: 1200px; margin: 0 auto; padding: 20px 32px;
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--ink-20); }
+
+    @media (max-width: 768px) {
+      .wrap, .mast-inner { padding-left: 16px; padding-right: 16px; }
+      .mast-top { font-size: 10px; }
+      colgroup .c-spark { display: none; }
+      .col-spark { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<Nav currentPath="/stats/impact" />
+
+<!-- ── Masthead ── -->
+<header class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Impact</div>
+      <span>{tableRows.length} skaters · min 20 GP · 2025–26</span>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">HGB <em>Impact</em></h1>
+      <p class="mast-lede">Per-game blend of goals, assists, shots, individual xG, and on-ice 5v5 xG differential — rate-adjusted per 60 minutes. <span class="mono">L10</span> sparkline shows trajectory over the last 10 games. 0 = league average for position group.</p>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="lb-section">
+    <div class="lb-head">
+      <div class="lb-title">Season <span style="color:var(--red)">Impact</span></div>
+      <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap">
+        <div class="lb-filters">
+          <button class="lb-tab active" data-pos="all">All</button>
+          <button class="lb-tab" data-pos="F">Forwards</button>
+          <button class="lb-tab" data-pos="D">Defence</button>
+        </div>
+        <div class="lb-meta" id="lb-count">{tableRows.length} skaters · click any column to sort</div>
+      </div>
+    </div>
+
+    <div class="lb-wrap">
+      <table id="impact-table">
+        <colgroup>
+          <col class="c-rank">
+          <col style="min-width:150px">
+          <col class="c-sm">
+          <col class="c-sm">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-spark col-spark">
+          <col class="c-stat">
+          <col class="c-stat">
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="th-player">#</th>
+            <th class="th-player">Player</th>
+            <th data-sort="pos" style="text-align:left">Pos<span class="sort-arrow">↕</span></th>
+            <th data-sort="gp">GP<span class="sort-arrow">↕</span></th>
+            <th data-sort="avg" class="sorted">Avg Impact<span class="sort-arrow">↓</span></th>
+            <th data-sort="l10a">L10 Avg<span class="sort-arrow">↕</span></th>
+            <th class="th-spark col-spark" style="text-align:left; padding-left:12px">L10 Trend</th>
+            <th data-sort="best">Best<span class="sort-arrow">↕</span></th>
+            <th data-sort="worst">Worst<span class="sort-arrow">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="impact-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Methodology strip -->
+    <div class="lb-method">
+      <div class="lb-method-grid">
+        <div class="lb-method-card">
+          <div class="k">HGB Impact <span class="badge badge-core">CORE</span></div>
+          <div class="v">HGBScore v2 — per-game weighted composite scaled to display units. Goals=1.00, Primary assist=0.65, Secondary assist=0.30, ixG=0.40, On-ice 5v5 xGdiff=0.15 (F) / 0.75 (D), Blocks=0.05/0.08, Penalty diff=0.10. Centered at 0 = league-average for position group.</div>
+        </div>
+        <div class="lb-method-card">
+          <div class="k">L10 Trend</div>
+          <div class="v">Sparkline of last 10 games chronologically. Zero-line = league average. Green line = L10 avg above zero; red = below. Dot at right end = most recent game. Each game's Impact is the raw per-game HGBScore v2 display value — not a rolling average.</div>
+        </div>
+        <div class="lb-method-card">
+          <div class="k">Best / Worst</div>
+          <div class="v">Single-game season high and low for this player. A high Best with a volatile sparkline suggests a streaky scorer; a consistent sparkline near average is a two-way contributor who shows up every night.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · HGB IMPACT v2</footer>
+
+<script define:vars={{ tableRows }}>
+  const sgn = v => v >= 0 ? '+' : '';
+  const fmt  = v => v != null ? `${sgn(v)}${v.toFixed(2)}` : '—';
+  const GS_MIN = -5, GS_MAX = 12;
+
+  function sparkSvg(vals) {
+    if (!vals || !vals.length) return '<span style="color:var(--ink-20)">—</span>';
+    const W = 72, H = 22, PAD = 2;
+    const n = vals.length;
+    const xs = i => (n > 1 ? PAD + (i / (n - 1)) * (W - 2 * PAD) : W / 2).toFixed(1);
+    const ys = v => (PAD + (H - 2 * PAD) - ((v - GS_MIN) / (GS_MAX - GS_MIN)) * (H - 2 * PAD)).toFixed(1);
+    const zero = ys(0);
+    const path = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${xs(i)},${ys(v)}`).join(' ');
+    const l10a = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const c = l10a >= 0 ? '#1a7a3e' : '#E8002D';
+    const lx = xs(n - 1), ly = ys(vals[n - 1]);
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;overflow:visible">
+      <line x1="${PAD}" y1="${zero}" x2="${W - PAD}" y2="${zero}" stroke="rgba(13,13,20,0.12)" stroke-width="1"/>
+      <path d="${path}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${lx}" cy="${ly}" r="2.5" fill="${c}"/>
+    </svg>`;
+  }
+
+  let sortKey = 'avg';
+  let sortAsc = false;
+  let posFilter = 'all';
+
+  function filtered() {
+    return tableRows.filter(r => posFilter === 'all' || r.group === posFilter);
+  }
+
+  function sorted(rows) {
+    return [...rows].sort((a, b) => {
+      const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+      const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+      if (typeof av === 'string') return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+      return sortAsc ? av - bv : bv - av;
+    });
+  }
+
+  function renderTable() {
+    const rows = sorted(filtered());
+    const tbody = document.getElementById('impact-tbody');
+
+    tbody.innerHTML = rows.map((r, i) => {
+      const avgCls = r.avg >= 0 ? 'pos' : 'neg';
+      const l10Cls = r.l10a != null ? (r.l10a >= 0 ? 'pos' : 'neg') : '';
+      const bestStr = `<span class="sv pos">${sgn(r.best)}${r.best.toFixed(2)}</span>`;
+      const worstStr = `<span class="sv neg">${sgn(r.worst)}${r.worst.toFixed(2)}</span>`;
+      return `<tr data-id="${r.id}">
+        <td class="td-rk">${i + 1}</td>
+        <td>
+          <div class="td-player">
+            <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" onerror="this.style.display='none'">
+            <div class="td-info">
+              <a class="td-name" href="/stats/player/${r.slug}">${r.name}</a>
+              <span class="td-sub">${r.team} · ${r.pos}</span>
+            </div>
+          </div>
+        </td>
+        <td class="td-num" style="text-align:left;font-family:var(--mono);font-size:11px;color:var(--ink-48)">${r.pos}</td>
+        <td class="td-num">${r.gp}</td>
+        <td class="td-num"><span class="sv ${avgCls}">${fmt(r.avg)}</span></td>
+        <td class="td-num">${r.l10a != null ? `<span class="sv ${l10Cls}">${fmt(r.l10a)}</span>` : '—'}</td>
+        <td class="td-spark col-spark">${sparkSvg(r.l10)}</td>
+        <td class="td-num">${bestStr}</td>
+        <td class="td-num">${worstStr}</td>
+      </tr>`;
+    }).join('');
+
+    const countEl = document.getElementById('lb-count');
+    if (countEl) countEl.textContent = `${rows.length} skater${rows.length !== 1 ? 's' : ''} · click any column to sort`;
+  }
+
+  function updateHeaders() {
+    document.querySelectorAll('#impact-table thead th[data-sort]').forEach(th => {
+      const key = th.dataset.sort;
+      const arrow = th.querySelector('.sort-arrow');
+      th.classList.toggle('sorted', key === sortKey);
+      if (arrow) arrow.textContent = key === sortKey ? (sortAsc ? '↑' : '↓') : '↕';
+    });
+  }
+
+  // Sort headers
+  document.querySelectorAll('#impact-table thead th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (sortKey === key) { sortAsc = !sortAsc; }
+      else { sortKey = key; sortAsc = key === 'worst'; }
+      updateHeaders();
+      renderTable();
+    });
+  });
+
+  // Position filter tabs
+  document.querySelectorAll('.lb-tab[data-pos]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      posFilter = btn.dataset.pos;
+      document.querySelectorAll('.lb-tab[data-pos]').forEach(b => b.classList.toggle('active', b.dataset.pos === posFilter));
+      renderTable();
+    });
+  });
+
+  renderTable();
+  updateHeaders();
+</script>
+
+</body>
+</html>
