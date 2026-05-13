@@ -98,6 +98,10 @@ Full plan: `docs/plans/stats-redesign.md`
 - [ ] Teams page (`/stats/teams`)
 - [ ] xG recalibration (apply 1.46× stopgap → xG v2 rebuild is longer project)
 
+## Dark Mode — follow-up
+
+- [ ] **Team colors in dark mode**: Many primary team colors (navy BUF, dark blue COL, black PIT etc.) are nearly illegible on the dark `#1c1c1f` surface. Need a `--team-color-display` companion token computed at build time (e.g. `color-mix(in srgb, <primaryColor> 60%, white 40%)`) that's used anywhere team color appears as text or a small accent — while keeping the raw color for large fills (bars, borders). Affected: games page team abbr + xG share values, player page hero border, team cards abbr color. Also requires switching logo `src` from `_light.svg` → `_dark.svg` on theme toggle (via JS listener on `data-theme` mutation).
+
 ## Teams Page — post-session
 
 - [ ] QA division-grouped redesign on real playoff data (clinch/eliminated badges, opacity treatment)
