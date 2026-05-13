@@ -137,8 +137,17 @@ img { display: block; max-width: 100%; }
 /* ── CHARTS — stacked, no tabs ── */
 .chart-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; }
 .chart-wrap + .chart-wrap { margin-top: 12px; }
-.chart-svg { width: 100%; display: block; }
+.chart-svg { width: 100%; display: block; cursor: crosshair; }
 .chart-no-data { padding: 40px 0; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-32); letter-spacing: 0.06em; }
+.chart-sub-label { padding: 8px 14px 6px; font-family: var(--display); font-weight: 800; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-top: 1px solid var(--ink-06); }
+/* Chart hover tooltip */
+#ctip { position: fixed; pointer-events: none; z-index: 201; background: #0d0d14; color: #fff; border-radius: 3px; padding: 8px 12px; font-family: var(--mono); font-size: 11px; line-height: 1.5; letter-spacing: 0.02em; box-shadow: 0 4px 16px rgba(0,0,0,0.35); display: none; white-space: nowrap; }
+#ctip .ct-team { font-family: var(--display); font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+#ctip .ct-sub { color: rgba(255,255,255,0.45); font-size: 10px; }
+#ctip .ct-wp { font-size: 12px; }
+#ctip .ct-meta { color: rgba(255,255,255,0.45); font-size: 10px; margin-top: 2px; }
+/* Stats location badge */
+.stats-location { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); display: block; margin-top: 2px; }
 
 /* ── LIVE REFRESH INDICATOR ── */
 .refresh-bar { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.08em; }
@@ -372,9 +381,20 @@ table.ps tbody tr:hover { background: var(--ink-04); }
         </div>
         <div class="stats-compare" id="stats-strip">
           <div class="stats-compare-head">
-            <span class="stats-abbr" id="stats-away-abbr"></span>
+            <div>
+              <span class="stats-abbr" id="stats-away-abbr"></span>
+              <span class="stats-location">Away</span>
+            </div>
             <span></span>
-            <span class="stats-abbr right" id="stats-home-abbr"></span>
+            <div style="text-align:right">
+              <span class="stats-abbr right" id="stats-home-abbr"></span>
+              <span class="stats-location" style="text-align:right">Home</span>
+            </div>
+          </div>
+          <div class="stats-compare-row">
+            <span class="stat-compare-num" id="away-goals">–</span>
+            <span class="stat-compare-key">Goals</span>
+            <span class="stat-compare-num right" id="home-goals">–</span>
           </div>
           <div class="stats-compare-row">
             <span class="stat-compare-num" id="away-sog">–</span>
@@ -383,12 +403,17 @@ table.ps tbody tr:hover { background: var(--ink-04); }
           </div>
           <div class="stats-compare-row">
             <span class="stat-compare-num" id="away-xgf">–</span>
-            <span class="stat-compare-key">xGoals</span>
+            <span class="stat-compare-key">xG</span>
             <span class="stat-compare-num right" id="home-xgf">–</span>
           </div>
           <div class="stats-compare-row">
+            <span class="stat-compare-num" id="away-xg5v5">–</span>
+            <span class="stat-compare-key">xG 5v5</span>
+            <span class="stat-compare-num right" id="home-xg5v5">–</span>
+          </div>
+          <div class="stats-compare-row">
             <span class="stat-compare-num" id="away-xgfpct">–</span>
-            <span class="stat-compare-key">xGF %</span>
+            <span class="stat-compare-key">xG Share</span>
             <span class="stat-compare-num right" id="home-xgfpct">–</span>
           </div>
         </div>
@@ -405,6 +430,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
           <svg id="wp-chart" class="chart-svg" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
         </div>
         <div class="chart-wrap">
+          <div class="chart-sub-label">5v5 xG</div>
           <div class="chart-no-data" id="xg-no-data" style="display:none">xG data not available.</div>
           <svg id="xg-chart" class="chart-svg" viewBox="0 0 840 220" preserveAspectRatio="none"></svg>
         </div>
@@ -498,6 +524,14 @@ table.ps tbody tr:hover { background: var(--ink-04); }
   </div>
 </div>
 
+<!-- CHART TOOLTIP -->
+<div id="ctip">
+  <div class="ct-team" id="ctip-team"></div>
+  <div class="ct-sub" id="ctip-sub"></div>
+  <div class="ct-wp" id="ctip-wp"></div>
+  <div class="ct-meta" id="ctip-meta"></div>
+</div>
+
 <!-- SHOT TOOLTIP -->
 <div id="shot-tooltip" role="tooltip">
   <div class="stt-player" id="stt-player"></div>
@@ -549,6 +583,38 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     return `${base}-${id}`;
+  }
+
+  // ── Global chart tooltip ─────────────────────────────────────────────────────
+  function showCtip(e, team, sub, wp, meta) {
+    const t = document.getElementById('ctip');
+    document.getElementById('ctip-team').innerHTML = team || '';
+    document.getElementById('ctip-sub').innerHTML  = sub  || '';
+    document.getElementById('ctip-wp').innerHTML   = wp   || '';
+    document.getElementById('ctip-meta').textContent = meta || '';
+    document.getElementById('ctip-sub').style.display  = sub  ? '' : 'none';
+    document.getElementById('ctip-wp').style.display   = wp   ? '' : 'none';
+    document.getElementById('ctip-meta').style.display = meta ? '' : 'none';
+    t.style.display = 'block';
+    moveCtip(e);
+  }
+  function moveCtip(e) {
+    const t = document.getElementById('ctip');
+    if (!t || t.style.display === 'none') return;
+    const pad = 14, tw = t.offsetWidth, th = t.offsetHeight;
+    let lx = e.clientX + pad, ly = e.clientY - th / 2;
+    if (lx + tw > window.innerWidth - 4) lx = e.clientX - tw - pad;
+    if (ly < 4) ly = 4;
+    if (ly + th > window.innerHeight - 4) ly = window.innerHeight - th - 4;
+    t.style.left = lx + 'px'; t.style.top = ly + 'px';
+  }
+  function hideCtip() { const t = document.getElementById('ctip'); if (t) t.style.display = 'none'; }
+
+  function tLabel(t) {
+    const p = Math.floor(t / 1200) + 1, sec = t % 1200;
+    const m = Math.floor(sec / 60).toString().padStart(2,'0');
+    const s = Math.floor(sec % 60).toString().padStart(2,'0');
+    return (p > 3 ? 'OT' : `P${p}`) + ` ${m}:${s}`;
   }
 
   function gameState(status) {
@@ -680,13 +746,48 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 
   // ── Key Stats ────────────────────────────────────────────────────────────────
 
-  function renderStats(flow, boxscore, awayAbbr, homeAbbr, awayColor, homeColor) {
-    document.getElementById('stats-away-abbr').textContent = awayAbbr;
-    document.getElementById('stats-home-abbr').textContent = homeAbbr;
+  function renderStats(flow, boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor) {
+    const awayAbbrEl = document.getElementById('stats-away-abbr');
+    const homeAbbrEl = document.getElementById('stats-home-abbr');
+    awayAbbrEl.textContent = awayAbbr;
+    homeAbbrEl.textContent = homeAbbr;
+    awayAbbrEl.style.color = awayColor;
+    homeAbbrEl.style.color = homeColor;
 
-    // SOG
     const away = boxscore.awayTeam || {};
     const home = boxscore.homeTeam || {};
+
+    // Goals
+    const awGoals = away.score ?? null, hmGoals = home.score ?? null;
+    const awGoalsEl = document.getElementById('away-goals');
+    const hmGoalsEl = document.getElementById('home-goals');
+    if (awGoals != null && hmGoals != null) {
+      awGoalsEl.textContent = awGoals;
+      hmGoalsEl.textContent = hmGoals;
+      awGoalsEl.style.color = awGoals > hmGoals ? awayColor : awGoals < hmGoals ? 'var(--ink-32)' : 'var(--ink)';
+      hmGoalsEl.style.color = hmGoals > awGoals ? homeColor : hmGoals < awGoals ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // 5v5 xG from events
+    const xg5v5 = { home: 0, away: 0 };
+    for (const ev of (eventsData?.events || [])) {
+      if (!['SHOT_ON_GOAL','MISSED_SHOT','GOAL'].includes(ev.event_type)) continue;
+      if (ev.payload?.situationCode !== '1551') continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const isHome = ev.event_team_id != null && String(ev.event_team_id) === String(ev.home_team_id);
+      if (isHome) xg5v5.home += xg; else xg5v5.away += xg;
+    }
+    const aw5El = document.getElementById('away-xg5v5');
+    const hm5El = document.getElementById('home-xg5v5');
+    if (xg5v5.home > 0 || xg5v5.away > 0) {
+      aw5El.textContent = xg5v5.away.toFixed(2);
+      hm5El.textContent = xg5v5.home.toFixed(2);
+      aw5El.style.color = xg5v5.away > xg5v5.home ? awayColor : xg5v5.away < xg5v5.home ? 'var(--ink-32)' : 'var(--ink)';
+      hm5El.style.color = xg5v5.home > xg5v5.away ? homeColor : xg5v5.home < xg5v5.away ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // SOG
     const awaySog = away.sog ?? away.shots ?? null;
     const homeSog = home.sog ?? home.shots ?? null;
     const awSogEl = document.getElementById('away-sog');
@@ -777,19 +878,20 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       return before.wp + frac * (after.wp - before.wp);
     }
 
-    const goalMarkers = (flow.goals || []).map((g, i) => {
-      const gx    = px(g.t).toFixed(1);
-      const gy    = py(interpWp(g.t)).toFixed(1);
+    // Goal dots — circles only, no text labels; tooltip via data-wpdot
+    const goalDots = (flow.goals || []).map(g => {
+      const gx = px(g.t).toFixed(1), gy = py(interpWp(g.t)).toFixed(1);
       const color = g.is_home ? homeColor : awayColor;
-      const abbr  = g.is_home ? homeAbbr : awayAbbr;
-      const prev  = (flow.goals || []).slice(0, i).filter(
-        p => p.is_home === g.is_home && Math.abs(px(p.t) - px(g.t)) < 30
-      ).length;
-      const baseOff = g.is_home ? -13 : 17;
-      const labelY  = (parseFloat(gy) + baseOff + (g.is_home ? -1 : 1) * prev * 13).toFixed(1);
-      return `<circle cx="${gx}" cy="${gy}" r="3.5" fill="${color}" fill-opacity="0.95"/>
-        <text x="${gx}" y="${labelY}" text-anchor="middle" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${color}" fill-opacity="0.9" letter-spacing="0.05em">${esc(abbr)}</text>`;
+      const tip = JSON.stringify({ s: g.scorer||'', a: g.assists||[], h: !!g.is_home, t: g.t }).replace(/'/g,'&#39;');
+      return `<circle cx="${gx}" cy="${gy}" r="5" fill="${color}" stroke="#fff" stroke-width="1.5" fill-opacity="0.95" data-wpdot='${tip}' style="cursor:pointer"/>`;
     }).join('');
+
+    // End-of-line label
+    const lastWp   = pts[pts.length - 1].wp;
+    const winAbbr  = lastWp >= 0.5 ? homeAbbr : awayAbbr;
+    const winColor = lastWp >= 0.5 ? homeColor : awayColor;
+    const winPct   = (Math.max(lastWp, 1 - lastWp) * 100).toFixed(0);
+    const endLabel = `<text x="${(W-6)}" y="${(py(lastWp)+4).toFixed(1)}" text-anchor="end" font-family="'Barlow Condensed',sans-serif" font-size="11" font-weight="700" fill="${winColor}">${esc(winAbbr)} ${winPct}%</text>`;
 
     svg.innerHTML = `
       <defs>
@@ -797,20 +899,49 @@ table.ps tbody tr:hover { background: var(--ink-04); }
         <clipPath id="cl-${uid}"><rect x="0" y="${midY}" width="${W}" height="${H - midY}"/></clipPath>
       </defs>
       ${periodLines.map(t => `<line x1="${px(t).toFixed(1)}" y1="0" x2="${px(t).toFixed(1)}" y2="${H}" stroke="rgba(13,13,20,0.08)" stroke-width="1" stroke-dasharray="4,3"/>`).join('')}
-      <line x1="0" y1="${midY}" x2="${W}" y2="${midY}" stroke="rgba(13,13,20,0.12)" stroke-width="0.8" stroke-dasharray="4,4"/>
-      ${[{wp:0.75,lbl:'75%'},{wp:0.25,lbl:'75%'}].map(r => {
+      <line x1="0" y1="${midY}" x2="${W}" y2="${midY}" stroke="rgba(13,13,20,0.14)" stroke-width="0.8" stroke-dasharray="4,4"/>
+      <text x="${W-6}" y="${(midY-3).toFixed(1)}" text-anchor="end" font-family="'JetBrains Mono',monospace" font-size="7" fill="rgba(13,13,20,0.35)">EVEN</text>
+      ${[{wp:0.75,lbl:'75%'},{wp:0.25,lbl:'25%'}].map(r => {
         const ry = py(r.wp).toFixed(1);
-        return `<line x1="0" y1="${ry}" x2="${W}" y2="${ry}" stroke="rgba(13,13,20,0.04)" stroke-width="0.6"/>
-                <text x="${W - 6}" y="${(parseFloat(ry)-3).toFixed(1)}" text-anchor="end" font-family="'JetBrains Mono',monospace" font-size="7" fill="rgba(13,13,20,0.3)">${r.lbl}</text>`;
+        return `<line x1="0" y1="${ry}" x2="${W}" y2="${ry}" stroke="rgba(13,13,20,0.05)" stroke-width="0.6"/>
+                <text x="5" y="${(parseFloat(ry)-3).toFixed(1)}" text-anchor="start" font-family="'JetBrains Mono',monospace" font-size="7" fill="rgba(13,13,20,0.3)">${r.lbl}</text>`;
       }).join('')}
-      <polygon points="${areaPath}" fill="${homeColor}" fill-opacity="0.12" clip-path="url(#cu-${uid})"/>
-      <polygon points="${areaPath}" fill="${awayColor}" fill-opacity="0.12" clip-path="url(#cl-${uid})"/>
+      <polygon points="${areaPath}" fill="${homeColor}" fill-opacity="0.07" clip-path="url(#cu-${uid})"/>
+      <polygon points="${areaPath}" fill="${awayColor}" fill-opacity="0.07" clip-path="url(#cl-${uid})"/>
       <polyline points="${linePts}" fill="none" stroke="${homeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#cu-${uid})"/>
       <polyline points="${linePts}" fill="none" stroke="${awayColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#cl-${uid})"/>
-      ${goalMarkers}
+      ${goalDots}
       ${periodZones.map(z => `<text x="${z.x.toFixed(1)}" y="${(PAD+9).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="9" fill="rgba(13,13,20,0.3)" letter-spacing="0.08em">${z.label}</text>`).join('')}
-      <text x="4" y="${(PAD+7).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${homeColor}" fill-opacity="0.75">${esc(homeAbbr)}</text>
-      <text x="4" y="${(H-PAD+5).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${awayColor}" fill-opacity="0.75">${esc(awayAbbr)}</text>`;
+      ${endLabel}`;
+
+    // WP chart hover tooltip
+    svg.addEventListener('mousemove', e => {
+      const dot = e.target.closest('[data-wpdot]');
+      if (dot) {
+        try {
+          const g = JSON.parse(dot.dataset.wpdot);
+          const color = g.h ? homeColor : awayColor;
+          const wp = interpWp(g.t);
+          showCtip(e,
+            `<span style="color:${color}">${esc(g.h ? homeAbbr : awayAbbr)}</span> — ${esc(g.s || 'Goal')}`,
+            g.a?.length ? esc(g.a.join(', ')) : null,
+            `${esc(homeAbbr)} <strong>${(wp*100).toFixed(1)}%</strong>  ·  ${esc(awayAbbr)} <strong>${((1-wp)*100).toFixed(1)}%</strong>`,
+            tLabel(g.t)
+          );
+        } catch { hideCtip(); }
+        return;
+      }
+      const rect = svg.getBoundingClientRect();
+      const relX = (e.clientX - rect.left) / rect.width * W;
+      if (relX < 2 || relX > W - 2) return hideCtip();
+      const t = Math.min(Math.max((relX / W) * maxT, 0), maxT);
+      const wp = interpWp(t);
+      showCtip(e, null, null,
+        `${esc(homeAbbr)} <strong style="color:${homeColor}">${(wp*100).toFixed(1)}%</strong>  ·  ${esc(awayAbbr)} <strong style="color:${awayColor}">${((1-wp)*100).toFixed(1)}%</strong>`,
+        tLabel(t)
+      );
+    });
+    svg.addEventListener('mouseleave', hideCtip);
   }
 
   // ── xG Step Chart (5v5, built from events endpoint) ─────────────────────────
@@ -865,7 +996,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       : Math.max(...homeShots.map(s => s.t), ...awayShots.map(s => s.t), 3600);
 
     const W = 840, H = 220;
-    const PAD = { l: 34, r: 16, t: 14, b: 24 };
+    const PAD = { l: 34, r: 64, t: 14, b: 24 }; // r=64 to fit end-of-line labels
     const cW = W - PAD.l - PAD.r;
     const cH = H - PAD.t - PAD.b;
     const cx = t  => PAD.l + (t / tMax) * cW;
@@ -891,11 +1022,21 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     if (tMax > 3600) periodZones.push({ x: cx(3600) + 3, label: 'OT' });
 
     function cumAt(pts, t) { let v = 0; for (const p of pts) { if (p.t > t) break; v = p.c; } return v; }
-    const goalDots = (flow.goals || []).filter(g => g.t >= 0 && g.t <= tMax).map(g => {
-      const cum = cumAt(g.is_home ? homeCum : awayCum, g.t);
+    const xgGoalDots = (flow.goals || []).filter(g => g.t >= 0 && g.t <= tMax).map(g => {
+      const cum   = cumAt(g.is_home ? homeCum : awayCum, g.t);
       const color = g.is_home ? homeColor : awayColor;
-      return `<circle cx="${cx(g.t).toFixed(1)}" cy="${cy(cum).toFixed(1)}" r="3.5" fill="${color}" stroke="#fff" stroke-width="1.2"/>`;
+      const tip   = JSON.stringify({ h: !!g.is_home, t: g.t, s: g.scorer||'' }).replace(/'/g,'&#39;');
+      return `<circle cx="${cx(g.t).toFixed(1)}" cy="${cy(cum).toFixed(1)}" r="3.5" fill="${color}" stroke="#fff" stroke-width="1.2" data-xgdot='${tip}' style="cursor:pointer"/>`;
     }).join('');
+
+    // End-of-line labels — prevent overlap if within 14px
+    let hLY = cy(homeTotal), aLY = cy(awayTotal);
+    if (Math.abs(hLY - aLY) < 14) { hLY < aLY ? (hLY -= 7, aLY += 7) : (hLY += 7, aLY -= 7); }
+    const xEnd = (PAD.l + cW + 6).toFixed(1);
+    const endLabels = `
+      <text x="${xEnd}" y="${(hLY + 4).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${homeColor}">${esc(homeAbbr)} ${homeTotal.toFixed(2)}</text>
+      <text x="${xEnd}" y="${(aLY + 4).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${awayColor}">${esc(awayAbbr)} ${awayTotal.toFixed(2)}</text>
+    `;
 
     svg.innerHTML = `
       ${yTicks.map(v => {
@@ -908,9 +1049,39 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       <path d="${stepPath(homeCum)}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="${stepPath(awayCum)}" fill="none" stroke="${awayColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="${stepPath(homeCum)}" fill="none" stroke="${homeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      ${goalDots}
+      ${xgGoalDots}
       ${periodZones.map(z => `<text x="${z.x}" y="${(PAD.t + 10).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="9" fill="rgba(13,13,20,0.28)" letter-spacing="0.08em">${z.label}</text>`).join('')}
+      ${endLabels}
     `;
+
+    // xG chart hover tooltip
+    svg.addEventListener('mousemove', e => {
+      const dot = e.target.closest('[data-xgdot]');
+      if (dot) {
+        try {
+          const g = JSON.parse(dot.dataset.xgdot);
+          const color = g.h ? homeColor : awayColor;
+          const hXg = cumAt(homeCum, g.t), aXg = cumAt(awayCum, g.t);
+          showCtip(e,
+            `<span style="color:${color}">${esc(g.h ? homeAbbr : awayAbbr)}</span> — ${esc(g.s || 'Goal')}`,
+            null,
+            `${esc(homeAbbr)} <strong>${hXg.toFixed(2)}</strong>  ·  ${esc(awayAbbr)} <strong>${aXg.toFixed(2)}</strong>`,
+            tLabel(g.t)
+          );
+        } catch { hideCtip(); }
+        return;
+      }
+      const rect = svg.getBoundingClientRect();
+      const relX = (e.clientX - rect.left) / rect.width * W;
+      const tX = relX - PAD.l; if (tX < 0 || tX > cW) return hideCtip();
+      const t = Math.min(Math.max((tX / cW) * tMax, 0), tMax);
+      const hXg = cumAt(homeCum, t), aXg = cumAt(awayCum, t);
+      showCtip(e, null, null,
+        `${esc(homeAbbr)} <strong style="color:${homeColor}">${hXg.toFixed(2)}</strong>  ·  ${esc(awayAbbr)} <strong style="color:${awayColor}">${aXg.toFixed(2)}</strong>`,
+        tLabel(t)
+      );
+    });
+    svg.addEventListener('mouseleave', hideCtip);
   }
 
   // ── Goal log with WP SWING ───────────────────────────────────────────────────
@@ -1586,7 +1757,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       renderPregame(boxscore);
     } else {
       document.getElementById('section-game-body').style.display = '';
-      renderStats(flow, boxscore, awayAbbr, homeAbbr, awayColor, homeColor);
+      renderStats(flow, boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
       renderGoals(flow, homeAbbr, awayAbbr);
