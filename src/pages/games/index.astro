@@ -166,6 +166,28 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 .wp-swing.pos { color: var(--green); }
 .wp-swing.neg { color: var(--red); }
 
+/* ── PLAYER STATS ── */
+.player-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1px; background: var(--ink-14); border: 1px solid var(--ink-14); }
+.player-team-card { background: var(--surface); }
+.player-team-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--bg-2); border-bottom: 1px solid var(--ink-14); }
+.player-team-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.player-team-label { font-family: var(--display); font-weight: 800; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-48); }
+table.ps { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.ps thead tr { border-bottom: 1px solid var(--ink-14); }
+table.ps th { padding: 6px 8px; font-family: var(--display); font-weight: 700; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-32); white-space: nowrap; cursor: pointer; user-select: none; }
+table.ps th:hover { color: var(--ink); }
+table.ps th.sort-asc::after { content: " ↑"; }
+table.ps th.sort-desc::after { content: " ↓"; }
+table.ps td { padding: 6px 8px; border-bottom: 1px solid var(--ink-04); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.ps tr:last-child td { border-bottom: none; }
+table.ps tbody tr:hover { background: var(--ink-04); }
+.ps-name { font-family: var(--body); font-weight: 600; font-size: 12px; }
+.ps-num { font-family: var(--mono); font-size: 10px; color: var(--ink-32); }
+.ps-pos { font-family: var(--mono); font-size: 10px; color: var(--ink-48); }
+.ps-toi { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ps-ixg { font-family: var(--mono); font-size: 11px; font-weight: 600; }
+.ps-divider { padding: 5px 8px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-top: 1px solid var(--ink-14); }
+
 /* ── THREE STARS ── */
 .stars-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--ink-14); border: 1px solid var(--ink-14); }
 .star-card { background: var(--surface); padding: 20px; display: flex; flex-direction: column; gap: 6px; }
@@ -355,6 +377,15 @@ table.goals tbody tr:hover { background: var(--ink-04); }
         <div id="goals-container"></div>
       </div>
 
+      <!-- PLAYER STATS -->
+      <div class="section" id="section-player-stats" style="display:none">
+        <div class="section-head">
+          <h2 class="section-title">Player <span class="accent">Stats</span></h2>
+          <span class="section-meta">ixG · HGB xG model · all-sit</span>
+        </div>
+        <div class="player-stats-grid" id="player-stats-grid"></div>
+      </div>
+
       <!-- THREE STARS — OFF state only -->
       <div class="section" id="section-stars" style="display:none;padding-bottom:48px">
         <div class="section-head">
@@ -366,7 +397,7 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       <!-- PHASE 2 PLACEHOLDER -->
       <div class="section" id="section-coming-soon" style="padding-bottom:48px">
         <div class="no-data-msg" style="color:var(--ink-32);font-family:var(--mono);font-size:11px;letter-spacing:0.06em">
-          Shot map &amp; player stats · Phase 2
+          Shot map · Phase 2
         </div>
       </div>
 
@@ -968,6 +999,173 @@ table.goals tbody tr:hover { background: var(--ink-04); }
     document.body.style.overflow = '';
   }
 
+  // ── Player Stats ─────────────────────────────────────────────────────────────
+
+  function renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor) {
+    const pbs = boxscore.playerByGameStats;
+    if (!pbs) return;
+
+    // Build ixG map from events (all-situations)
+    const ixgByPlayer = {};
+    for (const ev of (eventsData?.events || [])) {
+      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'MISSED_SHOT' && ev.event_type !== 'GOAL') continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const pid = ev.payload?.details?.shootingPlayerId || ev.payload?.details?.scoringPlayerId;
+      if (!pid) continue;
+      ixgByPlayer[pid] = (ixgByPlayer[pid] || 0) + xg;
+    }
+
+    // Sort state per team card: { col, dir }
+    const sortState = { away: { col: 'toi', dir: -1 }, home: { col: 'toi', dir: -1 } };
+
+    function toiToSecs(toi) {
+      if (!toi) return 0;
+      const [m, s] = toi.split(':').map(Number);
+      return (m || 0) * 60 + (s || 0);
+    }
+
+    function buildSkaterTable(players, teamKey, color) {
+      const colDefs = [
+        { key: 'sweaterNumber', label: '#',    val: p => p.sweaterNumber },
+        { key: 'name',          label: 'Player',val: p => p.name?.default || '' },
+        { key: 'pos',           label: 'Pos',  val: p => p.position },
+        { key: 'toi',           label: 'TOI',  val: p => p.toi,           num: p => toiToSecs(p.toi) },
+        { key: 'goals',         label: 'G',    val: p => p.goals ?? 0,    num: p => p.goals ?? 0 },
+        { key: 'assists',       label: 'A',    val: p => p.assists ?? 0,  num: p => p.assists ?? 0 },
+        { key: 'points',        label: 'PTS',  val: p => p.points ?? 0,   num: p => p.points ?? 0 },
+        { key: 'plusMinus',     label: '±',    val: p => p.plusMinus != null ? (p.plusMinus > 0 ? `+${p.plusMinus}` : p.plusMinus) : 0, num: p => p.plusMinus ?? 0 },
+        { key: 'sog',           label: 'SOG',  val: p => p.sog ?? 0,      num: p => p.sog ?? 0 },
+        { key: 'hits',          label: 'HIT',  val: p => p.hits ?? 0,     num: p => p.hits ?? 0 },
+        { key: 'blockedShots',  label: 'BLK',  val: p => p.blockedShots ?? 0, num: p => p.blockedShots ?? 0 },
+        { key: 'ixg',           label: 'ixG',  val: p => {
+            const v = ixgByPlayer[p.playerId];
+            return v != null ? v.toFixed(2) : '–';
+          }, num: p => ixgByPlayer[p.playerId] ?? 0, hgb: true },
+      ];
+
+      const ss = sortState[teamKey];
+      const sorted = [...players].sort((a, b) => {
+        const col = colDefs.find(c => c.key === ss.col) || colDefs[3];
+        const fn  = col.num || (c => 0);
+        const av  = fn(a), bv = fn(b);
+        return typeof av === 'string' ? av.localeCompare(bv) * ss.dir : (av - bv) * ss.dir;
+      });
+
+      const ths = colDefs.map(c => {
+        const cls = ss.col === c.key ? (ss.dir === 1 ? 'sort-asc' : 'sort-desc') : '';
+        return `<th class="${cls}" data-col="${c.key}" data-team="${teamKey}" style="${c.hgb ? `color:${color};opacity:0.85` : ''}">${esc(c.label)}</th>`;
+      }).join('');
+
+      const rows = sorted.map(p => {
+        const ixgVal = ixgByPlayer[p.playerId];
+        const ixgStyle = ixgVal != null && ixgVal > 0 ? `color:${color};` : 'color:var(--ink-32)';
+        return `<tr>${colDefs.map((c, ci) => {
+          let td = esc(String(c.val(p)));
+          if (ci === 0) td = `<span class="ps-num">${td}</span>`;
+          else if (ci === 1) td = `<span class="ps-name">${td}</span>`;
+          else if (ci === 2) td = `<span class="ps-pos">${td}</span>`;
+          else if (ci === 3) td = `<span class="ps-toi">${td}</span>`;
+          else if (c.hgb) td = `<span class="ps-ixg" style="${ixgStyle}">${td}</span>`;
+          return `<td>${td}</td>`;
+        }).join('')}</tr>`;
+      }).join('');
+
+      return `<table class="ps" data-team="${teamKey}">
+        <thead><tr>${ths}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    }
+
+    function buildGoalieTable(goalies) {
+      const active = goalies.filter(g => g.toi && g.toi !== '00:00');
+      if (!active.length) return '';
+      const rows = active.map(g => {
+        const svPct = g.shotsAgainst > 0 ? (g.saves / g.shotsAgainst * 100).toFixed(1) : '–';
+        return `<tr>
+          <td><span class="ps-num">${esc(String(g.sweaterNumber))}</span></td>
+          <td><span class="ps-name">${esc(g.name?.default || '')}</span></td>
+          <td><span class="ps-toi">${esc(g.toi)}</span></td>
+          <td>${g.saves ?? 0}</td><td>${g.shotsAgainst ?? 0}</td>
+          <td>${g.goalsAgainst ?? 0}</td>
+          <td><span style="font-family:var(--mono);font-size:11px">${svPct}%</span></td>
+        </tr>`;
+      }).join('');
+      return `<tr class="ps-divider"><td colspan="7">Goaltenders</td></tr>
+        <table class="ps"><thead><tr>
+          <th>#</th><th>Goalie</th><th>TOI</th><th>SV</th><th>SA</th><th>GA</th><th>SV%</th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function buildTeamCard(teamData, teamKey, abbr, color) {
+      const fwd  = teamData.forwards  || [];
+      const def  = teamData.defense   || [];
+      const gols = teamData.goalies   || [];
+      const all  = [...fwd, ...def];
+      if (!all.length) return '';
+
+      const ixgVal = ixgByPlayer[0]; // dummy ref to keep closure live
+      const skaterTbl = buildSkaterTable(all, teamKey, color);
+
+      // Inline goalie rows into the same table
+      const activeGolies = gols.filter(g => g.toi && g.toi !== '00:00');
+      let goalieRows = '';
+      if (activeGolies.length) {
+        goalieRows = `<tbody>
+          <tr><td colspan="12" class="ps-divider">Goaltenders</td></tr>
+          ${activeGolies.map(g => {
+            const svPct = g.shotsAgainst > 0 ? (g.saves / g.shotsAgainst * 100).toFixed(1) : '–';
+            return `<tr>
+              <td><span class="ps-num">${esc(String(g.sweaterNumber))}</span></td>
+              <td><span class="ps-name">${esc(g.name?.default || '')}</span></td>
+              <td><span class="ps-pos">G</span></td>
+              <td><span class="ps-toi">${esc(g.toi)}</span></td>
+              <td colspan="6" style="font-family:var(--mono);font-size:11px;color:var(--ink-48)">${g.saves ?? 0} SV / ${g.shotsAgainst ?? 0} SA · ${svPct}% · ${g.goalsAgainst ?? 0} GA</td>
+              <td>–</td>
+            </tr>`;
+          }).join('')}
+        </tbody>`;
+      }
+
+      // Inject goalie rows into skater table
+      const fullTable = skaterTbl.replace('</table>', `${goalieRows}</table>`);
+
+      return `<div class="player-team-card">
+        <div class="player-team-head">
+          <div class="player-team-dot" style="background:${color}"></div>
+          <span class="player-team-label">${esc(abbr)}</span>
+        </div>
+        <div style="overflow-x:auto">${fullTable}</div>
+      </div>`;
+    }
+
+    const away = pbs.awayTeam || {};
+    const home = pbs.homeTeam || {};
+    const grid = document.getElementById('player-stats-grid');
+
+    function render() {
+      grid.innerHTML = [
+        buildTeamCard(away, 'away', awayAbbr, awayColor),
+        buildTeamCard(home, 'home', homeAbbr, homeColor),
+      ].join('');
+
+      // Wire sort clicks
+      grid.querySelectorAll('table.ps th[data-col]').forEach(th => {
+        th.addEventListener('click', () => {
+          const teamKey = th.dataset.team;
+          const col     = th.dataset.col;
+          const ss      = sortState[teamKey];
+          ss.dir = ss.col === col ? -ss.dir : -1;
+          ss.col = col;
+          render();
+        });
+      });
+    }
+
+    render();
+    document.getElementById('section-player-stats').style.display = '';
+  }
+
   // ── Three stars — OFF state only ─────────────────────────────────────────────
 
   function renderThreeStars(threeStars) {
@@ -1014,6 +1212,7 @@ table.goals tbody tr:hover { background: var(--ink-04); }
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
       renderGoals(flow, homeAbbr, awayAbbr);
+      renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
 
       if (state === 'live') {
         document.getElementById('refresh-indicator').style.display = 'flex';
