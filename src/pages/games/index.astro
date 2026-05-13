@@ -5,12 +5,19 @@
 import Nav from '../../components/Nav.astro';
 import { loadPlayers, loadPlayerGames } from '../../lib/stats-loader';
 
-// Build sparkline map at build time: player_id → last-10 gs_display values
-const _sparklineMap: Record<number, number[]> = {};
+// Build impact map at build time:
+//   player_id → { l10: last-10 gs_display[], gids: last-10 game_ids[] }
+// Storing game_ids alongside values lets the game page look up "this game's Impact".
+type ImpactEntry = { l10: number[]; gids: string[] };
+const _sparklineMap: Record<number, ImpactEntry> = {};
 for (const p of loadPlayers()) {
   const games = (loadPlayerGames(p.player_id) ?? [])
-    .sort((a, b) => a.game_date.localeCompare(b.game_date));
-  _sparklineMap[p.player_id] = games.slice(-10).map(g => +g.gs_display.toFixed(2));
+    .sort((a, b) => a.game_date.localeCompare(b.game_date))
+    .slice(-10);
+  _sparklineMap[p.player_id] = {
+    l10:  games.map(g => +g.gs_display.toFixed(2)),
+    gids: games.map(g => (g.game_id ?? '').replace(/\.0$/, '')),
+  };
 }
 ---
 <!doctype html>
@@ -187,7 +194,7 @@ table.goals tbody tr:hover { background: var(--ink-04); }
 .wp-swing.neg { color: var(--red); }
 
 /* ── PLAYER STATS ── */
-.player-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1px; background: var(--ink-14); border: 1px solid var(--ink-14); }
+.player-stats-grid { display: flex; flex-direction: column; gap: 1px; background: var(--ink-14); border: 1px solid var(--ink-14); }
 .player-team-card { background: var(--surface); }
 .player-team-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-2); border-bottom: 1px solid var(--ink-14); }
 .player-team-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
@@ -1478,6 +1485,8 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 
   // ── Player Stats ─────────────────────────────────────────────────────────────
 
+  let _currentGameId = '';
+
   function renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor) {
     const pbs = boxscore.playerByGameStats;
     if (!pbs) return;
@@ -1519,8 +1528,8 @@ table.ps tbody tr:hover { background: var(--ink-04); }
             const v = ixgByPlayer[p.playerId];
             return v != null ? v.toFixed(2) : '–';
           }, num: p => ixgByPlayer[p.playerId] ?? 0, hgb: true },
-        { key: 'l10',           label: 'L10 Impact', val: p => '',
-          num: p => 0, spark: true },
+        { key: 'impact',        label: 'Impact',     val: p => '', num: p => 0, impactVal: true },
+        { key: 'l10',           label: 'L10 Trend',  val: p => '', num: p => 0, spark: true },
       ];
 
       const ss = sortState[teamKey];
@@ -1531,8 +1540,9 @@ table.ps tbody tr:hover { background: var(--ink-04); }
         return typeof av === 'string' ? av.localeCompare(bv) * ss.dir : (av - bv) * ss.dir;
       });
 
+      const cleanGameId = (_currentGameId || '').replace(/\.0$/, '');
       const ths = colDefs.map(c => {
-        if (c.spark) return `<th data-col="${c.key}" data-team="${teamKey}" style="color:${color};opacity:0.85">${esc(c.label)}</th>`;
+        if (c.spark || c.impactVal) return `<th data-col="${c.key}" data-team="${teamKey}" style="color:${color};opacity:0.85;text-align:center">${esc(c.label)}</th>`;
         const cls = ss.col === c.key ? (ss.dir === 1 ? 'sort-asc' : 'sort-desc') : '';
         return `<th class="${cls}" data-col="${c.key}" data-team="${teamKey}" style="${c.hgb ? `color:${color};opacity:0.85` : ''}">${esc(c.label)}</th>`;
       }).join('');
@@ -1561,9 +1571,18 @@ table.ps tbody tr:hover { background: var(--ink-04); }
         const ixgVal = ixgByPlayer[p.playerId];
         const ixgStyle = ixgVal != null && ixgVal > 0 ? `color:${color};` : 'color:var(--ink-32)';
         return `<tr>${colDefs.map((c, ci) => {
+          if (c.impactVal) {
+            const entry = (window._HGB_SPARKLINES || {})[p.playerId];
+            if (!entry) return `<td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink-32)">—</td>`;
+            const idx = entry.gids.indexOf(cleanGameId);
+            const v = idx >= 0 ? entry.l10[idx] : null;
+            if (v == null) return `<td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink-32)">—</td>`;
+            const c2 = v >= 0 ? '#1a7a3e' : '#E8002D';
+            return `<td style="text-align:center;font-family:var(--mono);font-size:11px;font-weight:700;color:${c2}">${v >= 0 ? '+' : ''}${v.toFixed(2)}</td>`;
+          }
           if (c.spark) {
-            const sv = (window._HGB_SPARKLINES || {})[p.playerId];
-            return `<td style="padding:2px 8px;vertical-align:middle">${sparkSvg(sv)}</td>`;
+            const entry = (window._HGB_SPARKLINES || {})[p.playerId];
+            return `<td style="padding:2px 8px;vertical-align:middle">${sparkSvg(entry ? entry.l10 : null)}</td>`;
           }
           let td = esc(String(c.val(p)));
           if (ci === 0) td = `<span class="ps-num">${td}</span>`;
@@ -1802,6 +1821,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
       renderGoals(flow, homeAbbr, awayAbbr);
       renderShotMap(eventsData, flow, awayAbbr, homeAbbr, awayColor, homeColor);
+      _currentGameId = gameId;
       renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
       if (!renderGame._botLoaded) {
         renderGame._botLoaded = true;
