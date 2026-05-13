@@ -188,6 +188,27 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .ps-ixg { font-family: var(--mono); font-size: 11px; font-weight: 600; }
 .ps-divider { padding: 5px 8px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-top: 1px solid var(--ink-14); }
 
+/* ── FROM THE BOT (cards + posts) ── */
+.bot-row-label { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px; }
+.hscroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px; scrollbar-width: thin; scrollbar-color: var(--ink-20) transparent; -webkit-overflow-scrolling: touch; }
+.hscroll::-webkit-scrollbar { height: 4px; }
+.hscroll::-webkit-scrollbar-track { background: transparent; }
+.hscroll::-webkit-scrollbar-thumb { background: var(--ink-20); border-radius: 2px; }
+/* Card tiles (image posts) */
+.bot-card { flex-shrink: 0; width: 260px; background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; display: flex; flex-direction: column; }
+.bot-card img { width: 100%; height: auto; display: block; object-fit: cover; }
+.bot-card-meta { padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; }
+.bot-card-time { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+.bot-card-counts { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+/* Post tiles (text posts) */
+.bot-post { flex-shrink: 0; width: 240px; background: var(--surface); border: 1px solid var(--ink-14); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.bot-post-text { font-family: var(--body); font-size: 12px; line-height: 1.45; color: var(--ink); overflow-hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; flex: 1; }
+.bot-post-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
+.bot-post-time { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+.bot-post-counts { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+.bot-post-link { font-family: var(--mono); font-size: 9px; color: var(--red); opacity: 0.7; text-decoration: none; }
+.bot-post-link:hover { opacity: 1; }
+
 /* ── THREE STARS ── */
 .stars-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--ink-14); border: 1px solid var(--ink-14); }
 .star-card { background: var(--surface); padding: 20px; display: flex; flex-direction: column; gap: 6px; }
@@ -392,6 +413,22 @@ table.ps tbody tr:hover { background: var(--ink-04); }
           <h2 class="section-title">Three <span class="accent">Stars</span></h2>
         </div>
         <div class="stars-grid" id="stars-grid"></div>
+      </div>
+
+      <!-- FROM THE BOT — cards + posts -->
+      <div class="section" id="section-bot" style="display:none;padding-bottom:48px">
+        <div class="section-head">
+          <h2 class="section-title">From <span class="accent">the Bot</span></h2>
+          <span class="section-meta" id="bot-handle-label"></span>
+        </div>
+        <div id="bot-cards-row" style="display:none">
+          <div class="bot-row-label">Cards</div>
+          <div class="hscroll" id="bot-cards-scroll"></div>
+        </div>
+        <div id="bot-posts-row" style="margin-top:20px;display:none">
+          <div class="bot-row-label">Posts</div>
+          <div class="hscroll" id="bot-posts-scroll"></div>
+        </div>
       </div>
 
       <!-- PHASE 2 PLACEHOLDER -->
@@ -1198,6 +1235,92 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     document.getElementById('section-coming-soon').style.display = 'none';
   }
 
+  // ── From the Bot (Bluesky posts + cards) ────────────────────────────────────
+
+  async function renderBotPosts(awayAbbr, homeAbbr, gameDate) {
+    const BSKY = 'https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed';
+    const dateStr = gameDate; // "2026-05-12"
+
+    async function fetchFeed(handle) {
+      try {
+        const r = await fetch(`${BSKY}?actor=${handle}.hockeygamebot.com&limit=100`);
+        if (!r.ok) return [];
+        const d = await r.json();
+        return (d.feed || [])
+          .map(f => f.post)
+          .filter(p => (p.record?.createdAt || '').startsWith(dateStr));
+      } catch { return []; }
+    }
+
+    const [awayPosts, homePosts] = await Promise.all([
+      fetchFeed(awayAbbr.toLowerCase()),
+      fetchFeed(homeAbbr.toLowerCase()),
+    ]);
+
+    // Deduplicate by uri (away and home bots may both post game-starts etc.)
+    const seen = new Set();
+    const all = [...awayPosts, ...homePosts].filter(p => {
+      if (seen.has(p.uri)) return false;
+      seen.add(p.uri); return true;
+    }).sort((a, b) => new Date(a.record.createdAt) - new Date(b.record.createdAt));
+
+    if (!all.length) return;
+
+    const cards  = all.filter(p => p.embed?.images?.length);
+    const posts  = all.filter(p => !p.embed?.images?.length);
+
+    function fmtTime(iso) {
+      return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    }
+    function fmtCounts(p) {
+      const parts = [];
+      if (p.likeCount)   parts.push(`♥ ${p.likeCount}`);
+      if (p.repostCount) parts.push(`↻ ${p.repostCount}`);
+      return parts.join('  ');
+    }
+    function bskyUrl(p) {
+      const did = p.author?.did || '';
+      const rkey = p.uri?.split('/').pop() || '';
+      return `https://bsky.app/profile/${p.author?.handle || did}/post/${rkey}`;
+    }
+
+    if (cards.length) {
+      document.getElementById('bot-cards-scroll').innerHTML = cards.map(p => {
+        const img = p.embed.images[0];
+        return `<a class="bot-card" href="${bskyUrl(p)}" target="_blank" rel="noopener">
+          <img src="${esc(img.fullsize)}" alt="${esc(img.alt || '')}" loading="lazy" />
+          <div class="bot-card-meta">
+            <span class="bot-card-time">${fmtTime(p.record.createdAt)}</span>
+            <span class="bot-card-counts">${fmtCounts(p)}</span>
+          </div>
+        </a>`;
+      }).join('');
+      document.getElementById('bot-cards-row').style.display = '';
+    }
+
+    if (posts.length) {
+      document.getElementById('bot-posts-scroll').innerHTML = posts.map(p => {
+        const text = (p.record.text || '').replace(/https?:\/\/\S+/g, '').trim();
+        if (!text) return '';
+        return `<div class="bot-post">
+          <div class="bot-post-text">${esc(text)}</div>
+          <div class="bot-post-footer">
+            <span class="bot-post-time">${fmtTime(p.record.createdAt)}</span>
+            <span class="bot-post-counts">${fmtCounts(p)}</span>
+            <a class="bot-post-link" href="${bskyUrl(p)}" target="_blank" rel="noopener">↗</a>
+          </div>
+        </div>`;
+      }).filter(Boolean).join('');
+      document.getElementById('bot-posts-row').style.display = '';
+    }
+
+    if (cards.length || posts.length) {
+      document.getElementById('bot-handle-label').textContent =
+        `${awayAbbr.toLowerCase()}.hockeygamebot.com · ${homeAbbr.toLowerCase()}.hockeygamebot.com`;
+      document.getElementById('section-bot').style.display = '';
+    }
+  }
+
   // ── Main render ─────────────────────────────────────────────────────────────
 
   function renderGame(boxscore, flow, eventsData, state) {
@@ -1213,6 +1336,10 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
       renderGoals(flow, homeAbbr, awayAbbr);
       renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
+      if (!renderGame._botLoaded) {
+        renderGame._botLoaded = true;
+        renderBotPosts(awayAbbr, homeAbbr, boxscore.gameDate || '');
+      }
 
       if (state === 'live') {
         document.getElementById('refresh-indicator').style.display = 'flex';
