@@ -5,10 +5,14 @@ import { pickTeamColor } from '../../lib/team-colors';
 
 const players = loadPlayers();
 
-// WAR leaderboard — RAPM ×60, sorted descending
+// WAR leaderboard — cumulative RAPM × total TOI × 0.1, sorted descending
 const ratingLeaders = players
   .filter(p => p.rapm != null)
-  .sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0))
+  .sort((a, b) => {
+    const warA = (a.rapm ?? 0) * (a.toi_avg_sec * a.gp) / 3600 * 0.1;
+    const warB = (b.rapm ?? 0) * (b.toi_avg_sec * b.gp) / 3600 * 0.1;
+    return warB - warA;
+  })
   .slice(0, 5)
   .map(p => ({
     slug:        p.slug,
@@ -16,7 +20,7 @@ const ratingLeaders = players
     team_abbrev: p.team_abbrev,
     pos:         p.pos,
     gp:          p.gp,
-    value:       (p.rapm ?? 0) * 60,
+    value:       +((p.rapm ?? 0) * (p.toi_avg_sec * p.gp) / 3600 * 0.1).toFixed(2),
   }));
 
 const impactLeaders = loadLeaderboard('game_score').slice(0, 5);
@@ -280,7 +284,7 @@ function sign(n: number): string { return n >= 0 ? '+' : ''; }
       <div class="method-grid">
         <div class="method-item">
           <div class="method-label">WAR</div>
-          <p class="method-desc">Regularized Adjusted Plus/Minus (RAPM) — wins above replacement per 60 min, controlling for linemates and opponents via ridge regression on shift data.</p>
+          <p class="method-desc">Wins Above Replacement — RAPM × total 5v5 TOI × 0.1. Regularized Adjusted Plus-Minus controls for linemates and opponents via ridge regression. Cumulative season value.</p>
         </div>
         <div class="method-item">
           <div class="method-label">Expected Goals</div>

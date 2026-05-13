@@ -554,7 +554,9 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
 
 /* ── RESULT CARDS (yesterday's other results) ── */
 .results-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.results-grid-compact { grid-template-columns:repeat(2,1fr); max-width:680px; }
 @media (max-width:640px) { .results-grid { grid-template-columns:1fr 1fr; } }
+@media (max-width:480px) { .results-grid-compact { grid-template-columns:1fr; } }
 .result-card { background:var(--surface); border:1px solid var(--ink-14); cursor:pointer; transition:border-color 0.15s; overflow:hidden; }
 .result-card:hover { border-color:var(--ink-32); }
 .result-accent { height:3px; display:flex; }
@@ -661,8 +663,19 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   </div>
 </section>
 
-<!-- ── FEATURED GAME (SSR) ── -->
-{featGame && featCopy && (
+<!-- ── TRACKED TEAM RESULTS (populated by JS when user is logged in) ── -->
+<section class="yesterday-rest" id="tracked-results-section" style="display:none">
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="section-title">Your <span class="accent">teams</span></h2>
+      <div class="section-meta" id="tracked-results-meta"></div>
+    </div>
+    <div class="results-grid" id="tracked-results-grid"></div>
+  </div>
+</section>
+
+<!-- ── FEATURED GAME (SSR) — only when 3+ games yesterday ── -->
+{prevGames.length > 2 && featGame && featCopy && (
   <section class="featured" id="featured-section">
     <div class="wrap">
       <div class="section-head">
@@ -733,8 +746,70 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   </section>
 )}
 
-<!-- ── YESTERDAY'S OTHER RESULTS (SSR) ── -->
-{prevGames.filter(g => g.game_id !== featGame?.game_id).length > 0 && (
+<!-- ── YESTERDAY CONDENSED (SSR) — when only 1–2 games, show side-by-side ── -->
+{prevGames.length > 0 && prevGames.length <= 2 && (
+  <section class="yesterday-rest" id="featured-section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 class="section-title">Yesterday's <span class="accent">results</span></h2>
+        <div class="section-meta">{featDateLabel}</div>
+      </div>
+      <div class="results-grid results-grid-compact">
+        {prevGames.map(g => {
+          const a = g.away_team.abbrev, h = g.home_team.abbrev;
+          const ac = pickTeamColor(a), hc = pickTeamColor(h);
+          const awayWins = g.away_team.score > g.home_team.score;
+          const isOT = (g.clock?.period ?? 0) >= 4;
+          const xgA = g.xg_away ?? g.stats?.xg_5v5?.away ?? null;
+          const xgH = g.xg_home ?? g.stats?.xg_5v5?.home ?? null;
+          return (
+            <div class="result-card" data-game-id={g.game_id} style="cursor:pointer">
+              <div class="result-accent">
+                <div style={`background:${ac}`}></div>
+                <div style={`background:${hc}`}></div>
+              </div>
+              <div class="result-body">
+                <div class="result-score-row">
+                  <div class="result-team">
+                    <img class="result-logo" src={`https://assets.nhle.com/logos/nhl/svg/${a}_light.svg`} alt={a} onerror="this.style.display='none'" style={awayWins ? '' : 'opacity:0.35;filter:grayscale(0.4)'} />
+                    <div class={`result-abbr ${awayWins ? 'lead' : 'trail'}`}>{a}</div>
+                  </div>
+                  <div class="result-score-center">
+                    <div class="result-scores">
+                      <span class={`result-n ${awayWins ? 'lead' : 'trail'}`}>{g.away_team.score}</span>
+                      <span class="result-sep">–</span>
+                      <span class={`result-n ${awayWins ? 'trail' : 'lead'}`}>{g.home_team.score}</span>
+                    </div>
+                    <div class="result-period">FINAL{isOT ? ' · OT' : ''}</div>
+                  </div>
+                  <div class="result-team">
+                    <img class="result-logo" src={`https://assets.nhle.com/logos/nhl/svg/${h}_light.svg`} alt={h} onerror="this.style.display='none'" style={awayWins ? 'opacity:0.35;filter:grayscale(0.4)' : ''} />
+                    <div class={`result-abbr ${awayWins ? 'trail' : 'lead'}`}>{h}</div>
+                  </div>
+                </div>
+                {xgA != null && xgH != null && (() => {
+                  const tot = xgA + xgH;
+                  const aShare = tot > 0 ? Math.round(xgA / tot * 100) : 50;
+                  return (
+                    <div class="result-xg-row">
+                      <span class="result-xg-num" style={`color:${ac}`}>{xgA.toFixed(1)}</span>
+                      <div class="result-xg-bar" style={`background:linear-gradient(90deg,${ac} ${aShare}%,${hc} ${aShare}%)`}></div>
+                      <span class="result-xg-num" style={`color:${hc}`}>{xgH.toFixed(1)}</span>
+                      <span class="result-xg-lbl">xG</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+)}
+
+<!-- ── YESTERDAY'S OTHER RESULTS (SSR) — only when 3+ games ── -->
+{prevGames.length > 2 && prevGames.filter(g => g.game_id !== featGame?.game_id).length > 0 && (
   <section class="yesterday-rest" id="yesterday-rest-section">
     <div class="wrap">
       <div class="section-head">
@@ -900,6 +975,9 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   const setText = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
   const setHtml = (id,v) => { const el=document.getElementById(id); if(el) el.innerHTML=v; };
 
+  // Current page state — updated by render functions so tracked section can gate on it
+  let _pageState = 'pre';
+
   // ── State detection ──────────────────────────────────────────────────────────
   function pageState(data) {
     const games = data.games ?? [];
@@ -936,6 +1014,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   // ── Pre-game ─────────────────────────────────────────────────────────────────
   function renderPre(data, tonight) {
     stopCountdown();
+    _pageState = 'pre';
     const games = data.games ?? [];
     const date = data.date ? fmtDate(data.date) : 'Tonight';
     setText('hero-ghost', String(games.length || '?'));
@@ -1006,11 +1085,14 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   // ── Live ──────────────────────────────────────────────────────────────────────
   function renderLive(data) {
     stopCountdown();
+    _pageState = 'live';
     // Hide yesterday sections — live games are the editorial focus
     const featSec = document.getElementById('featured-section');
     const yesterSec = document.getElementById('yesterday-rest-section');
+    const trackedSec = document.getElementById('tracked-results-section');
     if (featSec) featSec.style.display = 'none';
     if (yesterSec) yesterSec.style.display = 'none';
+    if (trackedSec) trackedSec.style.display = 'none';
 
     const games = data.games ?? [];
     const feat = pickLive(games);
@@ -1149,6 +1231,7 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   // ── Post-game ─────────────────────────────────────────────────────────────────
   function renderPost(data) {
     stopCountdown();
+    _pageState = 'post';
     const games = data.games ?? [];
     const todayDate = data.hockey_date;
     const dateLabel = todayDate ? fmtDate(todayDate) : 'Last Night';
@@ -1161,8 +1244,10 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
     // which is now stale. The hero final cards are the full story.
     const featSec = document.getElementById('featured-section');
     const yesterSec = document.getElementById('yesterday-rest-section');
+    const trackedSec = document.getElementById('tracked-results-section');
     if (featSec) featSec.style.display = 'none';
     if (yesterSec) yesterSec.style.display = 'none';
+    if (trackedSec) trackedSec.style.display = 'none';
 
     const cards = games.map(g => {
       const a=g.away_team.abbrev, h=g.home_team.abbrev;
@@ -1273,6 +1358,91 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   fetchAndRender();
   // Don't auto-poll when in mock mode — manual refresh only
   if (!mockState) setInterval(fetchAndRender, 30000);
+
+  // ── Tracked team results (logged-in users only) ───────────────────────────────
+  (async function renderTrackedTeams() {
+    const HGB_API = 'https://api.hockeygamebot.com';
+    let token = null;
+    try { token = localStorage.getItem('hgb_token'); } catch {}
+    if (!token) return;
+
+    let prefs = null;
+    try {
+      const r = await fetch(`${HGB_API}/v1/account/prefs`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (r.ok) prefs = await r.json();
+    } catch {}
+
+    const trackedAbbrevs = prefs?.tracked_teams ?? [];
+    if (!trackedAbbrevs.length) return;
+
+    const A2I = {'ANA':24,'BOS':6,'BUF':7,'CGY':20,'CAR':12,'CHI':16,'COL':21,'CBJ':29,'DAL':25,'DET':17,'EDM':22,'FLA':13,'LAK':26,'MIN':30,'MTL':8,'NSH':18,'NJD':1,'NYI':2,'NYR':3,'OTT':9,'PHI':4,'PIT':5,'SJS':28,'SEA':55,'STL':19,'TBL':14,'TOR':10,'UTA':68,'VAN':23,'VGK':54,'WSH':15,'WPG':52};
+    const teamIds = trackedAbbrevs.map(a => A2I[a]).filter(Boolean);
+    if (!teamIds.length) return;
+
+    let histData = null;
+    try {
+      const r = await fetch(`${HGB_API}/v1/games/team-history?team_ids=${teamIds.join(',')}&limit=20`);
+      if (r.ok) histData = await r.json();
+    } catch {}
+
+    const allGames = (histData?.games ?? []).filter(g => g.status === 'final');
+    if (!allGames.length) return;
+
+    // Filter to last 5 days
+    const cutoff = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10);
+    const recent = allGames.filter(g => (g.date || '') >= cutoff);
+    if (!recent.length) return;
+
+    // Don't show during live or post-game state
+    if (_pageState !== 'pre') return;
+
+    const seen = new Set();
+    const cards = [];
+    for (const g of recent) {
+      if (seen.has(g.game_id)) continue;
+      seen.add(g.game_id);
+      const a = g.away_team?.abbrev, h = g.home_team?.abbrev;
+      if (!a || !h) continue;
+      // Strip .0 suffix for game modal links
+      const cleanId = g.game_id.replace(/\.0$/, '');
+      const ac = clr(a), hc = clr(h);
+      const awayWins = (g.away_team?.score ?? 0) > (g.home_team?.score ?? 0);
+      const [aScore, hScore] = [g.away_team?.score ?? 0, g.home_team?.score ?? 0];
+      cards.push(`<div class="result-card" data-game-id="${cleanId}" style="cursor:pointer">
+        <div class="result-accent"><div style="background:${ac}"></div><div style="background:${hc}"></div></div>
+        <div class="result-body">
+          <div class="result-score-row">
+            <div class="result-team">
+              <img class="result-logo" src="https://assets.nhle.com/logos/nhl/svg/${a}_light.svg" alt="${a}" onerror="this.style.display='none'" style="${awayWins?'':'opacity:0.35;filter:grayscale(0.4)'}">
+              <div class="result-abbr ${awayWins?'lead':'trail'}">${a}</div>
+            </div>
+            <div class="result-score-center">
+              <div class="result-scores">
+                <span class="result-n ${awayWins?'lead':'trail'}">${aScore}</span>
+                <span class="result-sep">–</span>
+                <span class="result-n ${awayWins?'trail':'lead'}">${hScore}</span>
+              </div>
+              <div class="result-period">FINAL · ${g.date||''}</div>
+            </div>
+            <div class="result-team">
+              <img class="result-logo" src="https://assets.nhle.com/logos/nhl/svg/${h}_light.svg" alt="${h}" onerror="this.style.display='none'" style="${awayWins?'opacity:0.35;filter:grayscale(0.4)':''}">
+              <div class="result-abbr ${awayWins?'trail':'lead'}">${h}</div>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    }
+    if (!cards.length) return;
+
+    const gridEl = document.getElementById('tracked-results-grid');
+    const metaEl = document.getElementById('tracked-results-meta');
+    const sec = document.getElementById('tracked-results-section');
+    if (!gridEl || !sec) return;
+
+    gridEl.innerHTML = cards.join('');
+    if (metaEl) metaEl.textContent = `${trackedAbbrevs.join(', ')} · Recent games`;
+    sec.style.display = '';
+  })();
 
   // Click delegation — open modal for any card with data-game-id
   document.addEventListener('click', e => {
