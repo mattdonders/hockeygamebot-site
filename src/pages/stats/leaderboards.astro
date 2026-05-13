@@ -17,26 +17,43 @@ function warPct(rapm: number | null, group: 'F' | 'D'): number | null {
   return Math.round((lo / arr.length) * 100);
 }
 
-const tableRows = eligible.map(p => ({
-  slug:  p.slug,
-  name:  p.display_name,
-  team:  p.team_abbrev,
-  pos:   p.pos,
-  group: p.pos_group,
-  gp:    p.gp,
-  war:   p.rapm != null ? +(p.rapm * (p.toi_avg_sec * p.gp) / 3600 * 0.1).toFixed(2) : null,
-  war_p: warPct(p.rapm, p.pos_group),
-  g60:   +p.rates_per_60.goals.toFixed(2),
-  g60_p: Math.round(p.percentiles_vs_pos.goals),
-  a60:   +p.rates_per_60.a1.toFixed(2),
-  a60_p: Math.round(p.percentiles_vs_pos.a1),
-  x60:   +p.rates_per_60.ixg.toFixed(2),
-  x60_p: Math.round(p.percentiles_vs_pos.ixg),
-  fin:   +p.rates_per_60.finishing.toFixed(2),
-  fin_p: Math.round(p.percentiles_vs_pos.finishing),
-  imp:   +p.avg_gs_display.toFixed(2),
-  imp_p: Math.round(p.gs_pct),
-}));
+const tableRows = eligible.map(p => {
+  const evOff = p.rates_per_60.ev_offence;
+  const evDef = p.rates_per_60.ev_defence;
+  const xgfTotal = evOff + evDef;
+  return {
+    slug:     p.slug,
+    name:     p.display_name,
+    team:     p.team_abbrev,
+    pos:      p.pos,
+    group:    p.pos_group,
+    gp:       p.gp,
+    // All Sit
+    war:      p.rapm != null ? +(p.rapm * (p.toi_avg_sec * p.gp) / 3600 * 0.1).toFixed(2) : null,
+    war_p:    warPct(p.rapm, p.pos_group),
+    g60:      +p.rates_per_60.goals.toFixed(2),
+    g60_p:    Math.round(p.percentiles_vs_pos.goals),
+    a60:      +p.rates_per_60.a1.toFixed(2),
+    a60_p:    Math.round(p.percentiles_vs_pos.a1),
+    x60:      +p.rates_per_60.ixg.toFixed(2),
+    x60_p:    Math.round(p.percentiles_vs_pos.ixg),
+    fin:      +p.rates_per_60.finishing.toFixed(2),
+    fin_p:    Math.round(p.percentiles_vs_pos.finishing),
+    imp:      +p.avg_gs_display.toFixed(2),
+    imp_p:    Math.round(p.gs_pct),
+    // 5v5
+    xgf_pct:  xgfTotal > 0 ? +(evOff / xgfTotal * 100).toFixed(1) : 50.0,
+    xgf60:    +evOff.toFixed(2),
+    xga60:    +evDef.toFixed(2),
+    sc60:     +(p.rates_per_60.sc_per60 ?? 0).toFixed(2),
+    hdc60:    +(p.rates_per_60.hdc_per60 ?? 0).toFixed(2),
+    hdc_pct:  +(p.hdc_pct ?? 50).toFixed(1),
+    // PP
+    pp_toi:   p.toi_pp_sec_total != null ? +(p.toi_pp_sec_total / p.gp / 60).toFixed(1) : 0,
+    pp_g:     p.goals_pp ?? 0,
+    pp_xg60:  +(p.rates_per_60.xg_pp_per60 ?? 0).toFixed(2),
+  };
+});
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -264,10 +281,17 @@ const tableRows = eligible.map(p => ({
         <span class="lb-title">Season Leaderboards</span>
         <span class="lb-meta" id="lb-count">{eligible.length} players · 2025–26</span>
       </div>
-      <div class="lb-filters">
-        <button class="lb-tab active" data-pos="all">All</button>
-        <button class="lb-tab" data-pos="F">Fwds</button>
-        <button class="lb-tab" data-pos="D">Def</button>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <div class="lb-filters">
+          <button class="lb-tab active" data-sit="all">All Sit</button>
+          <button class="lb-tab" data-sit="5v5">5v5</button>
+          <button class="lb-tab" data-sit="pp">PP</button>
+        </div>
+        <div class="lb-filters">
+          <button class="lb-tab active" data-pos="all">All</button>
+          <button class="lb-tab" data-pos="F">Fwds</button>
+          <button class="lb-tab" data-pos="D">Def</button>
+        </div>
       </div>
     </div>
 
@@ -275,30 +299,17 @@ const tableRows = eligible.map(p => ({
       <table>
         <colgroup>
           <col class="c-rank">
-          <col><!-- player -->
+          <col>
           <col class="c-pos c-sm">
-          <col class="c-sm"><!-- gp -->
-          <col class="c-stat"><!-- war -->
-          <col class="c-stat"><!-- g60 -->
-          <col class="c-stat c-a60"><!-- a60 -->
-          <col class="c-stat"><!-- x60 -->
-          <col class="c-stat c-fin"><!-- fin -->
-          <col class="c-stat c-imp"><!-- imp -->
+          <col class="c-sm">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-stat c-a60">
+          <col class="c-stat">
+          <col class="c-stat c-fin">
+          <col class="c-stat c-imp">
         </colgroup>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th class="th-player">Player</th>
-            <th class="c-pos">Pos</th>
-            <th data-sort="gp">GP<span class="sort-arrow"></span></th>
-            <th data-sort="war">WAR<span class="sort-arrow">↓</span></th>
-            <th data-sort="g60">G/60<span class="sort-arrow"></span></th>
-            <th class="c-a60" data-sort="a60">A1/60<span class="sort-arrow"></span></th>
-            <th data-sort="x60">xG/60<span class="sort-arrow"></span></th>
-            <th class="c-fin" data-sort="fin">Fin<span class="sort-arrow"></span></th>
-            <th class="c-imp" data-sort="imp">Impact<span class="sort-arrow"></span></th>
-          </tr>
-        </thead>
+        <thead><tr id="lb-thead-row"></tr></thead>
         <tbody id="lb-tbody"></tbody>
       </table>
       <div class="lb-more" id="lb-more" style="display:none">
@@ -339,11 +350,51 @@ const tableRows = eligible.map(p => ({
 <script define:vars={{ rows: tableRows }}>
 const DATA = rows;
 const PAGE = 50;
-let sortKey = 'war';
-let sortAsc  = false;
+
+// ── State ────────────────────────────────────────────────────────────────────
+let situation = 'all';
 let posFilter = 'all';
+let sortKey   = 'war';
+let sortAsc   = false;
 let showAll   = false;
 
+// ── Column definitions per situation ─────────────────────────────────────────
+const SIT_COLS = {
+  all: {
+    defaultSort: 'war',
+    cols: [
+      { label: 'WAR',    key: 'war',    dflt: true },
+      { label: 'G/60',   key: 'g60'   },
+      { label: 'A1/60',  key: 'a60',   cls: 'c-a60' },
+      { label: 'xG/60',  key: 'x60'   },
+      { label: 'Fin',    key: 'fin',   cls: 'c-fin' },
+      { label: 'Impact', key: 'imp',   cls: 'c-imp' },
+    ],
+  },
+  '5v5': {
+    defaultSort: 'xgf_pct',
+    cols: [
+      { label: 'xGF%',   key: 'xgf_pct', dflt: true },
+      { label: 'xGF/60', key: 'xgf60'  },
+      { label: 'xGA/60', key: 'xga60',  cls: 'c-a60' },
+      { label: 'SC/60',  key: 'sc60'   },
+      { label: 'HDC/60', key: 'hdc60',  cls: 'c-fin' },
+      { label: 'HDC%',   key: 'hdc_pct',cls: 'c-imp' },
+    ],
+  },
+  pp: {
+    defaultSort: 'pp_xg60',
+    cols: [
+      { label: 'PP min/gm', key: 'pp_toi',  dflt: true },
+      { label: 'PP G',      key: 'pp_g'    },
+      { label: 'PP xG/60',  key: 'pp_xg60', cls: 'c-a60' },
+      { label: 'SC/60',     key: 'sc60'    },
+      { label: 'HDC/60',    key: 'hdc60',   cls: 'c-fin' },
+    ],
+  },
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function pctCls(p) {
   if (p == null) return 'pa';
   return p >= 90 ? 'pe' : p >= 70 ? 'pg' : p >= 40 ? 'pa' : 'pl';
@@ -351,7 +402,7 @@ function pctCls(p) {
 function ordinal(p) {
   if (p == null) return '—';
   const s = (p % 100 >= 11 && p % 100 <= 13) ? 'th' :
-            p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
+    p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
   return `${p}${s}`;
 }
 function sgn(n) { return n >= 0 ? '+' : ''; }
@@ -362,27 +413,81 @@ function statCell(val, pct, signed) {
   return `<span class="sv${cls}">${v}</span><span class="sp ${pctCls(pct)}">${ordinal(pct)}</span>`;
 }
 
-function render() {
-  let rows = DATA.slice();
-  if (posFilter !== 'all') rows = rows.filter(r => r.group === posFilter);
+function plainCell(val, fmt) {
+  if (val == null) return `<span class="sv nil">—</span>`;
+  return `<span class="sv">${fmt(val)}</span>`;
+}
 
-  rows.sort((a, b) => {
+function sitCell(r, key) {
+  switch (key) {
+    case 'war':
+      return r.war != null
+        ? `<span class="sv ${r.war >= 0 ? 'pos' : 'neg'}">${sgn(r.war)}${r.war.toFixed(2)}</span><span class="sp ${pctCls(r.war_p)}">${ordinal(r.war_p)}</span>`
+        : `<span class="sv nil">—</span><span class="sp pa">—</span>`;
+    case 'g60':  return statCell(r.g60, r.g60_p, false);
+    case 'a60':  return statCell(r.a60, r.a60_p, false);
+    case 'x60':  return statCell(r.x60, r.x60_p, false);
+    case 'fin':  return statCell(r.fin, r.fin_p, true);
+    case 'imp':  return statCell(r.imp, r.imp_p, false);
+    case 'xgf_pct': return plainCell(r.xgf_pct, v => `${v.toFixed(1)}%`);
+    case 'xgf60':   return plainCell(r.xgf60,   v => v.toFixed(2));
+    case 'xga60':   return plainCell(r.xga60,   v => v.toFixed(2));
+    case 'sc60':    return plainCell(r.sc60,    v => v.toFixed(2));
+    case 'hdc60':   return plainCell(r.hdc60,   v => v.toFixed(2));
+    case 'hdc_pct': return plainCell(r.hdc_pct, v => `${v.toFixed(1)}%`);
+    case 'pp_toi':  return plainCell(r.pp_toi,  v => v.toFixed(1));
+    case 'pp_g':    return `<span class="sv">${r.pp_g}</span>`;
+    case 'pp_xg60': return plainCell(r.pp_xg60, v => v.toFixed(2));
+    default:        return `<span class="sv nil">—</span>`;
+  }
+}
+
+// ── Render header ─────────────────────────────────────────────────────────────
+function renderHeader() {
+  const cfg  = SIT_COLS[situation];
+  const thead = document.getElementById('lb-thead-row');
+  if (!thead) return;
+
+  const fixed = [
+    `<th>#</th>`,
+    `<th class="th-player">Player</th>`,
+    `<th class="c-pos" style="text-align:center">Pos</th>`,
+    `<th data-sort="gp" style="cursor:pointer">GP<span class="sort-arrow">${sortKey==='gp'?(sortAsc?'↑':'↓'):''}</span></th>`,
+  ];
+
+  const statCols = cfg.cols.map(c => {
+    const active = sortKey === c.key;
+    const arrow  = active ? (sortAsc ? '↑' : '↓') : '';
+    return `<th class="${c.cls || ''} ${active ? 'sorted' : ''}" data-sort="${c.key}" style="cursor:pointer">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+  });
+
+  thead.innerHTML = [...fixed, ...statCols].join('');
+}
+
+// ── Render body ───────────────────────────────────────────────────────────────
+function render() {
+  renderHeader();
+
+  let filtered = DATA.slice();
+  if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
+
+  filtered.sort((a, b) => {
     const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
     const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
     return sortAsc ? av - bv : bv - av;
   });
 
-  const total   = rows.length;
-  const visible = showAll ? rows : rows.slice(0, PAGE);
+  const total   = filtered.length;
+  const visible = showAll ? filtered : filtered.slice(0, PAGE);
 
   const tbody = document.getElementById('lb-tbody');
   if (!tbody) return;
 
+  const cfg = SIT_COLS[situation];
   tbody.innerHTML = visible.map((r, i) => {
-    const warCell = r.war != null
-      ? `<span class="sv ${r.war >= 0 ? 'pos' : 'neg'}">${sgn(r.war)}${r.war.toFixed(2)}</span><span class="sp ${pctCls(r.war_p)}">${ordinal(r.war_p)}</span>`
-      : `<span class="sv nil">—</span><span class="sp pa">—</span>`;
-
+    const statTds = cfg.cols.map(c =>
+      `<td class="td-stat ${c.cls || ''}">${sitCell(r, c.key)}</td>`
+    ).join('');
     return `<tr>
       <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
       <td><div class="td-player">
@@ -394,12 +499,7 @@ function render() {
       </div></td>
       <td class="td-pos c-pos">${r.pos}</td>
       <td class="td-gp">${r.gp}</td>
-      <td class="td-stat">${warCell}</td>
-      <td class="td-stat">${statCell(r.g60, r.g60_p, false)}</td>
-      <td class="td-stat c-a60">${statCell(r.a60, r.a60_p, false)}</td>
-      <td class="td-stat">${statCell(r.x60, r.x60_p, false)}</td>
-      <td class="td-stat c-fin">${statCell(r.fin, r.fin_p, true)}</td>
-      <td class="td-stat c-imp">${statCell(r.imp, r.imp_p, false)}</td>
+      ${statTds}
     </tr>`;
   }).join('');
 
@@ -418,44 +518,44 @@ function render() {
       moreDiv.style.display = 'none';
     }
   }
-
-  // Sort arrows
-  document.querySelectorAll('thead th[data-sort]').forEach(th => {
-    const arrow = th.querySelector('.sort-arrow');
-    if (!arrow) return;
-    if (th.dataset.sort === sortKey) {
-      th.classList.add('sorted');
-      arrow.textContent = sortAsc ? '↑' : '↓';
-    } else {
-      th.classList.remove('sorted');
-      arrow.textContent = '';
-    }
-  });
 }
 
-// Column sort
-document.querySelectorAll('thead th[data-sort]').forEach(th => {
-  th.addEventListener('click', () => {
-    const key = th.dataset.sort;
-    if (sortKey === key) { sortAsc = !sortAsc; }
-    else { sortKey = key; sortAsc = false; }
-    showAll = false;
-    render();
-  });
+// ── Event delegation on thead ────────────────────────────────────────────────
+document.querySelector('thead')?.addEventListener('click', e => {
+  const th = e.target?.closest('th[data-sort]');
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (sortKey === key) { sortAsc = !sortAsc; }
+  else { sortKey = key; sortAsc = false; }
+  showAll = false;
+  render();
 });
 
-// Pos filter
-document.querySelectorAll('.lb-tab').forEach(btn => {
+// ── Situation tabs ────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-sit]').forEach(btn => {
   btn.addEventListener('click', () => {
-    posFilter = btn.dataset.pos ?? 'all';
-    showAll = false;
-    document.querySelectorAll('.lb-tab').forEach(b => b.classList.remove('active'));
+    situation = btn.dataset.sit;
+    sortKey   = SIT_COLS[situation].defaultSort;
+    sortAsc   = false;
+    showAll   = false;
+    document.querySelectorAll('[data-sit]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     render();
   });
 });
 
-// Show all
+// ── Position tabs ─────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-pos]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    posFilter = btn.dataset.pos;
+    showAll   = false;
+    document.querySelectorAll('[data-pos]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    render();
+  });
+});
+
+// ── Show all ──────────────────────────────────────────────────────────────────
 document.getElementById('lb-more-btn')?.addEventListener('click', () => {
   showAll = true;
   render();

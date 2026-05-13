@@ -40,6 +40,10 @@ const RatesPer60Schema = z.object({
   ev_offence: z.number(),
   ev_defence: z.number(),
   finishing: z.number(),
+  // Situation splits — added May 2026
+  sc_per60:    z.number().optional(),
+  hdc_per60:   z.number().optional(),
+  xg_pp_per60: z.number().optional(),
 });
 
 const PercentilesSchema = z.object({
@@ -86,6 +90,15 @@ export const PlayerRecordSchema = z.object({
   xgar: z.number().nullable(),
   qoc: z.number().nullable(),
   qot: z.number().nullable(),
+  // Situation splits — added May 2026
+  goals_ev:         z.number().int().optional(),
+  goals_pp:         z.number().int().optional(),
+  goals_sh:         z.number().int().optional(),
+  i_sc:             z.number().int().optional(),
+  i_hdc:            z.number().int().optional(),
+  sc_pct:           z.number().optional(),
+  hdc_pct:          z.number().optional(),
+  toi_pp_sec_total: z.number().optional(),
 });
 
 export const PlayerRecordsSchema = z.array(PlayerRecordSchema);
