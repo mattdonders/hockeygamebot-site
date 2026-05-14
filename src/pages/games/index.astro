@@ -263,7 +263,14 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .bot-post-link:hover { opacity: 1; }
 
 /* ── ON-ICE xGF ─────────────────────────────────────────────────────────── */
-.onice-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+.onice-tabs { display: flex; gap: 4px; margin-bottom: 16px; align-items: center; }
+.onice-view-toggle { margin-left: auto; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.onice-view-toggle:hover { border-color: var(--ink-48); color: var(--ink); }
+.onice-view-toggle.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.onice-view-toggle[data-view="table"] .onice-toggle-chart { display: inline; }
+.onice-view-toggle[data-view="table"] .onice-toggle-table { display: none; }
+.onice-view-toggle[data-view="chart"] .onice-toggle-chart { display: none; }
+.onice-view-toggle[data-view="chart"] .onice-toggle-table { display: inline; }
 .onice-tab { font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; padding: 5px 14px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-56); cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
 .onice-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .onice-tab:hover:not(.active) { border-color: var(--ink-48); color: var(--ink); }
@@ -328,6 +335,10 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .gvp-scorer-line { font-family: var(--display); font-weight: 700; font-size: 14px; color: #fff; letter-spacing: 0.04em; }
 .gvp-wp-line { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 4px; letter-spacing: 0.04em; }
 .gvp-wp-delta { font-weight: 700; margin-left: 6px; }
+
+/* ── CHART DOWNLOAD BUTTON ── */
+.chart-dl-btn { font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.chart-dl-btn:hover { border-color: var(--ink-48); color: var(--ink); }
 
 /* ── FOOTER ── */
 .foot { margin-top: 48px; border-top: 1px solid var(--ink-14); padding: 24px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
@@ -513,10 +524,18 @@ table.ps tbody tr:hover { background: var(--ink-04); }
           <div id="chart-section-meta" class="section-meta">HGB xG model · 5v5</div>
         </div>
         <div class="chart-wrap">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span></span>
+            <button class="chart-dl-btn" id="dl-wp" title="Download chart">↓ PNG</button>
+          </div>
           <div class="chart-no-data" id="chart-no-data" style="display:none">Win probability not available.</div>
           <svg id="wp-chart" class="chart-svg" viewBox="0 0 800 258" preserveAspectRatio="none"></svg>
         </div>
         <div class="chart-wrap">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span></span>
+            <button class="chart-dl-btn" id="dl-xg" title="Download chart">↓ PNG</button>
+          </div>
           <div class="chart-no-data" id="xg-no-data" style="display:none">xG data not available.</div>
           <svg id="xg-chart" class="chart-svg" viewBox="0 0 840 258" preserveAspectRatio="none"></svg>
         </div>
@@ -562,6 +581,10 @@ table.ps tbody tr:hover { background: var(--ink-04); }
             <button class="onice-tab active" data-tab="players">Players</button>
             <button class="onice-tab" data-tab="lines">Fwd Lines</button>
             <button class="onice-tab" data-tab="pairs">D Pairs</button>
+            <button class="onice-view-toggle" id="onice-view-toggle" data-view="table" title="Toggle chart view">
+              <span class="onice-toggle-table">≡ Table</span>
+              <span class="onice-toggle-chart">◉ Chart</span>
+            </button>
           </div>
           <div id="onice-content"></div>
         </div>
@@ -664,6 +687,9 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 
   const HGB_API = 'https://api.hockeygamebot.com';
   const LIVE_REFRESH_MS = 30_000;
+
+  // Jersey number lookup: { gameSec → sweaterNumber } — built in renderGame, used by chart functions
+  let _jerseyMap = {};
 
   const TC = {
     ANA:['#F47A38','#B09862'], BOS:['#FFB81C','#000000'], BUF:['#002654','#FDBB30'],
@@ -1008,13 +1034,20 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       return before.wp + frac * (after.wp - before.wp);
     }
 
-    // Goal dots — circles only, no text labels; tooltip via data-wpdot
+    // Goal dots — with jersey number overlay when available; tooltip via data-wpdot
     const goalDots = (flow.goals || []).map(g => {
       const gx = px(g.t).toFixed(1), gy = py(interpWp(g.t)).toFixed(1);
       const color = g.is_home ? homeColor : awayColor;
       const tip = JSON.stringify({ s: g.scorer||'', a: g.assists||[], h: !!g.is_home, t: g.t }).replace(/'/g,'&#39;');
-      return `<circle cx="${gx}" cy="${gy}" r="6.5" fill="none" stroke="#0d0d14" stroke-width="0.8" stroke-opacity="0.25"/>
-               <circle cx="${gx}" cy="${gy}" r="5" fill="${color}" stroke="#fff" stroke-width="1.5" fill-opacity="0.95" data-wpdot='${tip}' style="cursor:pointer"/>`;
+      const jn = _jerseyMap[g.t];
+      const outerR = jn != null ? 10 : 6.5;
+      const innerR = jn != null ? 9 : 5;
+      const numEl = jn != null
+        ? `<text x="${gx}" y="${gy}" text-anchor="middle" dominant-baseline="central" font-family="'Barlow Condensed',sans-serif" font-size="9" font-weight="700" fill="#fff" pointer-events="none">${jn}</text>`
+        : '';
+      return `<circle cx="${gx}" cy="${gy}" r="${outerR}" fill="none" stroke="#0d0d14" stroke-width="0.8" stroke-opacity="0.25"/>
+               <circle cx="${gx}" cy="${gy}" r="${innerR}" fill="${color}" stroke="#fff" stroke-width="1.5" fill-opacity="0.95" data-wpdot='${tip}' style="cursor:pointer"/>
+               ${numEl}`;
     }).join('');
 
     // End-of-line label
@@ -1159,11 +1192,18 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 
     function cumAt(pts, t) { let v = 0; for (const p of pts) { if (p.t > t) break; v = p.c; } return v; }
     const xgGoalDots = (flow.goals || []).filter(g => g.t >= 0 && g.t <= tMax).map(g => {
-      const cum   = cumAt(g.is_home ? homeCum : awayCum, g.t);
+      const gxc = cx(g.t).toFixed(1), gyc = cy(cumAt(g.is_home ? homeCum : awayCum, g.t)).toFixed(1);
       const color = g.is_home ? homeColor : awayColor;
       const tip   = JSON.stringify({ h: !!g.is_home, t: g.t, s: g.scorer||'' }).replace(/'/g,'&#39;');
-      return `<circle cx="${cx(g.t).toFixed(1)}" cy="${cy(cum).toFixed(1)}" r="5" fill="none" stroke="#0d0d14" stroke-width="0.8" stroke-opacity="0.22"/>
-               <circle cx="${cx(g.t).toFixed(1)}" cy="${cy(cum).toFixed(1)}" r="3.5" fill="${color}" stroke="#fff" stroke-width="1.2" data-xgdot='${tip}' style="cursor:pointer"/>`;
+      const jn = _jerseyMap[g.t];
+      const outerR = jn != null ? 8 : 5;
+      const innerR = jn != null ? 6.5 : 3.5;
+      const numEl = jn != null
+        ? `<text x="${gxc}" y="${gyc}" text-anchor="middle" dominant-baseline="central" font-family="'Barlow Condensed',sans-serif" font-size="8" font-weight="700" fill="#fff" pointer-events="none">${jn}</text>`
+        : '';
+      return `<circle cx="${gxc}" cy="${gyc}" r="${outerR}" fill="none" stroke="#0d0d14" stroke-width="0.8" stroke-opacity="0.22"/>
+               <circle cx="${gxc}" cy="${gyc}" r="${innerR}" fill="${color}" stroke="#fff" stroke-width="1.2" data-xgdot='${tip}' style="cursor:pointer"/>
+               ${numEl}`;
     }).join('');
 
     // End-of-line labels — prevent overlap if within 14px
@@ -1938,6 +1978,144 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     }
   }
 
+  // ── On-Ice dot chart ────────────────────────────────────────────────────────
+
+  function renderDotChart(players, homeColor, awayColor, homeAbbr, awayAbbr) {
+    // ── Layout constants ──────────────────────────────────────────────────────
+    const W = 800, H = 420;
+    const PAD_L = 20;          // left margin — room for away dots to stack left
+    const PAD_R = 64;          // right margin — axis labels
+    const PAD_T = 36;          // top — team abbr labels + breathing room
+    const PAD_B = 28;          // bottom — % labels
+    const DRAW_W = W - PAD_L - PAD_R;   // 448
+    const CHART_H = H - PAD_T - PAD_B; // 356
+    const CX = PAD_L + DRAW_W / 2;      // 240 — center divider
+    const AXIS_X = W - PAD_R;           // 464 — left edge of axis label margin
+    const R = 10;              // dot radius (20px diameter — fits 2-digit jersey number)
+    const GAP = 3;             // gap between dot edge and center divider
+    const STEP = 22;           // horizontal step per stacked dot
+    const THRESH = 3;          // % window for cluster grouping
+    const MIN_TOI = 60;
+
+    // away: first dot cx = CX - GAP - R = 223; home: first dot cx = CX + GAP + R = 257
+    const toY = pct => PAD_T + (1 - pct / 100) * CHART_H;
+    const toiStr = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+
+    function fmtName(raw) {
+      const idx = raw.indexOf(', ');
+      if (idx < 0) return raw;
+      const last = raw.slice(0, idx), first = raw.slice(idx + 2);
+      return `${first.charAt(0)}. ${last.charAt(0) + last.slice(1).toLowerCase()}`;
+    }
+
+    const ok = p => p.xgf_pct_5v5 != null && (p.toi_5v5_sec || p.toi_sec || 0) >= MIN_TOI;
+    const awayPls = players.filter(p => !p.is_home && ok(p));
+    const homePls = players.filter(p =>  p.is_home && ok(p));
+
+    // Sort descending, group consecutive players within THRESH%, place at group avg y.
+    // Away stacks left (further from center), home stacks right.
+    function layout(pls, isHome) {
+      if (!pls.length) return [];
+      const sorted = [...pls].sort((a, b) => b.xgf_pct_5v5 - a.xgf_pct_5v5);
+      const groups = []; let g = [sorted[0]];
+      for (let i = 1; i < sorted.length; i++) {
+        if (g[0].xgf_pct_5v5 - sorted[i].xgf_pct_5v5 <= THRESH) g.push(sorted[i]);
+        else { groups.push(g); g = [sorted[i]]; }
+      }
+      groups.push(g);
+      return groups.flatMap(grp => {
+        const avgPct = grp.reduce((s, p) => s + p.xgf_pct_5v5, 0) / grp.length;
+        const cy = toY(avgPct);
+        return grp.map((p, i) => ({
+          cx: isHome ? CX + GAP + R + i * STEP : CX - GAP - R - i * STEP,
+          cy, p
+        }));
+      });
+    }
+
+    // ── Tooltip handlers (attached to window for inline SVG callbacks) ────────
+    window._dcTip = function(event, text) {
+      const tip = document.getElementById('_dc_tip');
+      const wrap = document.getElementById('_dc_wrap');
+      if (!tip || !wrap) return;
+      tip.textContent = text;
+      tip.style.display = 'block';
+      const rect = wrap.getBoundingClientRect();
+      let tx = event.clientX - rect.left + 14, ty = event.clientY - rect.top - 38;
+      if (tx + 200 > rect.width) tx = event.clientX - rect.left - 210;
+      if (ty < 2) ty = 8;
+      tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+    };
+    window._dcTipHide = () => { const t = document.getElementById('_dc_tip'); if (t) t.style.display = 'none'; };
+
+    // ── CSS (injected once) ───────────────────────────────────────────────────
+    if (!document.getElementById('_dc_css')) {
+      const s = document.createElement('style'); s.id = '_dc_css';
+      s.textContent = `
+        .dc-g { cursor:pointer }
+        .dc-g:hover circle { opacity:.75 }
+        .dc-num { font-family:'Barlow Condensed',sans-serif; font-size:9px; font-weight:700; fill:#fff; pointer-events:none; letter-spacing:0 }
+        .dc-al { font-family:var(--mono,monospace); font-size:10px; fill:rgba(13,13,20,.38) }
+        .dc-al50 { fill:rgba(13,13,20,.62); font-weight:700 }
+        .dc-even { font-family:'Barlow Condensed',sans-serif; font-size:8px; font-weight:700; letter-spacing:.16em; fill:rgba(13,13,20,.36) }
+        .dc-abbr { font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:800; letter-spacing:.06em }
+        #_dc_tip { position:absolute; background:var(--ink,#0D0D14); color:var(--bg,#EFEEE8); font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:600; padding:5px 9px; border-radius:2px; pointer-events:none; white-space:nowrap; z-index:9; display:none; line-height:1.1 }
+        html[data-theme="dark"] .dc-al   { fill:rgba(239,238,232,.34) }
+        html[data-theme="dark"] .dc-al50 { fill:rgba(239,238,232,.60) }
+        html[data-theme="dark"] .dc-even { fill:rgba(239,238,232,.34) }
+        html[data-theme="dark"] #_dc_tip { background:var(--bg,#EFEEE8); color:var(--ink,#0D0D14) }
+      `;
+      document.head.appendChild(s);
+    }
+
+    // ── Single dot ────────────────────────────────────────────────────────────
+    function dot({ cx, cy, p }, color) {
+      const toiDisplay = toiStr(p.toi_5v5_sec || p.toi_sec || 0);
+      const numLabel = p.jersey != null ? p.jersey : '·';
+      const tip = `${fmtName(p.name)}${p.jersey != null ? ' · #' + p.jersey : ''} · ${toiDisplay} · ${p.xgf_pct_5v5.toFixed(1)}%`;
+      const safe = tip.replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      return `<g class="dc-g" onmouseenter="_dcTip(event,&quot;${safe}&quot;)" onmouseleave="_dcTipHide()">
+        <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${R}" fill="${color}"/>
+        <text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" class="dc-num" text-anchor="middle" dominant-baseline="central">${numLabel}</text>
+      </g>`;
+    }
+
+    // ── Grid lines: 0/25/75/100 dashed, axis % labels in right margin ─────────
+    // Lines span full draw area (PAD_L to AXIS_X)
+    const y50 = toY(50);
+    const grid = [0,10,20,30,40,60,70,80,90,100].map(pct => {
+      const y = toY(pct).toFixed(1);
+      return `<line x1="${PAD_L}" y1="${y}" x2="${AXIS_X}" y2="${y}" stroke="rgba(13,13,20,.07)" stroke-width=".75" stroke-dasharray="3 5"/>
+        <text x="${AXIS_X + 6}" y="${y}" class="dc-al" dominant-baseline="central">${pct}%</text>`;
+    }).join('');
+
+    // 50% line prominent, no EVEN label
+    const even = `
+      <line x1="${PAD_L}" y1="${y50.toFixed(1)}" x2="${AXIS_X}" y2="${y50.toFixed(1)}" stroke="rgba(13,13,20,.28)" stroke-width="1.5"/>
+      <text x="${AXIS_X + 6}" y="${y50.toFixed(1)}" class="dc-al dc-al50" dominant-baseline="central">50%</text>
+      <line x1="${CX}" y1="${PAD_T - 4}" x2="${CX}" y2="${H - PAD_B + 6}" stroke="rgba(13,13,20,.15)" stroke-width="1"/>`;
+
+    // ── Team abbr labels: top-left (away) and top-right (home), well separated ─
+    // Away label anchored right, sitting in the left column; home anchored left in right column
+    const ABBR_Y = (PAD_T - 14).toFixed(1);
+    const abbrs = `
+      <text x="${(CX - 20).toFixed(1)}" y="${ABBR_Y}" class="dc-abbr" fill="${awayColor}" text-anchor="end" dominant-baseline="central">${awayAbbr}</text>
+      <text x="${(CX + 20).toFixed(1)}" y="${ABBR_Y}" class="dc-abbr" fill="${homeColor}" text-anchor="start" dominant-baseline="central">${homeAbbr}</text>`;
+
+    // ── Render dots (away first so home renders on top when they overlap) ──────
+    const dots = [
+      ...layout(awayPls, false).map(d => dot(d, awayColor)),
+      ...layout(homePls, true).map(d => dot(d, homeColor)),
+    ].join('');
+
+    return `<div id="_dc_wrap" style="position:relative;line-height:0;padding:4px 0 8px">
+      <div id="_dc_tip"></div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="overflow:visible;display:block">
+        ${grid}${even}${abbrs}${dots}
+      </svg>
+    </div>`;
+  }
+
   // ── On-Ice xGF ──────────────────────────────────────────────────────────────
 
   function renderOnIce(data, awayColor, homeColor, awayAbbr, homeAbbr) {
@@ -2037,8 +2215,27 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     }
 
     let activeTab = 'players';
+    let playerView = 'table'; // 'table' | 'chart'
+    const viewToggle = document.getElementById('onice-view-toggle');
+
+    if (viewToggle) {
+      viewToggle.addEventListener('click', () => {
+        playerView = playerView === 'table' ? 'chart' : 'table';
+        viewToggle.dataset.view = playerView;
+        viewToggle.classList.toggle('active', playerView === 'chart');
+        render();
+      });
+    }
+
     function render() {
+      const toggle = document.getElementById('onice-view-toggle');
+      if (toggle) toggle.style.display = activeTab === 'players' ? 'block' : 'none';
+
       if (activeTab === 'players') {
+        if (playerView === 'chart') {
+          content.innerHTML = renderDotChart(d.players, homeColor, awayColor, homeAbbr, awayAbbr);
+          return;
+        }
         const home = d.players.filter(p =>  p.is_home);
         const away = d.players.filter(p => !p.is_home);
         content.innerHTML = splitLayout(
@@ -2068,11 +2265,77 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     render();
   }
 
+  // ── Chart PNG download ───────────────────────────────────────────────────────
+
+  function downloadChartSVG(svgEl, filename) {
+    if (!svgEl) return;
+    const vb = svgEl.viewBox?.baseVal;
+    const w = vb?.width || svgEl.clientWidth || 840;
+    const h = vb?.height || svgEl.clientHeight || 258;
+    const scale = 2; // retina
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svgEl);
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = w * scale;
+      canvas.height = h * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      // cream background
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#EFEEE8';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      const a = document.createElement('a');
+      a.download = filename;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    };
+    img.onerror = () => {
+      // fallback: just download the SVG
+      const a = document.createElement('a');
+      a.download = filename.replace('.png', '.svg');
+      a.href = url;
+      a.click();
+    };
+    img.src = url;
+  }
+
   // ── Main render ─────────────────────────────────────────────────────────────
 
   function renderGame(boxscore, flow, eventsData, state, onIce) {
     const { awayAbbr, homeAbbr, awayColor, homeColor, awayScore, homeScore } =
       renderHeader(boxscore, state);
+
+    // Build { gameSec: jerseyNumber } for goal events
+    _jerseyMap = (() => {
+      const byId = {};
+      const stats = boxscore?.playerByGameStats || {};
+      for (const side of ['homeTeam', 'awayTeam']) {
+        for (const grp of ['forwards', 'defensemen', 'goalies']) {
+          for (const p of (stats[side]?.[grp] || [])) {
+            if (p.playerId && p.sweaterNumber != null) byId[p.playerId] = p.sweaterNumber;
+          }
+        }
+      }
+      const map = {};
+      for (const ev of (eventsData?.events || [])) {
+        if (ev.event_type !== 'GOAL') continue;
+        let pl = ev.payload || {};
+        if (typeof pl === 'string') try { pl = JSON.parse(pl); } catch { continue; }
+        const pid = pl?.details?.scoringPlayerId;
+        if (!pid || byId[pid] == null) continue;
+        const per = ev.period || pl.period || 1;
+        const tip = pl.timeInPeriod || '';
+        if (!tip) continue;
+        const [mm, ss] = tip.split(':').map(Number);
+        map[(per - 1) * 1200 + mm * 60 + ss] = byId[pid];
+      }
+      return map;
+    })();
 
     if (state === 'pre') {
       renderPregame(boxscore);
@@ -2081,6 +2344,13 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       renderStats(flow, boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
+
+      // Wire up chart download buttons
+      const dlWp = document.getElementById('dl-wp');
+      if (dlWp) dlWp.onclick = () => downloadChartSVG(document.getElementById('wp-chart'), `hgb-wp-${_currentGameId}.png`);
+      const dlXg = document.getElementById('dl-xg');
+      if (dlXg) dlXg.onclick = () => downloadChartSVG(document.getElementById('xg-chart'), `hgb-xg-${_currentGameId}.png`);
+
       renderGoals(flow, homeAbbr, awayAbbr);
       renderShotMap(eventsData, flow, awayAbbr, homeAbbr, awayColor, homeColor);
       renderOnIce(onIce, awayColor, homeColor, awayAbbr, homeAbbr);
