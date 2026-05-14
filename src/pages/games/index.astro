@@ -524,20 +524,18 @@ table.ps tbody tr:hover { background: var(--ink-04); }
           <div id="chart-section-meta" class="section-meta">HGB xG model · 5v5</div>
         </div>
         <div class="chart-wrap">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <span></span>
-            <button class="chart-dl-btn" id="dl-wp" title="Download chart">↓ PNG</button>
+          <div style="position:relative">
+            <button class="chart-dl-btn" id="dl-wp" title="Download chart" style="position:absolute;top:8px;right:4px;z-index:2">↓ PNG</button>
+            <div class="chart-no-data" id="chart-no-data" style="display:none">Win probability not available.</div>
+            <svg id="wp-chart" class="chart-svg" viewBox="0 0 800 258" preserveAspectRatio="none"></svg>
           </div>
-          <div class="chart-no-data" id="chart-no-data" style="display:none">Win probability not available.</div>
-          <svg id="wp-chart" class="chart-svg" viewBox="0 0 800 258" preserveAspectRatio="none"></svg>
         </div>
         <div class="chart-wrap">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <span></span>
-            <button class="chart-dl-btn" id="dl-xg" title="Download chart">↓ PNG</button>
+          <div style="position:relative">
+            <button class="chart-dl-btn" id="dl-xg" title="Download chart" style="position:absolute;top:8px;right:4px;z-index:2">↓ PNG</button>
+            <div class="chart-no-data" id="xg-no-data" style="display:none">xG data not available.</div>
+            <svg id="xg-chart" class="chart-svg" viewBox="0 0 840 258" preserveAspectRatio="none"></svg>
           </div>
-          <div class="chart-no-data" id="xg-no-data" style="display:none">xG data not available.</div>
-          <svg id="xg-chart" class="chart-svg" viewBox="0 0 840 258" preserveAspectRatio="none"></svg>
         </div>
       </div>
 
@@ -1052,12 +1050,18 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 
     // End-of-line label
     const lastWp   = pts[pts.length - 1].wp;
-    const winAbbr  = lastWp >= 0.5 ? homeAbbr : awayAbbr;
-    const winColor = lastWp >= 0.5 ? homeColor : awayColor;
-    const winPct   = (Math.max(lastWp, 1 - lastWp) * 100).toFixed(0);
-    // place end label in right-padding area, clear of the final goal dot
+    const winAbbr   = lastWp >= 0.5 ? homeAbbr : awayAbbr;
+    const winColor  = lastWp >= 0.5 ? homeColor : awayColor;
+    const loseAbbr  = lastWp >= 0.5 ? awayAbbr : homeAbbr;
+    const loseColor = lastWp >= 0.5 ? awayColor : homeColor;
+    const winPct    = (Math.max(lastWp, 1 - lastWp) * 100).toFixed(0);
+    const losePct   = (Math.min(lastWp, 1 - lastWp) * 100).toFixed(0);
+    const lx = (W - PAD.r + 6).toFixed(1);
     const endLabelY = Math.min(Math.max(py(lastWp), PAD.t + 10), H - PAD.b - 4);
-    const endLabel = `<text x="${(W - PAD.r + 6).toFixed(1)}" y="${(endLabelY + 4).toFixed(1)}" text-anchor="start" font-family="'Barlow Condensed',sans-serif" font-size="11" font-weight="700" fill="${winColor}">${esc(winAbbr)} ${winPct}%</text>`;
+    const loseLabelY = Math.min(Math.max(py(1 - lastWp), PAD.t + 10), H - PAD.b - 4);
+    const endLabel = `
+      <text x="${lx}" y="${(endLabelY + 4).toFixed(1)}" text-anchor="start" font-family="'Barlow Condensed',sans-serif" font-size="11" font-weight="700" fill="${winColor}">${esc(winAbbr)} ${winPct}%</text>
+      <text x="${lx}" y="${(loseLabelY + 4).toFixed(1)}" text-anchor="start" font-family="'Barlow Condensed',sans-serif" font-size="11" font-weight="700" fill="${loseColor}" opacity="0.6">${esc(loseAbbr)} ${losePct}%</text>`;
 
     svg.innerHTML = `
       <text x="${PAD.l}" y="20" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="11" fill="rgba(13,13,20,0.42)">HOCKEYGAMEBOT</text>
@@ -2279,15 +2283,20 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
+      // Pad to 16:9 so Twitter displays without cropping (SVG is ~3:1, too wide)
+      const targetH = Math.round(w * (9 / 16));
+      const canvasH = Math.max(h, targetH);
+      const offsetY = Math.round((canvasH - h) / 2);
+
       const canvas = document.createElement('canvas');
       canvas.width = w * scale;
-      canvas.height = h * scale;
+      canvas.height = canvasH * scale;
       const ctx = canvas.getContext('2d');
       ctx.scale(scale, scale);
-      // cream background
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#EFEEE8';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#EFEEE8';
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, canvasH);
+      ctx.drawImage(img, 0, offsetY, w, h);  // center chart vertically
       URL.revokeObjectURL(url);
       const a = document.createElement('a');
       a.download = filename;
