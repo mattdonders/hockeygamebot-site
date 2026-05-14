@@ -504,6 +504,16 @@ table.ps tbody tr:hover { background: var(--ink-04); }
               </div>
             </div>
             <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-goals5v5">–</span>
+              <span class="stat-compare-key">Goals</span>
+              <span class="stat-compare-num right" id="home-goals5v5">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-sog5v5">–</span>
+              <span class="stat-compare-key">Shots on Goal</span>
+              <span class="stat-compare-num right" id="home-sog5v5">–</span>
+            </div>
+            <div class="stats-compare-row">
               <span class="stat-compare-num" id="away-xg5v5">–</span>
               <span class="stat-compare-key">xG</span>
               <span class="stat-compare-num right" id="home-xg5v5">–</span>
@@ -908,16 +918,47 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     if (a5Abbr) { a5Abbr.textContent = awayAbbr; a5Abbr.style.color = awayColor; }
     if (h5Abbr) { h5Abbr.textContent = homeAbbr; h5Abbr.style.color = homeColor; }
 
-    // 5v5 xG from events
+    // 5v5 stats from events
     const xg5v5 = { home: 0, away: 0 };
+    const goals5v5 = { home: 0, away: 0 };
+    const sog5v5 = { home: 0, away: 0 };
     for (const ev of (eventsData?.events || [])) {
       if (!['SHOT_ON_GOAL','MISSED_SHOT','GOAL'].includes(ev.event_type)) continue;
       if (ev.payload?.situationCode !== '1551') continue;
-      const xg = parseFloat(ev.payload?.xg);
-      if (isNaN(xg) || xg <= 0) continue;
       const isHome = ev.event_team_id != null && String(ev.event_team_id) === String(ev.home_team_id);
-      if (isHome) xg5v5.home += xg; else xg5v5.away += xg;
+      if (ev.event_type === 'GOAL') {
+        if (isHome) goals5v5.home++; else goals5v5.away++;
+      }
+      if (ev.event_type === 'SHOT_ON_GOAL' || ev.event_type === 'GOAL') {
+        if (isHome) sog5v5.home++; else sog5v5.away++;
+      }
+      const xg = parseFloat(ev.payload?.xg);
+      if (!isNaN(xg) && xg > 0) {
+        if (isHome) xg5v5.home += xg; else xg5v5.away += xg;
+      }
     }
+
+    // 5v5 Goals
+    const awG5El = document.getElementById('away-goals5v5');
+    const hmG5El = document.getElementById('home-goals5v5');
+    if (awG5El && hmG5El) {
+      awG5El.textContent = goals5v5.away;
+      hmG5El.textContent = goals5v5.home;
+      awG5El.style.color = goals5v5.away > goals5v5.home ? awayColor : goals5v5.away < goals5v5.home ? 'var(--ink-32)' : 'var(--ink)';
+      hmG5El.style.color = goals5v5.home > goals5v5.away ? homeColor : goals5v5.home < goals5v5.away ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // 5v5 Shots on Goal
+    const awS5El = document.getElementById('away-sog5v5');
+    const hmS5El = document.getElementById('home-sog5v5');
+    if (awS5El && hmS5El) {
+      awS5El.textContent = sog5v5.away;
+      hmS5El.textContent = sog5v5.home;
+      awS5El.style.color = sog5v5.away > sog5v5.home ? awayColor : sog5v5.away < sog5v5.home ? 'var(--ink-32)' : 'var(--ink)';
+      hmS5El.style.color = sog5v5.home > sog5v5.away ? homeColor : sog5v5.home < sog5v5.away ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // 5v5 xG
     const aw5El = document.getElementById('away-xg5v5');
     const hm5El = document.getElementById('home-xg5v5');
     if (xg5v5.home > 0 || xg5v5.away > 0) {
