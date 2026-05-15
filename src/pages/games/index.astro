@@ -929,28 +929,38 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     if (a5Abbr) { a5Abbr.textContent = awayAbbr; a5Abbr.style.color = awayColor; }
     if (h5Abbr) { h5Abbr.textContent = homeAbbr; h5Abbr.style.color = homeColor; }
 
-    // 5v5 stats from events
-    // Use boxscore home team ID as the authoritative reference — ev.home_team_id
-    // is null for some event types (e.g. goals) from the old bot.
+    // 5v5 stats from events.
+    // Old bot goal events have event_team_id=null, so for goals we use the
+    // home_score/away_score delta to determine which team scored.
     const _homeTeamId = boxscore.homeTeam?.id != null ? String(boxscore.homeTeam.id) : null;
     const xg5v5 = { home: 0, away: 0 };
     const goals5v5 = { home: 0, away: 0 };
     const sog5v5 = { home: 0, away: 0 };
     const cf5v5 = { home: 0, away: 0 };
+    let _prevHomeScore = 0, _prevAwayScore = 0;
     for (const ev of (eventsData?.events || [])) {
       if (!['SHOT_ON_GOAL','MISSED_SHOT','BLOCKED_SHOT','GOAL'].includes(ev.event_type)) continue;
       if (ev.payload?.situationCode !== '1551') continue;
-      const isHome = ev.event_team_id != null && _homeTeamId != null && String(ev.event_team_id) === _homeTeamId;
-      if (isHome) cf5v5.home++; else cf5v5.away++;
+      const isHome = ev.event_team_id != null && _homeTeamId != null
+        ? String(ev.event_team_id) === _homeTeamId
+        : ev.event_type === 'GOAL'
+          ? (ev.home_score ?? 0) > _prevHomeScore   // goal: use score delta
+          : false;
       if (ev.event_type === 'GOAL') {
-        if (isHome) goals5v5.home++; else goals5v5.away++;
+        _prevHomeScore = ev.home_score ?? _prevHomeScore;
+        _prevAwayScore = ev.away_score ?? _prevAwayScore;
+        goals5v5[isHome ? 'home' : 'away']++;
+        sog5v5[isHome ? 'home' : 'away']++;
       }
-      if (ev.event_type === 'SHOT_ON_GOAL' || ev.event_type === 'GOAL') {
-        if (isHome) sog5v5.home++; else sog5v5.away++;
+      if (ev.event_type !== 'GOAL') {
+        cf5v5[isHome ? 'home' : 'away']++;
+        if (ev.event_type === 'SHOT_ON_GOAL') sog5v5[isHome ? 'home' : 'away']++;
+      } else {
+        cf5v5[isHome ? 'home' : 'away']++;
       }
       const xg = parseFloat(ev.payload?.xg);
       if (!isNaN(xg) && xg > 0) {
-        if (isHome) xg5v5.home += xg; else xg5v5.away += xg;
+        xg5v5[isHome ? 'home' : 'away'] += xg;
       }
     }
 
