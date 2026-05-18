@@ -89,6 +89,7 @@ type CarouselSeries = {
 
 let apiSeries: ApiSeries[] = [];
 let apiSeriesR2: ApiSeries[] = [];
+let apiSeriesR3: ApiSeries[] = [];
 let carouselR1: CarouselSeries[] = [];
 let carouselR2: CarouselSeries[] = [];
 let currentRound = 1;
@@ -111,6 +112,10 @@ try {
     apiSeriesR2 = data.series ?? [];
   }
 } catch (_) { /* ok if R2 not seeded */ }
+try {
+  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/3');
+  if (res.ok) { const data = await res.json(); apiSeriesR3 = data.series ?? []; }
+} catch (_) { /* ok if R3 not seeded */ }
 try {
   const res = await fetch('https://api-web.nhle.com/v1/playoff-series/carousel/20252026');
   if (res.ok) {
@@ -325,6 +330,14 @@ if (carouselR2.length > 0) {
   SERIES_R2 = apiSeriesR2.map(buildR2FromApi).filter((x): x is R2Card => x !== null);
 }
 
+function isTonight(utc: string | null): boolean {
+  if (!utc) return false;
+  const diff = new Date(utc).getTime() - Date.now();
+  return diff >= -7200000 && diff <= 100800000;
+}
+
+const SERIES_R3: R2Card[] = apiSeriesR3.map(s => buildR2FromApi(s)).filter((x): x is R2Card => x !== null);
+
 const r1AllComplete = SERIES.length > 0 && SERIES.every(s => s.is_complete);
 const showR2 = SERIES_R2.length > 0;
 // Eyebrow round indicator shows whenever any R2 series has BOTH seeds locked
@@ -507,6 +520,20 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .hgb-card__foot-label { font: 500 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; }
 .hgb-card__foot-val { font: 500 13px/1 var(--hgb-font-display); color: var(--hgb-text); letter-spacing: 0.02em; white-space: nowrap; }
 .hgb-card__foot-val strong { color: var(--hgb-team-a); }
+
+/* ── Enhancements: dots / elim / tonight / win% label ── */
+.hgb-card__games { display: flex; gap: 5px; padding: 0 20px 12px; align-items: center; }
+.hgb-card__gdot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.1); flex-shrink: 0; }
+.hgb-card__gdot--a { background: var(--hgb-team-a); }
+.hgb-card__gdot--b { background: var(--hgb-team-b); }
+.hgb-card__gdot--next { background: transparent; border: 1.5px solid rgba(255,255,255,0.3); }
+.hgb-card__team--elim { opacity: 0.25; filter: grayscale(0.5); }
+.hgb-tonight { display: inline-flex; align-items: center; gap: 5px; font: 700 9px/1 var(--hgb-font-mono); letter-spacing: 0.14em; text-transform: uppercase; padding: 2px 8px; background: rgba(232,0,45,0.15); color: #ff4466; margin-left: 6px; }
+.hgb-tonight::before { content: ""; width: 5px; height: 5px; background: #ff4466; border-radius: 50%; animation: hgb-pulse 1.4s ease-in-out infinite; }
+@keyframes hgb-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.hgb-card__pct-wrap { display: flex; flex-direction: column; gap: 1px; }
+.hgb-card__pct-wrap--right { align-items: flex-end; }
+.hgb-card__pct-lbl { font: 500 8px/1 var(--hgb-font-mono); color: rgba(255,255,255,0.28); letter-spacing: 0.1em; text-transform: uppercase; }
 
 /* TBD */
 .series-tbd { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 20px; min-height: 76px; background: rgba(255,255,255,0.015); border: 1px dashed var(--hgb-border-strong); border-radius: 10px; }
@@ -812,6 +839,57 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
     </div>
   )}
 
+  {/* ── ROUND 3 — Conference Finals ────────────────────────────────────────── */}
+  {SERIES_R3.length > 0 && (
+    <div class="conf-block">
+      <div class="section-label section-label--has-badge">
+        <span class="section-label__round">Conference Finals</span>
+        <span class="section-label__rule"></span>
+      </div>
+      <div class="series-grid">
+        {SERIES_R3.map(s => {
+          const segs = buildCardSegs(s);
+          const ml = mostLikely(s);
+          const played = s.games.filter(Boolean).length;
+          const aElim  = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
+          const bElim  = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
+          const tonight = isTonight(s.nextGameUTC);
+          return (
+            <button class="hgb-card" data-id={s.id} style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`} aria-label={`${s.a.abbr} vs ${s.b.abbr}`}>
+              <header class="hgb-card__meta">
+                <span class="hgb-mini-badge">{s.miniBadge}</span>
+                {tonight && <span class="hgb-tonight">Tonight</span>}
+              </header>
+              <div class="hgb-card__teams">
+                <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
+                  <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
+                  <div class="hgb-card__ids"><span class="hgb-card__seed">{s.a.seed}</span><span class="hgb-card__abbr">{s.a.abbr}</span></div>
+                  <div class="hgb-card__pct-wrap" style="margin-left: auto"><span class="hgb-card__pct-lbl">Win %</span><span class="hgb-card__pct">{s.a.winPct}<small>%</small></span></div>
+                </div>
+                <span class="hgb-card__vs">vs</span>
+                <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
+                  <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
+                  <div class="hgb-card__ids"><span class="hgb-card__seed">{s.b.seed}</span><span class="hgb-card__abbr">{s.b.abbr}</span></div>
+                  <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto"><span class="hgb-card__pct-lbl">Win %</span><span class="hgb-card__pct">{s.b.winPct}<small>%</small></span></div>
+                </div>
+              </div>
+              <div class="hgb-card__games">
+                {s.games.map((w, i) => (<span class={`hgb-card__gdot${w === s.a.abbr ? ' hgb-card__gdot--a' : w === s.b.abbr ? ' hgb-card__gdot--b' : i === played && !s.is_complete ? ' hgb-card__gdot--next' : ''}`}></span>))}
+              </div>
+              <div class="hgb-card__bar">
+                {segs.map(seg => (<span class={`hgb-card__seg${seg.isSmall ? ' hgb-card__seg--small' : ''}`} style={`--c: ${seg.c}; --w: ${seg.w}`} data-boundary={seg.boundary ? 'true' : undefined} title={`${seg.label} · ${seg.w}%`}><span class="hgb-card__seg-val">{seg.w}</span></span>))}
+              </div>
+              <footer class="hgb-card__foot">
+                <div class="hgb-card__foot-col"><span class="hgb-card__foot-label">Next Game</span><span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span></div>
+                {ml && <div class="hgb-card__foot-col hgb-card__foot-col--right"><span class="hgb-card__foot-label">Most Likely</span><span class="hgb-card__foot-val"><strong>{ml.label.split(' in ')[0]}</strong> in {ml.label.split(' in ')[1]} · {ml.v}%</span></div>}
+              </footer>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  )}
+
   {/* ── ROUND 2 — Conference Semifinals ───────────────────────────────────── */}
   {showR2 && (
     <div class="conf-block">
@@ -915,6 +993,10 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
           // Live R2 card — same shape as R1.
           const segs = buildCardSegs(s);
           const ml = mostLikely(s);
+          const played = s.games.filter(Boolean).length;
+          const aElim  = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
+          const bElim  = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
+          const tonight = isTonight(s.nextGameUTC);
           return (
             <button
               class="hgb-card"
@@ -924,26 +1006,38 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
             >
               <header class="hgb-card__meta">
                 <span class="hgb-mini-badge">{s.miniBadge}</span>
+                {tonight && <span class="hgb-tonight">Tonight</span>}
               </header>
 
               <div class="hgb-card__teams">
-                <div class="hgb-card__team" style={`--team-color: ${s.a.color}`}>
+                <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
                   <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
                   <div class="hgb-card__ids">
                     <span class="hgb-card__seed">{s.a.seed}</span>
                     <span class="hgb-card__abbr">{s.a.abbr}</span>
                   </div>
-                  <span class="hgb-card__pct" style="margin-left: auto">{s.a.winPct}<small>%</small></span>
+                  <div class="hgb-card__pct-wrap" style="margin-left: auto">
+                    <span class="hgb-card__pct-lbl">Win %</span>
+                    <span class="hgb-card__pct">{s.a.winPct}<small>%</small></span>
+                  </div>
                 </div>
                 <span class="hgb-card__vs">vs</span>
-                <div class="hgb-card__team hgb-card__team--b" style={`--team-color: ${s.b.color}`}>
+                <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
                   <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
                   <div class="hgb-card__ids">
                     <span class="hgb-card__seed">{s.b.seed}</span>
                     <span class="hgb-card__abbr">{s.b.abbr}</span>
                   </div>
-                  <span class="hgb-card__pct" style="margin-right: auto">{s.b.winPct}<small>%</small></span>
+                  <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
+                    <span class="hgb-card__pct-lbl">Win %</span>
+                    <span class="hgb-card__pct">{s.b.winPct}<small>%</small></span>
+                  </div>
                 </div>
+              </div>
+              <div class="hgb-card__games">
+                {s.games.map((w, i) => (
+                  <span class={`hgb-card__gdot${w === s.a.abbr ? ' hgb-card__gdot--a' : w === s.b.abbr ? ' hgb-card__gdot--b' : i === played && !s.is_complete ? ' hgb-card__gdot--next' : ''}`}></span>
+                ))}
               </div>
 
               <div class="hgb-card__bar">
@@ -991,8 +1085,9 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
         {series.map(s => {
           const segs = buildCardSegs(s);
           const ml = mostLikely(s);
-          const pctA = s.a.winPct;
-          const pctB = s.b.winPct;
+          const played = s.games.filter(Boolean).length;
+          const aElim  = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
+          const bElim  = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
           return (
             <button
               class="hgb-card"
@@ -1005,23 +1100,34 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
               </header>
 
               <div class="hgb-card__teams">
-                <div class="hgb-card__team" style={`--team-color: ${s.a.color}`}>
+                <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
                   <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
                   <div class="hgb-card__ids">
                     <span class="hgb-card__seed">{s.a.seed}</span>
                     <span class="hgb-card__abbr">{s.a.abbr}</span>
                   </div>
-                  <span class="hgb-card__pct" style="margin-left: auto">{pctA}<small>%</small></span>
+                  <div class="hgb-card__pct-wrap" style="margin-left: auto">
+                    <span class="hgb-card__pct-lbl">Win %</span>
+                    <span class="hgb-card__pct">{s.a.winPct}<small>%</small></span>
+                  </div>
                 </div>
                 <span class="hgb-card__vs">vs</span>
-                <div class="hgb-card__team hgb-card__team--b" style={`--team-color: ${s.b.color}`}>
+                <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
                   <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
                   <div class="hgb-card__ids">
                     <span class="hgb-card__seed">{s.b.seed}</span>
                     <span class="hgb-card__abbr">{s.b.abbr}</span>
                   </div>
-                  <span class="hgb-card__pct" style="margin-right: auto">{pctB}<small>%</small></span>
+                  <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
+                    <span class="hgb-card__pct-lbl">Win %</span>
+                    <span class="hgb-card__pct">{s.b.winPct}<small>%</small></span>
+                  </div>
                 </div>
+              </div>
+              <div class="hgb-card__games">
+                {s.games.map((w, i) => (
+                  <span class={`hgb-card__gdot${w === s.a.abbr ? ' hgb-card__gdot--a' : w === s.b.abbr ? ' hgb-card__gdot--b' : i === played && !s.is_complete ? ' hgb-card__gdot--next' : ''}`}></span>
+                ))}
               </div>
 
               <div class="hgb-card__bar">
