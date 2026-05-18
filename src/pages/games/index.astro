@@ -1033,15 +1033,28 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 
     // Replace score area with puck drop time
     const gi = pg.game_info || {};
-    let timeStr = 'Time TBD';
+    // Countdown in score display area
     const rawTime = gi.start_time_utc || boxscore.startTimeUTC;
-    if (rawTime) {
-      const d = new Date(rawTime);
-      timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-    }
     const scoreDisp = document.querySelector('.score-display');
-    if (scoreDisp) {
-      scoreDisp.innerHTML = `<span style="font-size:clamp(20px,3vw,42px);letter-spacing:0.02em;font-weight:800">${timeStr}</span>`;
+    if (scoreDisp && rawTime) {
+      const puckDrop = new Date(rawTime).getTime();
+      const fmtCountdown = () => {
+        const diff = Math.max(0, puckDrop - Date.now());
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const s = Math.floor((diff % 60000) / 1000);
+        if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        return `${m}:${String(s).padStart(2,'0')}`;
+      };
+      const cdEl = document.createElement('span');
+      cdEl.style.cssText = 'font-size:clamp(28px,4vw,52px);letter-spacing:0.02em;font-weight:800;font-family:var(--mono);font-variant-numeric:tabular-nums';
+      cdEl.textContent = fmtCountdown();
+      scoreDisp.innerHTML = '';
+      scoreDisp.appendChild(cdEl);
+      const _cdTimer = setInterval(() => {
+        cdEl.textContent = fmtCountdown();
+        if (Date.now() >= puckDrop) clearInterval(_cdTimer);
+      }, 1000);
     }
 
     // Venue in info-left; broadcast chips in sog slot
