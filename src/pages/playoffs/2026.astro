@@ -54,14 +54,17 @@ type ApiSeries = {
 
 let apiSeries: ApiSeries[] = [];
 let apiSeriesR2: ApiSeries[] = [];
+let apiSeriesR3: ApiSeries[] = [];
 let latestUpdate: string | null = null;
 try {
-  const [res1, res2] = await Promise.all([
+  const [res1, res2, res3] = await Promise.all([
     fetch('https://api.hockeygamebot.com/v1/playoffs/round/1'),
     fetch('https://api.hockeygamebot.com/v1/playoffs/round/2'),
+    fetch('https://api.hockeygamebot.com/v1/playoffs/round/3'),
   ]);
   if (res1.ok) { const d = await res1.json(); apiSeries = d.series ?? []; latestUpdate = d.latest_update ?? null; }
   if (res2.ok) { const d = await res2.json(); apiSeriesR2 = d.series ?? []; latestUpdate = latestUpdate ?? d.latest_update ?? null; }
+  if (res3.ok) { const d = await res3.json(); apiSeriesR3 = d.series ?? []; }
 } catch (_) {}
 
 function buildSeriesArray(raw: ApiSeries[]) {
@@ -88,10 +91,11 @@ function buildSeriesArray(raw: ApiSeries[]) {
 
 const SERIES    = buildSeriesArray(apiSeries);
 const SERIES_R2 = buildSeriesArray(apiSeriesR2);
+const SERIES_R3 = buildSeriesArray(apiSeriesR3);
 
 // Quick lookup: series by team pair (for bracket rendering)
 const seriesByTeams = new Map<string, typeof SERIES[0]>();
-[...SERIES, ...SERIES_R2].forEach(s => {
+[...SERIES, ...SERIES_R2, ...SERIES_R3].forEach(s => {
   seriesByTeams.set(`${s.a.abbr}-${s.b.abbr}`, s);
   seriesByTeams.set(`${s.b.abbr}-${s.a.abbr}`, s);
 });
@@ -167,6 +171,8 @@ const eastSeries    = SERIES.filter(s => s.conf === 'East');
 const westSeries    = SERIES.filter(s => s.conf === 'West');
 const eastSeriesR2  = SERIES_R2.filter(s => s.conf === 'East');
 const westSeriesR2  = SERIES_R2.filter(s => s.conf === 'West');
+const eastSeriesR3  = SERIES_R3.filter(s => s.conf === 'East');
+const westSeriesR3  = SERIES_R3.filter(s => s.conf === 'West');
 
 // Rough cup win probability: P(win R2) × ½ × ½ (assuming 50/50 in ECF+SCF)
 // Win percentages from the API are 0-100. Eliminated teams get 0.
@@ -820,6 +826,78 @@ img { display: block; max-width: 100%; }
       Predictions loading — please refresh in a moment.
     </div>
   )}
+  {/* Round 3 — Conference Finals */}
+  {(SERIES_R3.length > 0) && ([['East', eastSeriesR3], ['West', westSeriesR3]] as const).map(([label, series]) => (
+    series.length > 0 && (
+    <div class="conf-block">
+      <div class="section-label"><span class="pip"></span>{label}ern Conference · <span style="color:var(--red)">Conference Finals</span></div>
+      <div class="series-grid">
+        {series.map(s => {
+          const segs = buildCardSegs(s);
+          const ml = mostLikely(s);
+          const pctA = s.a.winPct;
+          const pctB = s.b.winPct;
+          const played = s.games.filter(Boolean).length;
+          const aElim  = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
+          const bElim  = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
+          const tonight = isTonight(s.nextGameUTC);
+          return (
+            <button class="hgb-card" data-id={s.id} style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`} aria-label={`${s.a.abbr} vs ${s.b.abbr} — click for series details`}>
+              <div class="hgb-card__inner">
+                <header class="hgb-card__meta">
+                  <span class="hgb-mini-badge">{s.miniBadge}</span>
+                  {tonight && <span class="hgb-tonight">Tonight</span>}
+                </header>
+                <div class="hgb-card__teams">
+                  <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids"><span class="hgb-card__seed">{s.a.seed}</span><span class="hgb-card__abbr">{s.a.abbr}</span></div>
+                    <div class="hgb-card__pct-wrap" style="margin-left: auto">
+                      <span class="hgb-card__pct-lbl">Win %</span>
+                      <span class="hgb-card__pct">{pctA}<small>%</small></span>
+                    </div>
+                  </div>
+                  <span class="hgb-card__vs">vs</span>
+                  <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids"><span class="hgb-card__seed">{s.b.seed}</span><span class="hgb-card__abbr">{s.b.abbr}</span></div>
+                    <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
+                      <span class="hgb-card__pct-lbl">Win %</span>
+                      <span class="hgb-card__pct">{pctB}<small>%</small></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="hgb-card__games">
+                {s.games.map((w, i) => (
+                  <span class={`hgb-card__gdot${w === s.a.abbr ? ' hgb-card__gdot--a' : w === s.b.abbr ? ' hgb-card__gdot--b' : i === played && !s.is_complete ? ' hgb-card__gdot--next' : ''}`}></span>
+                ))}
+              </div>
+              <div class="hgb-card__bar">
+                {segs.map(seg => (
+                  <div class="hgb-card__seg" style={`--c:${seg.c};--w:${seg.w}`} data-boundary={seg.boundary ? '' : undefined} data-dominant={seg.w >= 95 ? '' : undefined} class:list={[seg.isSmall && 'hgb-card__seg--small', seg.isMax && 'hgb-card__seg--max']}>
+                    {!seg.isSmall && <span class="hgb-card__seg-val">{seg.w}%</span>}
+                  </div>
+                ))}
+              </div>
+              <footer class="hgb-card__foot">
+                <div class="hgb-card__foot-col">
+                  <span class="hgb-card__foot-label">Next Game</span>
+                  <span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span>
+                </div>
+                {ml && <div class="hgb-card__foot-col hgb-card__foot-col--right">
+                  <span class="hgb-card__foot-label">Most Likely</span>
+                  <span class="hgb-card__foot-val"><strong>{ml.label.split(' in ')[0]}</strong> in {ml.label.split(' in ')[1]} · {ml.v}%</span>
+                </div>}
+              </footer>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+    )
+  ))}
+
   {/* Round 2 */}
   {(SERIES_R2.length > 0) && ([['East', eastSeriesR2], ['West', westSeriesR2]] as const).map(([label, series]) => (
     series.length > 0 && (
