@@ -25,6 +25,21 @@ const regPoints = [...eligible]
     points: p.goals + p.assists,
   }));
 
+const regGoals = [...eligible]
+  .sort((a, b) => b.goals - a.goals)
+  .slice(0, 10)
+  .map((p, i) => ({ rank: i + 1, slug: p.slug, display_name: p.display_name, team_abbrev: p.team_abbrev, pos: p.pos, gp: p.gp, goals: p.goals }));
+
+const regAssists = [...eligible]
+  .sort((a, b) => b.assists - a.assists)
+  .slice(0, 10)
+  .map((p, i) => ({ rank: i + 1, slug: p.slug, display_name: p.display_name, team_abbrev: p.team_abbrev, pos: p.pos, gp: p.gp, assists: p.assists }));
+
+const regXg = [...eligible]
+  .sort((a, b) => b.rates_per_60.ixg - a.rates_per_60.ixg)
+  .slice(0, 10)
+  .map((p, i) => ({ rank: i + 1, slug: p.slug, display_name: p.display_name, team_abbrev: p.team_abbrev, pos: p.pos, gp: p.gp, xg60: +p.rates_per_60.ixg.toFixed(2) }));
+
 const regImpact = loadLeaderboard('game_score').slice(0, 10).map((p, i) => ({ ...p, rank: i + 1 }));
 
 const regGsax = [...allGoalies]
@@ -43,6 +58,11 @@ const regGsax = [...allGoalies]
 
 const poGoalsRaw   = loadPlayoffLeaderboard('goals');
 const poAssistsRaw = loadPlayoffLeaderboard('assists');
+const poXgRaw      = loadPlayoffLeaderboard('xg');
+
+const poGoals   = poGoalsRaw.map((r, i)   => ({ ...r, rank: i + 1, goals: r.value }));
+const poAssists = poAssistsRaw.map((r, i) => ({ ...r, rank: i + 1, assists: r.value }));
+const poXg      = poXgRaw.map((r, i)      => ({ ...r, rank: i + 1, xg60: r.value }));
 
 // Merge goals + assists lists by player_id to compute points
 const poMap = new Map<number, any>();
@@ -412,6 +432,132 @@ function sgn(n: number): string { return n >= 0 ? '+' : ''; }
       </div>
     </article>
 
+    <!-- GOALS card -->
+    <article class="lb-card">
+      <div class="lb-card-head">
+        <div>
+          <div class="lb-card-title">Goals</div>
+          <div class="lb-card-desc" id="goals-desc">Total goals · Regular Season</div>
+        </div>
+        <button class="lb-card-png" id="png-goals">↓ PNG</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:28px">#</th>
+            <th class="th-left">Player</th>
+            <th style="width:36px">GP</th>
+            <th style="width:44px">G</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-goals">
+          {regGoals.map(r => (
+            <tr>
+              <td class="td-rk">{r.rank}</td>
+              <td class="td-player">
+                <div class="td-player-inner">
+                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+                  <div>
+                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
+                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
+                  </div>
+                </div>
+              </td>
+              <td>{r.gp}</td>
+              <td class="td-pts">{r.goals}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div class="lb-card-foot">
+        <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
+      </div>
+    </article>
+
+    <!-- ASSISTS card -->
+    <article class="lb-card">
+      <div class="lb-card-head">
+        <div>
+          <div class="lb-card-title">Assists</div>
+          <div class="lb-card-desc" id="assists-desc">Total assists · Regular Season</div>
+        </div>
+        <button class="lb-card-png" id="png-assists">↓ PNG</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:28px">#</th>
+            <th class="th-left">Player</th>
+            <th style="width:36px">GP</th>
+            <th style="width:44px">A</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-assists">
+          {regAssists.map(r => (
+            <tr>
+              <td class="td-rk">{r.rank}</td>
+              <td class="td-player">
+                <div class="td-player-inner">
+                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+                  <div>
+                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
+                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
+                  </div>
+                </div>
+              </td>
+              <td>{r.gp}</td>
+              <td class="td-pts">{r.assists}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div class="lb-card-foot">
+        <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
+      </div>
+    </article>
+
+    <!-- xG card -->
+    <article class="lb-card">
+      <div class="lb-card-head">
+        <div>
+          <div class="lb-card-title">Exp. Goals</div>
+          <div class="lb-card-desc" id="xg-desc">Individual xG/60 · Regular Season</div>
+        </div>
+        <button class="lb-card-png" id="png-xg">↓ PNG</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:28px">#</th>
+            <th class="th-left">Player</th>
+            <th style="width:36px">GP</th>
+            <th style="width:56px">xG/60</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-xg">
+          {regXg.map(r => (
+            <tr>
+              <td class="td-rk">{r.rank}</td>
+              <td class="td-player">
+                <div class="td-player-inner">
+                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+                  <div>
+                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
+                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
+                  </div>
+                </div>
+              </td>
+              <td>{r.gp}</td>
+              <td class="td-pts">{r.xg60.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div class="lb-card-foot">
+        <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
+      </div>
+    </article>
+
   </div><!-- /.card-grid -->
 
 </main>
@@ -419,7 +565,7 @@ function sgn(n: number): string { return n >= 0 ? '+' : ''; }
 <footer class="page-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · DASHBOARD</footer>
 
 <script is:inline src="/js/table-export.js"></script>
-<script define:vars={{ regPoints, poPoints, regImpact, regGsax, poGsax, hasPlayoffData, searchIndex }}>
+<script define:vars={{ regPoints, poPoints, regGoals, poGoals, regAssists, poAssists, regXg, poXg, regImpact, regGsax, poGsax, hasPlayoffData, searchIndex }}>
 
 // ── State ────────────────────────────────────────────────────────────────────
 let gameType = 2;
@@ -475,6 +621,28 @@ function renderPointsTable() {
   </tr>`).join('');
 }
 
+function renderCountingCard(tbodyId, regRows, poRows, valKey, valLabel, valFmt) {
+  const rows  = gameType === 3 ? poRows : regRows;
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="no-data">No playoff data yet</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((r, i) => `<tr>
+    <td class="td-rk">${r.rank ?? i + 1}</td>
+    <td class="td-player"><div class="td-player-inner">
+      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+      <div>
+        <a class="td-name" href="/stats/player/${r.slug}">${r.display_name}</a>
+        <div class="td-sub">${r.team_abbrev} · ${r.pos}</div>
+      </div>
+    </div></td>
+    <td>${r.gp}</td>
+    <td class="td-pts">${valFmt(r[valKey])}</td>
+  </tr>`).join('');
+}
+
 function renderImpactTable() {
   // HGB Impact: reg season only for now
   const tbody = document.getElementById('tbody-impact');
@@ -524,8 +692,11 @@ function syncUi() {
   const mode = isPlayoff ? 'Playoffs' : 'Regular Season';
 
   document.getElementById('dash-title').textContent   = isPlayoff ? 'Playoff Leaders' : 'Season Leaders';
-  document.getElementById('dash-meta').textContent    = `Points · HGB Impact · Goalie GSAx · 2025–26 ${mode.toLowerCase()}`;
+  document.getElementById('dash-meta').textContent    = `Points · Goals · Assists · xG · HGB Impact · GSAx · 2025–26 ${mode.toLowerCase()}`;
   document.getElementById('points-desc').textContent  = `Goals + Assists · ${mode}`;
+  document.getElementById('goals-desc').textContent   = `Total goals · ${mode}`;
+  document.getElementById('assists-desc').textContent = `Total assists · ${mode}`;
+  document.getElementById('xg-desc').textContent      = `Individual xG/60 · ${mode}`;
   document.getElementById('impact-desc').textContent  = `Per-game avg · ${isPlayoff ? 'Regular Season only' : 'Regular Season'}`;
   document.getElementById('gsax-desc').textContent    = `Goals Saved Above Expected · ${mode}`;
 
@@ -536,6 +707,9 @@ function syncUi() {
 
 function renderAll() {
   renderPointsTable();
+  renderCountingCard('tbody-goals',   regGoals,   poGoals,   'goals',   'G',     v => v);
+  renderCountingCard('tbody-assists', regAssists, poAssists, 'assists', 'A',     v => v);
+  renderCountingCard('tbody-xg',      regXg,      poXg,      'xg60',   'xG/60', v => typeof v === 'number' ? v.toFixed(2) : v);
   renderImpactTable();
   renderGsaxTable();
   syncUi();
@@ -583,6 +757,44 @@ const GSAX_COLS = [
 ];
 
 const modeLabel = () => gameType === 3 ? 'Playoffs' : 'Regular Season';
+
+const COUNTING_COLS_G = [
+  { label: '#', key: '_rank', width: 40, align: 'center' },
+  { label: 'Player', key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
+  { label: 'Team', key: 'team_abbrev', width: 56, align: 'center' },
+  { label: 'Pos', key: 'pos', width: 44, align: 'center' },
+  { label: 'GP', key: 'gp', width: 48, align: 'center' },
+  { label: 'G', key: 'goals', width: 52, align: 'center', bold: true },
+];
+const COUNTING_COLS_A = [
+  { label: '#', key: '_rank', width: 40, align: 'center' },
+  { label: 'Player', key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
+  { label: 'Team', key: 'team_abbrev', width: 56, align: 'center' },
+  { label: 'Pos', key: 'pos', width: 44, align: 'center' },
+  { label: 'GP', key: 'gp', width: 48, align: 'center' },
+  { label: 'A', key: 'assists', width: 52, align: 'center', bold: true },
+];
+const COUNTING_COLS_XG = [
+  { label: '#', key: '_rank', width: 40, align: 'center' },
+  { label: 'Player', key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
+  { label: 'Team', key: 'team_abbrev', width: 56, align: 'center' },
+  { label: 'Pos', key: 'pos', width: 44, align: 'center' },
+  { label: 'GP', key: 'gp', width: 48, align: 'center' },
+  { label: 'xG/60', key: 'xg60', width: 72, align: 'center', bold: true, format: v => v != null ? v.toFixed(2) : '—' },
+];
+
+document.getElementById('png-goals')?.addEventListener('click', () => {
+  const rows = (gameType === 3 ? poGoals : regGoals).map((r, i) => ({ ...r, _rank: i + 1 }));
+  window.HGB_Export.downloadTablePng({ title: 'Goals Leaders', filterChips: [modeLabel()], rows, columns: COUNTING_COLS_G, filename: 'hgb-goals.png' });
+});
+document.getElementById('png-assists')?.addEventListener('click', () => {
+  const rows = (gameType === 3 ? poAssists : regAssists).map((r, i) => ({ ...r, _rank: i + 1 }));
+  window.HGB_Export.downloadTablePng({ title: 'Assists Leaders', filterChips: [modeLabel()], rows, columns: COUNTING_COLS_A, filename: 'hgb-assists.png' });
+});
+document.getElementById('png-xg')?.addEventListener('click', () => {
+  const rows = (gameType === 3 ? poXg : regXg).map((r, i) => ({ ...r, _rank: i + 1 }));
+  window.HGB_Export.downloadTablePng({ title: 'Expected Goals Leaders', filterChips: [modeLabel()], rows, columns: COUNTING_COLS_XG, filename: 'hgb-xg.png' });
+});
 
 document.getElementById('png-points')?.addEventListener('click', () => {
   const rows = (gameType === 3 ? poPoints : regPoints).map((r, i) => ({ ...r, _rank: i + 1 }));
