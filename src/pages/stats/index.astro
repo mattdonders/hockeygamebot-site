@@ -2,33 +2,78 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
-import { loadPlayers, loadLeaderboard } from '../../lib/stats-loader';
-import { pickTeamColor } from '../../lib/team-colors';
+import { loadPlayers, loadLeaderboard, loadPlayoffLeaderboard, loadGoalies } from '../../lib/stats-loader';
 
-const players = loadPlayers();
+const allPlayers  = loadPlayers();
+const eligible    = allPlayers.filter(p => p.gp >= 20);
+const allGoalies  = loadGoalies();
 
-// WAR leaderboard — cumulative RAPM × total TOI × 0.1, sorted descending
-const ratingLeaders = players
-  .filter(p => p.rapm != null)
-  .sort((a, b) => {
-    const warA = (a.rapm ?? 0) * (a.toi_avg_sec * a.gp) / 3600 * 0.1;
-    const warB = (b.rapm ?? 0) * (b.toi_avg_sec * b.gp) / 3600 * 0.1;
-    return warB - warA;
-  })
-  .slice(0, 5)
-  .map(p => ({
-    slug:        p.slug,
+// ── Regular season data ──────────────────────────────────────────────────────
+
+const regPoints = [...eligible]
+  .sort((a, b) => (b.goals + b.assists) - (a.goals + a.assists))
+  .slice(0, 10)
+  .map((p, i) => ({
+    rank: i + 1,
+    slug: p.slug,
     display_name: p.display_name,
     team_abbrev: p.team_abbrev,
-    pos:         p.pos,
-    gp:          p.gp,
-    value:       +((p.rapm ?? 0) * (p.toi_avg_sec * p.gp) / 3600 * 0.1).toFixed(2),
+    pos: p.pos,
+    gp: p.gp,
+    goals: p.goals,
+    assists: p.assists,
+    points: p.goals + p.assists,
   }));
 
-const impactLeaders = loadLeaderboard('game_score').slice(0, 5);
+const regImpact = loadLeaderboard('game_score').slice(0, 10).map((p, i) => ({ ...p, rank: i + 1 }));
 
-// Lightweight search index for client-side search
-const searchIndex = players.map(p => ({
+const regGsax = [...allGoalies]
+  .sort((a, b) => b.gsax - a.gsax)
+  .slice(0, 10)
+  .map((g, i) => ({
+    rank: i + 1,
+    goalie_id: g.goalie_id,
+    name: g.name,
+    team_abbrev: g.team_abbrev,
+    sa: g.sa,
+    gsax: +g.gsax.toFixed(2),
+  }));
+
+// ── Playoff data ─────────────────────────────────────────────────────────────
+
+const poGoalsRaw   = loadPlayoffLeaderboard('goals');
+const poAssistsRaw = loadPlayoffLeaderboard('assists');
+
+// Merge goals + assists lists by player_id to compute points
+const poMap = new Map<number, any>();
+for (const r of poGoalsRaw)   { poMap.set(r.player_id, { ...r, goals: r.value, assists: 0 }); }
+for (const r of poAssistsRaw) {
+  if (poMap.has(r.player_id)) poMap.get(r.player_id)!.assists = r.value;
+  else poMap.set(r.player_id, { ...r, goals: 0, assists: r.value });
+}
+const poPoints = [...poMap.values()]
+  .sort((a, b) => (b.goals + b.assists) - (a.goals + a.assists))
+  .slice(0, 10)
+  .map((p, i) => ({ ...p, rank: i + 1, points: p.goals + p.assists }));
+
+const hasPlayoffData = poPoints.length > 0;
+
+const poGsax = allGoalies
+  .filter(g => g.playoff_gsax != null && (g.playoff_sa ?? 0) > 0)
+  .sort((a, b) => (b.playoff_gsax ?? 0) - (a.playoff_gsax ?? 0))
+  .slice(0, 10)
+  .map((g, i) => ({
+    rank: i + 1,
+    goalie_id: g.goalie_id,
+    name: g.name,
+    team_abbrev: g.team_abbrev,
+    sa: g.playoff_sa ?? 0,
+    gsax: +(g.playoff_gsax ?? 0).toFixed(2),
+    games: g.playoff_games ?? null,
+  }));
+
+// Search index (kept from previous version — useful entry point for player lookup)
+const searchIndex = allPlayers.map(p => ({
   slug: p.slug,
   name: `${p.first_name} ${p.last_name}`,
   team: p.team_abbrev,
@@ -36,154 +81,161 @@ const searchIndex = players.map(p => ({
   gp:   p.gp,
 }));
 
-function sign(n: number): string { return n >= 0 ? '+' : ''; }
+function sgn(n: number): string { return n >= 0 ? '+' : ''; }
 ---
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <ThemeScript />
   <Fonts />
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>HGB Stats — HockeyGameBot</title>
-  <meta name="description" content="Advanced hockey analytics — WAR, expected goals, percentiles, and every-player leaderboards. Updated nightly." />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HGB Stats Dashboard — HockeyGameBot</title>
+  <meta name="description" content="NHL stats leaderboards — Points, HGB Impact, and Goalie GSAx. Regular season and playoffs. Updated nightly." />
   <style is:global>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:      #EFEEE8;
-      --ink:     #0d0d14;
-      --red:     #E8002D;
-      --surface: #FFFFFF;
-      --ink-06:  rgba(13,13,20,0.06);
-      --ink-10:  rgba(13,13,20,0.10);
-      --ink-14:  rgba(13,13,20,0.14);
-      --ink-20:  rgba(13,13,20,0.20);
-      --ink-32:  rgba(13,13,20,0.32);
-      --ink-48:  rgba(13,13,20,0.48);
+      --bg:        #EFEEE8;
+      --ink:       #0d0d14;
+      --red:       #E8002D;
+      --surface:   #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:    rgba(13,13,20,0.04);
+      --ink-06:    rgba(13,13,20,0.06);
+      --ink-10:    rgba(13,13,20,0.10);
+      --ink-14:    rgba(13,13,20,0.14);
+      --ink-20:    rgba(13,13,20,0.20);
+      --ink-32:    rgba(13,13,20,0.32);
+      --ink-48:    rgba(13,13,20,0.48);
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
       --display:   'Barlow Condensed', sans-serif;
       --body:      'Barlow', sans-serif;
       --mono:      'JetBrains Mono', monospace;
-      --grid-line: rgba(13,13,20,0.04);
     }
-    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
 
-    /* Layout */
-    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
-
-    /* Masthead — full-bleed grid (matches Teams + Home pattern) */
-    .mast {
-      position: relative;
-      border-bottom: 2px solid var(--ink);
-      background-color: var(--bg);
-      background-image:
-        linear-gradient(var(--grid-line) 1px, transparent 1px),
+    /* ── Masthead ── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
         linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-      background-size: 96px 96px;
-    }
+      background-size: 96px 96px; }
     .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
     .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
     .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
     .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
     .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
     .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
-    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 48px 32px 48px; }
-    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 24px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
-    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
     .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
-    /* White card — same as Teams .mast-card */
-    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 32px 36px 28px; }
-    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(48px, 6vw, 76px); text-transform: uppercase; line-height: 0.92; letter-spacing: -0.02em; color: var(--ink); margin-bottom: 24px; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 16px; }
     .mast-headline em { color: var(--red); font-style: normal; }
 
-    /* Search */
-    .search-wrap { position: relative; max-width: 560px; }
-    .search-input {
-      width: 100%; padding: 14px 48px 14px 18px;
-      font-family: var(--body); font-size: 16px; font-weight: 500;
-      background: var(--surface); color: var(--ink);
-      border: 2px solid var(--ink-20); outline: none;
-      transition: border-color 0.15s;
-    }
+    /* Player search */
+    .search-wrap { position: relative; max-width: 480px; }
+    .search-input { width: 100%; padding: 11px 44px 11px 16px; font-family: var(--body); font-size: 14px;
+      font-weight: 500; background: var(--bg); color: var(--ink); border: 1.5px solid var(--ink-20);
+      outline: none; transition: border-color 0.15s; }
     .search-input::placeholder { color: var(--ink-32); }
     .search-input:focus { border-color: var(--ink); }
-    .search-icon { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--ink-48); pointer-events: none; font-size: 14px; font-family: var(--mono); }
-    .search-results {
-      position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 40;
-      background: var(--surface); border: 2px solid var(--ink);
-      display: none; flex-direction: column;
-      box-shadow: 4px 4px 0 rgba(13,13,20,0.10);
-    }
+    .search-icon { position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      color: var(--ink-32); pointer-events: none; font-size: 13px; font-family: var(--mono); }
+    .search-results { position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 50;
+      background: var(--surface); border: 2px solid var(--ink); display: none; flex-direction: column; }
     .search-results.open { display: flex; }
-    .search-result {
-      display: flex; align-items: center; gap: 14px;
-      padding: 11px 16px; border-bottom: 1px solid var(--ink-10);
-      text-decoration: none; color: var(--ink);
-    }
+    .search-result { display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+      border-bottom: 1px solid var(--ink-10); text-decoration: none; color: var(--ink); }
     .search-result:last-child { border-bottom: 0; }
     .search-result:hover, .search-result.focused { background: var(--bg); }
-    .sr-name { font-family: var(--body); font-weight: 600; font-size: 15px; color: var(--ink); flex: 1; }
-    .sr-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.05em; white-space: nowrap; }
-    .sr-empty { padding: 14px 16px; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .sr-name { font-weight: 600; font-size: 14px; flex: 1; }
+    .sr-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.05em; }
+    .sr-empty { padding: 12px 14px; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; }
 
-    /* Content */
-    .content { padding: 40px 0; display: flex; flex-direction: column; gap: 40px; }
+    /* ── Layout ── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
 
-    /* White surface card (matches player page) */
-    .card { background: var(--surface); border: 1px solid var(--ink-14); box-shadow: 0 1px 3px rgba(13,13,20,0.06); }
-    .card-head { padding: 14px 18px 12px; border-bottom: 1px solid var(--ink-06); display: flex; align-items: baseline; justify-content: space-between; }
-    .card-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); }
-    .card-eyebrow .accent { color: var(--red); }
-    .card-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+    /* ── Toggle ── */
+    .dash-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 32px 0 20px; flex-wrap: wrap; }
+    .dash-title { font-family: var(--display); font-weight: 800; font-size: 22px;
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .dash-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .btn-group { display: inline-flex; border: 1px solid var(--ink-14); }
+    .btn-group button { background: var(--surface); border: none; border-right: 1px solid var(--ink-14);
+      padding: 6px 14px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 11.5px;
+      letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48);
+      transition: background 0.1s, color 0.1s; }
+    .btn-group button:last-child { border-right: none; }
+    .btn-group button.active { background: var(--ink); color: var(--bg); }
+    .btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
 
-    /* Leaders grid */
-    .leaders-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-    @media (max-width: 700px) { .leaders-grid { grid-template-columns: 1fr; } }
+    /* ── Card grid ── */
+    .card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    @media (max-width: 900px)  { .card-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 580px)  { .card-grid { grid-template-columns: 1fr; } }
 
-    /* Leader rows */
-    .lb-row { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--ink-06); text-decoration: none; color: inherit; border-left: 3px solid transparent; transition: background 0.1s; }
-    .lb-row:last-of-type { border-bottom: 0; }
-    .lb-row:hover { background: var(--bg); }
-    .lb-rank { font-family: var(--mono); font-size: 11px; color: var(--ink-32); min-width: 16px; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-    .lb-logo { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
-    .lb-info { flex: 1; min-width: 0; }
-    .lb-name { font-family: var(--body); font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
-    .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.04em; margin-top: 2px; }
-    .lb-val { font-family: var(--mono); font-weight: 700; font-size: 16px; font-variant-numeric: tabular-nums; text-align: right; flex-shrink: 0; min-width: 48px; color: var(--ink); }
-    .lb-val.pos { color: #14803c; }
-    .view-all { display: block; padding: 10px 18px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-32); text-decoration: none; text-align: right; border-top: 1px solid var(--ink-06); }
-    .view-all:hover { color: var(--red); }
+    /* ── Individual card ── */
+    .lb-card { background: var(--surface); border: 1px solid var(--ink-14); display: flex; flex-direction: column; }
+    .lb-card-head { display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px 12px; border-bottom: 2px solid var(--ink); }
+    .lb-card-title { font-family: var(--display); font-weight: 800; font-size: 16px;
+      text-transform: uppercase; letter-spacing: 0.02em; color: var(--ink); }
+    .lb-card-desc { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32);
+      letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+    .lb-card-png { background: none; border: 1px solid var(--ink-14); padding: 4px 10px;
+      cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 10px;
+      letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48);
+      transition: all 0.15s; border-radius: 2px; white-space: nowrap; flex-shrink: 0; }
+    .lb-card-png:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
-    /* Browse CTA */
-    .browse-cta { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; background: var(--surface); border: 1px solid var(--ink-14); }
-    .browse-text { font-family: var(--display); font-weight: 700; font-size: 18px; text-transform: uppercase; letter-spacing: 0.02em; }
-    .browse-link { font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--red); text-decoration: none; padding: 10px 18px; border: 2px solid var(--red); }
-    .browse-link:hover { background: var(--red); color: #fff; }
+    /* ── Card table ── */
+    .lb-card table { width: 100%; border-collapse: collapse; }
+    .lb-card thead th { padding: 7px 10px 6px; font-family: var(--display); font-size: 10px;
+      font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-32);
+      border-bottom: 1px solid var(--ink-14); text-align: center; }
+    .lb-card thead th.th-left { text-align: left; }
+    .lb-card tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
+    .lb-card tbody tr:last-child { border-bottom: none; }
+    .lb-card tbody tr:hover { background: var(--ink-04); }
+    .lb-card td { padding: 7px 10px; font-family: var(--mono); font-size: 11.5px; text-align: center;
+      font-variant-numeric: tabular-nums; color: var(--ink); }
+    .lb-card .td-rk { color: var(--ink-32); font-size: 10.5px; }
+    .lb-card tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
+    .lb-card .td-player { text-align: left; }
+    .lb-card .td-player-inner { display: flex; align-items: center; gap: 8px; }
+    .lb-card .td-logo { width: 18px; height: 18px; object-fit: contain; flex-shrink: 0; }
+    .lb-card .td-name { font-family: var(--body); font-weight: 600; font-size: 13px; color: var(--ink);
+      white-space: nowrap; text-decoration: none; }
+    .lb-card .td-name:hover { color: var(--red); }
+    .lb-card .td-sub { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.04em; }
+    .lb-card .td-val { font-weight: 700; font-size: 13px; }
+    .lb-card .td-val.pos { color: var(--stats-pos); }
+    .lb-card .td-val.neg { color: var(--stats-neg); }
+    .lb-card .td-pts { font-weight: 700; font-size: 14px; }
 
-    /* Methodology */
-    .method-grid { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border: 1px solid var(--ink-14); }
-    @media (max-width: 700px) { .method-grid { grid-template-columns: 1fr; } }
-    .method-item { padding: 20px 20px 18px; border-right: 1px solid var(--ink-06); }
-    .method-item:last-child { border-right: 0; }
-    .method-label { font-family: var(--display); font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
-    .method-desc { font-family: var(--mono); font-size: 11px; color: var(--ink-48); line-height: 1.65; letter-spacing: 0.02em; }
+    /* card footer */
+    .lb-card-foot { display: flex; align-items: center; justify-content: flex-end;
+      padding: 10px 14px; border-top: 1px solid var(--ink-06); margin-top: auto; }
+    .lb-card-link { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.10em;
+      text-transform: uppercase; color: var(--ink-32); text-decoration: none; }
+    .lb-card-link:hover { color: var(--red); }
 
-    footer { background: var(--ink); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.24); letter-spacing: 0.06em; text-align: center; }
+    .no-data { padding: 40px 16px; text-align: center; font-family: var(--mono); font-size: 11px;
+      color: var(--ink-32); letter-spacing: 0.06em; }
 
-    /* ── RESPONSIVE ── */
+    /* ── Footer ── */
+    .page-footer { max-width: 1200px; margin: 0 auto; padding: 20px 32px;
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--ink-20); }
+
     @media (max-width: 768px) {
-      .mast-inner { padding: 32px 20px; }
-      .mast-card { padding: 24px 20px 20px; }
-      .mast-headline { font-size: clamp(36px, 7vw, 64px); }
-      .wrap { padding: 0 20px 60px; }
-      .browse-cta { flex-direction: column; align-items: flex-start; gap: 12px; }
-    }
-    @media (max-width: 480px) {
-      .mast-inner { padding: 24px 16px; }
-      .mast-card { padding: 20px 16px 16px; }
-      .mast-headline { font-size: clamp(28px, 8vw, 52px); }
-      .wrap { padding: 0 16px 48px; }
-      .search-input { padding: 12px 44px 12px 14px; font-size: 15px; }
-      .mast-top { flex-direction: column; align-items: flex-start; gap: 6px; }
+      .wrap, .mast-inner { padding-left: 16px; padding-right: 16px; }
     }
   </style>
 </head>
@@ -191,176 +243,402 @@ function sign(n: number): string { return n >= 0 ? '+' : ''; }
 
 <Nav currentPath={Astro.url.pathname} />
 
-<!-- MASTHEAD — full-bleed, matches Teams/Home pattern -->
-<section class="mast">
+<!-- ── Masthead ── -->
+<header class="mast">
   <div class="mast-corners">
     <div class="corner tl"></div><div class="corner tr"></div>
     <div class="corner bl"></div><div class="corner br"></div>
   </div>
   <div class="mast-inner">
     <div class="mast-top">
-      <div class="mast-eyebrow"><span class="pip"></span> Player Analytics</div>
-      <div>{players.length} skaters · 2025–26 regular season</div>
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Dashboard</div>
+      <span>{eligible.length} qualifying skaters · 2025–26</span>
     </div>
     <div class="mast-card">
-      <h1 class="mast-headline">Every skater.<br><em>Measured.</em></h1>
+      <h1 class="mast-headline">2025–26 <em>Season Leaders</em></h1>
       <div class="search-wrap" id="search-wrap">
-        <input
-          type="search"
-          class="search-input"
-          id="player-search"
-          placeholder="Search players — MacKinnon, Draisaitl, ..."
-          autocomplete="off"
-          spellcheck="false"
-        />
+        <input type="search" class="search-input" id="player-search"
+          placeholder="Search players — MacKinnon, Caufield, …"
+          autocomplete="off" spellcheck="false" />
         <span class="search-icon">↗</span>
         <div class="search-results" id="search-results" role="listbox"></div>
       </div>
     </div>
   </div>
-</section>
+</header>
 
-<div class="wrap">
-  <div class="content">
+<main class="wrap">
 
-    <!-- LEADERBOARDS -->
-    <div class="leaders-grid">
-
-      <!-- WAR (RAPM ×60) -->
-      <div class="card">
-        <div class="card-head">
-          <span class="card-eyebrow">Season Leaders &nbsp;<span class="accent">WAR</span></span>
-          <span class="card-meta">per 60 min · 2025–26</span>
-        </div>
-        {ratingLeaders.map((entry, i) => {
-          const tc = pickTeamColor(entry.team_abbrev);
-          return (
-            <a class="lb-row" href={`/stats/player/${entry.slug}`} style={`border-left-color:${tc}`}>
-              <span class="lb-rank">{i + 1}</span>
-              <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${entry.team_abbrev}_light.svg`} alt={entry.team_abbrev} width="28" height="28" loading="lazy" />
-              <div class="lb-info">
-                <div class="lb-name">{entry.display_name}</div>
-                <div class="lb-meta">{entry.pos} · {entry.team_abbrev} · {entry.gp} GP</div>
-              </div>
-              <span class={`lb-val${entry.value >= 0 ? ' pos' : ''}`}>{sign(entry.value)}{entry.value.toFixed(2)}</span>
-            </a>
-          );
-        })}
-        <a href="/stats/leaderboards" class="view-all">Full leaderboard →</a>
-      </div>
-
-      <!-- HGB Impact -->
-      <div class="card">
-        <div class="card-head">
-          <span class="card-eyebrow">Season Leaders &nbsp;<span class="accent">HGB Impact</span></span>
-          <span class="card-meta">avg per game · 2025–26</span>
-        </div>
-        {impactLeaders.map((entry, i) => {
-          const tc = pickTeamColor(entry.team_abbrev);
-          return (
-            <a class="lb-row" href={`/stats/player/${entry.slug}`} style={`border-left-color:${tc}`}>
-              <span class="lb-rank">{i + 1}</span>
-              <img class="lb-logo" src={`https://assets.nhle.com/logos/nhl/svg/${entry.team_abbrev}_light.svg`} alt={entry.team_abbrev} width="28" height="28" loading="lazy" />
-              <div class="lb-info">
-                <div class="lb-name">{entry.display_name}</div>
-                <div class="lb-meta">{entry.pos} · {entry.team_abbrev} · {entry.gp} GP</div>
-              </div>
-              <span class="lb-val">{entry.value.toFixed(2)}</span>
-            </a>
-          );
-        })}
-        <a href="/stats/leaderboards" class="view-all">Full leaderboard →</a>
-      </div>
-
-    </div>
-
-    <!-- BROWSE ALL -->
-    <div class="browse-cta">
-      <span class="browse-text">{players.length} skaters · full season data</span>
-      <a href="/stats/leaderboards" class="browse-link">Browse all players →</a>
-    </div>
-
-    <!-- METHODOLOGY -->
+  <!-- ── Section head + toggle ── -->
+  <div class="dash-head">
     <div>
-      <div class="method-grid">
-        <div class="method-item">
-          <div class="method-label">WAR</div>
-          <p class="method-desc">Wins Above Replacement — RAPM × total 5v5 TOI × 0.1. Regularized Adjusted Plus-Minus controls for linemates and opponents via ridge regression. Cumulative season value.</p>
-        </div>
-        <div class="method-item">
-          <div class="method-label">Expected Goals</div>
-          <p class="method-desc">Probability a shot scores based on location, angle, and context. Better signal than raw shot count for measuring shot quality and deployment.</p>
-        </div>
-        <div class="method-item">
-          <div class="method-label">HGB Impact</div>
-          <p class="method-desc">Per-game blend of goals, assists, shots, xG, and two-way play — rate-adjusted per 60 minutes. Descriptive metric; use WAR for cross-player season comparisons.</p>
-        </div>
-      </div>
+      <div class="dash-title" id="dash-title">Leaders</div>
+      <div class="dash-meta" id="dash-meta">Points · HGB Impact · Goalie GSAx · 2025–26 regular season</div>
     </div>
-
+    <div class="btn-group" id="gametype-filter">
+      <button class="active" data-gametype="2">Regular Season</button>
+      <button data-gametype="3">Playoffs</button>
+    </div>
   </div>
-</div>
 
-<footer>hockeygamebot.com · HGB Stats · 2025–26</footer>
+  <!-- ── Card grid ── -->
+  <div class="card-grid">
 
-<script define:vars={{ searchIndex }}>
-  const input   = document.getElementById('player-search');
-  const results = document.getElementById('search-results');
-  let focusedIdx = -1;
-  let lastQuery  = '';
+    <!-- POINTS card -->
+    <article class="lb-card">
+      <div class="lb-card-head">
+        <div>
+          <div class="lb-card-title">Points</div>
+          <div class="lb-card-desc" id="points-desc">Goals + Assists · Regular Season</div>
+        </div>
+        <button class="lb-card-png" id="png-points">↓ PNG</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:28px">#</th>
+            <th class="th-left">Player</th>
+            <th style="width:32px">G</th>
+            <th style="width:32px">A</th>
+            <th style="width:36px">P</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-points">
+          {regPoints.map(r => (
+            <tr>
+              <td class="td-rk">{r.rank}</td>
+              <td class="td-player">
+                <div class="td-player-inner">
+                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+                  <div>
+                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
+                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
+                  </div>
+                </div>
+              </td>
+              <td>{r.goals}</td>
+              <td>{r.assists}</td>
+              <td class="td-pts">{r.points}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div class="lb-card-foot">
+        <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
+      </div>
+    </article>
 
-  function render(query) {
-    lastQuery = query;
-    const q = query.trim().toLowerCase();
-    if (!q) { results.classList.remove('open'); return; }
+    <!-- HGB IMPACT card -->
+    <article class="lb-card">
+      <div class="lb-card-head">
+        <div>
+          <div class="lb-card-title">HGB Impact</div>
+          <div class="lb-card-desc" id="impact-desc">Per-game avg · Regular Season</div>
+        </div>
+        <button class="lb-card-png" id="png-impact">↓ PNG</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:28px">#</th>
+            <th class="th-left">Player</th>
+            <th style="width:36px">GP</th>
+            <th style="width:64px">Impact</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-impact">
+          {regImpact.map(r => (
+            <tr>
+              <td class="td-rk">{r.rank}</td>
+              <td class="td-player">
+                <div class="td-player-inner">
+                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+                  <div>
+                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
+                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
+                  </div>
+                </div>
+              </td>
+              <td>{r.gp}</td>
+              <td class={`td-val ${r.value >= 0 ? 'pos' : 'neg'}`}>{r.value >= 0 ? '+' : ''}{r.value.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div class="lb-card-foot">
+        <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
+      </div>
+    </article>
 
-    const hits = searchIndex
-      .filter(p => p.name.toLowerCase().includes(q))
-      .slice(0, 8);
+    <!-- GOALIE GSAx card -->
+    <article class="lb-card">
+      <div class="lb-card-head">
+        <div>
+          <div class="lb-card-title">Goalie GSAx</div>
+          <div class="lb-card-desc" id="gsax-desc">Goals Saved Above Expected · Regular Season</div>
+        </div>
+        <button class="lb-card-png" id="png-gsax">↓ PNG</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:28px">#</th>
+            <th class="th-left">Goalie</th>
+            <th style="width:40px">SA</th>
+            <th style="width:60px">GSAx</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-gsax">
+          {regGsax.map(r => (
+            <tr>
+              <td class="td-rk">{r.rank}</td>
+              <td class="td-player">
+                <div class="td-player-inner">
+                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+                  <div>
+                    <a class="td-name" href="/stats/goalies">{r.name}</a>
+                    <div class="td-sub">{r.team_abbrev}</div>
+                  </div>
+                </div>
+              </td>
+              <td>{r.sa.toLocaleString()}</td>
+              <td class={`td-val ${r.gsax >= 0 ? 'pos' : 'neg'}`}>{r.gsax >= 0 ? '+' : ''}{r.gsax.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div class="lb-card-foot">
+        <a class="lb-card-link" href="/stats/goalies">See all goalies →</a>
+      </div>
+    </article>
 
-    if (!hits.length) {
-      results.innerHTML = '<div class="sr-empty">No players found</div>';
-      results.classList.add('open');
-      focusedIdx = -1;
-      return;
-    }
+  </div><!-- /.card-grid -->
 
-    results.innerHTML = hits.map((p, i) =>
-      `<a class="search-result" href="/stats/player/${p.slug}" role="option" data-idx="${i}">
-        <span class="sr-name">${p.name}</span>
-        <span class="sr-meta">${p.team} &middot; ${p.pos} &middot; ${p.gp} GP</span>
-      </a>`
-    ).join('');
-    results.classList.add('open');
-    focusedIdx = -1;
+</main>
+
+<footer class="page-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · DASHBOARD</footer>
+
+<script is:inline src="/js/table-export.js"></script>
+<script define:vars={{ regPoints, poPoints, regImpact, regGsax, poGsax, hasPlayoffData, searchIndex }}>
+
+// ── State ────────────────────────────────────────────────────────────────────
+let gameType = 2;
+
+function readUrl() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
+}
+function updateUrl() {
+  const p = new URLSearchParams();
+  if (gameType === 3) p.set('game_type', '3');
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+}
+
+// ── Table renderers ──────────────────────────────────────────────────────────
+
+function renderRow(r, cols) {
+  return `<tr>
+    <td class="td-rk">${r.rank}</td>
+    <td class="td-player"><div class="td-player-inner">
+      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+      <div>
+        <a class="td-name" href="${r.href || '#'}">${r.display_name || r.name}</a>
+        <div class="td-sub">${r.sub || ''}</div>
+      </div>
+    </div></td>
+    ${cols.map(c => `<td class="${c.cls || ''}">${c.fmt(r)}</td>`).join('')}
+  </tr>`;
+}
+
+function renderPointsTable() {
+  const rows  = gameType === 3 ? poPoints : regPoints;
+  const tbody = document.getElementById('tbody-points');
+  if (!tbody) return;
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="no-data">No playoff data yet</td></tr>`;
+    return;
   }
+  const sgn = v => v >= 0 ? '' : '';
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="td-rk">${r.rank}</td>
+    <td class="td-player"><div class="td-player-inner">
+      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+      <div>
+        <a class="td-name" href="/stats/player/${r.slug}">${r.display_name}</a>
+        <div class="td-sub">${r.team_abbrev} · ${r.pos}</div>
+      </div>
+    </div></td>
+    <td>${r.goals}</td>
+    <td>${r.assists}</td>
+    <td class="td-pts">${r.points}</td>
+  </tr>`).join('');
+}
 
-  function moveFocus(dir) {
-    const items = results.querySelectorAll('.search-result');
-    if (!items.length) return;
-    items[focusedIdx]?.classList.remove('focused');
-    focusedIdx = (focusedIdx + dir + items.length) % items.length;
-    const el = items[focusedIdx];
-    el.classList.add('focused');
-    el.scrollIntoView({ block: 'nearest' });
+function renderImpactTable() {
+  // HGB Impact: reg season only for now
+  const tbody = document.getElementById('tbody-impact');
+  if (!tbody) return;
+  if (gameType === 3) {
+    tbody.innerHTML = `<tr><td colspan="4" class="no-data">Regular season only — playoff Impact coming soon</td></tr>`;
+    return;
   }
+  tbody.innerHTML = regImpact.map(r => `<tr>
+    <td class="td-rk">${r.rank}</td>
+    <td class="td-player"><div class="td-player-inner">
+      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+      <div>
+        <a class="td-name" href="/stats/player/${r.slug}">${r.display_name}</a>
+        <div class="td-sub">${r.team_abbrev} · ${r.pos}</div>
+      </div>
+    </div></td>
+    <td>${r.gp}</td>
+    <td class="td-val ${r.value >= 0 ? 'pos' : 'neg'}">${r.value >= 0 ? '+' : ''}${r.value.toFixed(2)}</td>
+  </tr>`).join('');
+}
 
-  input.addEventListener('input', e => render(e.target.value));
-  input.addEventListener('keydown', e => {
-    if (e.key === 'ArrowDown')  { e.preventDefault(); moveFocus(1); }
-    if (e.key === 'ArrowUp')    { e.preventDefault(); moveFocus(-1); }
-    if (e.key === 'Enter') {
-      const focused = results.querySelector('.search-result.focused');
-      if (focused) { window.location.href = focused.href; }
-    }
-    if (e.key === 'Escape') { results.classList.remove('open'); input.blur(); }
+function renderGsaxTable() {
+  const rows  = gameType === 3 ? poGsax : regGsax;
+  const tbody = document.getElementById('tbody-gsax');
+  if (!tbody) return;
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="no-data">No playoff data yet</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="td-rk">${r.rank}</td>
+    <td class="td-player"><div class="td-player-inner">
+      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
+      <div>
+        <a class="td-name" href="/stats/goalies">${r.name}</a>
+        <div class="td-sub">${r.team_abbrev}${r.games != null ? ' · ' + r.games + ' GP' : ''}</div>
+      </div>
+    </div></td>
+    <td>${r.sa.toLocaleString()}</td>
+    <td class="td-val ${r.gsax >= 0 ? 'pos' : 'neg'}">${r.gsax >= 0 ? '+' : ''}${r.gsax.toFixed(2)}</td>
+  </tr>`).join('');
+}
+
+function syncUi() {
+  const isPlayoff = gameType === 3;
+  const mode = isPlayoff ? 'Playoffs' : 'Regular Season';
+
+  document.getElementById('dash-title').textContent   = isPlayoff ? 'Playoff Leaders' : 'Season Leaders';
+  document.getElementById('dash-meta').textContent    = `Points · HGB Impact · Goalie GSAx · 2025–26 ${mode.toLowerCase()}`;
+  document.getElementById('points-desc').textContent  = `Goals + Assists · ${mode}`;
+  document.getElementById('impact-desc').textContent  = `Per-game avg · ${isPlayoff ? 'Regular Season only' : 'Regular Season'}`;
+  document.getElementById('gsax-desc').textContent    = `Goals Saved Above Expected · ${mode}`;
+
+  document.querySelectorAll('#gametype-filter button').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
   });
+}
 
-  document.addEventListener('click', e => {
-    if (!e.target.closest('#search-wrap')) results.classList.remove('open');
+function renderAll() {
+  renderPointsTable();
+  renderImpactTable();
+  renderGsaxTable();
+  syncUi();
+}
+
+// ── Toggle wiring ─────────────────────────────────────────────────────────────
+document.querySelectorAll('#gametype-filter button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const gt = parseInt(btn.dataset.gametype);
+    if (gt === gameType) return;
+    gameType = gt;
+    updateUrl();
+    renderAll();
   });
+});
 
-  input.addEventListener('focus', () => { if (lastQuery) render(lastQuery); });
+// ── PNG export per card ──────────────────────────────────────────────────────
+const POINTS_COLS = [
+  { label: '#',      key: '_rank',        width: 40,  align: 'center' },
+  { label: 'Player', key: 'display_name', width: 220, align: 'left', fontFamily: 'body', bold: true },
+  { label: 'Team',   key: 'team_abbrev',  width: 56,  align: 'center' },
+  { label: 'Pos',    key: 'pos',          width: 44,  align: 'center' },
+  { label: 'G',      key: 'goals',        width: 44,  align: 'center' },
+  { label: 'A',      key: 'assists',      width: 44,  align: 'center' },
+  { label: 'P',      key: 'points',       width: 52,  align: 'center', bold: true },
+];
+const IMPACT_COLS = [
+  { label: '#',      key: '_rank',        width: 40,  align: 'center' },
+  { label: 'Player', key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
+  { label: 'Team',   key: 'team_abbrev',  width: 56,  align: 'center' },
+  { label: 'Pos',    key: 'pos',          width: 44,  align: 'center' },
+  { label: 'GP',     key: 'gp',           width: 48,  align: 'center' },
+  { label: 'Impact', key: 'value',        width: 80,  align: 'center', bold: true,
+    format: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '—',
+    color: (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
+];
+const GSAX_COLS = [
+  { label: '#',     key: '_rank',       width: 40,  align: 'center' },
+  { label: 'Goalie', key: 'name',       width: 220, align: 'left', fontFamily: 'body', bold: true },
+  { label: 'Team',  key: 'team_abbrev', width: 56,  align: 'center' },
+  { label: 'SA',    key: 'sa',          width: 60,  align: 'center' },
+  { label: 'GSAx',  key: 'gsax',        width: 72,  align: 'center', bold: true,
+    format: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '—',
+    color: (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
+];
+
+const modeLabel = () => gameType === 3 ? 'Playoffs' : 'Regular Season';
+
+document.getElementById('png-points')?.addEventListener('click', () => {
+  const rows = (gameType === 3 ? poPoints : regPoints).map((r, i) => ({ ...r, _rank: i + 1 }));
+  window.HGB_Export.downloadTablePng({ title: 'Points Leaders', filterChips: [modeLabel()], rows, columns: POINTS_COLS, filename: 'hgb-points.png' });
+});
+document.getElementById('png-impact')?.addEventListener('click', () => {
+  const rows = regImpact.map((r, i) => ({ ...r, _rank: i + 1 }));
+  window.HGB_Export.downloadTablePng({ title: 'HGB Impact Leaders', filterChips: ['Regular Season'], rows, columns: IMPACT_COLS, filename: 'hgb-impact.png' });
+});
+document.getElementById('png-gsax')?.addEventListener('click', () => {
+  const rows = (gameType === 3 ? poGsax : regGsax).map((r, i) => ({ ...r, _rank: i + 1 }));
+  window.HGB_Export.downloadTablePng({ title: 'Goalie GSAx Leaders', filterChips: [modeLabel()], rows, columns: GSAX_COLS, filename: 'hgb-gsax.png' });
+});
+
+// ── Player search ─────────────────────────────────────────────────────────────
+const input   = document.getElementById('player-search');
+const results = document.getElementById('search-results');
+let focusedIdx = -1, lastQuery = '';
+
+function renderSearch(query) {
+  lastQuery = query;
+  const q = query.trim().toLowerCase();
+  if (!q) { results.classList.remove('open'); return; }
+  const hits = searchIndex.filter(p => p.name.toLowerCase().includes(q)).slice(0, 8);
+  if (!hits.length) {
+    results.innerHTML = '<div class="sr-empty">No players found</div>';
+    results.classList.add('open'); focusedIdx = -1; return;
+  }
+  results.innerHTML = hits.map((p, i) =>
+    `<a class="search-result" href="/stats/player/${p.slug}" role="option" data-idx="${i}">
+      <span class="sr-name">${p.name}</span>
+      <span class="sr-meta">${p.team} · ${p.pos} · ${p.gp} GP</span>
+    </a>`
+  ).join('');
+  results.classList.add('open'); focusedIdx = -1;
+}
+function moveFocus(dir) {
+  const items = results.querySelectorAll('.search-result');
+  if (!items.length) return;
+  items[focusedIdx]?.classList.remove('focused');
+  focusedIdx = (focusedIdx + dir + items.length) % items.length;
+  const el = items[focusedIdx]; el.classList.add('focused'); el.scrollIntoView({ block: 'nearest' });
+}
+input.addEventListener('input', e => renderSearch(e.target.value));
+input.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown')  { e.preventDefault(); moveFocus(1); }
+  if (e.key === 'ArrowUp')    { e.preventDefault(); moveFocus(-1); }
+  if (e.key === 'Enter') { const f = results.querySelector('.search-result.focused'); if (f) window.location.href = f.href; }
+  if (e.key === 'Escape') { results.classList.remove('open'); input.blur(); }
+});
+document.addEventListener('click', e => { if (!e.target.closest('#search-wrap')) results.classList.remove('open'); });
+input.addEventListener('focus', () => { if (lastQuery) renderSearch(lastQuery); });
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+readUrl();
+renderAll();
 </script>
 
 </body>

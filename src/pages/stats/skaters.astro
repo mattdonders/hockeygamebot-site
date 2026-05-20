@@ -1,0 +1,861 @@
+---
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import { loadPlayers, loadPlayoffLeaderboard } from '../../lib/stats-loader';
+
+const allPlayers = loadPlayers();
+const eligible   = allPlayers.filter(p => p.gp >= 20);
+
+// Pre-sort rapm arrays for O(n log n) percentile lookup at build time
+const fwdRapm = eligible.filter(p => p.pos_group === 'F').map(p => p.rapm ?? 0).sort((a,b) => a - b);
+const defRapm = eligible.filter(p => p.pos_group === 'D').map(p => p.rapm ?? 0).sort((a,b) => a - b);
+
+function warPct(rapm: number | null, group: 'F' | 'D'): number | null {
+  if (rapm == null) return null;
+  const arr = group === 'F' ? fwdRapm : defRapm;
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (arr[mid] <= rapm) lo = mid + 1; else hi = mid; }
+  return Math.round((lo / arr.length) * 100);
+}
+
+const tableRows = eligible.map(p => {
+  const evOff = p.rates_per_60.ev_offence;
+  const evDef = p.rates_per_60.ev_defence;
+  const xgfTotal = evOff + evDef;
+  return {
+    slug:     p.slug,
+    name:     p.display_name,
+    team:     p.team_abbrev,
+    pos:      p.pos,
+    group:    p.pos_group,
+    gp:       p.gp,
+    // All Sit
+    war:      p.rapm != null ? +(p.rapm * (p.toi_avg_sec * p.gp) / 3600 * 0.1).toFixed(2) : null,
+    war_p:    warPct(p.rapm, p.pos_group),
+    g60:      +p.rates_per_60.goals.toFixed(2),
+    g60_p:    Math.round(p.percentiles_vs_pos.goals),
+    a60:      +p.rates_per_60.a1.toFixed(2),
+    a60_p:    Math.round(p.percentiles_vs_pos.a1),
+    x60:      +p.rates_per_60.ixg.toFixed(2),
+    x60_p:    Math.round(p.percentiles_vs_pos.ixg),
+    fin:      +p.rates_per_60.finishing.toFixed(2),
+    fin_p:    Math.round(p.percentiles_vs_pos.finishing),
+    imp:      +p.avg_gs_display.toFixed(2),
+    imp_p:    Math.round(p.gs_pct),
+    // 5v5
+    xgf_pct:  xgfTotal > 0 ? +(evOff / xgfTotal * 100).toFixed(1) : 50.0,
+    xgf60:    +evOff.toFixed(2),
+    xga60:    +evDef.toFixed(2),
+    sc60:     +(p.rates_per_60.sc_per60 ?? 0).toFixed(2),
+    hdc60:    +(p.rates_per_60.hdc_per60 ?? 0).toFixed(2),
+    hdc_pct:  +(p.hdc_pct ?? 50).toFixed(1),
+    // PP
+    pp_toi:   p.toi_pp_sec_total != null ? +(p.toi_pp_sec_total / p.gp / 60).toFixed(1) : 0,
+    pp_g:     p.goals_pp ?? 0,
+    pp_xg60:  +(p.rates_per_60.xg_pp_per60 ?? 0).toFixed(2),
+  };
+});
+
+// Playoff leaderboard rows — goals, assists, xG/60 only (≥5 GP)
+const playoffGoals   = loadPlayoffLeaderboard('goals');
+const playoffAssists = loadPlayoffLeaderboard('assists');
+const playoffXg      = loadPlayoffLeaderboard('xg');
+const hasPlayoffData = playoffGoals.length > 0;
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Leaderboards — HGB Stats — HockeyGameBot</title>
+  <meta name="description" content="All NHL skaters ranked by WAR, Goals/60, xG/60, finishing, and HGB Impact. Sortable table, min 20 GP, 2025–26 season." />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #EFEEE8;
+      --ink:      #0d0d14;
+      --red:      #E8002D;
+      --surface:  #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    /* ── Masthead ── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
+    .mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
+
+    /* ── Layout ── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+    /* ── Table section ── */
+    .lb-section { padding: 40px 0 0; }
+    .lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      margin-bottom: 16px; flex-wrap: wrap; }
+    .lb-title { font-family: var(--display); font-weight: 800; font-size: 22px;
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .lb-dl-btn { background: none; border: 1px solid var(--ink-20); padding: 5px 12px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; border-radius: 2px; white-space: nowrap; }
+    .lb-dl-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* ── Filter tabs ── */
+    .lb-filters { display: flex; align-items: center; gap: 6px; }
+    .lb-tab {
+      font-family: var(--display); font-weight: 700; font-size: 10.5px;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      padding: 5px 12px; border: 1px solid var(--ink-14);
+      background: transparent; color: var(--ink-48); cursor: pointer; transition: all 0.1s;
+    }
+    .lb-tab:hover { background: var(--ink-06); color: var(--ink); }
+    .lb-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* ── Table ── */
+    .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    colgroup .c-rank   { width: 44px; }
+    colgroup .c-stat   { width: 84px; }
+    colgroup .c-sm     { width: 40px; }
+
+    thead th {
+      padding: 10px 12px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
+      border-bottom: 2px solid var(--ink-14); text-align: right;
+      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
+    }
+    thead th:first-child  { text-align: left; padding-left: 16px; cursor: default; }
+    thead th.th-player    { text-align: left; cursor: default; }
+    thead th:hover        { color: var(--ink); }
+    thead th.sorted       { color: var(--ink); }
+    .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.4; font-size: 8px; transition: opacity 0.1s; }
+    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
+
+    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--ink-04); }
+
+    td { padding: 8px 12px; vertical-align: middle; }
+    td:first-child { padding-left: 16px; }
+
+    /* Rank */
+    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
+      text-align: left; font-variant-numeric: tabular-nums; min-width: 24px; }
+    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
+
+    /* Player */
+    .td-player { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+    .td-logo   { width: 22px; height: 22px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
+    .td-info   { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .td-name   { font-family: var(--body); font-size: 15px; font-weight: 600; color: var(--ink);
+      text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .td-name:hover { color: var(--red); }
+    .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32);
+      letter-spacing: 0.04em; white-space: nowrap; }
+
+    /* Pos + GP */
+    .td-pos { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32);
+      text-align: center; letter-spacing: 0.04em; }
+    .td-gp  { font-family: var(--mono); font-size: 11px; color: var(--ink-32); text-align: right; }
+
+    /* Stat cells: value + percentile on two lines */
+    .td-stat { text-align: right; white-space: nowrap; }
+    .sv {
+      display: block; font-family: var(--mono); font-size: 13px; font-weight: 700;
+      font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.25;
+    }
+    .sv.pos { color: var(--stats-pos); }
+    .sv.neg { color: var(--stats-neg); }
+    .sv.nil { color: var(--ink-32); font-weight: 400; font-size: 12px; }
+    .sp {
+      display: block; font-family: var(--mono); font-size: 9px;
+      font-variant-numeric: tabular-nums; line-height: 1.2;
+    }
+    .pe { color: #00c078; }   /* 90th+ */
+    .pg { color: #60a5fa; }   /* 70th+ */
+    .pa { color: var(--ink-32); } /* 40th+ */
+    .pl { color: var(--red); opacity: 0.65; } /* <40th */
+
+    /* Show-all row */
+    .lb-more { padding: 14px 18px; border-top: 1px solid var(--ink-06); text-align: center; }
+    .lb-more-btn {
+      font-family: var(--display); font-weight: 700; font-size: 10.5px;
+      letter-spacing: 0.18em; text-transform: uppercase; padding: 7px 20px;
+      border: 1px solid var(--ink-14); background: transparent; color: var(--ink-48);
+      cursor: pointer; transition: all 0.1s;
+    }
+    .lb-more-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* ── Methodology ── */
+    .lb-method { background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; margin-top: 40px; }
+    .lb-method-h { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
+      display: flex; justify-content: space-between; align-items: center; }
+    .lb-method-h .title { font-family: var(--display); font-weight: 700; font-size: 11px;
+      letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-72); }
+    .lb-method-h .tag  { font-family: var(--mono); font-size: 10px; color: var(--ink-32); }
+    .lb-method-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 640px) { .lb-method-grid { grid-template-columns: 1fr; } }
+    .lb-method-card { padding: 20px; border-right: 1px solid var(--ink-06); }
+    .lb-method-card:last-child { border-right: none; }
+    .lb-method-card .k { font-family: var(--display); font-weight: 700; font-size: 13px;
+      color: var(--ink); letter-spacing: 0.02em; text-transform: uppercase;
+      margin-bottom: 6px; display: flex; align-items: baseline; justify-content: space-between; }
+    .badge { font-family: var(--mono); font-size: 10px; padding: 1px 5px; letter-spacing: 0.1em; font-weight: 700; }
+    .badge-core { color: var(--red); border: 1px solid rgba(232,0,45,0.4); }
+    .lb-method-card .v { font-size: 12.5px; color: var(--ink-48); line-height: 1.55; }
+
+    /* ── Footer ── */
+    .lb-footer { text-align: center; margin-top: 48px; color: var(--ink-32);
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .c-a60, .c-imp { display: none; }
+    }
+    @media (max-width: 640px) {
+      .c-fin, .c-pos { display: none; }
+      .td-sub { display: none; }
+    }
+    @media (max-width: 768px) {
+      .mast-inner { padding: 28px 20px; }
+      .mast-card  { padding: 24px 20px 20px; }
+      .wrap { padding: 0 20px 60px; }
+    }
+    @media (max-width: 480px) {
+      .mast-inner { padding: 20px 16px; }
+      .mast-card  { padding: 18px 14px 16px; }
+      .wrap { padding: 0 16px 48px; }
+    }
+  </style>
+</head>
+<body>
+
+<Nav currentPath={Astro.url.pathname} />
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Leaderboards</div>
+      <div>min 20 GP · rate-adjusted · 2025–2026</div>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">Who's driving<br><em>play this season.</em></h1>
+      <p class="mast-lede">All {eligible.length} skaters in one table. Sort any column — <span class="mono">WAR</span> for overall impact, <span class="mono">G/60</span> and <span class="mono">xG/60</span> for scoring, <span class="mono">Fin</span> for luck. Percentiles within position group.</p>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+  <!-- LEADERBOARD TABLE -->
+  <section class="lb-section">
+    <div class="lb-head">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <span class="lb-title" id="lb-title">Season Leaderboards</span>
+        <span class="lb-meta" id="lb-count">{eligible.length} players · 2025–26</span>
+        <button class="lb-dl-btn" id="dl-btn">↓ PNG</button>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <div class="lb-filters" id="gametype-filter">
+          <button class="lb-tab active" data-gametype="2">Regular Season</button>
+          <button class="lb-tab" data-gametype="3">Playoffs</button>
+        </div>
+        <div class="lb-filters" id="sit-filter">
+          <button class="lb-tab active" data-sit="all">All Sit</button>
+          <button class="lb-tab" data-sit="5v5">5v5</button>
+          <button class="lb-tab" data-sit="pp">PP</button>
+        </div>
+        <div class="lb-filters">
+          <button class="lb-tab active" data-pos="all">All</button>
+          <button class="lb-tab" data-pos="F">Fwds</button>
+          <button class="lb-tab" data-pos="D">Def</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Regular season table -->
+    <div class="lb-wrap" id="lb-reg-wrap">
+      <table>
+        <colgroup>
+          <col class="c-rank">
+          <col>
+          <col class="c-pos c-sm">
+          <col class="c-sm">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-stat c-a60">
+          <col class="c-stat">
+          <col class="c-stat c-fin">
+          <col class="c-stat c-imp">
+        </colgroup>
+        <thead><tr id="lb-thead-row"></tr></thead>
+        <tbody id="lb-tbody"></tbody>
+      </table>
+      <div class="lb-more" id="lb-more" style="display:none">
+        <button class="lb-more-btn" id="lb-more-btn">Show all players →</button>
+      </div>
+    </div>
+
+    <!-- Playoff table (hidden by default) -->
+    <div class="lb-wrap" id="lb-po-wrap" style="display:none">
+      <table>
+        <colgroup>
+          <col class="c-rank">
+          <col>
+          <col class="c-pos c-sm">
+          <col class="c-sm">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-stat">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th style="text-align:left">Player</th>
+            <th>Pos</th>
+            <th>GP</th>
+            <th id="po-sort-goals" style="cursor:pointer" class="sorted">Goals<span class="sort-arrow">↓</span></th>
+            <th id="po-sort-assists" style="cursor:pointer">Assists<span class="sort-arrow">↕</span></th>
+            <th id="po-sort-xg" style="cursor:pointer">xG/60<span class="sort-arrow">↕</span></th>
+            <th>Pctile</th>
+          </tr>
+        </thead>
+        <tbody id="po-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- METHODOLOGY -->
+  <div class="lb-method">
+    <div class="lb-method-h">
+      <span class="title">How we measure</span>
+      <span class="tag">methodology · 2025–2026</span>
+    </div>
+    <div class="lb-method-grid">
+      <div class="lb-method-card">
+        <div class="k">WAR <span class="badge badge-core">CORE</span></div>
+        <div class="v">Wins Above Replacement — RAPM × total 5v5 TOI × 0.1, where RAPM (Regularized Adjusted Plus-Minus) controls for linemates and opponents via ridge regression. Cumulative season value; use for overall impact comparisons.</div>
+      </div>
+      <div class="lb-method-card">
+        <div class="k">Expected goals (xG)</div>
+        <div class="v">Probability a shot scores, based on location, angle, shot type, and context. Better signal than raw shot count — Tkachuk getting 16 shots/60 and only 1.44 xG/60 tells the real story.</div>
+      </div>
+      <div class="lb-method-card">
+        <div class="k">Finishing</div>
+        <div class="v">Goals/60 minus xG/60 — how much a player over- or under-performs their shot quality. Positive means they're converting at a rate above expected; negative suggests regression risk.</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · LEADERBOARD V3</footer>
+
+</body>
+</html>
+
+<script is:inline src="/js/table-export.js"></script>
+<script define:vars={{ rows: tableRows, poGoals: playoffGoals, poAssists: playoffAssists, poXg: playoffXg, hasPlayoffData }}>
+const DATA = rows;
+const PAGE = 50;
+
+// ── State ────────────────────────────────────────────────────────────────────
+let gameType  = 2; // 2=regular, 3=playoff
+let situation = 'all';
+let posFilter = 'all';
+let sortKey   = 'war';
+let sortAsc   = false;
+let showAll   = false;
+
+// ── Playoff data lookup ───────────────────────────────────────────────────────
+const PO_DATA = {
+  goals:   poGoals,
+  assists: poAssists,
+  xg:      poXg,
+};
+let poSortKey = 'goals';
+let poSortAsc = false;
+
+function readUrl() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
+}
+
+function updateUrl() {
+  const p = new URLSearchParams();
+  if (gameType === 3) p.set('game_type', '3');
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+}
+
+function syncGameType() {
+  const isPlayoff = gameType === 3;
+  document.getElementById('lb-reg-wrap').style.display  = isPlayoff ? 'none' : '';
+  document.getElementById('lb-po-wrap').style.display   = isPlayoff ? '' : 'none';
+  document.getElementById('sit-filter').style.display   = isPlayoff ? 'none' : '';
+  document.getElementById('lb-more').style.display      = 'none';
+  document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
+  });
+  const titleEl = document.getElementById('lb-title');
+  if (titleEl) titleEl.textContent = isPlayoff ? 'Playoff Leaderboards' : 'Season Leaderboards';
+  const countEl = document.getElementById('lb-count');
+  if (countEl) {
+    if (isPlayoff) {
+      const n = (PO_DATA.goals || []).length;
+      countEl.textContent = n > 0 ? `${n} players · 2025–26 playoffs` : 'No playoff data yet';
+    } else {
+      countEl.textContent = `${DATA.length} players · 2025–26`;
+    }
+  }
+  if (isPlayoff) renderPlayoffTable();
+}
+
+function buildPoUnified() {
+  // Merge the 3 top-10 lists into a single player map with all three stats
+  const byId = {};
+  for (const r of (poGoals   || [])) { byId[r.player_id] = { ...r, goals: r.value, assists: null, xg60: null }; }
+  for (const r of (poAssists || [])) {
+    if (byId[r.player_id]) byId[r.player_id].assists = r.value;
+    else byId[r.player_id] = { ...r, goals: null, assists: r.value, xg60: null };
+  }
+  for (const r of (poXg || [])) {
+    if (byId[r.player_id]) byId[r.player_id].xg60 = r.value;
+    else byId[r.player_id] = { ...r, goals: null, assists: null, xg60: r.value };
+  }
+  return Object.values(byId);
+}
+
+function renderPlayoffTable() {
+  ['goals', 'assists', 'xg'].forEach(key => {
+    const th = document.getElementById(`po-sort-${key}`);
+    if (!th) return;
+    const isActive = key === poSortKey;
+    th.classList.toggle('sorted', isActive);
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = isActive ? (poSortAsc ? '↑' : '↓') : '↕';
+  });
+
+  const tbody = document.getElementById('po-tbody');
+  if (!tbody) return;
+
+  const unified = buildPoUnified();
+  if (unified.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:60px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">Playoff data available once postseason begins</td></tr>`;
+    return;
+  }
+
+  const sortField = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
+  unified.sort((a, b) => {
+    const av = a[sortField] ?? (poSortAsc ? Infinity : -Infinity);
+    const bv = b[sortField] ?? (poSortAsc ? Infinity : -Infinity);
+    return poSortAsc ? av - bv : bv - av;
+  });
+
+  tbody.innerHTML = unified.map((r, i) => `<tr>
+    <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
+    <td><div class="td-player">
+      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="22" height="22" loading="lazy" onerror="this.style.display='none'">
+      <div class="td-info">
+        <a href="/stats/player/${r.slug}" class="td-name">${r.display_name}</a>
+        <span class="td-sub">${r.team_abbrev} · ${r.pos} · ${r.gp} GP</span>
+      </div>
+    </div></td>
+    <td class="td-pos c-pos">${r.pos}</td>
+    <td class="td-gp">${r.gp}</td>
+    <td class="td-stat"><span class="sv">${r.goals ?? '—'}</span></td>
+    <td class="td-stat"><span class="sv">${r.assists ?? '—'}</span></td>
+    <td class="td-stat"><span class="sv">${r.xg60 != null ? r.xg60.toFixed(2) : '—'}</span></td>
+    <td class="td-stat"><span class="sv nil">${r.pct != null ? r.pct.toFixed(0) + 'th' : '—'}</span></td>
+  </tr>`).join('');
+}
+
+// ── Column definitions per situation ─────────────────────────────────────────
+const SIT_COLS = {
+  all: {
+    defaultSort: 'war',
+    cols: [
+      { label: 'WAR',    key: 'war',    dflt: true },
+      { label: 'G/60',   key: 'g60'   },
+      { label: 'A1/60',  key: 'a60',   cls: 'c-a60' },
+      { label: 'xG/60',  key: 'x60'   },
+      { label: 'Fin',    key: 'fin',   cls: 'c-fin' },
+      { label: 'Impact', key: 'imp',   cls: 'c-imp' },
+    ],
+  },
+  '5v5': {
+    defaultSort: 'xgf_pct',
+    cols: [
+      { label: 'xGF%',   key: 'xgf_pct', dflt: true },
+      { label: 'xGF/60', key: 'xgf60'  },
+      { label: 'xGA/60', key: 'xga60',  cls: 'c-a60' },
+      { label: 'SC/60',  key: 'sc60'   },
+      { label: 'HDC/60', key: 'hdc60',  cls: 'c-fin' },
+      { label: 'HDC%',   key: 'hdc_pct',cls: 'c-imp' },
+    ],
+  },
+  pp: {
+    defaultSort: 'pp_xg60',
+    cols: [
+      { label: 'PP min/gm', key: 'pp_toi',  dflt: true },
+      { label: 'PP G',      key: 'pp_g'    },
+      { label: 'PP xG/60',  key: 'pp_xg60', cls: 'c-a60' },
+      { label: 'SC/60',     key: 'sc60'    },
+      { label: 'HDC/60',    key: 'hdc60',   cls: 'c-fin' },
+    ],
+  },
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function pctCls(p) {
+  if (p == null) return 'pa';
+  return p >= 90 ? 'pe' : p >= 70 ? 'pg' : p >= 40 ? 'pa' : 'pl';
+}
+function ordinal(p) {
+  if (p == null) return '—';
+  const s = (p % 100 >= 11 && p % 100 <= 13) ? 'th' :
+    p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
+  return `${p}${s}`;
+}
+function sgn(n) { return n >= 0 ? '+' : ''; }
+
+function statCell(val, pct, signed) {
+  const cls = signed ? (val >= 0 ? ' pos' : ' neg') : '';
+  const v   = signed ? `${sgn(val)}${val.toFixed(2)}` : val.toFixed(2);
+  return `<span class="sv${cls}">${v}</span><span class="sp ${pctCls(pct)}">${ordinal(pct)}</span>`;
+}
+
+function plainCell(val, fmt) {
+  if (val == null) return `<span class="sv nil">—</span>`;
+  return `<span class="sv">${fmt(val)}</span>`;
+}
+
+function sitCell(r, key) {
+  switch (key) {
+    case 'war':
+      return r.war != null
+        ? `<span class="sv ${r.war >= 0 ? 'pos' : 'neg'}">${sgn(r.war)}${r.war.toFixed(2)}</span><span class="sp ${pctCls(r.war_p)}">${ordinal(r.war_p)}</span>`
+        : `<span class="sv nil">—</span><span class="sp pa">—</span>`;
+    case 'g60':  return statCell(r.g60, r.g60_p, false);
+    case 'a60':  return statCell(r.a60, r.a60_p, false);
+    case 'x60':  return statCell(r.x60, r.x60_p, false);
+    case 'fin':  return statCell(r.fin, r.fin_p, true);
+    case 'imp':  return statCell(r.imp, r.imp_p, false);
+    case 'xgf_pct': return plainCell(r.xgf_pct, v => `${v.toFixed(1)}%`);
+    case 'xgf60':   return plainCell(r.xgf60,   v => v.toFixed(2));
+    case 'xga60':   return plainCell(r.xga60,   v => v.toFixed(2));
+    case 'sc60':    return plainCell(r.sc60,    v => v.toFixed(2));
+    case 'hdc60':   return plainCell(r.hdc60,   v => v.toFixed(2));
+    case 'hdc_pct': return plainCell(r.hdc_pct, v => `${v.toFixed(1)}%`);
+    case 'pp_toi':  return plainCell(r.pp_toi,  v => v.toFixed(1));
+    case 'pp_g':    return `<span class="sv">${r.pp_g}</span>`;
+    case 'pp_xg60': return plainCell(r.pp_xg60, v => v.toFixed(2));
+    default:        return `<span class="sv nil">—</span>`;
+  }
+}
+
+// ── Render header ─────────────────────────────────────────────────────────────
+function renderHeader() {
+  const cfg  = SIT_COLS[situation];
+  const thead = document.getElementById('lb-thead-row');
+  if (!thead) return;
+
+  const fixed = [
+    `<th>#</th>`,
+    `<th class="th-player">Player</th>`,
+    `<th class="c-pos" style="text-align:center">Pos</th>`,
+    `<th data-sort="gp" style="cursor:pointer">GP<span class="sort-arrow">${sortKey==='gp'?(sortAsc?'↑':'↓'):''}</span></th>`,
+  ];
+
+  const statCols = cfg.cols.map(c => {
+    const active = sortKey === c.key;
+    const arrow  = active ? (sortAsc ? '↑' : '↓') : '';
+    return `<th class="${c.cls || ''} ${active ? 'sorted' : ''}" data-sort="${c.key}" style="cursor:pointer">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+  });
+
+  thead.innerHTML = [...fixed, ...statCols].join('');
+}
+
+// ── Render body ───────────────────────────────────────────────────────────────
+function render() {
+  renderHeader();
+
+  let filtered = DATA.slice();
+  if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
+
+  filtered.sort((a, b) => {
+    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    return sortAsc ? av - bv : bv - av;
+  });
+
+  const total   = filtered.length;
+  const visible = showAll ? filtered : filtered.slice(0, PAGE);
+
+  const tbody = document.getElementById('lb-tbody');
+  if (!tbody) return;
+
+  const cfg = SIT_COLS[situation];
+  tbody.innerHTML = visible.map((r, i) => {
+    const statTds = cfg.cols.map(c =>
+      `<td class="td-stat ${c.cls || ''}">${sitCell(r, c.key)}</td>`
+    ).join('');
+    return `<tr>
+      <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
+      <td><div class="td-player">
+        <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" width="22" height="22" loading="lazy">
+        <div class="td-info">
+          <a href="/stats/player/${r.slug}" class="td-name">${r.name}</a>
+          <span class="td-sub">${r.team} · ${r.pos} · ${r.gp} GP</span>
+        </div>
+      </div></td>
+      <td class="td-pos c-pos">${r.pos}</td>
+      <td class="td-gp">${r.gp}</td>
+      ${statTds}
+    </tr>`;
+  }).join('');
+
+  // Count
+  const countEl = document.getElementById('lb-count');
+  if (countEl) countEl.textContent = `${total} players · 2025–26`;
+
+  // Show-all button
+  const moreDiv = document.getElementById('lb-more');
+  const moreBtn = document.getElementById('lb-more-btn');
+  if (moreDiv && moreBtn) {
+    if (!showAll && total > PAGE) {
+      moreDiv.style.display = '';
+      moreBtn.textContent = `Show all ${total} players →`;
+    } else {
+      moreDiv.style.display = 'none';
+    }
+  }
+}
+
+// ── Event delegation on thead ────────────────────────────────────────────────
+document.querySelector('thead')?.addEventListener('click', e => {
+  const th = e.target?.closest('th[data-sort]');
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (sortKey === key) { sortAsc = !sortAsc; }
+  else { sortKey = key; sortAsc = false; }
+  showAll = false;
+  render();
+});
+
+// ── Situation tabs ────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-sit]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    situation = btn.dataset.sit;
+    sortKey   = SIT_COLS[situation].defaultSort;
+    sortAsc   = false;
+    showAll   = false;
+    document.querySelectorAll('[data-sit]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    render();
+  });
+});
+
+// ── Position tabs ─────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-pos]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    posFilter = btn.dataset.pos;
+    showAll   = false;
+    document.querySelectorAll('[data-pos]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    render();
+  });
+});
+
+// ── Show all ──────────────────────────────────────────────────────────────────
+document.getElementById('lb-more-btn')?.addEventListener('click', () => {
+  showAll = true;
+  render();
+});
+
+// ── Game-type toggle ──────────────────────────────────────────────────────────
+document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const gt = parseInt(btn.dataset.gametype);
+    if (gt === gameType) return;
+    gameType = gt;
+    updateUrl();
+    syncGameType();
+    if (gt === 2) render();
+  });
+});
+
+// ── Playoff sort headers ──────────────────────────────────────────────────────
+['goals', 'assists', 'xg'].forEach(key => {
+  document.getElementById(`po-sort-${key}`)?.addEventListener('click', () => {
+    if (poSortKey === key) poSortAsc = !poSortAsc;
+    else { poSortKey = key; poSortAsc = false; }
+    renderPlayoffTable();
+  });
+});
+
+readUrl();
+syncGameType();
+render();
+
+// ── PNG Export ────────────────────────────────────────────────────────────────
+const sgn2 = n => n >= 0 ? '+' : '';
+
+const SIT_EXPORT_COLS = {
+  all: [
+    { label: '#',      key: '_rank', width: 44,  align: 'center' },
+    { label: 'Player', key: 'name',  width: 240, align: 'left', fontFamily: 'body' },
+    { label: 'Team',   key: 'team',  width: 58,  align: 'center' },
+    { label: 'Pos',    key: 'pos',   width: 48,  align: 'center' },
+    { label: 'GP',     key: 'gp',    width: 54,  align: 'center' },
+    { label: 'WAR',    key: 'war',   width: 86,  align: 'center',
+      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
+      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null, bold: true },
+    { label: 'G/60',   key: 'g60',   width: 76,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'A1/60',  key: 'a60',   width: 80,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'xG/60',  key: 'x60',   width: 80,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'Fin',    key: 'fin',   width: 76,  align: 'center',
+      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
+      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
+    { label: 'Impact', key: 'imp',   width: 86,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+  ],
+  '5v5': [
+    { label: '#',      key: '_rank',    width: 44,  align: 'center' },
+    { label: 'Player', key: 'name',     width: 220, align: 'left', fontFamily: 'body' },
+    { label: 'Team',   key: 'team',     width: 56,  align: 'center' },
+    { label: 'Pos',    key: 'pos',      width: 48,  align: 'center' },
+    { label: 'GP',     key: 'gp',       width: 52,  align: 'center' },
+    { label: 'xGF%',   key: 'xgf_pct', width: 76,  align: 'center',
+      format: v => v != null ? v.toFixed(1) + '%' : '—',
+      color: (v, _r, tok) => v != null ? (v >= 55 ? tok.pos : v <= 45 ? tok.neg : null) : null,
+      bold: (v) => v != null && (v >= 55 || v <= 45) },
+    { label: 'xGF/60', key: 'xgf60',   width: 86,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'xGA/60', key: 'xga60',   width: 86,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'SC/60',  key: 'sc60',    width: 76,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'HDC/60', key: 'hdc60',   width: 82,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'HDC%',   key: 'hdc_pct', width: 76,  align: 'center',
+      format: v => v != null ? v.toFixed(1) + '%' : '—' },
+  ],
+  pp: [
+    { label: '#',         key: '_rank',   width: 44,  align: 'center' },
+    { label: 'Player',    key: 'name',    width: 220, align: 'left', fontFamily: 'body' },
+    { label: 'Team',      key: 'team',    width: 56,  align: 'center' },
+    { label: 'Pos',       key: 'pos',     width: 48,  align: 'center' },
+    { label: 'GP',        key: 'gp',      width: 52,  align: 'center' },
+    { label: 'PP min/gm', key: 'pp_toi',  width: 108, align: 'center',
+      format: v => v != null ? v.toFixed(1) : '—' },
+    { label: 'PP G',      key: 'pp_g',    width: 72,  align: 'center' },
+    { label: 'PP xG/60',  key: 'pp_xg60', width: 96,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'SC/60',     key: 'sc60',    width: 82,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'HDC/60',    key: 'hdc60',   width: 88,  align: 'center',
+      format: v => v != null ? v.toFixed(2) : '—' },
+  ],
+};
+
+const PO_EXPORT_COLS = [
+  { label: '#',       key: '_rank',    width: 44,  align: 'center' },
+  { label: 'Player',  key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
+  { label: 'Team',    key: 'team_abbrev',  width: 58,  align: 'center' },
+  { label: 'Pos',     key: 'pos',      width: 48,  align: 'center' },
+  { label: 'GP',      key: 'gp',       width: 52,  align: 'center' },
+  { label: 'Goals',   key: 'goals',    width: 72,  align: 'center',
+    format: v => v != null ? String(v) : '—' },
+  { label: 'Assists', key: 'assists',  width: 80,  align: 'center',
+    format: v => v != null ? String(v) : '—' },
+  { label: 'xG/60',   key: 'xg60',    width: 80,  align: 'center',
+    format: v => v != null ? v.toFixed(2) : '—' },
+];
+
+function getExportChips() {
+  if (gameType === 3) return ['Playoffs'];
+  const chips = [{ all: 'All Situations', '5v5': '5v5', pp: 'Power Play' }[situation]];
+  if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
+  return chips;
+}
+
+document.getElementById('dl-btn').addEventListener('click', function () {
+  if (gameType === 3) {
+    const rows = buildPoUnified()
+      .sort((a, b) => {
+        const field = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
+        const av = a[field] ?? -Infinity;
+        const bv = b[field] ?? -Infinity;
+        return poSortAsc ? av - bv : bv - av;
+      })
+      .map((r, i) => ({ ...r, _rank: i + 1 }));
+    window.HGB_Export.downloadTablePng({
+      title: 'Playoff Leaderboards',
+      filterChips: getExportChips(),
+      rows,
+      columns: PO_EXPORT_COLS,
+      filename: 'hgb-leaderboards-playoff.png',
+    });
+    return;
+  }
+
+  let filtered = DATA.slice();
+  if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
+  filtered.sort((a, b) => {
+    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    return sortAsc ? av - bv : bv - av;
+  });
+  const rows = filtered.map((r, i) => Object.assign({ _rank: i + 1 }, r));
+  window.HGB_Export.downloadTablePng({
+    title: 'Season Leaderboards',
+    filterChips: getExportChips(),
+    rows,
+    columns: SIT_EXPORT_COLS[situation],
+    filename: 'hgb-leaderboards.png',
+  });
+});
+</script>
