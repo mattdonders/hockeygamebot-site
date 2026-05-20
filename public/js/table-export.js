@@ -68,7 +68,7 @@
   const CHIPS_H  = 46;
   const HEADER_H = 36;
   const ROW_H    = 34;
-  const FOOT_H   = 44;
+  const FOOT_H   = 20; // minimal bottom breathing room; brand mark moved to title row
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -196,12 +196,19 @@
 
     let y = 0;
 
-    // ── Title ─────────────────────────────────────────────────────────────────
+    // ── Title + brand mark ────────────────────────────────────────────────────
     ctx.fillStyle = TOKENS.ink;
     ctx.font = '800 30px "Barlow Condensed", sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.fillText(title.toUpperCase(), PAD, y + TITLE_H / 2);
+
+    // Brand mark — top-right, red, matches editorial card pattern
+    ctx.fillStyle = TOKENS.red;
+    ctx.font = '700 11px "Barlow Condensed", sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('HOCKEYGAMEBOT.COM', W - PAD, y + TITLE_H / 2);
+
     y += TITLE_H;
 
     // ── Filter chips ──────────────────────────────────────────────────────────
@@ -288,18 +295,9 @@
 
     y += rows.length * ROW_H;
 
-    // ── Footer watermark ──────────────────────────────────────────────────────
+    // Bottom breathing room (FOOT_H = 20px, just padding — brand mark is in title row)
     ctx.fillStyle = TOKENS.bg;
     ctx.fillRect(0, y, W, FOOT_H);
-
-    ctx.save();
-    ctx.globalAlpha = 0.45;
-    ctx.fillStyle = TOKENS.ink;
-    ctx.font = '700 11px "Barlow Condensed", sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'right';
-    ctx.fillText('HOCKEYGAMEBOT.COM', W - PAD, y + FOOT_H / 2);
-    ctx.restore();
 
     // ── Download ──────────────────────────────────────────────────────────────
     const fname = filename || (title.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.png');
