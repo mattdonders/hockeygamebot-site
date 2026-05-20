@@ -110,6 +110,61 @@ function makePath(points: CumPoint[]): string {
 
 // Legend sorted by final GSAx descending
 const legendItems = [...chartLines].sort((a, b) => b.final - a.final);
+
+// ── Playoff cumulative chart ────────────────────────────────────────────────
+
+const playoffChartGoalies = allGoalies
+  .filter(g => g.playoff_gsax != null)
+  .sort((a, b) => Math.abs(b.playoff_gsax!) - Math.abs(a.playoff_gsax!))
+  .slice(0, 12);
+
+const hasPlayoffChartData = playoffChartGoalies.some(g =>
+  g.games.some(gm => (gm.game_type ?? 2) === 3)
+);
+
+let playoffChartLines: ChartLine[] = [];
+let pcYMin = 0, pcYMax = 0, pcXMax = 1;
+
+if (hasPlayoffChartData) {
+  playoffChartLines = playoffChartGoalies.map(g => {
+    const sorted = g.games
+      .filter(gm => (gm.game_type ?? 2) === 3)
+      .sort((a, b) => a.game_date.localeCompare(b.game_date));
+    let cum = 0;
+    const points: CumPoint[] = sorted.map((gm, i) => {
+      cum += gm.gsax;
+      return { game: i + 1, gsax: +cum.toFixed(2) };
+    });
+    return {
+      goalie_id: g.goalie_id,
+      name: g.name,
+      team: g.team_abbrev,
+      color: pickTeamColor(g.team_abbrev),
+      points,
+      final: +cum.toFixed(2),
+    };
+  }).filter(l => l.points.length > 0);
+
+  pcXMax = Math.max(...playoffChartLines.map(l => l.points.length), 1);
+  pcYMin = Math.min(0, ...playoffChartLines.flatMap(l => l.points.map(p => p.gsax)));
+  pcYMax = Math.max(0, ...playoffChartLines.flatMap(l => l.points.map(p => p.gsax)));
+  const pcYPad = Math.max((pcYMax - pcYMin) * 0.08, 0.5);
+  pcYMin -= pcYPad; pcYMax += pcYPad;
+}
+
+const pcPx = (game: number) => PAD.l + (game / Math.max(pcXMax, 1)) * cW;
+const pcPy = (gsax: number) => pcYMax === pcYMin
+  ? PAD.t + cH / 2
+  : PAD.t + cH - ((gsax - pcYMin) / (pcYMax - pcYMin)) * cH;
+const pcPy0 = pcPy(0);
+
+function makePlayoffPath(pts: CumPoint[]): string {
+  if (!pts.length) return '';
+  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${pcPx(p.game).toFixed(1)},${pcPy(p.gsax).toFixed(1)}`).join(' ');
+}
+
+const playoffLegendItems = [...playoffChartLines].sort((a, b) => b.final - a.final);
+
 const sgn = (v: number) => v >= 0 ? '+' : '';
 ---
 <!DOCTYPE html>
@@ -214,6 +269,35 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
     .btn-group button.active { background: var(--ink); color: var(--bg); }
     .btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
 
+    /* ── Column header tooltips ── */
+    thead th[data-tip] { position: relative; }
+    thead th[data-tip]::after {
+      content: attr(data-tip);
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--ink);
+      color: var(--bg);
+      padding: 6px 10px;
+      font-family: var(--body);
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 0.02em;
+      text-transform: none;
+      white-space: normal;
+      width: max-content;
+      max-width: 210px;
+      border-radius: 2px;
+      line-height: 1.5;
+      text-align: left;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      z-index: 50;
+    }
+    thead th[data-tip]:hover::after { opacity: 1; }
+
     thead th {
       padding: 10px 12px 8px; font-family: var(--display); font-size: 12px; font-weight: 700;
       letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48);
@@ -298,9 +382,9 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
   <section class="chart-section">
     <div class="section-head">
       <div class="section-title">Cumulative <span style="color:var(--red)">GSAx</span></div>
-      <div class="section-meta">Top 12 goalies by |GSAx| · season running total</div>
+      <div class="section-meta" id="chart-meta">Top 12 goalies by |GSAx| · season running total</div>
     </div>
-    <div class="chart-wrap">
+    <div class="chart-wrap" id="chart-wrap-reg">
       {hasGameData ? (
         <svg class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet">
           <!-- Grid lines -->
@@ -369,6 +453,68 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
         </div>
       )}
     </div>
+
+    <!-- ── Playoff cumulative chart ── -->
+    <div class="chart-wrap" id="chart-wrap-playoff" style="display:none">
+      {hasPlayoffChartData ? (
+        <svg class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet">
+          {[...Array(5)].map((_, i) => {
+            const gv = pcYMin + (i / 4) * (pcYMax - pcYMin);
+            const gy = pcPy(gv).toFixed(1);
+            return (
+              <g>
+                <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy}
+                  stroke="rgba(13,13,20,0.06)" stroke-width="1" />
+                <text x={(PAD.l - 6).toFixed(1)} y={gy}
+                  text-anchor="end" dominant-baseline="middle"
+                  font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
+                  {gv >= 0 ? '+' : ''}{gv.toFixed(0)}
+                </text>
+              </g>
+            );
+          })}
+          <line x1={PAD.l} y1={pcPy0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={pcPy0.toFixed(1)}
+            stroke="rgba(13,13,20,0.32)" stroke-width="1.5" stroke-dasharray="4 3" />
+          <text x={(PAD.l + cW + 4).toFixed(1)} y={pcPy0.toFixed(1)}
+            dominant-baseline="middle" font-family="JetBrains Mono, monospace"
+            font-size="8" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">AVG</text>
+          {playoffChartLines.map(line => (
+            <g class="goalie-line" data-id={line.goalie_id}>
+              <path d={makePlayoffPath(line.points)} fill="none"
+                stroke={line.color} stroke-width="1.8"
+                stroke-linejoin="round" stroke-linecap="round"
+                class="line-vis" style="transition:opacity 0.15s;pointer-events:none" />
+              <path d={makePlayoffPath(line.points)} fill="none"
+                stroke="transparent" stroke-width="14"
+                stroke-linejoin="round" stroke-linecap="round"
+                class="line-hit" style="cursor:crosshair"
+                data-id={line.goalie_id}
+                data-name={line.name}
+                data-team={line.team}
+                data-final={line.final} />
+            </g>
+          ))}
+          <text x={(PAD.l + cW / 2).toFixed(1)} y={(SVG_H - 4).toFixed(1)}
+            text-anchor="middle" font-family="JetBrains Mono, monospace"
+            font-size="9" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">GAME #</text>
+        </svg>
+      ) : (
+        <div class="chart-placeholder">
+          PLAYOFF DATA AVAILABLE ONCE POSTSEASON BEGINS
+        </div>
+      )}
+      {hasPlayoffChartData && (
+        <div class="chart-legend" id="chart-legend-playoff">
+          {playoffLegendItems.map(l => (
+            <div class="legend-chip" data-id={l.goalie_id}>
+              <span class="legend-dot" style={`background:${l.color}`}></span>
+              <span class="legend-name">{l.name.split('.').pop()?.trim() ?? l.name}</span>
+              <span class="legend-val">{l.final >= 0 ? '+' : ''}{l.final.toFixed(1)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   </section>
 
   <!-- Floating tooltip -->
@@ -377,9 +523,9 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
   <!-- ── Sortable table ── -->
   <section class="lb-section">
     <div class="section-head">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
         <div class="section-title" id="lb-title">Season <span style="color:var(--red)">Leaderboard</span></div>
-        <div class="btn-group" id="gametype-filter">
+        <div class="btn-group" id="gametype-filter" style="margin-top:10px">
           <button class="active" data-gametype="2">Regular Season</button>
           <button data-gametype="3">Playoffs</button>
         </div>
@@ -402,13 +548,13 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
           <tr>
             <th class="th-player">#</th>
             <th class="th-player">Goalie</th>
-            <th data-sort="games" id="th-games" style="display:none">GP<span class="sort-arrow">↕</span></th>
-            <th data-sort="sa">SA<span class="sort-arrow">↕</span></th>
-            <th data-sort="ga">GA<span class="sort-arrow">↕</span></th>
-            <th data-sort="xga">xGA<span class="sort-arrow">↕</span></th>
-            <th data-sort="gsax" class="sorted">GSAx<span class="sort-arrow">↓</span></th>
-            <th data-sort="sv_pct">SV%<span class="sort-arrow">↕</span></th>
-            <th data-sort="vs_exp">vs Exp<span class="sort-arrow">↕</span></th>
+            <th data-sort="games" id="th-games" style="display:none" data-tip="Games played in the playoffs">GP<span class="sort-arrow">↕</span></th>
+            <th data-sort="sa" data-tip="Shots Against">SA<span class="sort-arrow">↕</span></th>
+            <th data-sort="ga" data-tip="Goals Against">GA<span class="sort-arrow">↕</span></th>
+            <th data-sort="xga" data-tip="Expected Goals Against — HGB XGBoost model (AUC 0.77), all-situations Fenwick shots">xGA<span class="sort-arrow">↕</span></th>
+            <th data-sort="gsax" class="sorted" data-tip="Goals Saved Above Expected — xGA minus actual GA. Positive = saved more goals than expected given shot quality.">GSAx<span class="sort-arrow">↓</span></th>
+            <th data-sort="sv_pct" data-tip="Save Percentage — actual saves ÷ shots against">SV%<span class="sort-arrow">↕</span></th>
+            <th data-sort="vs_exp" data-tip="Actual SV% minus expected SV% (1 − xGA/SA), in percentage points. Positive = outperforming the shot quality faced.">vs Exp<span class="sort-arrow">↕</span></th>
           </tr>
         </thead>
         <tbody id="goalie-tbody">
@@ -421,7 +567,7 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
       <div class="lb-method-grid">
         <div class="lb-method-card">
           <div class="k">GSAx <span class="badge badge-core">CORE</span></div>
-          <div class="v">Goals Saved Above Expected — actual GA subtracted from expected GA within each xG percentile bin. Calibrated against league-average, so 0 = average goalie by xG quality faced.</div>
+          <div class="v">Goals Saved Above Expected — xGA minus actual GA. Positive = saved more goals than expected given shot quality faced. 0 = exactly average. HGB XGBoost model (AUC 0.77), all situations.</div>
         </div>
         <div class="lb-method-card">
           <div class="k">xGA</div>
@@ -529,6 +675,17 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
     }
   }
 
+  function syncChart() {
+    const regWrap  = document.getElementById('chart-wrap-reg');
+    const poWrap   = document.getElementById('chart-wrap-playoff');
+    const chartMeta = document.getElementById('chart-meta');
+    if (regWrap)  regWrap.style.display  = gameType === 3 ? 'none' : '';
+    if (poWrap)   poWrap.style.display   = gameType === 3 ? '' : 'none';
+    if (chartMeta) chartMeta.textContent = gameType === 3
+      ? 'Top 12 goalies by |playoff GSAx| · postseason running total'
+      : 'Top 12 goalies by |GSAx| · season running total';
+  }
+
   // Wire toggle
   document.querySelectorAll('#gametype-filter button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -537,6 +694,7 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
       gameType = gt;
       sortKey = 'gsax'; sortAsc = false;
       syncToggle();
+      syncChart();
       updateUrl();
       updateHeaders();
       renderTable();
@@ -555,6 +713,7 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
 
   readUrl();
   syncToggle();
+  syncChart();
   renderTable();
   updateHeaders();
 </script>
