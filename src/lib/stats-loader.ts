@@ -75,6 +75,12 @@ export function loadLeaderboard(
   return VALIDATED_LEADERBOARDS[metric] ?? [];
 }
 
+export function loadPlayoffLeaderboard(
+  metric: 'goals' | 'assists' | 'xg',
+): LeaderboardEntry[] {
+  return (VALIDATED_LEADERBOARDS as Record<string, LeaderboardEntry[]>)[`playoff_${metric}`] ?? [];
+}
+
 export function loadMeta(): MetaData {
   return VALIDATED_META;
 }

@@ -2,7 +2,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
-import { loadPlayers } from '../../lib/stats-loader';
+import { loadPlayers, loadPlayoffLeaderboard } from '../../lib/stats-loader';
 
 const allPlayers = loadPlayers();
 const eligible   = allPlayers.filter(p => p.gp >= 20);
@@ -56,6 +56,12 @@ const tableRows = eligible.map(p => {
     pp_xg60:  +(p.rates_per_60.xg_pp_per60 ?? 0).toFixed(2),
   };
 });
+
+// Playoff leaderboard rows — goals, assists, xG/60 only (≥5 GP)
+const playoffGoals   = loadPlayoffLeaderboard('goals');
+const playoffAssists = loadPlayoffLeaderboard('assists');
+const playoffXg      = loadPlayoffLeaderboard('xg');
+const hasPlayoffData = playoffGoals.length > 0;
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -283,12 +289,16 @@ const tableRows = eligible.map(p => {
   <section class="lb-section">
     <div class="lb-head">
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-        <span class="lb-title">Season Leaderboards</span>
+        <span class="lb-title" id="lb-title">Season Leaderboards</span>
         <span class="lb-meta" id="lb-count">{eligible.length} players · 2025–26</span>
         <button class="lb-dl-btn" id="dl-btn">↓ PNG</button>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-        <div class="lb-filters">
+        <div class="lb-filters" id="gametype-filter">
+          <button class="lb-tab active" data-gametype="2">Regular Season</button>
+          <button class="lb-tab" data-gametype="3">Playoffs</button>
+        </div>
+        <div class="lb-filters" id="sit-filter">
           <button class="lb-tab active" data-sit="all">All Sit</button>
           <button class="lb-tab" data-sit="5v5">5v5</button>
           <button class="lb-tab" data-sit="pp">PP</button>
@@ -301,7 +311,8 @@ const tableRows = eligible.map(p => {
       </div>
     </div>
 
-    <div class="lb-wrap">
+    <!-- Regular season table -->
+    <div class="lb-wrap" id="lb-reg-wrap">
       <table>
         <colgroup>
           <col class="c-rank">
@@ -321,6 +332,35 @@ const tableRows = eligible.map(p => {
       <div class="lb-more" id="lb-more" style="display:none">
         <button class="lb-more-btn" id="lb-more-btn">Show all players →</button>
       </div>
+    </div>
+
+    <!-- Playoff table (hidden by default) -->
+    <div class="lb-wrap" id="lb-po-wrap" style="display:none">
+      <table>
+        <colgroup>
+          <col class="c-rank">
+          <col>
+          <col class="c-pos c-sm">
+          <col class="c-sm">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-stat">
+          <col class="c-stat">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th style="text-align:left">Player</th>
+            <th>Pos</th>
+            <th>GP</th>
+            <th id="po-sort-goals" style="cursor:pointer" class="sorted">Goals<span class="sort-arrow">↓</span></th>
+            <th id="po-sort-assists" style="cursor:pointer">Assists<span class="sort-arrow">↕</span></th>
+            <th id="po-sort-xg" style="cursor:pointer">xG/60<span class="sort-arrow">↕</span></th>
+            <th>Pctile</th>
+          </tr>
+        </thead>
+        <tbody id="po-tbody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -354,16 +394,120 @@ const tableRows = eligible.map(p => {
 </html>
 
 <script is:inline src="/js/table-export.js"></script>
-<script define:vars={{ rows: tableRows }}>
+<script define:vars={{ rows: tableRows, poGoals: playoffGoals, poAssists: playoffAssists, poXg: playoffXg, hasPlayoffData }}>
 const DATA = rows;
 const PAGE = 50;
 
 // ── State ────────────────────────────────────────────────────────────────────
+let gameType  = 2; // 2=regular, 3=playoff
 let situation = 'all';
 let posFilter = 'all';
 let sortKey   = 'war';
 let sortAsc   = false;
 let showAll   = false;
+
+// ── Playoff data lookup ───────────────────────────────────────────────────────
+const PO_DATA = {
+  goals:   poGoals,
+  assists: poAssists,
+  xg:      poXg,
+};
+let poSortKey = 'goals';
+let poSortAsc = false;
+
+function readUrl() {
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
+}
+
+function updateUrl() {
+  const p = new URLSearchParams();
+  if (gameType === 3) p.set('game_type', '3');
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+}
+
+function syncGameType() {
+  const isPlayoff = gameType === 3;
+  document.getElementById('lb-reg-wrap').style.display  = isPlayoff ? 'none' : '';
+  document.getElementById('lb-po-wrap').style.display   = isPlayoff ? '' : 'none';
+  document.getElementById('sit-filter').style.display   = isPlayoff ? 'none' : '';
+  document.getElementById('lb-more').style.display      = 'none';
+  document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
+  });
+  const titleEl = document.getElementById('lb-title');
+  if (titleEl) titleEl.textContent = isPlayoff ? 'Playoff Leaderboards' : 'Season Leaderboards';
+  const countEl = document.getElementById('lb-count');
+  if (countEl) {
+    if (isPlayoff) {
+      const n = (PO_DATA.goals || []).length;
+      countEl.textContent = n > 0 ? `${n} players · 2025–26 playoffs` : 'No playoff data yet';
+    } else {
+      countEl.textContent = `${DATA.length} players · 2025–26`;
+    }
+  }
+  if (isPlayoff) renderPlayoffTable();
+}
+
+function buildPoUnified() {
+  // Merge the 3 top-10 lists into a single player map with all three stats
+  const byId = {};
+  for (const r of (poGoals   || [])) { byId[r.player_id] = { ...r, goals: r.value, assists: null, xg60: null }; }
+  for (const r of (poAssists || [])) {
+    if (byId[r.player_id]) byId[r.player_id].assists = r.value;
+    else byId[r.player_id] = { ...r, goals: null, assists: r.value, xg60: null };
+  }
+  for (const r of (poXg || [])) {
+    if (byId[r.player_id]) byId[r.player_id].xg60 = r.value;
+    else byId[r.player_id] = { ...r, goals: null, assists: null, xg60: r.value };
+  }
+  return Object.values(byId);
+}
+
+function renderPlayoffTable() {
+  ['goals', 'assists', 'xg'].forEach(key => {
+    const th = document.getElementById(`po-sort-${key}`);
+    if (!th) return;
+    const isActive = key === poSortKey;
+    th.classList.toggle('sorted', isActive);
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = isActive ? (poSortAsc ? '↑' : '↓') : '↕';
+  });
+
+  const tbody = document.getElementById('po-tbody');
+  if (!tbody) return;
+
+  const unified = buildPoUnified();
+  if (unified.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:60px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">Playoff data available once postseason begins</td></tr>`;
+    return;
+  }
+
+  const sortField = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
+  unified.sort((a, b) => {
+    const av = a[sortField] ?? (poSortAsc ? Infinity : -Infinity);
+    const bv = b[sortField] ?? (poSortAsc ? Infinity : -Infinity);
+    return poSortAsc ? av - bv : bv - av;
+  });
+
+  tbody.innerHTML = unified.map((r, i) => `<tr>
+    <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
+    <td><div class="td-player">
+      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="22" height="22" loading="lazy" onerror="this.style.display='none'">
+      <div class="td-info">
+        <a href="/stats/player/${r.slug}" class="td-name">${r.display_name}</a>
+        <span class="td-sub">${r.team_abbrev} · ${r.pos} · ${r.gp} GP</span>
+      </div>
+    </div></td>
+    <td class="td-pos c-pos">${r.pos}</td>
+    <td class="td-gp">${r.gp}</td>
+    <td class="td-stat"><span class="sv">${r.goals ?? '—'}</span></td>
+    <td class="td-stat"><span class="sv">${r.assists ?? '—'}</span></td>
+    <td class="td-stat"><span class="sv">${r.xg60 != null ? r.xg60.toFixed(2) : '—'}</span></td>
+    <td class="td-stat"><span class="sv nil">${r.pct != null ? r.pct.toFixed(0) + 'th' : '—'}</span></td>
+  </tr>`).join('');
+}
 
 // ── Column definitions per situation ─────────────────────────────────────────
 const SIT_COLS = {
@@ -568,6 +712,29 @@ document.getElementById('lb-more-btn')?.addEventListener('click', () => {
   render();
 });
 
+// ── Game-type toggle ──────────────────────────────────────────────────────────
+document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const gt = parseInt(btn.dataset.gametype);
+    if (gt === gameType) return;
+    gameType = gt;
+    updateUrl();
+    syncGameType();
+    if (gt === 2) render();
+  });
+});
+
+// ── Playoff sort headers ──────────────────────────────────────────────────────
+['goals', 'assists', 'xg'].forEach(key => {
+  document.getElementById(`po-sort-${key}`)?.addEventListener('click', () => {
+    if (poSortKey === key) poSortAsc = !poSortAsc;
+    else { poSortKey = key; poSortAsc = false; }
+    renderPlayoffTable();
+  });
+});
+
+readUrl();
+syncGameType();
 render();
 
 // ── PNG Export ────────────────────────────────────────────────────────────────
@@ -634,13 +801,47 @@ const SIT_EXPORT_COLS = {
   ],
 };
 
+const PO_EXPORT_COLS = [
+  { label: '#',       key: '_rank',    width: 44,  align: 'center' },
+  { label: 'Player',  key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
+  { label: 'Team',    key: 'team_abbrev',  width: 58,  align: 'center' },
+  { label: 'Pos',     key: 'pos',      width: 48,  align: 'center' },
+  { label: 'GP',      key: 'gp',       width: 52,  align: 'center' },
+  { label: 'Goals',   key: 'goals',    width: 72,  align: 'center',
+    format: v => v != null ? String(v) : '—' },
+  { label: 'Assists', key: 'assists',  width: 80,  align: 'center',
+    format: v => v != null ? String(v) : '—' },
+  { label: 'xG/60',   key: 'xg60',    width: 80,  align: 'center',
+    format: v => v != null ? v.toFixed(2) : '—' },
+];
+
 function getExportChips() {
+  if (gameType === 3) return ['Playoffs'];
   const chips = [{ all: 'All Situations', '5v5': '5v5', pp: 'Power Play' }[situation]];
   if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
   return chips;
 }
 
 document.getElementById('dl-btn').addEventListener('click', function () {
+  if (gameType === 3) {
+    const rows = buildPoUnified()
+      .sort((a, b) => {
+        const field = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
+        const av = a[field] ?? -Infinity;
+        const bv = b[field] ?? -Infinity;
+        return poSortAsc ? av - bv : bv - av;
+      })
+      .map((r, i) => ({ ...r, _rank: i + 1 }));
+    window.HGB_Export.downloadTablePng({
+      title: 'Playoff Leaderboards',
+      filterChips: getExportChips(),
+      rows,
+      columns: PO_EXPORT_COLS,
+      filename: 'hgb-leaderboards-playoff.png',
+    });
+    return;
+  }
+
   let filtered = DATA.slice();
   if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
   filtered.sort((a, b) => {
@@ -649,7 +850,6 @@ document.getElementById('dl-btn').addEventListener('click', function () {
     return sortAsc ? av - bv : bv - av;
   });
   const rows = filtered.map((r, i) => Object.assign({ _rank: i + 1 }, r));
-  const sitLabel = { all: 'All Situations', '5v5': '5v5', pp: 'Power Play' }[situation];
   window.HGB_Export.downloadTablePng({
     title: 'Season Leaderboards',
     filterChips: getExportChips(),
