@@ -99,6 +99,14 @@ export const PlayerRecordSchema = z.object({
   sc_pct:           z.number().optional(),
   hdc_pct:          z.number().optional(),
   toi_pp_sec_total: z.number().optional(),
+  // Playoff counting stats — null when player has no playoff appearances
+  playoff_gp:      z.number().int().nonnegative().nullable().optional(),
+  playoff_goals:   z.number().int().nonnegative().nullable().optional(),
+  playoff_assists: z.number().int().nonnegative().nullable().optional(),
+  playoff_points:  z.number().int().nonnegative().nullable().optional(),
+  playoff_sog:     z.number().int().nonnegative().nullable().optional(),
+  playoff_ixg:     z.number().nullable().optional(),
+  playoff_toi_sec: z.number().nullable().optional(),
 });
 
 export const PlayerRecordsSchema = z.array(PlayerRecordSchema);

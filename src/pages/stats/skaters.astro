@@ -2,7 +2,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
-import { loadPlayers, loadPlayoffLeaderboard } from '../../lib/stats-loader';
+import { loadPlayers } from '../../lib/stats-loader';
 
 const allPlayers = loadPlayers();
 const eligible   = allPlayers.filter(p => p.gp >= 20);
@@ -19,10 +19,15 @@ function warPct(rapm: number | null, group: 'F' | 'D'): number | null {
   return Math.round((lo / arr.length) * 100);
 }
 
+const toi60 = (p: typeof eligible[0]) => (p.toi_avg_sec * p.gp) / 3600 || 1;
+
 const tableRows = eligible.map(p => {
-  const evOff = p.rates_per_60.ev_offence;
-  const evDef = p.rates_per_60.ev_defence;
+  const evOff    = p.rates_per_60.ev_offence;
+  const evDef    = p.rates_per_60.ev_defence;
   const xgfTotal = evOff + evDef;
+  const tot60    = toi60(p);
+  const goals    = p.goals;
+  const assists  = p.assists;
   return {
     slug:     p.slug,
     name:     p.display_name,
@@ -30,20 +35,27 @@ const tableRows = eligible.map(p => {
     pos:      p.pos,
     group:    p.pos_group,
     gp:       p.gp,
-    // All Sit
+    // Counting stats
+    goals,
+    assists,
+    points:   goals + assists,
+    sog:      Math.round(p.rates_per_60.shots * tot60),
+    ixg:      +(p.rates_per_60.ixg * tot60).toFixed(2),
+    toi_pg:   +(p.toi_avg_sec / 60).toFixed(1),
+    // Rates
+    g60:      +p.rates_per_60.goals.toFixed(2),
+    a60:      +(assists / tot60).toFixed(2),
+    p60:      +((goals + assists) / tot60).toFixed(2),
+    x60:      +p.rates_per_60.ixg.toFixed(2),
+    // Advanced
     war:      p.rapm != null ? +(p.rapm * (p.toi_avg_sec * p.gp) / 3600 * 0.1).toFixed(2) : null,
     war_p:    warPct(p.rapm, p.pos_group),
-    g60:      +p.rates_per_60.goals.toFixed(2),
-    g60_p:    Math.round(p.percentiles_vs_pos.goals),
-    a60:      +p.rates_per_60.a1.toFixed(2),
-    a60_p:    Math.round(p.percentiles_vs_pos.a1),
-    x60:      +p.rates_per_60.ixg.toFixed(2),
-    x60_p:    Math.round(p.percentiles_vs_pos.ixg),
     fin:      +p.rates_per_60.finishing.toFixed(2),
     fin_p:    Math.round(p.percentiles_vs_pos.finishing),
     imp:      +p.avg_gs_display.toFixed(2),
     imp_p:    Math.round(p.gs_pct),
-    // 5v5
+    rapm:     p.rapm != null ? +p.rapm.toFixed(3) : null,
+    // 5v5 (kept for future tabs)
     xgf_pct:  xgfTotal > 0 ? +(evOff / xgfTotal * 100).toFixed(1) : 50.0,
     xgf60:    +evOff.toFixed(2),
     xga60:    +evDef.toFixed(2),
@@ -54,14 +66,19 @@ const tableRows = eligible.map(p => {
     pp_toi:   p.toi_pp_sec_total != null ? +(p.toi_pp_sec_total / p.gp / 60).toFixed(1) : 0,
     pp_g:     p.goals_pp ?? 0,
     pp_xg60:  +(p.rates_per_60.xg_pp_per60 ?? 0).toFixed(2),
+    // Playoff counting — null if player didn't play playoffs
+    po_gp:      p.playoff_gp      ?? null,
+    po_goals:   p.playoff_goals   ?? null,
+    po_assists: p.playoff_assists  ?? null,
+    po_points:  p.playoff_points   ?? null,
+    po_sog:     p.playoff_sog      ?? null,
+    po_ixg:     p.playoff_ixg      ?? null,
+    po_toi_pg:  p.playoff_toi_sec != null && p.playoff_gp
+                  ? +(p.playoff_toi_sec / p.playoff_gp / 60).toFixed(1)
+                  : null,
   };
 });
 
-// Playoff leaderboard rows — goals, assists, xG/60 only (≥5 GP)
-const playoffGoals   = loadPlayoffLeaderboard('goals');
-const playoffAssists = loadPlayoffLeaderboard('assists');
-const playoffXg      = loadPlayoffLeaderboard('xg');
-const hasPlayoffData = playoffGoals.length > 0;
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -273,23 +290,23 @@ const hasPlayoffData = playoffGoals.length > 0;
   </div>
   <div class="mast-inner">
     <div class="mast-top">
-      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Leaderboards</div>
-      <div>min 20 GP · rate-adjusted · 2025–2026</div>
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Skaters</div>
+      <div>min 20 GP · 2025–2026</div>
     </div>
     <div class="mast-card">
-      <h1 class="mast-headline">Who's driving<br><em>play this season.</em></h1>
-      <p class="mast-lede">All {eligible.length} skaters in one table. Sort any column — <span class="mono">WAR</span> for overall impact, <span class="mono">G/60</span> and <span class="mono">xG/60</span> for scoring, <span class="mono">Fin</span> for luck. Percentiles within position group.</p>
+      <h1 class="mast-headline">All skaters.<br><em>Every stat.</em></h1>
+      <p class="mast-lede">All {eligible.length} skaters sortable by counting stats, rates, or advanced metrics. Switch views with the tabs below.</p>
     </div>
   </div>
 </section>
 
 <main class="wrap">
 
-  <!-- LEADERBOARD TABLE -->
+  <!-- SKATER TABLE -->
   <section class="lb-section">
     <div class="lb-head">
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-        <span class="lb-title" id="lb-title">Season Leaderboards</span>
+        <span class="lb-title" id="lb-title">Skater Stats</span>
         <span class="lb-meta" id="lb-count">{eligible.length} players · 2025–26</span>
         <button class="lb-dl-btn" id="dl-btn">↓ PNG</button>
       </div>
@@ -298,7 +315,12 @@ const hasPlayoffData = playoffGoals.length > 0;
           <button class="lb-tab active" data-gametype="2">Regular Season</button>
           <button class="lb-tab" data-gametype="3">Playoffs</button>
         </div>
-        <div class="lb-filters" id="sit-filter">
+        <div class="lb-filters" id="view-filter">
+          <button class="lb-tab active" data-view="counting">Counting</button>
+          <button class="lb-tab" data-view="rates">Rates</button>
+          <button class="lb-tab" data-view="advanced">Advanced</button>
+        </div>
+        <div class="lb-filters" id="sit-filter" style="display:none">
           <button class="lb-tab active" data-sit="all">All Sit</button>
           <button class="lb-tab" data-sit="5v5">5v5</button>
           <button class="lb-tab" data-sit="pp">PP</button>
@@ -311,56 +333,14 @@ const hasPlayoffData = playoffGoals.length > 0;
       </div>
     </div>
 
-    <!-- Regular season table -->
     <div class="lb-wrap" id="lb-reg-wrap">
       <table>
-        <colgroup>
-          <col class="c-rank">
-          <col>
-          <col class="c-pos c-sm">
-          <col class="c-sm">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-stat c-a60">
-          <col class="c-stat">
-          <col class="c-stat c-fin">
-          <col class="c-stat c-imp">
-        </colgroup>
         <thead><tr id="lb-thead-row"></tr></thead>
         <tbody id="lb-tbody"></tbody>
       </table>
       <div class="lb-more" id="lb-more" style="display:none">
         <button class="lb-more-btn" id="lb-more-btn">Show all players →</button>
       </div>
-    </div>
-
-    <!-- Playoff table (hidden by default) -->
-    <div class="lb-wrap" id="lb-po-wrap" style="display:none">
-      <table>
-        <colgroup>
-          <col class="c-rank">
-          <col>
-          <col class="c-pos c-sm">
-          <col class="c-sm">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-stat">
-        </colgroup>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th style="text-align:left">Player</th>
-            <th>Pos</th>
-            <th>GP</th>
-            <th id="po-sort-goals" style="cursor:pointer" class="sorted">Goals<span class="sort-arrow">↓</span></th>
-            <th id="po-sort-assists" style="cursor:pointer">Assists<span class="sort-arrow">↕</span></th>
-            <th id="po-sort-xg" style="cursor:pointer">xG/60<span class="sort-arrow">↕</span></th>
-            <th>Pctile</th>
-          </tr>
-        </thead>
-        <tbody id="po-tbody"></tbody>
-      </table>
     </div>
   </section>
 
@@ -394,156 +374,110 @@ const hasPlayoffData = playoffGoals.length > 0;
 </html>
 
 <script is:inline src="/js/table-export.js"></script>
-<script define:vars={{ rows: tableRows, poGoals: playoffGoals, poAssists: playoffAssists, poXg: playoffXg, hasPlayoffData }}>
+<script define:vars={{ rows: tableRows }}>
 const DATA = rows;
 const PAGE = 50;
+const sgn2 = v => v >= 0 ? '+' : '';
 
 // ── State ────────────────────────────────────────────────────────────────────
-let gameType  = 2; // 2=regular, 3=playoff
-let situation = 'all';
+let gameType  = 2;
+let viewTab   = 'counting';
 let posFilter = 'all';
-let sortKey   = 'war';
+let sortKey   = 'points';
 let sortAsc   = false;
 let showAll   = false;
 
-// ── Playoff data lookup ───────────────────────────────────────────────────────
-const PO_DATA = {
-  goals:   poGoals,
-  assists: poAssists,
-  xg:      poXg,
+// ── Tab column definitions ────────────────────────────────────────────────────
+// Fixed columns in every tab: #, Player, Pos, GP
+// Each tab defines its own stat columns after those fixed columns.
+// In playoff/counting mode, poKey is used instead of key for data access + sorting.
+const TABS = {
+  counting: {
+    defaultSort: 'points',
+    regOnly: false,
+    cols: [
+      { label: 'G',    key: 'goals',   poKey: 'po_goals' },
+      { label: 'A',    key: 'assists', poKey: 'po_assists' },
+      { label: 'P',    key: 'points',  poKey: 'po_points' },
+      { label: 'SOG',  key: 'sog',     poKey: 'po_sog' },
+      { label: 'ixG',  key: 'ixg',     poKey: 'po_ixg',    fmt: v => v.toFixed(2) },
+      { label: 'TOI',  key: 'toi_pg',  poKey: 'po_toi_pg', fmt: v => v.toFixed(1) },
+    ],
+  },
+  rates: {
+    defaultSort: 'p60',
+    regOnly: true,
+    cols: [
+      { label: 'G/60',  key: 'g60',  fmt: v => v.toFixed(2) },
+      { label: 'A/60',  key: 'a60',  fmt: v => v.toFixed(2) },
+      { label: 'P/60',  key: 'p60',  fmt: v => v.toFixed(2) },
+      { label: 'xG/60', key: 'x60',  fmt: v => v.toFixed(2) },
+      { label: 'TOI/G', key: 'toi_pg', fmt: v => v.toFixed(1) },
+    ],
+  },
+  advanced: {
+    defaultSort: 'imp',
+    regOnly: true,
+    cols: [
+      { label: 'Impact', key: 'imp',  fmt: v => v != null ? sgn2(v) + v.toFixed(2) : '—', signed: true },
+      { label: 'WAR',    key: 'war',  fmt: v => v != null ? sgn2(v) + v.toFixed(2) : '—', signed: true },
+      { label: 'Fin',    key: 'fin',  fmt: v => v != null ? sgn2(v) + v.toFixed(2) : '—', signed: true },
+      { label: 'RAPM',   key: 'rapm', fmt: v => v != null ? sgn2(v) + v.toFixed(3) : '—', signed: true },
+    ],
+  },
 };
-let poSortKey = 'goals';
-let poSortAsc = false;
 
 function readUrl() {
   const p = new URLSearchParams(window.location.search);
   if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
+  const tab = p.get('tab');
+  if (tab && TABS[tab]) { viewTab = tab; sortKey = TABS[tab].defaultSort; }
 }
 
 function updateUrl() {
   const p = new URLSearchParams();
   if (gameType === 3) p.set('game_type', '3');
-  const qs = p.toString();
-  history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+  if (viewTab !== 'counting') p.set('tab', viewTab);
+  history.replaceState(null, '', p.toString() ? `?${p}` : window.location.pathname);
 }
 
-function syncGameType() {
+// ── syncUi ────────────────────────────────────────────────────────────────────
+function syncUi() {
   const isPlayoff = gameType === 3;
-  document.getElementById('lb-reg-wrap').style.display  = isPlayoff ? 'none' : '';
-  document.getElementById('lb-po-wrap').style.display   = isPlayoff ? '' : 'none';
-  document.getElementById('sit-filter').style.display   = isPlayoff ? 'none' : '';
-  document.getElementById('lb-more').style.display      = 'none';
+
   document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
     btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
   });
-  const titleEl = document.getElementById('lb-title');
-  if (titleEl) titleEl.textContent = isPlayoff ? 'Playoff Leaderboards' : 'Season Leaderboards';
-  const countEl = document.getElementById('lb-count');
-  if (countEl) {
-    if (isPlayoff) {
-      const n = (PO_DATA.goals || []).length;
-      countEl.textContent = n > 0 ? `${n} players · 2025–26 playoffs` : 'No playoff data yet';
-    } else {
-      countEl.textContent = `${DATA.length} players · 2025–26`;
-    }
-  }
-  if (isPlayoff) renderPlayoffTable();
-}
 
-function buildPoUnified() {
-  // Merge the 3 top-10 lists into a single player map with all three stats
-  const byId = {};
-  for (const r of (poGoals   || [])) { byId[r.player_id] = { ...r, goals: r.value, assists: null, xg60: null }; }
-  for (const r of (poAssists || [])) {
-    if (byId[r.player_id]) byId[r.player_id].assists = r.value;
-    else byId[r.player_id] = { ...r, goals: null, assists: r.value, xg60: null };
+  // Fall back to counting if current tab is reg-only and we're switching to playoff
+  if (isPlayoff && TABS[viewTab]?.regOnly) {
+    viewTab = 'counting';
+    sortKey = TABS.counting.defaultSort;
+    sortAsc = false;
   }
-  for (const r of (poXg || [])) {
-    if (byId[r.player_id]) byId[r.player_id].xg60 = r.value;
-    else byId[r.player_id] = { ...r, goals: null, assists: null, xg60: r.value };
-  }
-  return Object.values(byId);
-}
 
-function renderPlayoffTable() {
-  ['goals', 'assists', 'xg'].forEach(key => {
-    const th = document.getElementById(`po-sort-${key}`);
-    if (!th) return;
-    const isActive = key === poSortKey;
-    th.classList.toggle('sorted', isActive);
-    const arrow = th.querySelector('.sort-arrow');
-    if (arrow) arrow.textContent = isActive ? (poSortAsc ? '↑' : '↓') : '↕';
+  document.querySelectorAll('#view-filter .lb-tab').forEach(btn => {
+    const v = btn.dataset.view;
+    const regOnly = TABS[v]?.regOnly;
+    btn.classList.toggle('active', v === viewTab);
+    btn.style.opacity = (isPlayoff && regOnly) ? '0.35' : '';
+    btn.style.pointerEvents = (isPlayoff && regOnly) ? 'none' : '';
   });
-
-  const tbody = document.getElementById('po-tbody');
-  if (!tbody) return;
-
-  const unified = buildPoUnified();
-  if (unified.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:60px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">Playoff data available once postseason begins</td></tr>`;
-    return;
-  }
-
-  const sortField = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
-  unified.sort((a, b) => {
-    const av = a[sortField] ?? (poSortAsc ? Infinity : -Infinity);
-    const bv = b[sortField] ?? (poSortAsc ? Infinity : -Infinity);
-    return poSortAsc ? av - bv : bv - av;
-  });
-
-  tbody.innerHTML = unified.map((r, i) => `<tr>
-    <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
-    <td><div class="td-player">
-      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="22" height="22" loading="lazy" onerror="this.style.display='none'">
-      <div class="td-info">
-        <a href="/stats/player/${r.slug}" class="td-name">${r.display_name}</a>
-        <span class="td-sub">${r.team_abbrev} · ${r.pos} · ${r.gp} GP</span>
-      </div>
-    </div></td>
-    <td class="td-pos c-pos">${r.pos}</td>
-    <td class="td-gp">${r.gp}</td>
-    <td class="td-stat"><span class="sv">${r.goals ?? '—'}</span></td>
-    <td class="td-stat"><span class="sv">${r.assists ?? '—'}</span></td>
-    <td class="td-stat"><span class="sv">${r.xg60 != null ? r.xg60.toFixed(2) : '—'}</span></td>
-    <td class="td-stat"><span class="sv nil">${r.pct != null ? r.pct.toFixed(0) + 'th' : '—'}</span></td>
-  </tr>`).join('');
 }
 
-// ── Column definitions per situation ─────────────────────────────────────────
-const SIT_COLS = {
-  all: {
-    defaultSort: 'war',
-    cols: [
-      { label: 'WAR',    key: 'war',    dflt: true },
-      { label: 'G/60',   key: 'g60'   },
-      { label: 'A1/60',  key: 'a60',   cls: 'c-a60' },
-      { label: 'xG/60',  key: 'x60'   },
-      { label: 'Fin',    key: 'fin',   cls: 'c-fin' },
-      { label: 'Impact', key: 'imp',   cls: 'c-imp' },
-    ],
-  },
-  '5v5': {
-    defaultSort: 'xgf_pct',
-    cols: [
-      { label: 'xGF%',   key: 'xgf_pct', dflt: true },
-      { label: 'xGF/60', key: 'xgf60'  },
-      { label: 'xGA/60', key: 'xga60',  cls: 'c-a60' },
-      { label: 'SC/60',  key: 'sc60'   },
-      { label: 'HDC/60', key: 'hdc60',  cls: 'c-fin' },
-      { label: 'HDC%',   key: 'hdc_pct',cls: 'c-imp' },
-    ],
-  },
-  pp: {
-    defaultSort: 'pp_xg60',
-    cols: [
-      { label: 'PP min/gm', key: 'pp_toi',  dflt: true },
-      { label: 'PP G',      key: 'pp_g'    },
-      { label: 'PP xG/60',  key: 'pp_xg60', cls: 'c-a60' },
-      { label: 'SC/60',     key: 'sc60'    },
-      { label: 'HDC/60',    key: 'hdc60',   cls: 'c-fin' },
-    ],
-  },
-};
+// ── getRows ───────────────────────────────────────────────────────────────────
+function getRows() {
+  const isPlayoff = gameType === 3;
+  let rows = DATA.slice();
+  if (isPlayoff) rows = rows.filter(r => r.po_gp != null && r.po_gp > 0);
+  if (posFilter !== 'all') rows = rows.filter(r => r.group === posFilter);
+  rows.sort((a, b) => {
+    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    return sortAsc ? av - bv : bv - av;
+  });
+  return rows;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function pctCls(p) {
@@ -556,109 +490,102 @@ function ordinal(p) {
     p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
   return `${p}${s}`;
 }
-function sgn(n) { return n >= 0 ? '+' : ''; }
 
-function statCell(val, pct, signed) {
-  const cls = signed ? (val >= 0 ? ' pos' : ' neg') : '';
-  const v   = signed ? `${sgn(val)}${val.toFixed(2)}` : val.toFixed(2);
-  return `<span class="sv${cls}">${v}</span><span class="sp ${pctCls(pct)}">${ordinal(pct)}</span>`;
-}
-
-function plainCell(val, fmt) {
-  if (val == null) return `<span class="sv nil">—</span>`;
-  return `<span class="sv">${fmt(val)}</span>`;
-}
-
-function sitCell(r, key) {
-  switch (key) {
-    case 'war':
-      return r.war != null
-        ? `<span class="sv ${r.war >= 0 ? 'pos' : 'neg'}">${sgn(r.war)}${r.war.toFixed(2)}</span><span class="sp ${pctCls(r.war_p)}">${ordinal(r.war_p)}</span>`
-        : `<span class="sv nil">—</span><span class="sp pa">—</span>`;
-    case 'g60':  return statCell(r.g60, r.g60_p, false);
-    case 'a60':  return statCell(r.a60, r.a60_p, false);
-    case 'x60':  return statCell(r.x60, r.x60_p, false);
-    case 'fin':  return statCell(r.fin, r.fin_p, true);
-    case 'imp':  return statCell(r.imp, r.imp_p, false);
-    case 'xgf_pct': return plainCell(r.xgf_pct, v => `${v.toFixed(1)}%`);
-    case 'xgf60':   return plainCell(r.xgf60,   v => v.toFixed(2));
-    case 'xga60':   return plainCell(r.xga60,   v => v.toFixed(2));
-    case 'sc60':    return plainCell(r.sc60,    v => v.toFixed(2));
-    case 'hdc60':   return plainCell(r.hdc60,   v => v.toFixed(2));
-    case 'hdc_pct': return plainCell(r.hdc_pct, v => `${v.toFixed(1)}%`);
-    case 'pp_toi':  return plainCell(r.pp_toi,  v => v.toFixed(1));
-    case 'pp_g':    return `<span class="sv">${r.pp_g}</span>`;
-    case 'pp_xg60': return plainCell(r.pp_xg60, v => v.toFixed(2));
-    default:        return `<span class="sv nil">—</span>`;
-  }
-}
-
-// ── Render header ─────────────────────────────────────────────────────────────
+// ── renderHeader ──────────────────────────────────────────────────────────────
 function renderHeader() {
-  const cfg  = SIT_COLS[situation];
   const thead = document.getElementById('lb-thead-row');
   if (!thead) return;
+  const isPlayoff = gameType === 3;
+  const tab = TABS[viewTab];
 
+  const gpKey = (isPlayoff && viewTab === 'counting') ? 'po_gp' : 'gp';
+  const sortGp = sortKey === gpKey;
   const fixed = [
     `<th>#</th>`,
     `<th class="th-player">Player</th>`,
     `<th class="c-pos" style="text-align:center">Pos</th>`,
-    `<th data-sort="gp" style="cursor:pointer">GP<span class="sort-arrow">${sortKey==='gp'?(sortAsc?'↑':'↓'):''}</span></th>`,
+    `<th data-sort="${gpKey}" style="cursor:pointer;text-align:right">GP<span class="sort-arrow">${sortGp?(sortAsc?'↑':'↓'):''}</span></th>`,
   ];
 
-  const statCols = cfg.cols.map(c => {
-    const active = sortKey === c.key;
+  const statCols = tab.cols.map(c => {
+    const activeKey = (isPlayoff && c.poKey) ? c.poKey : c.key;
+    const active = sortKey === c.key || (c.poKey && sortKey === c.poKey);
     const arrow  = active ? (sortAsc ? '↑' : '↓') : '';
-    return `<th class="${c.cls || ''} ${active ? 'sorted' : ''}" data-sort="${c.key}" style="cursor:pointer">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+    return `<th class="${active ? 'sorted' : ''}" data-sort="${activeKey}" style="cursor:pointer;text-align:right">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
   });
 
   thead.innerHTML = [...fixed, ...statCols].join('');
 }
 
-// ── Render body ───────────────────────────────────────────────────────────────
-function render() {
-  renderHeader();
+// ── renderBody ────────────────────────────────────────────────────────────────
+const PCT_MAP = { imp: 'imp_p', war: 'war_p', fin: 'fin_p' };
 
-  let filtered = DATA.slice();
-  if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
-
-  filtered.sort((a, b) => {
-    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    return sortAsc ? av - bv : bv - av;
-  });
-
-  const total   = filtered.length;
-  const visible = showAll ? filtered : filtered.slice(0, PAGE);
-
+function renderBody(visibleRows) {
+  const isPlayoff = gameType === 3;
+  const tab = TABS[viewTab];
   const tbody = document.getElementById('lb-tbody');
   if (!tbody) return;
 
-  const cfg = SIT_COLS[situation];
-  tbody.innerHTML = visible.map((r, i) => {
-    const statTds = cfg.cols.map(c =>
-      `<td class="td-stat ${c.cls || ''}">${sitCell(r, c.key)}</td>`
-    ).join('');
+  if (visibleRows.length === 0) {
+    const colspan = 4 + tab.cols.length;
+    tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;padding:60px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">${isPlayoff ? 'Playoff data available once postseason begins' : 'No data'}</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = visibleRows.map((r, i) => {
+    const gp = (isPlayoff && viewTab === 'counting') ? r.po_gp : r.gp;
+
+    const statTds = tab.cols.map(c => {
+      const dataKey = (isPlayoff && c.poKey) ? c.poKey : c.key;
+      const val = r[dataKey];
+      let html;
+      if (c.signed) {
+        const pctKey = PCT_MAP[c.key];
+        const pct = pctKey ? r[pctKey] : null;
+        if (val == null) {
+          html = `<span class="sv nil">—</span><span class="sp pa">—</span>`;
+        } else {
+          const cls = val >= 0 ? 'pos' : 'neg';
+          html = `<span class="sv ${cls}">${c.fmt(val)}</span><span class="sp ${pctCls(pct)}">${ordinal(pct)}</span>`;
+        }
+      } else if (c.fmt) {
+        html = val != null ? `<span class="sv">${c.fmt(val)}</span>` : `<span class="sv nil">—</span>`;
+      } else {
+        html = val != null ? `<span class="sv">${val}</span>` : `<span class="sv nil">—</span>`;
+      }
+      return `<td class="td-stat">${html}</td>`;
+    }).join('');
+
     return `<tr>
       <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
       <td><div class="td-player">
         <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" width="22" height="22" loading="lazy">
         <div class="td-info">
           <a href="/stats/player/${r.slug}" class="td-name">${r.name}</a>
-          <span class="td-sub">${r.team} · ${r.pos} · ${r.gp} GP</span>
+          <span class="td-sub">${r.team} · ${r.pos} · ${gp} GP</span>
         </div>
       </div></td>
       <td class="td-pos c-pos">${r.pos}</td>
-      <td class="td-gp">${r.gp}</td>
+      <td class="td-gp">${gp}</td>
       ${statTds}
     </tr>`;
   }).join('');
+}
 
-  // Count
+// ── render ────────────────────────────────────────────────────────────────────
+function render() {
+  renderHeader();
+  const allRows = getRows();
+  const total = allRows.length;
+  const visible = showAll ? allRows : allRows.slice(0, PAGE);
+  renderBody(visible);
+
   const countEl = document.getElementById('lb-count');
-  if (countEl) countEl.textContent = `${total} players · 2025–26`;
+  if (countEl) {
+    const season = gameType === 3 ? '2025–26 playoffs' : '2025–26';
+    countEl.textContent = `${total} players · ${season}`;
+  }
 
-  // Show-all button
   const moreDiv = document.getElementById('lb-more');
   const moreBtn = document.getElementById('lb-more-btn');
   if (moreDiv && moreBtn) {
@@ -671,31 +598,36 @@ function render() {
   }
 }
 
-// ── Event delegation on thead ────────────────────────────────────────────────
-document.querySelector('thead')?.addEventListener('click', e => {
-  const th = e.target?.closest('th[data-sort]');
-  if (!th) return;
-  const key = th.dataset.sort;
-  if (sortKey === key) { sortAsc = !sortAsc; }
-  else { sortKey = key; sortAsc = false; }
-  showAll = false;
-  render();
-});
+// ── Event handlers ────────────────────────────────────────────────────────────
 
-// ── Situation tabs ────────────────────────────────────────────────────────────
-document.querySelectorAll('[data-sit]').forEach(btn => {
+document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
   btn.addEventListener('click', () => {
-    situation = btn.dataset.sit;
-    sortKey   = SIT_COLS[situation].defaultSort;
-    sortAsc   = false;
-    showAll   = false;
-    document.querySelectorAll('[data-sit]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+    const gt = parseInt(btn.dataset.gametype);
+    if (gt === gameType) return;
+    gameType = gt;
+    sortKey  = TABS[viewTab].defaultSort;
+    sortAsc  = false;
+    showAll  = false;
+    updateUrl();
+    syncUi();
     render();
   });
 });
 
-// ── Position tabs ─────────────────────────────────────────────────────────────
+document.querySelectorAll('#view-filter .lb-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const v = btn.dataset.view;
+    if (v === viewTab || (gameType === 3 && TABS[v]?.regOnly)) return;
+    viewTab = v;
+    sortKey = TABS[v].defaultSort;
+    sortAsc = false;
+    showAll = false;
+    updateUrl();
+    syncUi();
+    render();
+  });
+});
+
 document.querySelectorAll('[data-pos]').forEach(btn => {
   btn.addEventListener('click', () => {
     posFilter = btn.dataset.pos;
@@ -706,156 +638,107 @@ document.querySelectorAll('[data-pos]').forEach(btn => {
   });
 });
 
-// ── Show all ──────────────────────────────────────────────────────────────────
+document.querySelector('thead')?.addEventListener('click', e => {
+  const th = e.target?.closest('th[data-sort]');
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (sortKey === key) { sortAsc = !sortAsc; }
+  else { sortKey = key; sortAsc = false; }
+  showAll = false;
+  render();
+});
+
 document.getElementById('lb-more-btn')?.addEventListener('click', () => {
   showAll = true;
   render();
 });
 
-// ── Game-type toggle ──────────────────────────────────────────────────────────
-document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const gt = parseInt(btn.dataset.gametype);
-    if (gt === gameType) return;
-    gameType = gt;
-    updateUrl();
-    syncGameType();
-    if (gt === 2) render();
-  });
-});
-
-// ── Playoff sort headers ──────────────────────────────────────────────────────
-['goals', 'assists', 'xg'].forEach(key => {
-  document.getElementById(`po-sort-${key}`)?.addEventListener('click', () => {
-    if (poSortKey === key) poSortAsc = !poSortAsc;
-    else { poSortKey = key; poSortAsc = false; }
-    renderPlayoffTable();
-  });
-});
-
 readUrl();
-syncGameType();
+syncUi();
 render();
 
 // ── PNG Export ────────────────────────────────────────────────────────────────
-const sgn2 = n => n >= 0 ? '+' : '';
-
-const SIT_EXPORT_COLS = {
-  all: [
+const EXPORT_COLS = {
+  counting: [
     { label: '#',      key: '_rank', width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',  width: 240, align: 'left', fontFamily: 'body' },
+    { label: 'Player', key: 'name',  width: 240, align: 'left', fontFamily: 'body', bold: true },
     { label: 'Team',   key: 'team',  width: 58,  align: 'center' },
     { label: 'Pos',    key: 'pos',   width: 48,  align: 'center' },
-    { label: 'GP',     key: 'gp',    width: 54,  align: 'center' },
+    { label: 'GP',     key: '_gp',   width: 52,  align: 'center' },
+    { label: 'G',      key: '_g',    width: 60,  align: 'center' },
+    { label: 'A',      key: '_a',    width: 60,  align: 'center' },
+    { label: 'P',      key: '_p',    width: 60,  align: 'center', bold: true },
+    { label: 'SOG',    key: '_sog',  width: 66,  align: 'center' },
+    { label: 'ixG',    key: '_ixg',  width: 70,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'TOI',    key: '_toi',  width: 64,  align: 'center', format: v => v != null ? v.toFixed(1) : '—' },
+  ],
+  rates: [
+    { label: '#',      key: '_rank',  width: 44,  align: 'center' },
+    { label: 'Player', key: 'name',   width: 240, align: 'left', fontFamily: 'body', bold: true },
+    { label: 'Team',   key: 'team',   width: 58,  align: 'center' },
+    { label: 'Pos',    key: 'pos',    width: 48,  align: 'center' },
+    { label: 'GP',     key: 'gp',     width: 52,  align: 'center' },
+    { label: 'G/60',   key: 'g60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'A/60',   key: 'a60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'P/60',   key: 'p60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—', bold: true },
+    { label: 'xG/60',  key: 'x60',    width: 82,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'TOI/G',  key: 'toi_pg', width: 76,  align: 'center', format: v => v != null ? v.toFixed(1) : '—' },
+  ],
+  advanced: [
+    { label: '#',      key: '_rank', width: 44,  align: 'center' },
+    { label: 'Player', key: 'name',  width: 240, align: 'left', fontFamily: 'body', bold: true },
+    { label: 'Team',   key: 'team',  width: 58,  align: 'center' },
+    { label: 'Pos',    key: 'pos',   width: 48,  align: 'center' },
+    { label: 'GP',     key: 'gp',    width: 52,  align: 'center' },
+    { label: 'Impact', key: 'imp',   width: 90,  align: 'center', bold: true,
+      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
+      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
     { label: 'WAR',    key: 'war',   width: 86,  align: 'center',
       format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null, bold: true },
-    { label: 'G/60',   key: 'g60',   width: 76,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'A1/60',  key: 'a60',   width: 80,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'xG/60',  key: 'x60',   width: 80,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
+      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
     { label: 'Fin',    key: 'fin',   width: 76,  align: 'center',
       format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
       color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-    { label: 'Impact', key: 'imp',   width: 86,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-  ],
-  '5v5': [
-    { label: '#',      key: '_rank',    width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',     width: 220, align: 'left', fontFamily: 'body' },
-    { label: 'Team',   key: 'team',     width: 56,  align: 'center' },
-    { label: 'Pos',    key: 'pos',      width: 48,  align: 'center' },
-    { label: 'GP',     key: 'gp',       width: 52,  align: 'center' },
-    { label: 'xGF%',   key: 'xgf_pct', width: 76,  align: 'center',
-      format: v => v != null ? v.toFixed(1) + '%' : '—',
-      color: (v, _r, tok) => v != null ? (v >= 55 ? tok.pos : v <= 45 ? tok.neg : null) : null,
-      bold: (v) => v != null && (v >= 55 || v <= 45) },
-    { label: 'xGF/60', key: 'xgf60',   width: 86,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'xGA/60', key: 'xga60',   width: 86,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'SC/60',  key: 'sc60',    width: 76,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'HDC/60', key: 'hdc60',   width: 82,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'HDC%',   key: 'hdc_pct', width: 76,  align: 'center',
-      format: v => v != null ? v.toFixed(1) + '%' : '—' },
-  ],
-  pp: [
-    { label: '#',         key: '_rank',   width: 44,  align: 'center' },
-    { label: 'Player',    key: 'name',    width: 220, align: 'left', fontFamily: 'body' },
-    { label: 'Team',      key: 'team',    width: 56,  align: 'center' },
-    { label: 'Pos',       key: 'pos',     width: 48,  align: 'center' },
-    { label: 'GP',        key: 'gp',      width: 52,  align: 'center' },
-    { label: 'PP min/gm', key: 'pp_toi',  width: 108, align: 'center',
-      format: v => v != null ? v.toFixed(1) : '—' },
-    { label: 'PP G',      key: 'pp_g',    width: 72,  align: 'center' },
-    { label: 'PP xG/60',  key: 'pp_xg60', width: 96,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'SC/60',     key: 'sc60',    width: 82,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'HDC/60',    key: 'hdc60',   width: 88,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'RAPM',   key: 'rapm',  width: 82,  align: 'center',
+      format: v => v != null ? sgn2(v) + v.toFixed(3) : '—',
+      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
   ],
 };
 
-const PO_EXPORT_COLS = [
-  { label: '#',       key: '_rank',    width: 44,  align: 'center' },
-  { label: 'Player',  key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
-  { label: 'Team',    key: 'team_abbrev',  width: 58,  align: 'center' },
-  { label: 'Pos',     key: 'pos',      width: 48,  align: 'center' },
-  { label: 'GP',      key: 'gp',       width: 52,  align: 'center' },
-  { label: 'Goals',   key: 'goals',    width: 72,  align: 'center',
-    format: v => v != null ? String(v) : '—' },
-  { label: 'Assists', key: 'assists',  width: 80,  align: 'center',
-    format: v => v != null ? String(v) : '—' },
-  { label: 'xG/60',   key: 'xg60',    width: 80,  align: 'center',
-    format: v => v != null ? v.toFixed(2) : '—' },
-];
-
 function getExportChips() {
-  if (gameType === 3) return ['Playoffs'];
-  const chips = [{ all: 'All Situations', '5v5': '5v5', pp: 'Power Play' }[situation]];
+  const isPlayoff = gameType === 3;
+  const tabLabel = { counting: 'Counting', rates: 'Rates', advanced: 'Advanced' }[viewTab];
+  const chips = [isPlayoff ? 'Playoffs' : 'Regular Season', tabLabel];
   if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
   return chips;
 }
 
-document.getElementById('dl-btn').addEventListener('click', function () {
-  if (gameType === 3) {
-    const rows = buildPoUnified()
-      .sort((a, b) => {
-        const field = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
-        const av = a[field] ?? -Infinity;
-        const bv = b[field] ?? -Infinity;
-        return poSortAsc ? av - bv : bv - av;
-      })
-      .map((r, i) => ({ ...r, _rank: i + 1 }));
-    window.HGB_Export.downloadTablePng({
-      title: 'Playoff Leaderboards',
-      filterChips: getExportChips(),
-      rows,
-      columns: PO_EXPORT_COLS,
-      filename: 'hgb-leaderboards-playoff.png',
-    });
-    return;
-  }
+document.getElementById('dl-btn').addEventListener('click', function() {
+  const isPlayoff = gameType === 3;
+  const allRows = getRows();
 
-  let filtered = DATA.slice();
-  if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
-  filtered.sort((a, b) => {
-    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    return sortAsc ? av - bv : bv - av;
-  });
-  const rows = filtered.map((r, i) => Object.assign({ _rank: i + 1 }, r));
+  const exportRows = allRows.map((r, i) => ({
+    ...r,
+    _rank: i + 1,
+    _gp:   (isPlayoff && viewTab === 'counting') ? r.po_gp      : r.gp,
+    _g:    (isPlayoff && viewTab === 'counting') ? r.po_goals    : r.goals,
+    _a:    (isPlayoff && viewTab === 'counting') ? r.po_assists  : r.assists,
+    _p:    (isPlayoff && viewTab === 'counting') ? r.po_points   : r.points,
+    _sog:  (isPlayoff && viewTab === 'counting') ? r.po_sog      : r.sog,
+    _ixg:  (isPlayoff && viewTab === 'counting') ? r.po_ixg      : r.ixg,
+    _toi:  (isPlayoff && viewTab === 'counting') ? r.po_toi_pg   : r.toi_pg,
+  }));
+
+  const tabLabel = { counting: 'Counting', rates: 'Rates', advanced: 'Advanced' }[viewTab];
+  const season   = isPlayoff ? 'Playoff' : 'Season';
+
   window.HGB_Export.downloadTablePng({
-    title: 'Season Leaderboards',
+    title: `${season} ${tabLabel} Stats`,
     filterChips: getExportChips(),
-    rows,
-    columns: SIT_EXPORT_COLS[situation],
-    filename: 'hgb-leaderboards.png',
+    sortLabel: sortKey,
+    rows: exportRows,
+    columns: EXPORT_COLS[viewTab],
+    filename: `hgb-skaters-${viewTab}${isPlayoff ? '-playoff' : ''}.png`,
   });
 });
 </script>
