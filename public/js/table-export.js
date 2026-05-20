@@ -62,13 +62,12 @@
 
   // ── Layout constants at 1× (canvas is drawn at SCALE×) ──────────────────────
   const SCALE    = 2;
-  const W        = 1200;
   const PAD      = 40;
   const TITLE_H  = 72;
   const CHIPS_H  = 46;
   const HEADER_H = 36;
   const ROW_H    = 34;
-  const FOOT_H   = 20; // minimal bottom breathing room; brand mark moved to title row
+  const FOOT_H   = 20;
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -182,6 +181,10 @@
       neg: _cssVar('--stats-neg', TOKENS.negDefault),
     };
 
+    // Auto-width: fit canvas exactly to column content + padding
+    const colsTotal = columns.reduce((s, c) => s + c.width, 0);
+    const W = colsTotal + PAD * 2;
+
     const totalH = TITLE_H + CHIPS_H + HEADER_H + rows.length * ROW_H + FOOT_H;
 
     const canvas = document.createElement('canvas');
@@ -196,27 +199,22 @@
 
     let y = 0;
 
-    // ── Title + brand mark ────────────────────────────────────────────────────
+    // ── Title ─────────────────────────────────────────────────────────────────
     ctx.fillStyle = TOKENS.ink;
     ctx.font = '800 30px "Barlow Condensed", sans-serif';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
     ctx.fillText(title.toUpperCase(), PAD, y + TITLE_H / 2);
-
-    // Brand mark — top-right, red, matches editorial card pattern
-    ctx.fillStyle = TOKENS.red;
-    ctx.font = '700 11px "Barlow Condensed", sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText('HOCKEYGAMEBOT.COM', W - PAD, y + TITLE_H / 2);
-
     y += TITLE_H;
 
-    // ── Filter chips ──────────────────────────────────────────────────────────
+    // ── Filter chips + brand pill ─────────────────────────────────────────────
     const chipH  = 24;
     const chipY0 = y + (CHIPS_H - chipH) / 2;
     let cx = PAD;
 
     ctx.font = '700 10px "Barlow Condensed", sans-serif';
+
+    // Filter chips — left side, black
     for (const chip of filterChips) {
       const text = chip.toUpperCase();
       const tw   = ctx.measureText(text).width;
@@ -233,6 +231,22 @@
 
       cx += chipW + 8;
     }
+
+    // Brand pill — right side, red background
+    const brandText = 'HOCKEYGAMEBOT.COM';
+    const btw = ctx.measureText(brandText).width;
+    const bChipW = btw + 22;
+    const bx = W - PAD - bChipW;
+
+    _roundRect(ctx, bx, chipY0, bChipW, chipH, 3);
+    ctx.fillStyle = TOKENS.red;
+    ctx.fill();
+
+    ctx.fillStyle = TOKENS.bg;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(brandText, bx + 11, chipY0 + chipH / 2);
+
     y += CHIPS_H;
 
     // ── Top border ────────────────────────────────────────────────────────────
