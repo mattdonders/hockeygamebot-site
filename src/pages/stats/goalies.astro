@@ -7,7 +7,7 @@ import { pickTeamColor } from '../../lib/team-colors';
 
 const allGoalies = loadGoalies();
 
-// Build table rows — all qualifying goalies
+// Regular season table rows
 const tableRows = allGoalies.map(g => ({
   goalie_id:   g.goalie_id,
   name:        g.name,
@@ -16,11 +16,39 @@ const tableRows = allGoalies.map(g => ({
   ga:          g.ga,
   xga:         +g.xga.toFixed(2),
   gsax:        +g.gsax.toFixed(2),
-  sv_pct:      g.sv_pct,  // kept as 0.xxx decimal; displayed with .toFixed(3)
+  sv_pct:      g.sv_pct,
   vs_exp:      g.sv_pct != null && g.sa > 0
                  ? +((g.sv_pct - (1 - g.xga / g.sa)) * 100).toFixed(2)
                  : null,
+  games:       null as number | null,
 }));
+
+// Playoff table rows — only goalies with playoff_gsax data
+const playoffRows = allGoalies
+  .filter(g => g.playoff_gsax != null && g.playoff_sa != null && (g.playoff_sa ?? 0) > 0)
+  .map(g => {
+    const po_gsax = g.playoff_gsax!;
+    const po_sa   = g.playoff_sa!;
+    const po_ga   = g.playoff_ga ?? 0;
+    const po_xga  = +(po_gsax + po_ga).toFixed(2);
+    const po_sv   = po_sa > 0 ? 1 - po_ga / po_sa : null;
+    const po_vsexp = po_sv != null && po_sa > 0
+      ? +((po_sv - (1 - po_xga / po_sa)) * 100).toFixed(2)
+      : null;
+    return {
+      goalie_id:   g.goalie_id,
+      name:        g.name,
+      team:        g.team_abbrev,
+      sa:          po_sa,
+      ga:          po_ga,
+      xga:         po_xga,
+      gsax:        +po_gsax.toFixed(2),
+      sv_pct:      po_sv,
+      vs_exp:      po_vsexp,
+      games:       g.playoff_games ?? null,
+    };
+  })
+  .sort((a, b) => b.gsax - a.gsax);
 
 // ── Cumulative chart data ────────────────────────────────────────────────────
 
@@ -180,9 +208,15 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
     colgroup .c-stat  { width: 80px; }
     colgroup .c-wide  { width: 100px; }
 
+    .btn-group { display: inline-flex; border: 1px solid var(--ink-14); }
+    .btn-group button { background: var(--surface); border: none; border-right: 1px solid var(--ink-14); padding: 6px 14px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48); transition: background 0.1s, color 0.1s; }
+    .btn-group button:last-child { border-right: none; }
+    .btn-group button.active { background: var(--ink); color: var(--bg); }
+    .btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
+
     thead th {
-      padding: 10px 12px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
-      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
+      padding: 10px 12px 8px; font-family: var(--display); font-size: 12px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48);
       border-bottom: 2px solid var(--ink-14); text-align: center;
       cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
     }
@@ -249,7 +283,7 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
   <div class="mast-inner">
     <div class="mast-top">
       <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Goalies</div>
-      <span>{allGoalies.length} qualifying goalies · min 500 SA · 2025–26</span>
+      <span id="mast-stat">{allGoalies.length} qualifying goalies · min 500 SA · 2025–26 regular season</span>
     </div>
     <div class="mast-card">
       <h1 class="mast-headline">Goalie <em>GSAx</em></h1>
@@ -343,8 +377,14 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
   <!-- ── Sortable table ── -->
   <section class="lb-section">
     <div class="section-head">
-      <div class="section-title">Season <span style="color:var(--red)">Leaderboard</span></div>
-      <div class="section-meta">{tableRows.length} goalies · click any column to sort</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div class="section-title" id="lb-title">Season <span style="color:var(--red)">Leaderboard</span></div>
+        <div class="btn-group" id="gametype-filter">
+          <button class="active" data-gametype="2">Regular Season</button>
+          <button data-gametype="3">Playoffs</button>
+        </div>
+      </div>
+      <div class="section-meta" id="lb-meta">{tableRows.length} goalies · click any column to sort</div>
     </div>
     <div class="lb-wrap">
       <table id="goalie-table">
@@ -362,6 +402,7 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
           <tr>
             <th class="th-player">#</th>
             <th class="th-player">Goalie</th>
+            <th data-sort="games" id="th-games" style="display:none">GP<span class="sort-arrow">↕</span></th>
             <th data-sort="sa">SA<span class="sort-arrow">↕</span></th>
             <th data-sort="ga">GA<span class="sort-arrow">↕</span></th>
             <th data-sort="xga">xGA<span class="sort-arrow">↕</span></th>
@@ -398,24 +439,52 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
 
 <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · GOALIES GSAx</footer>
 
-<script define:vars={{ tableRows }}>
+<script define:vars={{ tableRows, playoffRows }}>
   const sgn  = v => v >= 0 ? '+' : '';
   const fmt2 = v => v != null ? `${sgn(v)}${v.toFixed(2)}` : '—';
 
-  let sortKey = 'gsax';
-  let sortAsc = false;
+  let gameType = 2; // 2=regular, 3=playoffs
+  let sortKey  = 'gsax';
+  let sortAsc  = false;
+
+  function readUrl() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
+  }
+
+  function updateUrl() {
+    const p = new URLSearchParams();
+    if (gameType === 3) p.set('game_type', '3');
+    const qs = p.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+  }
+
+  function activeRows() { return gameType === 3 ? playoffRows : tableRows; }
 
   function renderTable() {
-    const rows = [...tableRows].sort((a, b) => {
+    const rows = [...activeRows()].sort((a, b) => {
       const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
       const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
       return sortAsc ? av - bv : bv - av;
     });
 
+    const isPlayoff = gameType === 3;
+    const thGames = document.getElementById('th-games');
+    if (thGames) thGames.style.display = isPlayoff ? '' : 'none';
+
+    document.getElementById('lb-meta').textContent =
+      `${rows.length} goalies · click any column to sort`;
+
     const tbody = document.getElementById('goalie-tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:60px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">No playoff data yet — check back during the postseason</td></tr>`;
+      return;
+    }
+
     tbody.innerHTML = rows.map((r, i) => {
       const gsaxCls = r.gsax >= 0 ? 'pos' : 'neg';
       const veCls   = r.vs_exp != null ? (r.vs_exp >= 0 ? 'pos' : 'neg') : '';
+      const gpCell  = isPlayoff ? `<td class="td-num">${r.games ?? '—'}</td>` : '';
       return `<tr>
         <td class="td-rk">${i + 1}</td>
         <td>
@@ -428,6 +497,7 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
             </div>
           </div>
         </td>
+        ${gpCell}
         <td class="td-num">${r.sa.toLocaleString()}</td>
         <td class="td-num">${r.ga}</td>
         <td class="td-num">${r.xga.toFixed(2)}</td>
@@ -447,6 +517,32 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
     });
   }
 
+  function syncToggle() {
+    document.querySelectorAll('#gametype-filter button').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
+    });
+    const mastStat = document.getElementById('mast-stat');
+    if (mastStat) {
+      mastStat.textContent = gameType === 3
+        ? `${playoffRows.length} qualifying goalies · min 100 SA · 2025–26 playoffs`
+        : `${tableRows.length} qualifying goalies · min 500 SA · 2025–26 regular season`;
+    }
+  }
+
+  // Wire toggle
+  document.querySelectorAll('#gametype-filter button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gt = parseInt(btn.dataset.gametype);
+      if (gt === gameType) return;
+      gameType = gt;
+      sortKey = 'gsax'; sortAsc = false;
+      syncToggle();
+      updateUrl();
+      updateHeaders();
+      renderTable();
+    });
+  });
+
   document.querySelectorAll('#goalie-table thead th[data-sort]').forEach(th => {
     th.addEventListener('click', () => {
       const key = th.dataset.sort;
@@ -457,6 +553,8 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
     });
   });
 
+  readUrl();
+  syncToggle();
   renderTable();
   updateHeaders();
 </script>

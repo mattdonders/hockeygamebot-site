@@ -180,6 +180,7 @@ export type TeamGameEntry = z.infer<typeof TeamGameEntrySchema>;
 export const GoalieGameSchema = z.object({
   game_date:   z.string(),
   team_abbrev: z.string(),
+  game_type:   z.number().int().optional().default(2),
   sa:   z.number().int().nonnegative(),
   ga:   z.number().int().nonnegative(),
   xga:  z.number(),
@@ -211,6 +212,7 @@ export const GoalieRecordSchema = z.object({
   goalie_id:   z.number().int(),
   name:        z.string(),
   team_abbrev: z.string(),
+  game_type:   z.number().int().optional().default(2),
   sa:    z.number().int().nonnegative(),
   ga:    z.number().int().nonnegative(),
   xga:   z.number(),
@@ -218,6 +220,11 @@ export const GoalieRecordSchema = z.object({
   sv_pct: z.number().nullable(),
   sa_5v5: z.number().int().nonnegative(),
   ga_5v5: z.number().int().nonnegative(),
+  // Playoff fields — null when goalie has no playoff appearances
+  playoff_gsax:  z.number().nullable().optional(),
+  playoff_sa:    z.number().int().nonnegative().nullable().optional(),
+  playoff_ga:    z.number().int().nonnegative().nullable().optional(),
+  playoff_games: z.number().int().nonnegative().nullable().optional(),
   games: z.array(GoalieGameSchema),
   bins:  z.array(GoalieBinSchema).optional().default([]),
   types: z.array(GoalieTypeSchema).optional().default([]),
