@@ -1,6 +1,7 @@
 ---
-// HockeyGameBot — /analytics/lines — Forward Lines + D Pairs
+// HockeyGameBot — /stats/lines — Forward Lines + D Pairs
 // Client-side interactive table. Data from /v1/stats/lines (R2 via hgb-api).
+// URL params: ?game_type=3 (playoff), ?season=playoff (alias), ?team=MTL
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
@@ -150,7 +151,7 @@ td:nth-child(4) { text-align: left; }
     <div class="mast-eyebrow"><span class="pip"></span>HockeyGameBot Analytics</div>
     <div class="mast-card">
       <h1 class="mast-headline">Line Combinations</h1>
-      <p class="mast-lede">
+      <p class="mast-lede" id="mast-lede">
         Forward lines (3-man) and defensive pairs at 5v5 · 2022–23 through 2025–26 regular season ·
         Ranked by <span class="mono">xGoals%</span>. Minimum TOI slider filters noise.
       </p>
@@ -175,6 +176,10 @@ td:nth-child(4) { text-align: left; }
       </p>
 
       <div class="controls">
+        <div class="btn-group" id="gametype-filter">
+          <button class="active" data-gametype="2">Regular Season</button>
+          <button data-gametype="3">Playoffs</button>
+        </div>
         <div class="btn-group" id="type-filter">
           <button class="active" data-type="all">All</button>
           <button data-type="F">Forwards</button>
@@ -235,23 +240,57 @@ td:nth-child(4) { text-align: left; }
 (function () {
   'use strict';
 
-  let allLines = [];
-  let typeFilter = 'all';
-  let seasonFilter = 'all';
-  let teamFilter = 'all';
-  let minToi = 150;
-  let sortCol = 'xgf_pct';
-  let sortAsc = false;
-  let showAll = false;
+  const REG_DEFAULT_TOI = 150;
+  const PO_DEFAULT_TOI  = 30;
   const TOP_N = 100;
 
+  let allLines = [];
+  let gameTypeFilter = 2; // 2=regular season, 3=playoffs
+  let typeFilter    = 'all';
+  let seasonFilter  = 'all';
+  let teamFilter    = 'all';
+  let minToi        = REG_DEFAULT_TOI;
+  let sortCol       = 'xgf_pct';
+  let sortAsc       = false;
+  let showAll       = false;
+
+  // ── URL state ────────────────────────────────────────────────────────────────
+
+  function readUrlParams() {
+    const p = new URLSearchParams(window.location.search);
+    const gt = p.get('game_type');
+    const seasonParam = p.get('season');
+    if (gt === '3' || seasonParam === 'playoff') {
+      gameTypeFilter = 3;
+      minToi = PO_DEFAULT_TOI;
+    }
+    const team = p.get('team');
+    if (team) teamFilter = team;
+    const s = p.get('s');
+    if (s) seasonFilter = s;
+  }
+
+  function updateUrl() {
+    const p = new URLSearchParams();
+    if (gameTypeFilter === 3) p.set('game_type', '3');
+    if (teamFilter !== 'all') p.set('team', teamFilter);
+    if (seasonFilter !== 'all') p.set('s', seasonFilter);
+    const qs = p.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+  }
+
+  // ── Filters + sort ───────────────────────────────────────────────────────────
+
   function applyFilters() {
-    return allLines.filter(r =>
-      (typeFilter === 'all' || r.type === typeFilter) &&
-      (seasonFilter === 'all' || r.season === seasonFilter) &&
-      (teamFilter === 'all' || r.team === teamFilter) &&
-      (r.toi_min >= minToi)
-    );
+    return allLines.filter(r => {
+      // game_type: entries without the field are treated as regular season
+      const rowGt = r.game_type != null ? r.game_type : 2;
+      return rowGt === gameTypeFilter &&
+        (typeFilter === 'all' || r.type === typeFilter) &&
+        (seasonFilter === 'all' || r.season === seasonFilter) &&
+        (teamFilter === 'all' || r.team === teamFilter) &&
+        (r.toi_min >= minToi);
+    });
   }
 
   function sortRows(rows) {
@@ -262,6 +301,8 @@ td:nth-child(4) { text-align: left; }
       return sortAsc ? av - bv : bv - av;
     });
   }
+
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   function xgfClass(v) {
     if (v == null) return '';
@@ -274,14 +315,28 @@ td:nth-child(4) { text-align: left; }
     return v != null ? v.toFixed(decimals) : '—';
   }
 
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
   function renderTable() {
     const filtered = applyFilters();
-    const sorted = sortRows(filtered);
-    const shown = showAll ? sorted : sorted.slice(0, TOP_N);
+    const sorted   = sortRows(filtered);
+    const shown    = showAll ? sorted : sorted.slice(0, TOP_N);
 
     const tbody = document.getElementById('lines-tbody');
-    const frag = document.createDocumentFragment();
 
+    if (filtered.length === 0) {
+      const msg = gameTypeFilter === 3
+        ? 'No playoff data yet — check back during the postseason'
+        : 'No lines match current filters';
+      tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:60px 20px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">${msg}</td></tr>`;
+      document.getElementById('tbl-meta').textContent = '0 lines';
+      document.getElementById('tbl-more-row').style.display = 'none';
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
     shown.forEach((r, i) => {
       const tr = document.createElement('tr');
       const rank = showAll ? sorted.indexOf(r) + 1 : i + 1;
@@ -330,9 +385,36 @@ td:nth-child(4) { text-align: left; }
     });
   }
 
-  function esc(s) {
-    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function syncUiToState() {
+    // game type toggle
+    document.querySelectorAll('#gametype-filter button').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameTypeFilter);
+    });
+    // type filter
+    document.querySelectorAll('#type-filter button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.type === typeFilter);
+    });
+    // season select
+    const seasonSel = document.getElementById('season-filter');
+    if (seasonSel) seasonSel.value = seasonFilter;
+    // team select
+    const teamSel = document.getElementById('team-filter');
+    if (teamSel) teamSel.value = teamFilter;
+    // toi slider
+    const slider = document.getElementById('toi-slider');
+    const label  = document.getElementById('toi-label');
+    slider.value = minToi;
+    label.textContent = minToi;
+    // mast lede
+    const lede = document.getElementById('mast-lede');
+    if (lede) {
+      lede.innerHTML = gameTypeFilter === 3
+        ? 'Forward lines (3-man) and defensive pairs at 5v5 · 2025–26 playoffs · Ranked by <span class="mono">xGoals%</span>. Minimum TOI slider filters noise.'
+        : 'Forward lines (3-man) and defensive pairs at 5v5 · 2022–23 through 2025–26 regular season · Ranked by <span class="mono">xGoals%</span>. Minimum TOI slider filters noise.';
+    }
   }
+
+  // ── Setup ────────────────────────────────────────────────────────────────────
 
   function populateTeams() {
     const teams = [...new Set(allLines.map(r => r.team))].sort();
@@ -342,15 +424,30 @@ td:nth-child(4) { text-align: left; }
       opt.value = t; opt.textContent = t;
       sel.appendChild(opt);
     });
+    if (teamFilter !== 'all') sel.value = teamFilter;
   }
 
   function wireEvents() {
+    document.querySelectorAll('#gametype-filter button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const gt = parseInt(btn.dataset.gametype);
+        if (gt === gameTypeFilter) return;
+        gameTypeFilter = gt;
+        minToi = gt === 3 ? PO_DEFAULT_TOI : REG_DEFAULT_TOI;
+        showAll = false;
+        syncUiToState();
+        updateUrl();
+        renderTable();
+      });
+    });
+
     document.querySelectorAll('#type-filter button').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('#type-filter button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         typeFilter = btn.dataset.type;
         showAll = false;
+        updateUrl();
         renderTable();
       });
     });
@@ -358,12 +455,14 @@ td:nth-child(4) { text-align: left; }
     document.getElementById('season-filter').addEventListener('change', e => {
       seasonFilter = e.target.value;
       showAll = false;
+      updateUrl();
       renderTable();
     });
 
     document.getElementById('team-filter').addEventListener('change', e => {
       teamFilter = e.target.value;
       showAll = false;
+      updateUrl();
       renderTable();
     });
 
@@ -398,6 +497,8 @@ td:nth-child(4) { text-align: left; }
   }
 
   async function init() {
+    readUrlParams();
+
     try {
       const res = await fetch('https://api.hockeygamebot.com/v1/stats/lines');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -412,6 +513,7 @@ td:nth-child(4) { text-align: left; }
     document.getElementById('main-content').style.display = 'block';
 
     populateTeams();
+    syncUiToState();
     wireEvents();
     renderTable();
   }
