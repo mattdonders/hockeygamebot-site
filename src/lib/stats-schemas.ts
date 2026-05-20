@@ -118,14 +118,13 @@ export const LeaderboardEntrySchema = z.object({
 });
 
 /**
- * Leaderboards is a map of metric-name -> entry[]. Current known metrics:
- *   game_score, goals, assists, xg
+ * Leaderboards is a map of metric-name -> entry[], plus optional metadata fields.
+ * game_type was added in Sprint A Item 3 (always 2 = regular season).
  * New metrics can be added by the exporter without a schema bump (catchall).
  */
-export const LeaderboardsSchema = z.record(
-  z.string(),
-  z.array(LeaderboardEntrySchema),
-);
+export const LeaderboardsSchema = z.object({
+  game_type: z.number().optional(),
+}).catchall(z.array(LeaderboardEntrySchema));
 export type LeaderboardEntry = z.infer<typeof LeaderboardEntrySchema>;
 export type Leaderboards = z.infer<typeof LeaderboardsSchema>;
 
