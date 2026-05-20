@@ -37,6 +37,8 @@ import Fonts from '../../components/Fonts.astro';
   --ink-04:  rgba(13,13,20,0.04);
   --red:     #E8002D;
   --green:   #4ade80;
+  --stats-pos: #166534;
+  --stats-neg: #991b1b;
   --grid-line: rgba(13,13,20,0.04);
   --display: "Barlow Condensed", sans-serif;
   --body:    "Barlow", sans-serif;
@@ -115,10 +117,12 @@ td:nth-child(4) { text-align: left; }
 .type-f { background: rgba(74,222,128,0.18); color: #166534; }
 .type-d { background: rgba(96,165,250,0.18); color: #1e3a5f; }
 
-.xgf-hi  { color: #166534; font-weight: 700; }
+.xgf-hi  { color: var(--stats-pos); font-weight: 700; }
 .xgf-mid { color: var(--ink); }
-.xgf-lo  { color: #991b1b; font-weight: 700; }
+.xgf-lo  { color: var(--stats-neg); font-weight: 700; }
 
+.dl-btn { background: none; border: 1px solid var(--ink-20); padding: 5px 12px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; border-radius: 2px; white-space: nowrap; }
+.dl-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .tbl-more { border-top: 1px solid var(--ink-14); padding: 12px; text-align: center; }
 .tbl-more button { background: none; border: 1px solid var(--ink-20); padding: 6px 20px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; }
 .tbl-more button:hover { border-color: var(--ink); color: var(--ink); }
@@ -169,7 +173,10 @@ td:nth-child(4) { text-align: left; }
     <div class="section-block">
       <div class="section-head">
         <h2>Lines &amp; Pairs</h2>
-        <span class="section-meta" id="tbl-meta"></span>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="section-meta" id="tbl-meta"></span>
+          <button class="dl-btn" id="dl-btn">↓ PNG</button>
+        </div>
       </div>
       <p class="section-lede">
         All combinations at <strong>5v5</strong> with qualifying ice time. Click column headers to sort. xG% &gt;55% highlighted green, &lt;45% red.
@@ -236,6 +243,7 @@ td:nth-child(4) { text-align: left; }
   </div>
 </footer>
 
+<script is:inline src="/js/table-export.js"></script>
 <script is:inline>
 (function () {
   'use strict';
@@ -524,6 +532,56 @@ td:nth-child(4) { text-align: left; }
     wireEvents();
     renderTable();
   }
+
+  // ── PNG Export ───────────────────────────────────────────────────────────────
+  const EXPORT_COLS = [
+    { label: '#',       key: '_rank',    width: 44,  align: 'center' },
+    { label: 'Line',    key: 'players',  width: 330, align: 'left', fontFamily: 'body' },
+    { label: 'Type',    key: 'type',     width: 52,  align: 'center' },
+    { label: 'Team',    key: 'team',     width: 54,  align: 'center' },
+    { label: 'Minutes', key: 'toi_min',  width: 82,  align: 'right',
+      format: (v) => v != null ? v.toFixed(1) : '—' },
+    { label: 'Games',   key: 'games',    width: 68,  align: 'right' },
+    { label: 'xG%',     key: 'xgf_pct', width: 76,  align: 'right',
+      format: (v) => v != null ? v.toFixed(1) + '%' : '—',
+      color:  (v, _r, tok) => v >= 55 ? tok.pos : v <= 45 ? tok.neg : null,
+      bold:   (v) => v != null && (v >= 55 || v <= 45) },
+    { label: 'xGF',     key: 'xgf',     width: 72,  align: 'right',
+      format: (v) => v != null ? v.toFixed(2) : '—' },
+    { label: 'xGA',     key: 'xga',     width: 72,  align: 'right',
+      format: (v) => v != null ? v.toFixed(2) : '—' },
+    { label: 'xGF/60',  key: 'xgf_60',  width: 84,  align: 'right',
+      format: (v) => v != null ? v.toFixed(2) : '—' },
+    { label: 'xGA/60',  key: 'xga_60',  width: 84,  align: 'right',
+      format: (v) => v != null ? v.toFixed(2) : '—' },
+  ];
+
+  function getExportChips() {
+    const chips = [gameTypeFilter === 3 ? 'Playoffs' : 'Regular Season'];
+    if (typeFilter !== 'all') chips.push(typeFilter === 'F' ? 'Forwards' : 'Defense');
+    if (teamFilter !== 'all') chips.push(teamFilter);
+    if (seasonFilter !== 'all') chips.push(seasonFilter.slice(0, 4) + '–' + seasonFilter.slice(6));
+    const def = gameTypeFilter === 3 ? PO_DEFAULT_TOI : REG_DEFAULT_TOI;
+    if (minToi !== def) chips.push('Min TOI: ' + minToi + 'm');
+    return chips;
+  }
+
+  document.getElementById('dl-btn').addEventListener('click', function () {
+    const rows = applyFilters()
+      .sort((a, b) => {
+        const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+        const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+        return sortAsc ? av - bv : bv - av;
+      })
+      .map((r, i) => Object.assign({ _rank: i + 1 }, r));
+    window.HGB_Export.downloadTablePng({
+      title: 'Lines & Pairs',
+      filterChips: getExportChips(),
+      rows,
+      columns: EXPORT_COLS,
+      filename: 'hgb-lines.png',
+    });
+  });
 
   init();
 })();

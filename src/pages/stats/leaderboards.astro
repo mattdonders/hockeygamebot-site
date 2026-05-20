@@ -85,6 +85,8 @@ const tableRows = eligible.map(p => {
       --display:  'Barlow Condensed', sans-serif;
       --body:     'Barlow', sans-serif;
       --mono:     'JetBrains Mono', monospace;
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
     }
     html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
 
@@ -122,6 +124,8 @@ const tableRows = eligible.map(p => {
     .lb-title { font-family: var(--display); font-weight: 800; font-size: 22px;
       text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
     .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .lb-dl-btn { background: none; border: 1px solid var(--ink-20); padding: 5px 12px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; border-radius: 2px; white-space: nowrap; }
+    .lb-dl-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
     /* ── Filter tabs ── */
     .lb-filters { display: flex; align-items: center; gap: 6px; }
@@ -187,8 +191,8 @@ const tableRows = eligible.map(p => {
       display: block; font-family: var(--mono); font-size: 13px; font-weight: 700;
       font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.25;
     }
-    .sv.pos { color: #14803c; }
-    .sv.neg { color: var(--red); }
+    .sv.pos { color: var(--stats-pos); }
+    .sv.neg { color: var(--stats-neg); }
     .sv.nil { color: var(--ink-32); font-weight: 400; font-size: 12px; }
     .sp {
       display: block; font-family: var(--mono); font-size: 9px;
@@ -281,6 +285,7 @@ const tableRows = eligible.map(p => {
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
         <span class="lb-title">Season Leaderboards</span>
         <span class="lb-meta" id="lb-count">{eligible.length} players · 2025–26</span>
+        <button class="lb-dl-btn" id="dl-btn">↓ PNG</button>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
         <div class="lb-filters">
@@ -348,6 +353,7 @@ const tableRows = eligible.map(p => {
 </body>
 </html>
 
+<script is:inline src="/js/table-export.js"></script>
 <script define:vars={{ rows: tableRows }}>
 const DATA = rows;
 const PAGE = 50;
@@ -563,4 +569,93 @@ document.getElementById('lb-more-btn')?.addEventListener('click', () => {
 });
 
 render();
+
+// ── PNG Export ────────────────────────────────────────────────────────────────
+const sgn2 = n => n >= 0 ? '+' : '';
+
+const SIT_EXPORT_COLS = {
+  all: [
+    { label: '#',      key: '_rank', width: 44,  align: 'center' },
+    { label: 'Player', key: 'name',  width: 240, align: 'left', fontFamily: 'body' },
+    { label: 'Team',   key: 'team',  width: 58,  align: 'center' },
+    { label: 'Pos',    key: 'pos',   width: 48,  align: 'center' },
+    { label: 'GP',     key: 'gp',    width: 54,  align: 'right' },
+    { label: 'WAR',    key: 'war',   width: 86,  align: 'right',
+      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
+      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null, bold: true },
+    { label: 'G/60',   key: 'g60',   width: 76,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'A1/60',  key: 'a60',   width: 80,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'xG/60',  key: 'x60',   width: 80,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'Fin',    key: 'fin',   width: 76,  align: 'right',
+      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
+      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
+    { label: 'Impact', key: 'imp',   width: 86,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+  ],
+  '5v5': [
+    { label: '#',      key: '_rank',    width: 44,  align: 'center' },
+    { label: 'Player', key: 'name',     width: 220, align: 'left', fontFamily: 'body' },
+    { label: 'Team',   key: 'team',     width: 56,  align: 'center' },
+    { label: 'Pos',    key: 'pos',      width: 48,  align: 'center' },
+    { label: 'GP',     key: 'gp',       width: 52,  align: 'right' },
+    { label: 'xGF%',   key: 'xgf_pct', width: 76,  align: 'right',
+      format: v => v != null ? v.toFixed(1) + '%' : '—',
+      color: (v, _r, tok) => v != null ? (v >= 55 ? tok.pos : v <= 45 ? tok.neg : null) : null,
+      bold: (v) => v != null && (v >= 55 || v <= 45) },
+    { label: 'xGF/60', key: 'xgf60',   width: 86,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'xGA/60', key: 'xga60',   width: 86,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'SC/60',  key: 'sc60',    width: 76,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'HDC/60', key: 'hdc60',   width: 82,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'HDC%',   key: 'hdc_pct', width: 76,  align: 'right',
+      format: v => v != null ? v.toFixed(1) + '%' : '—' },
+  ],
+  pp: [
+    { label: '#',         key: '_rank',   width: 44,  align: 'center' },
+    { label: 'Player',    key: 'name',    width: 220, align: 'left', fontFamily: 'body' },
+    { label: 'Team',      key: 'team',    width: 56,  align: 'center' },
+    { label: 'Pos',       key: 'pos',     width: 48,  align: 'center' },
+    { label: 'GP',        key: 'gp',      width: 52,  align: 'right' },
+    { label: 'PP min/gm', key: 'pp_toi',  width: 108, align: 'right',
+      format: v => v != null ? v.toFixed(1) : '—' },
+    { label: 'PP G',      key: 'pp_g',    width: 72,  align: 'right' },
+    { label: 'PP xG/60',  key: 'pp_xg60', width: 96,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'SC/60',     key: 'sc60',    width: 82,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+    { label: 'HDC/60',    key: 'hdc60',   width: 88,  align: 'right',
+      format: v => v != null ? v.toFixed(2) : '—' },
+  ],
+};
+
+function getExportChips() {
+  const chips = [{ all: 'All Situations', '5v5': '5v5', pp: 'Power Play' }[situation]];
+  if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
+  return chips;
+}
+
+document.getElementById('dl-btn').addEventListener('click', function () {
+  let filtered = DATA.slice();
+  if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
+  filtered.sort((a, b) => {
+    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    return sortAsc ? av - bv : bv - av;
+  });
+  const rows = filtered.map((r, i) => Object.assign({ _rank: i + 1 }, r));
+  const sitLabel = { all: 'All Situations', '5v5': '5v5', pp: 'Power Play' }[situation];
+  window.HGB_Export.downloadTablePng({
+    title: 'Season Leaderboards',
+    filterChips: getExportChips(),
+    rows,
+    columns: SIT_EXPORT_COLS[situation],
+    filename: 'hgb-leaderboards.png',
+  });
+});
 </script>
