@@ -135,16 +135,30 @@
     const pad = 8;
     const label = text.toUpperCase();
 
+    // Name/player columns stay left; everything else centers (matches site th { text-align: center })
     if (align === 'left') {
       ctx.textAlign = 'left';
       ctx.fillText(label, x + pad, cy);
-    } else if (align === 'right') {
-      ctx.textAlign = 'right';
-      ctx.fillText(label, x + colWidth - pad, cy);
     } else {
       ctx.textAlign = 'center';
       ctx.fillText(label, x + colWidth / 2, cy);
     }
+  }
+
+  function _drawPill(ctx, text, x, cy, colWidth, bg, fg) {
+    ctx.font = '700 10px "Barlow Condensed", sans-serif';
+    const tw  = ctx.measureText(text).width;
+    const pH  = 18;
+    const pW  = Math.max(tw + 16, 24);
+    const px  = x + colWidth / 2 - pW / 2;
+    const py  = cy - pH / 2;
+    _roundRect(ctx, px, py, pW, pH, 3);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.fillStyle = fg;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, x + colWidth / 2, cy);
   }
 
   // ── Main export function ─────────────────────────────────────────────────────
@@ -250,6 +264,16 @@
         const text  = col.format
           ? col.format(value, row)
           : (value != null ? String(value) : '—');
+
+        if (col.pill) {
+          const pillStyle = col.pill(value, row);
+          if (pillStyle) {
+            _drawPill(ctx, text, colX, rowY + ROW_H / 2, col.width, pillStyle.bg, pillStyle.fg);
+            colX += col.width;
+            continue;
+          }
+        }
+
         const color = col.color ? col.color(value, row, tok) : null;
         const bold  = typeof col.bold === 'function' ? col.bold(value, row) : !!col.bold;
 
