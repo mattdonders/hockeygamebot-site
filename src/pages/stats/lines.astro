@@ -216,7 +216,7 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
               <th data-col="type">Type <span class="sort-arrow"></span></th>
               <th data-col="team">Team <span class="sort-arrow"></span></th>
               <th data-col="toi_min">Minutes <span class="sort-arrow"></span></th>
-              <th data-col="games">Games <span class="sort-arrow"></span></th>
+              <th data-col="min_per_g">Min/G <span class="sort-arrow"></span></th>
               <th data-col="xgf_pct">xG% <span class="sort-arrow"></span></th>
               <th data-col="xgf">xGF <span class="sort-arrow"></span></th>
               <th data-col="xga">xGA <span class="sort-arrow"></span></th>
@@ -361,7 +361,7 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
         <td><span class="type-pill type-${r.type.toLowerCase()}">${r.type}</span></td>
         <td>${esc(r.team)}</td>
         <td>${fmt(r.toi_min)}</td>
-        <td>${r.games ?? '—'}</td>
+        <td>${r.min_per_g ?? '—'}</td>
         <td class="${pctClass}">${r.xgf_pct != null ? r.xgf_pct.toFixed(1) + '%' : '—'}</td>
         <td>${fmt(r.xgf, 2)}</td>
         <td>${fmt(r.xga, 2)}</td>
@@ -518,7 +518,10 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
     try {
       const res = await fetch('https://api.hockeygamebot.com/v1/stats/lines');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      allLines = await res.json();
+      allLines = (await res.json()).map(r => ({
+        ...r,
+        min_per_g: r.games > 0 ? +(r.toi_min / r.games).toFixed(1) : null,
+      }));
     } catch (err) {
       document.getElementById('loading-state').innerHTML =
         `<p style="font-family:var(--mono);font-size:13px;color:var(--red)">Failed to load: ${err.message}</p>`;
@@ -545,7 +548,8 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
     { label: 'Team',    key: 'team',     width: 54,  align: 'center' },
     { label: 'Minutes', key: 'toi_min',  width: 82,  align: 'center',
       format: (v) => v != null ? v.toFixed(1) : '—' },
-    { label: 'Games',   key: 'games',    width: 68,  align: 'center' },
+    { label: 'Min/G',   key: 'min_per_g', width: 68, align: 'center',
+      format: (v) => v != null ? v.toFixed(1) : '—' },
     { label: 'xG%',     key: 'xgf_pct', width: 76,  align: 'center',
       format: (v) => v != null ? v.toFixed(1) + '%' : '—',
       color:  (v, _r, tok) => v >= 55 ? tok.pos : v <= 45 ? tok.neg : null,
@@ -567,7 +571,7 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
     if (seasonFilter !== 'all') chips.push(seasonFilter.slice(0, 4) + '–' + seasonFilter.slice(6));
     const def = gameTypeFilter === 3 ? PO_DEFAULT_TOI : REG_DEFAULT_TOI;
     if (minToi !== def) chips.push('Min TOI: ' + minToi + 'm');
-    const colNames = { xgf_pct: 'xG%', toi_min: 'Minutes', games: 'Games',
+    const colNames = { xgf_pct: 'xG%', toi_min: 'Minutes', min_per_g: 'Min/G',
       xgf: 'xGF', xga: 'xGA', xgf_60: 'xGF/60', xga_60: 'xGA/60',
       rank: '#', players: 'Line', type: 'Type', team: 'Team' };
     chips.push('Sort: ' + (colNames[sortCol] || sortCol) + ' ' + (sortAsc ? '↑' : '↓'));
