@@ -221,6 +221,7 @@ export const GoalieRecordSchema = z.object({
   name:        z.string(),
   team_abbrev: z.string(),
   game_type:   z.number().int().optional().default(2),
+  gp:          z.number().int().nonnegative().optional(),
   sa:    z.number().int().nonnegative(),
   ga:    z.number().int().nonnegative(),
   xga:   z.number(),
