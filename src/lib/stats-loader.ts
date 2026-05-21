@@ -4,6 +4,7 @@ import {
   PlayerGamesSchema,
   TeamGameStatsSchema,
   GoaliesSchema,
+  LinesSchema,
   StatsMetaSchema,
   parseOrThrow,
   type PlayerRecord,
@@ -11,6 +12,7 @@ import {
   type GameLogEntry as ZGameLogEntry,
   type TeamGameEntry as ZTeamGameEntry,
   type GoalieRecord,
+  type LineRecord,
   type StatsMeta,
 } from './stats-schemas';
 
@@ -24,13 +26,14 @@ async function _fetchJSON(path: string) {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData] = await Promise.all([
   _fetchJSON('players'),
   _fetchJSON('leaderboards'),
   _fetchJSON('player-games'),
   _fetchJSON('meta'),
   _fetchJSON('team-game-stats').catch(() => ({})),  // graceful fallback before export runs
   _fetchJSON('goalies').catch(() => []),             // graceful fallback before pipeline adds it
+  _fetchJSON('lines').catch(() => []),
 ]);
 
 const VALIDATED_PLAYERS      = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
@@ -39,6 +42,7 @@ const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema,    playerGamesDat
 const VALIDATED_META         = parseOrThrow(StatsMetaSchema,      metaData,           'meta');
 const VALIDATED_TEAM_GAMES   = parseOrThrow(TeamGameStatsSchema,  teamGameStatsData,  'team-game-stats');
 const VALIDATED_GOALIES      = parseOrThrow(GoaliesSchema,        goaliesData,        'goalies');
+const VALIDATED_LINES        = parseOrThrow(LinesSchema,          linesData,          'lines');
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -50,6 +54,7 @@ export type GameLogEntry = ZGameLogEntry;
 export type TeamGameEntry = ZTeamGameEntry;
 export type GoalieData = GoalieRecord;
 export type MetaData = StatsMeta;
+export type LineData = LineRecord;
 
 // ── Loaders ─────────────────────────────────────────────────────────────────
 
@@ -192,4 +197,8 @@ export function loadTopGoals60(n = 10): LeaderboardSectionEntry[] {
 
 export function loadGoalies(): GoalieData[] {
   return VALIDATED_GOALIES;
+}
+
+export function loadLines(): LineData[] {
+  return VALIDATED_LINES;
 }

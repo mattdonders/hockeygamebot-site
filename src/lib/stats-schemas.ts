@@ -263,6 +263,29 @@ export const StatsMetaSchema = z.object({
 });
 export type StatsMeta = z.infer<typeof StatsMetaSchema>;
 
+// ── Lines (lines.json) ─────────────────────────────────────────────────────
+
+export const LineRecordSchema = z.object({
+  players:  z.string(),
+  player_ids: z.array(z.number()),
+  type:     z.enum(['F', 'D']),
+  team:     z.string(),
+  season:   z.string(),
+  game_type: z.number(),
+  toi_min:  z.number(),
+  games:    z.number(),
+  xgf_pct:  z.number().nullable().optional(),
+  xgf:      z.number().nullable().optional(),
+  xga:      z.number().nullable().optional(),
+  xgf_60:   z.number().nullable().optional(),
+  xga_60:   z.number().nullable().optional(),
+  gf:       z.number().nullable().optional(),
+  ga:       z.number().nullable().optional(),
+  gf_pct:   z.number().nullable().optional(),
+});
+export const LinesSchema = z.array(LineRecordSchema);
+export type LineRecord = z.infer<typeof LineRecordSchema>;
+
 // ── Methodology (methodology.json) ─────────────────────────────────────────
 
 // Kept loose — methodology is URL pointers + commentary. Schema is intentionally
