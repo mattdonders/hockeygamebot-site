@@ -161,6 +161,12 @@ const tableRows = eligible.map(p => {
     .btn-group button:last-child { border-right: none; }
     .btn-group button.active { background: var(--ink); color: var(--bg); }
     .btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
+    select { background: var(--surface); border: 1px solid var(--ink-14); padding: 6px 10px;
+      font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
+      color: var(--ink); cursor: pointer; outline: none; }
+    .slider-wrap { display: inline-flex; align-items: center; gap: 8px;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
+    .slider-wrap input[type=range] { width: 100px; accent-color: var(--red); }
 
     /* ── Table ── */
     .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14);
@@ -327,6 +333,13 @@ const tableRows = eligible.map(p => {
         <button data-pos="F">Fwds</button>
         <button data-pos="D">Def</button>
       </div>
+      <select id="team-filter">
+        <option value="all">All Teams</option>
+      </select>
+      <div class="slider-wrap">
+        Min TOI: <span id="toi-label">—</span>
+        <input type="range" id="toi-slider" min="0" max="28" value="0" step="1">
+      </div>
     </div>
 
     <div class="lb-wrap" id="lb-reg-wrap">
@@ -376,12 +389,14 @@ const PAGE = 50;
 const sgn2 = v => v >= 0 ? '+' : '';
 
 // ── State ────────────────────────────────────────────────────────────────────
-let gameType  = 2;
-let viewTab   = 'counting';
-let posFilter = 'all';
-let sortKey   = 'points';
-let sortAsc   = false;
-let showAll   = false;
+let gameType   = 2;
+let viewTab    = 'counting';
+let posFilter  = 'all';
+let teamFilter = 'all';
+let minToi     = 0;
+let sortKey    = 'points';
+let sortAsc    = false;
+let showAll    = false;
 
 // ── Tab column definitions ────────────────────────────────────────────────────
 // Fixed columns in every tab: #, Player, Pos, GP
@@ -435,12 +450,18 @@ function readUrl() {
   const tab = p.get('tab');
   if (tab && TABS[tab]) { viewTab = tab; }
   sortKey = resolveDefaultSort(viewTab, gameType);
+  const team = p.get('team');
+  if (team) teamFilter = team;
+  const toi = parseInt(p.get('toi') || '0');
+  if (!isNaN(toi)) minToi = toi;
 }
 
 function updateUrl() {
   const p = new URLSearchParams();
   if (gameType === 3) p.set('game_type', '3');
   if (viewTab !== 'counting') p.set('tab', viewTab);
+  if (teamFilter !== 'all') p.set('team', teamFilter);
+  if (minToi > 0) p.set('toi', String(minToi));
   history.replaceState(null, '', p.toString() ? `?${p}` : window.location.pathname);
 }
 
@@ -474,6 +495,11 @@ function getRows() {
   let rows = DATA.slice();
   if (isPlayoff) rows = rows.filter(r => r.po_gp != null && r.po_gp > 0);
   if (posFilter !== 'all') rows = rows.filter(r => r.group === posFilter);
+  if (teamFilter !== 'all') rows = rows.filter(r => r.team === teamFilter);
+  if (minToi > 0) {
+    const toiKey = (isPlayoff && viewTab === 'counting') ? 'po_toi_pg' : 'toi_pg';
+    rows = rows.filter(r => (r[toiKey] ?? 0) >= minToi);
+  }
   rows.sort((a, b) => {
     const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
     const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
@@ -656,8 +682,45 @@ document.getElementById('lb-more-btn')?.addEventListener('click', () => {
   render();
 });
 
+// ── Team + TOI filter init + events ──────────────────────────────────────────
+
+// Populate team dropdown from data
+(function() {
+  const teams = [...new Set(DATA.map(r => r.team))].sort();
+  const sel = document.getElementById('team-filter');
+  teams.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t; opt.textContent = t;
+    sel.appendChild(opt);
+  });
+  if (teamFilter !== 'all') sel.value = teamFilter;
+})();
+
+function syncToiLabel() {
+  const el = document.getElementById('toi-label');
+  if (el) el.textContent = minToi > 0 ? `${minToi}m` : '—';
+  const slider = document.getElementById('toi-slider');
+  if (slider) slider.value = String(minToi);
+}
+
+document.getElementById('team-filter')?.addEventListener('change', function() {
+  teamFilter = this.value;
+  showAll = false;
+  updateUrl();
+  render();
+});
+
+document.getElementById('toi-slider')?.addEventListener('input', function() {
+  minToi = parseInt(this.value);
+  syncToiLabel();
+  showAll = false;
+  updateUrl();
+  render();
+});
+
 readUrl();
 syncUi();
+syncToiLabel();
 render();
 
 // ── PNG Export ────────────────────────────────────────────────────────────────
@@ -713,6 +776,8 @@ function getExportChips() {
   const tabLabel = { counting: 'Counting', rates: 'Rates', advanced: 'Advanced' }[viewTab];
   const chips = [isPlayoff ? 'Playoffs' : 'Regular Season', tabLabel];
   if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
+  if (teamFilter !== 'all') chips.push(teamFilter);
+  if (minToi > 0) chips.push(`${minToi}+ min TOI`);
   return chips;
 }
 
