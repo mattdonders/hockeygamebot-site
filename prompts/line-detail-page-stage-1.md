@@ -61,6 +61,31 @@ Slug rules:
 - Diacritic-safe (strip diacritics for slug, e.g., "slafkovsky" not "slafkovský")
 - D-pair example: `car-blake-miller-2025-26-playoffs` (2 names instead of 3)
 
+## Data dependencies — VERIFY BEFORE STARTING
+
+The data layer may need expansion before the route can render fully. **Verify what's available in `lines.json` first.** Suspected gaps:
+
+1. **PDO** — not currently in `lines.json` (need PDO OR the components: on-ice SV% + on-ice SH% — compute PDO as SV% + SH% × 1000).
+2. **Per-player full names** — `lines.json` has the joined `players` string (e.g., "C. Caufield – J. Slafkovský – N. Suzuki") but not individual full names. Headshot captions need "Cole Caufield" not "C. Caufield".
+3. **Per-player positions** — line type (F or D) is in `lines.json` but individual positions (L / C / R) are not. Needed for the player strip ("C" under Suzuki's headshot, etc.).
+4. **Player IDs** — already in `lines.json` as `player_ids` array. Headshot URL construction works from this.
+
+### Three options to handle the gaps
+
+Pick the one that fits the existing pipeline architecture. Discuss with stats engineer if unclear.
+
+**A.** **Extend `lines.json` to include these fields per line.** Cleanest for this page; adds slight bloat to the JSON. Probably the right call.
+
+**B.** **JOIN `lines.json` to `players.json` client-side at page load.** Slower (two fetches + join), but no pipeline changes. Works if `players.json` has the needed fields (full_name, position).
+
+**C.** **Add a per-line aggregate query directly to SQLite** via a new API endpoint (e.g., `/v1/lines/{slug}/detail`). Most flexible but adds an endpoint just for this page.
+
+**Recommend A** if the pipeline expansion is straightforward; B if A is more than ~1 hour of pipeline work; C only if the data needs are likely to keep growing.
+
+### Stop point if gaps are larger than expected
+
+If verifying the data dependencies takes longer than 30 minutes OR if expanding `lines.json` requires meaningful pipeline rework, **stop and surface the gap to Matt before continuing.** Don't sink hours into a workaround when the pipeline fix is the right call.
+
 ## Acceptance criteria
 
 - [ ] Click any row on `/stats/lines` → navigates to detail page
