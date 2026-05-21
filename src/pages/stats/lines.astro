@@ -92,6 +92,10 @@ select {
 }
 
 .slider-wrap { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
+.team-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--ink); color: var(--bg); font-family: var(--body); font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 8px 4px 10px; }
+.team-chip-x { cursor: pointer; opacity: 0.6; font-size: 13px; line-height: 1; background: none; border: none; color: inherit; padding: 0; }
+.team-chip-x:hover { opacity: 1; }
+#team-add-select:disabled { opacity: 0.35; }
 .slider-wrap input[type=range] { width: 120px; accent-color: var(--red); }
 
 .tbl-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; overflow-y: auto; max-height: 700px; }
@@ -198,9 +202,12 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
           <option value="20232024">2023–24</option>
           <option value="20222023">2022–23</option>
         </select>
-        <select id="team-filter">
-          <option value="all">All Teams</option>
-        </select>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <select id="team-add-select" style="min-width:140px">
+            <option value="">Add team…</option>
+          </select>
+          <div id="team-chips" style="display:flex;gap:5px;flex-wrap:wrap;min-height:0"></div>
+        </div>
         <div class="slider-wrap">
           Min TOI: <span id="toi-label">150</span>m
           <input type="range" id="toi-slider" min="20" max="400" value="150" step="10" />
@@ -255,7 +262,8 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
   let gameTypeFilter = 2; // 2=regular season, 3=playoffs
   let typeFilter    = 'all';
   let seasonFilter  = 'all';
-  let teamFilter    = 'all';
+  const MAX_TEAMS = 3;
+  let selectedTeams = []; // [] = all teams
   let minToi        = REG_DEFAULT_TOI;
   let sortCol       = 'xgf_pct';
   let sortAsc       = false;
@@ -272,7 +280,7 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
       minToi = PO_DEFAULT_TOI;
     }
     const team = p.get('team');
-    if (team) teamFilter = team;
+    if (team) selectedTeams = team.split(',').filter(Boolean).slice(0, MAX_TEAMS);
     const s = p.get('s');
     if (s) seasonFilter = s;
     const type = p.get('type');
@@ -284,7 +292,7 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
   function updateUrl() {
     const p = new URLSearchParams();
     if (gameTypeFilter === 3) p.set('game_type', '3');
-    if (teamFilter !== 'all') p.set('team', teamFilter);
+    if (selectedTeams.length > 0) p.set('team', selectedTeams.join(','));
     if (seasonFilter !== 'all') p.set('s', seasonFilter);
     if (typeFilter !== 'all') p.set('type', typeFilter);
     const defaultToi = gameTypeFilter === 3 ? PO_DEFAULT_TOI : REG_DEFAULT_TOI;
@@ -302,7 +310,7 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
       return rowGt === gameTypeFilter &&
         (typeFilter === 'all' || r.type === typeFilter) &&
         (seasonFilter === 'all' || r.season === seasonFilter) &&
-        (teamFilter === 'all' || r.team === teamFilter) &&
+        (selectedTeams.length === 0 || selectedTeams.includes(r.team)) &&
         (r.toi_min >= minToi);
     });
   }
@@ -411,9 +419,7 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
     // season select
     const seasonSel = document.getElementById('season-filter');
     if (seasonSel) seasonSel.value = seasonFilter;
-    // team select
-    const teamSel = document.getElementById('team-filter');
-    if (teamSel) teamSel.value = teamFilter;
+    renderTeamChips();
     // toi slider — playoffs use 5m steps and smaller min; reg season uses 10m
     const slider = document.getElementById('toi-slider');
     const label  = document.getElementById('toi-label');
@@ -432,15 +438,33 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
 
   // ── Setup ────────────────────────────────────────────────────────────────────
 
+  function renderTeamChips() {
+    const container = document.getElementById('team-chips');
+    const sel = document.getElementById('team-add-select');
+    if (!container) return;
+    container.innerHTML = selectedTeams.map(t =>
+      `<span class="team-chip">${t}<button class="team-chip-x" data-team="${t}" aria-label="Remove ${t}">×</button></span>`
+    ).join('');
+    container.querySelectorAll('.team-chip-x').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedTeams = selectedTeams.filter(t => t !== btn.dataset.team);
+        renderTeamChips();
+        updateUrl();
+        renderTable();
+      });
+    });
+    if (sel) sel.disabled = selectedTeams.length >= MAX_TEAMS;
+  }
+
   function populateTeams() {
     const teams = [...new Set(allLines.map(r => r.team))].sort();
-    const sel = document.getElementById('team-filter');
+    const sel = document.getElementById('team-add-select');
     teams.forEach(t => {
       const opt = document.createElement('option');
       opt.value = t; opt.textContent = t;
       sel.appendChild(opt);
     });
-    if (teamFilter !== 'all') sel.value = teamFilter;
+    renderTeamChips();
   }
 
   function wireEvents() {
@@ -475,11 +499,16 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
       renderTable();
     });
 
-    document.getElementById('team-filter').addEventListener('change', e => {
-      teamFilter = e.target.value;
-      showAll = false;
-      updateUrl();
-      renderTable();
+    document.getElementById('team-add-select').addEventListener('change', e => {
+      const t = e.target.value;
+      if (t && !selectedTeams.includes(t) && selectedTeams.length < MAX_TEAMS) {
+        selectedTeams = [...selectedTeams, t];
+        renderTeamChips();
+        showAll = false;
+        updateUrl();
+        renderTable();
+      }
+      e.target.value = ''; // reset dropdown
     });
 
     const slider = document.getElementById('toi-slider');
@@ -567,7 +596,7 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
   function getExportChips() {
     const chips = [gameTypeFilter === 3 ? 'Playoffs' : 'Regular Season'];
     if (typeFilter !== 'all') chips.push(typeFilter === 'F' ? 'Forwards' : 'Defense');
-    if (teamFilter !== 'all') chips.push(teamFilter);
+    if (selectedTeams.length > 0) chips.push(selectedTeams.join(' + '));
     if (seasonFilter !== 'all') chips.push(seasonFilter.slice(0, 4) + '–' + seasonFilter.slice(6));
     const def = gameTypeFilter === 3 ? PO_DEFAULT_TOI : REG_DEFAULT_TOI;
     if (minToi !== def) chips.push('Min TOI: ' + minToi + 'm');
