@@ -308,13 +308,14 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .ps-container .player-stats-grid { border: none; }
 #combined-goalies { border-top: 1px solid var(--ink-14); }
 .cg-head { padding: 8px 12px 6px; font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); background: var(--bg-2); }
-.cg-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
-.cg-table th { padding: 7px 12px; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); text-align: center; border-bottom: 1px solid var(--ink-14); }
-.cg-table th:first-child, .cg-table th:nth-child(2), .cg-table th:nth-child(3) { text-align: left; }
-.cg-table td { padding: 8px 12px; text-align: center; border-bottom: 1px solid var(--ink-06); color: var(--ink); }
-.cg-table td:first-child { color: var(--ink-32); font-size: 10px; }
+.cg-table { width: auto; min-width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; table-layout: auto; }
+.cg-table th { padding: 7px 14px; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); text-align: center; border-bottom: 1px solid var(--ink-14); white-space: nowrap; }
+.cg-table th:nth-child(2) { text-align: left; min-width: 160px; }
+.cg-table th:first-child, .cg-table th:nth-child(3) { text-align: center; width: 40px; }
+.cg-table td { padding: 8px 14px; text-align: center; border-bottom: 1px solid var(--ink-06); color: var(--ink); white-space: nowrap; }
+.cg-table td:first-child { color: var(--ink-32); font-size: 10px; width: 40px; }
 .cg-table td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; font-size: 13px; }
-.cg-table td:nth-child(3) { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; }
+.cg-table td:nth-child(3) { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; width: 50px; }
 .cg-table tr:last-child td { border-bottom: none; }
 .gsax-pos { color: var(--stats-pos); font-weight: 700; }
 .gsax-neg { color: var(--stats-neg); font-weight: 700; }
@@ -447,6 +448,7 @@ table.lc tbody tr:hover { background: var(--ink-04); }
 .lc-team-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .lc-line-label { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; }
 .lc-players { font-family: var(--body); font-weight: 600; font-size: 13px; }
+.lc-players-th { min-width: 200px; }
 .lc-xgf-pos { color: var(--stats-pos); font-weight: 700; }
 .lc-xgf-neg { color: var(--stats-neg); font-weight: 700; }
 .lc-no-data { padding: 28px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; background: var(--surface); border: 1px solid var(--ink-14); }
@@ -2843,105 +2845,109 @@ table.lc tbody tr:hover { background: var(--ink-04); }
       return;
     }
 
-    // Filter: ≥2.0 min TOI
     const filtered = linesData.filter(c => (c.toi_min ?? 0) >= 2.0);
     if (filtered.length === 0) {
       container.innerHTML = '<div class="lc-no-data">Shift data currently only available post-game.</div>';
       return;
     }
 
-    // Group by team then by type (F / D)
-    function buildTeamRows(abbr) {
-      const teamCombos = filtered.filter(c => c.team === abbr);
-      const fLines = teamCombos.filter(c => c.type === 'F').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
-      const dPairs = teamCombos.filter(c => c.type === 'D').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
-      return { fLines, dPairs };
+    // MM:SS format matching player stats TOI column
+    function toiMmSs(toi) {
+      if (toi == null) return '—';
+      const m = Math.floor(toi);
+      const s = Math.round((toi - m) * 60);
+      return `${m}:${String(s).padStart(2, '0')}`;
     }
 
-    function xgfClass(v) {
+    function xgfCls(v) {
       if (v == null) return '';
-      if (v >= 55) return 'lc-xgf-pos';
-      if (v <= 45) return 'lc-xgf-neg';
-      return '';
+      return v >= 55 ? 'lc-xgf-pos' : v <= 45 ? 'lc-xgf-neg' : '';
     }
 
-    function renderTeamBlock(abbr, combos, color, labelPrefix) {
-      if (!combos.length) return '';
-      let rows = '';
-      combos.forEach((c, i) => {
-        const label = `${labelPrefix} ${i + 1}`;
-        const players = (c.players || []).join(' · ');
-        const toi = c.toi_min != null ? c.toi_min.toFixed(1) : '—';
-        const xgfPct = c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—';
-        const xgfCls = xgfClass(c.xgf_pct);
-        const goals = `${c.gf ?? 0}–${c.ga ?? 0}`;
-        rows += `<tr>
-          <td class="lc-line-label">${esc(label)}</td>
-          <td class="lc-players">${esc(players)}</td>
-          <td>${esc(toi)}</td>
-          <td class="${xgfCls}">${esc(xgfPct)}</td>
-          <td>${esc(goals)}</td>
-        </tr>`;
-      });
-      return rows;
+    const THEAD = `<thead><tr>
+      <th>Line</th><th class="lc-players-th">Players</th><th>TOI</th>
+      <th>xGF</th><th>xGA</th><th>xGF%</th><th>GF–GA</th>
+    </tr></thead>`;
+
+    function comboRows(combos, prefix) {
+      return combos.map((c, i) => `<tr>
+        <td class="lc-line-label">${esc(prefix)} ${i + 1}</td>
+        <td class="lc-players">${esc((c.players || []).join(' · '))}</td>
+        <td><span class="ps-toi">${esc(toiMmSs(c.toi_min))}</span></td>
+        <td>${c.xgf != null ? c.xgf.toFixed(2) : '—'}</td>
+        <td>${c.xga != null ? c.xga.toFixed(2) : '—'}</td>
+        <td class="${xgfCls(c.xgf_pct)}">${c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—'}</td>
+        <td>${c.gf ?? 0}–${c.ga ?? 0}</td>
+      </tr>`).join('');
     }
 
-    const teams = [awayAbbr, homeAbbr];
+    function buildTeamCard(abbr, color) {
+      const tc = filtered.filter(c => c.team === abbr);
+      const fLines = tc.filter(c => c.type === 'F').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      const dPairs = tc.filter(c => c.type === 'D').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      if (!fLines.length && !dPairs.length) return '';
+      const dSep = dPairs.length ? `<tr class="ps-divider"><td colspan="7">Defense Pairs</td></tr>` : '';
+      return `<div class="player-team-card">
+        <div class="player-team-head">
+          <div class="player-team-dot" style="background:${color}"></div>
+          <span class="player-team-label">${esc(abbr)}</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="ps lc">${THEAD}<tbody>
+            ${comboRows(fLines, 'F')}
+            ${dSep}${comboRows(dPairs, 'D')}
+          </tbody></table>
+        </div>
+      </div>`;
+    }
+
     const teamColors = { [awayAbbr]: awayColor, [homeAbbr]: homeColor };
+    container.innerHTML = `<div class="player-stats-grid" style="border:1px solid var(--ink-14);background:var(--ink-14);gap:1px">
+      ${[awayAbbr, homeAbbr].map(a => buildTeamCard(a, teamColors[a] || '#0d0d14')).join('')}
+    </div>`;
 
-    let html = '<div class="lc-table-wrap"><table class="lc"><thead><tr>' +
-      '<th>Line</th><th>Players</th><th>TOI</th><th>xGF%</th><th>GF–GA</th>' +
-      '</tr></thead><tbody>';
-
-    let exportRows = [];
-
-    for (const abbr of teams) {
-      const { fLines, dPairs } = buildTeamRows(abbr);
-      if (!fLines.length && !dPairs.length) continue;
-      const color = teamColors[abbr] || '#0d0d14';
-      html += `<tr><td colspan="5" class="lc-team-divider">
-        <span class="lc-team-dot" style="background:${color}"></span>${esc(abbr)}
-      </td></tr>`;
-
-      if (fLines.length) {
-        html += renderTeamBlock(abbr, fLines, color, 'F Line');
-        fLines.forEach((c, i) => exportRows.push({ team: abbr, line: `F ${i + 1}`, players: (c.players || []).join(' · '), toi: c.toi_min != null ? c.toi_min.toFixed(1) : '—', xgf_pct: c.xgf_pct, xgfDisp: c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—', goals: `${c.gf ?? 0}–${c.ga ?? 0}` }));
-      }
-      if (dPairs.length) {
-        html += renderTeamBlock(abbr, dPairs, color, 'D Pair');
-        dPairs.forEach((c, i) => exportRows.push({ team: abbr, line: `D ${i + 1}`, players: (c.players || []).join(' · '), toi: c.toi_min != null ? c.toi_min.toFixed(1) : '—', xgf_pct: c.xgf_pct, xgfDisp: c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—', goals: `${c.gf ?? 0}–${c.ga ?? 0}` }));
-      }
+    // Build export rows
+    const exportRows = [];
+    for (const abbr of [awayAbbr, homeAbbr]) {
+      const tc = filtered.filter(c => c.team === abbr);
+      const fLines = tc.filter(c => c.type === 'F').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      const dPairs = tc.filter(c => c.type === 'D').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      [...fLines.map((c, i) => ({ ...c, _lbl: `F ${i+1}` })),
+       ...dPairs.map((c, i) => ({ ...c, _lbl: `D ${i+1}` }))].forEach(c => {
+        exportRows.push({
+          team: abbr, line: c._lbl,
+          players: (c.players || []).join(' · '),
+          toi: toiMmSs(c.toi_min),
+          xgf: c.xgf != null ? c.xgf.toFixed(2) : '—',
+          xga: c.xga != null ? c.xga.toFixed(2) : '—',
+          xgf_pct: c.xgf_pct,
+          xgfDisp: c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—',
+          goals: `${c.gf ?? 0}-${c.ga ?? 0}`,
+        });
+      });
     }
 
-    html += '</tbody></table></div>';
-    container.innerHTML = html;
-
-    // Wire PNG export button
     if (dlBtn && exportRows.length > 0) {
       dlBtn.style.display = '';
       dlBtn.onclick = async function () {
         if (!window.HGB_Export) return;
-        const cols = [
-          { label: 'Team',    key: 'team',     width: 56,  align: 'center' },
-          { label: 'Line',    key: 'line',     width: 60,  align: 'center' },
-          { label: 'Players', key: 'players',  width: 310, align: 'left', fontFamily: 'body', bold: true },
-          { label: 'TOI',     key: 'toi',      width: 64,  align: 'center' },
-          { label: 'xGF%',    key: 'xgfDisp',  width: 72,  align: 'center',
-            color: (v, row, tok) => {
-              if (row.xgf_pct == null) return null;
-              if (row.xgf_pct >= 55) return tok.pos;
-              if (row.xgf_pct <= 45) return tok.neg;
-              return null;
-            },
-            bold: (v, row) => row.xgf_pct != null && (row.xgf_pct >= 55 || row.xgf_pct <= 45),
-          },
-          { label: 'GF–GA',   key: 'goals',    width: 70,  align: 'center' },
-        ];
         await window.HGB_Export.downloadTablePng({
           title: 'Line Combinations',
-          filterChips: [awayAbbr, homeAbbr, '≥2 min'],
+          filterChips: [awayAbbr, homeAbbr, '2+ MIN'],
           rows: exportRows,
-          columns: cols,
+          columns: [
+            { label: 'Team',    key: 'team',     width: 54,  align: 'center' },
+            { label: 'Line',    key: 'line',     width: 56,  align: 'center' },
+            { label: 'Players', key: 'players',  width: 270, align: 'left', fontFamily: 'body', bold: true },
+            { label: 'TOI',     key: 'toi',      width: 60,  align: 'center' },
+            { label: 'xGF',     key: 'xgf',      width: 58,  align: 'center' },
+            { label: 'xGA',     key: 'xga',      width: 58,  align: 'center' },
+            { label: 'xGF%',    key: 'xgfDisp',  width: 66,  align: 'center',
+              color:  (v, row, tok) => row.xgf_pct == null ? null : row.xgf_pct >= 55 ? tok.pos : row.xgf_pct <= 45 ? tok.neg : null,
+              bold:   (v, row) => row.xgf_pct != null && (row.xgf_pct >= 55 || row.xgf_pct <= 45),
+            },
+            { label: 'GF-GA',   key: 'goals',    width: 64,  align: 'center' },
+          ],
           filename: `hgb-lines-${_currentGameId}.png`,
         });
       };
