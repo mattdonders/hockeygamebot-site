@@ -288,19 +288,19 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
   .breakdown-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* ── Form sparkline ──────────────────────────────────────────────────── */
-.form-wrap { background: var(--surface); border: 1px solid var(--ink); padding: 16px 20px 12px; margin-bottom: 2px; position: relative; }
-.form-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
-.form-title { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); }
-.form-meta-label { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.06em; }
-.form-sparkline { display: block; width: 100%; height: 72px; overflow: visible; }
-.form-tooltip { position: absolute; background: var(--ink); color: var(--bg); font-family: var(--mono); font-size: 11px; line-height: 1.4; padding: 5px 8px; white-space: nowrap; pointer-events: none; display: none; z-index: 20; }
-
 /* ── Shot Map ─────────────────────────────────────────────────────────── */
 .shot-map-wrap { background: var(--surface); border: 1px solid var(--ink-10); padding: 20px 20px 16px; }
-.full-rink-svg { width: 100%; height: auto; display: block; }
+.shot-map-halves { display: flex; gap: 16px; }
+.shot-half { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.shot-half-label { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 8px; text-align: center; }
+.shot-half-summary { font-family: var(--mono); font-size: 10px; font-weight: 400; letter-spacing: 0.06em; color: var(--ink-48); margin-top: 8px; text-align: center; }
+.shot-map-svg { width: 100%; max-width: 360px; height: auto; display: block; }
 .shot-map-empty { padding: 32px 0; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.08em; }
-#balance-bar { display: none; }
+@media (max-width: 639px) {
+  .shot-map-halves { flex-direction: column; align-items: center; }
+  .shot-half { width: 100%; }
+  .shot-map-svg { max-width: 100%; }
+}
 
 /* ── Footer ──────────────────────────────────────────────────────────── */
 .foot { border-top: 1px solid var(--ink-14); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
@@ -403,18 +403,6 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     ))}
   </div>
 
-  <!-- Form sparkline (populated by JS from game_log) -->
-  <div id="section-form" style="display:none">
-    <div class="form-wrap">
-      <div class="form-header">
-        <span class="form-title">Form</span>
-        <span class="form-meta-label" id="form-meta"></span>
-      </div>
-      <svg id="form-sparkline" class="form-sparkline" viewBox="0 0 1000 72" preserveAspectRatio="none"></svg>
-      <div id="form-tooltip" class="form-tooltip"></div>
-    </div>
-  </div>
-
   <!-- Stage 2: Stat Breakdown -->
   <div class="section-header">
     <span class="section-label">Breakdown</span>
@@ -451,15 +439,10 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
   <div id="section-shotmap" style="display:none">
     <div class="section-header">
       <span class="section-label">Shot Map</span>
-      <span class="section-meta" style="font-family:var(--mono);font-size:9px;color:var(--ink-32);letter-spacing:0.08em;margin-left:10px;">Full rink · FOR attacks right (blue) · AGAINST attacks left (red)</span>
     </div>
     <div class="shot-map-wrap" id="shot-map-wrap">
-      <div id="shot-map-container">
-        <!-- full-rink SVG populated by JS -->
-      </div>
-      <div id="balance-bar" style="display:flex;height:14px;margin:6px 0 0;border-radius:2px;overflow:hidden;font:700 9px/14px 'JetBrains Mono',monospace">
-        <div id="bar-aga" style="background:rgba(232,0,45,0.70);display:flex;align-items:center;padding-left:5px;color:rgba(255,255,255,0.90);white-space:nowrap;overflow:hidden"></div>
-        <div id="bar-for" style="background:rgba(20,100,200,0.70);display:flex;align-items:center;justify-content:flex-end;padding-right:5px;color:rgba(255,255,255,0.90);white-space:nowrap;overflow:hidden"></div>
+      <div class="shot-map-halves" id="shot-map-halves">
+        <!-- populated by JS -->
       </div>
     </div>
   </div>
@@ -502,8 +485,6 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     sf_pct:    line.sf_pct,
     sh_pct:    line.sh_pct,
     sv_pct:    line.sv_pct,
-    // Sparkline
-    game_log:  line.game_log ?? [],
   },
   playerData: linePlayers.map(p => ({
     first_name: p.first_name,
@@ -885,103 +866,6 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
     await drawCard();
   });
-
-  // ── Form sparkline ───────────────────────────────────────────────────────────
-  (function () {
-    var gameLog = lineData.game_log || [];
-    if (gameLog.length < 2) return;
-
-    var section  = document.getElementById('section-form');
-    var svg      = document.getElementById('form-sparkline');
-    var metaEl   = document.getElementById('form-meta');
-    var tooltip  = document.getElementById('form-tooltip');
-
-    section.style.display = 'block';
-
-    var W = 1000, H = 72;
-    var PAD_L = 28, PAD_R = 8, PAD_T = 8, PAD_B = 8;
-    var iW = W - PAD_L - PAD_R;
-    var iH = H - PAD_T - PAD_B;
-    var n = gameLog.length;
-
-    metaEl.textContent = '· ' + n + ' game' + (n !== 1 ? 's' : '');
-
-    function yScale(pct) { return PAD_T + iH * (1 - pct / 100); }
-    function xScale(i)   { return PAD_L + (n > 1 ? i / (n - 1) * iW : iW / 2); }
-    var y50 = yScale(50);
-
-    var pts = gameLog.map(function(g, i) {
-      return {
-        x:   xScale(i),
-        y:   g.xgf_pct != null ? yScale(g.xgf_pct) : y50,
-        pct: g.xgf_pct,
-        date: g.date,
-        opp:  g.opp,
-        toi:  g.toi_min,
-        gf:   g.gf,
-        ga:   g.ga,
-      };
-    });
-
-    var html = '';
-
-    // y-axis labels: 75 / 50 / 25
-    var labelStyle = 'font-size="9" font-family="JetBrains Mono,monospace" fill="rgba(13,13,20,0.35)" text-anchor="end"';
-    html += '<text x="' + (PAD_L - 4) + '" y="' + (yScale(75) + 3.5).toFixed(1) + '" ' + labelStyle + '>75</text>';
-    html += '<text x="' + (PAD_L - 4) + '" y="' + (y50 + 3.5).toFixed(1) + '" ' + labelStyle + '>50</text>';
-    html += '<text x="' + (PAD_L - 4) + '" y="' + (yScale(25) + 3.5).toFixed(1) + '" ' + labelStyle + '>25</text>';
-
-    // Reference lines at 25 / 50 / 75
-    var refStyle = ' stroke="rgba(13,13,20,0.10)" stroke-width="0.8" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"';
-    html += '<line x1="' + PAD_L + '" y1="' + yScale(75).toFixed(1) + '" x2="' + (W - PAD_R) + '" y2="' + yScale(75).toFixed(1) + '"' + refStyle + '/>';
-    html += '<line x1="' + PAD_L + '" y1="' + y50.toFixed(1)        + '" x2="' + (W - PAD_R) + '" y2="' + y50.toFixed(1)        + '" stroke="rgba(13,13,20,0.20)" stroke-width="0.8" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>';
-    html += '<line x1="' + PAD_L + '" y1="' + yScale(25).toFixed(1) + '" x2="' + (W - PAD_R) + '" y2="' + yScale(25).toFixed(1) + '"' + refStyle + '/>';
-
-    // Line segments
-    for (var i = 1; i < pts.length; i++) {
-      var a = pts[i - 1], b = pts[i];
-      var color = (a.pct != null && a.pct >= 50 && b.pct != null && b.pct >= 50)
-        ? '#22c55e'
-        : (a.pct != null && a.pct < 50 && b.pct != null && b.pct < 50)
-          ? '#ef4444'
-          : 'rgba(13,13,20,0.25)';
-      html += '<line x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) + '" stroke="' + color + '" stroke-width="1.5" opacity="0.8" vector-effect="non-scaling-stroke"/>';
-    }
-
-    // Dots + invisible hit targets
-    pts.forEach(function(pt, i) {
-      var fill = pt.pct != null ? (pt.pct >= 50 ? '#22c55e' : '#ef4444') : 'rgba(13,13,20,0.3)';
-      html += '<circle cx="' + pt.x.toFixed(1) + '" cy="' + pt.y.toFixed(1) + '" r="3" fill="' + fill + '" stroke="white" stroke-width="1" vector-effect="non-scaling-stroke"/>';
-      html += '<circle cx="' + pt.x.toFixed(1) + '" cy="' + pt.y.toFixed(1) + '" r="14" fill="transparent" class="spark-hit" data-i="' + i + '"/>';
-    });
-
-    svg.innerHTML = html;
-
-    // Tooltip
-    svg.addEventListener('mouseover', function(e) {
-      var hit = e.target.closest ? e.target.closest('.spark-hit') : null;
-      if (!hit) { tooltip.style.display = 'none'; return; }
-      var pt = pts[parseInt(hit.dataset.i)];
-      var pctStr = pt.pct != null ? pt.pct.toFixed(1) + '% xGF' : '—';
-      tooltip.textContent = pt.date + ' · vs ' + pt.opp + ' · ' + pctStr + ' · ' + pt.toi + 'm (' + pt.gf + '–' + pt.ga + ')';
-      tooltip.style.display = 'block';
-    });
-    svg.addEventListener('mousemove', function(e) {
-      if (tooltip.style.display === 'none') return;
-      var wrap = tooltip.parentElement.getBoundingClientRect();
-      var left = e.clientX - wrap.left + 14;
-      if (left + tooltip.offsetWidth + 20 > wrap.width) left = e.clientX - wrap.left - tooltip.offsetWidth - 14;
-      tooltip.style.left  = left + 'px';
-      tooltip.style.top   = (e.clientY - wrap.top - 38) + 'px';
-    });
-    svg.addEventListener('mouseout', function(e) {
-      var relTarget = e.relatedTarget;
-      if (!relTarget || !relTarget.closest || !relTarget.closest('.spark-hit')) {
-        tooltip.style.display = 'none';
-      }
-    });
-  }());
-
 })();
 </script>
 
@@ -989,132 +873,103 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
 (function () {
   'use strict';
 
-  // ── Full-rink coordinate mapping ─────────────────────────────────────────
-  // ViewBox: 0 0 390 170  |  Center ice at x=195
-  // FOR (right half):    nhlX 0..100 -> SVG x 195..377
-  // AGAINST (left half): nhlX 0..100 -> SVG x 195..13  (mirrored)
-  // NHL y: -42.5..42.5   -> SVG y: 3..167
-  var W = 390, H = 170, CX = 195;
-  function fullX_for(nhlX) { return CX + (nhlX / 100) * 182; }
-  function fullX_aga(nhlX) { return CX - (nhlX / 100) * 182; }
-  function fullY(nhlY)     { return ((nhlY + 42.5) / 85) * 164 + 3; }
+  // ── Rink coordinate mapping ───────────────────────────────────────────────
+  // ViewBox: 0 0 200 170
+  // NHL x: 0 (center) → 100 (goal line)  →  SVG x: 8 → 191
+  // NHL y: -42.5 → 42.5                   →  SVG y: 3 → 167
+  function toSvgX(nhlX) { return (nhlX / 100) * 183 + 8; }
+  function toSvgY(nhlY) { return ((nhlY + 42.5) / 85) * 164 + 3; }
 
-  // ── Shot dot helper ───────────────────────────────────────────────────────
-  // Goals: r=4.0, solid fill.  Non-goals: r=max(1.8,min(4.5,1.5+xg*14))
-  function shotDot(sx, sy, xg, isGoal, goalFill, nonGoalFill, nonGoalStroke) {
-    var r   = isGoal ? '4.0' : Math.max(1.8, Math.min(4.5, 1.5 + (xg || 0.05) * 14)).toFixed(1);
-    var tip = (isGoal ? 'Goal' : 'Shot') + ' xG ' + (xg || 0).toFixed(3);
-    if (isGoal) {
-      return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + goalFill + '" opacity="0.90"><title>' + tip + '</title></circle>';
-    }
-    return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + nonGoalFill + '" stroke="' + nonGoalStroke + '" stroke-width="0.6"><title>' + tip + '</title></circle>';
-  }
-
-  // ── Build full-rink SVG string ────────────────────────────────────────────
-  function buildFullRinkSvg(sf, sa) {
-    var xgf     = sf.reduce(function(a, s) { return a + (s.xg || 0); }, 0);
-    var xga     = sa.reduce(function(a, s) { return a + (s.xg || 0); }, 0);
-    var xgTotal = xgf + xga;
-    var xgfPct  = xgTotal > 0 ? xgf / xgTotal * 100 : 50;
-    var xgaPct  = 100 - xgfPct;
-    // Half-tint: 0 at 50% xGF, max 22% opacity at 100%
-    var forTintOpacity = Math.max(0, (xgfPct - 50) / 50 * 0.22).toFixed(3);
-    var agaTintOpacity = Math.max(0, (xgaPct - 50) / 50 * 0.22).toFixed(3);
+  // ── Build half-rink SVG string ────────────────────────────────────────────
+  function buildRinkSvg(shots, isFor) {
+    var goalFill    = '#E8002D';
+    var nonGoalFill = isFor ? 'rgba(13,13,20,0.25)' : 'rgba(232,0,45,0.20)';
+    var nonGoalStr  = isFor ? 'rgba(13,13,20,0.30)' : 'rgba(232,0,45,0.35)';
 
     var p = [];
-    p.push('<svg class="full-rink-svg" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" width="100%" role="img" aria-label="Full-rink shot map">');
+    p.push('<svg class="shot-map-svg" viewBox="0 0 200 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="' + (isFor ? 'Shots for' : 'Shots against') + ' rink half">');
 
-    // Ice background
-    p.push('<rect x="2" y="2" width="' + (W - 4) + '" height="166" rx="6" ry="6" fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>');
+    // Ice surface
+    p.push('<rect x="2" y="2" width="196" height="166" rx="6" ry="6" fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>');
 
-    // Half-tints (after ice bg, before rink lines)
-    p.push('<rect x="' + CX + '" y="2" width="' + (CX - 2) + '" height="166" fill="rgba(20,100,200,' + forTintOpacity + ')" rx="0"/>');
-    p.push('<rect x="2" y="2" width="' + (CX - 2) + '" height="166" fill="rgba(232,0,45,' + agaTintOpacity + ')" rx="0"/>');
+    // Blue line (dashed) at nhlX=0
+    var blX = toSvgX(0).toFixed(1);
+    p.push('<line x1="' + blX + '" y1="2" x2="' + blX + '" y2="168" stroke="rgba(13,13,20,0.20)" stroke-width="1.5" stroke-dasharray="4 3"/>');
 
-    // Center line + dot
-    p.push('<line x1="' + CX + '" y1="2" x2="' + CX + '" y2="168" stroke="rgba(13,13,20,0.25)" stroke-width="1.5"/>');
-    p.push('<circle cx="' + CX + '" cy="' + fullY(0).toFixed(1) + '" r="8" fill="none" stroke="rgba(13,13,20,0.20)" stroke-width="1"/>');
-    p.push('<circle cx="' + CX + '" cy="' + fullY(0).toFixed(1) + '" r="2" fill="rgba(13,13,20,0.30)"/>');
+    // Goal line at nhlX=100
+    var glX = toSvgX(100).toFixed(1);
+    p.push('<line x1="' + glX + '" y1="2" x2="' + glX + '" y2="168" stroke="rgba(232,0,45,0.55)" stroke-width="1.5"/>');
 
-    // Shared Y references
-    var foY1 = fullY(-22).toFixed(1);
-    var foY2 = fullY(22).toFixed(1);
-    var cYm  = (fullY(0) - 20).toFixed(1);
-    var cYp  = (fullY(0) + 20).toFixed(1);
+    // Goal crease: arc in front of goal line
+    var cY = toSvgY(0).toFixed(1);
+    var cYm = (toSvgY(0) - 20).toFixed(1);
+    var cYp = (toSvgY(0) + 20).toFixed(1);
+    p.push('<path d="M' + glX + ',' + cYm + ' A20,20 0 0,0 ' + glX + ',' + cYp + '" fill="rgba(232,0,45,0.10)" stroke="rgba(232,0,45,0.40)" stroke-width="1"/>');
 
-    // FOR side (right): blue line (dashed), goal line, crease, faceoffs
-    var forBL  = fullX_for(0).toFixed(1);
-    var forGL  = fullX_for(100).toFixed(1);
-    var forFoX = fullX_for(69).toFixed(1);
+    // Goal posts (tiny rect)
+    p.push('<rect x="' + glX + '" y="' + (toSvgY(0) - 3).toFixed(1) + '" width="4" height="6" fill="rgba(13,13,20,0.40)" rx="0.5"/>');
 
-    p.push('<line x1="' + forBL + '" y1="2" x2="' + forBL + '" y2="168" stroke="rgba(20,100,200,0.30)" stroke-width="1.5" stroke-dasharray="4 3"/>');
-    p.push('<line x1="' + forGL + '" y1="2" x2="' + forGL + '" y2="168" stroke="rgba(232,0,45,0.40)" stroke-width="1.5"/>');
-    p.push('<path d="M' + forGL + ',' + cYm + ' A20,20 0 0,0 ' + forGL + ',' + cYp + '" fill="rgba(20,100,200,0.08)" stroke="rgba(20,100,200,0.30)" stroke-width="1"/>');
-    p.push('<rect x="' + forGL + '" y="' + (fullY(0) - 3).toFixed(1) + '" width="4" height="6" fill="rgba(13,13,20,0.35)" rx="0.5"/>');
-    p.push('<circle cx="' + forFoX + '" cy="' + foY1 + '" r="18" fill="none" stroke="rgba(20,100,200,0.20)" stroke-width="1"/>');
-    p.push('<circle cx="' + forFoX + '" cy="' + foY2 + '" r="18" fill="none" stroke="rgba(20,100,200,0.20)" stroke-width="1"/>');
-    p.push('<circle cx="' + forFoX + '" cy="' + foY1 + '" r="2" fill="rgba(20,100,200,0.35)"/>');
-    p.push('<circle cx="' + forFoX + '" cy="' + foY2 + '" r="2" fill="rgba(20,100,200,0.35)"/>');
+    // Faceoff circles at ~nhlX=69, nhlY=±22
+    var foX = toSvgX(69).toFixed(1);
+    var foY1 = toSvgY(-22).toFixed(1);
+    var foY2 = toSvgY(22).toFixed(1);
+    p.push('<circle cx="' + foX + '" cy="' + foY1 + '" r="20" fill="none" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
+    p.push('<circle cx="' + foX + '" cy="' + foY2 + '" r="20" fill="none" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
+    p.push('<circle cx="' + foX + '" cy="' + foY1 + '" r="2" fill="rgba(232,0,45,0.40)"/>');
+    p.push('<circle cx="' + foX + '" cy="' + foY2 + '" r="2" fill="rgba(232,0,45,0.40)"/>');
 
-    // AGAINST side (left, mirrored): blue line (dashed), goal line, crease, faceoffs
-    var agaBL  = fullX_aga(0).toFixed(1);
-    var agaGL  = fullX_aga(100).toFixed(1);
-    var agaFoX = fullX_aga(69).toFixed(1);
-    var agaGpX = (fullX_aga(100) - 4).toFixed(1);
-
-    p.push('<line x1="' + agaBL + '" y1="2" x2="' + agaBL + '" y2="168" stroke="rgba(232,0,45,0.28)" stroke-width="1.5" stroke-dasharray="4 3"/>');
-    p.push('<line x1="' + agaGL + '" y1="2" x2="' + agaGL + '" y2="168" stroke="rgba(232,0,45,0.40)" stroke-width="1.5"/>');
-    p.push('<path d="M' + agaGL + ',' + cYm + ' A20,20 0 0,1 ' + agaGL + ',' + cYp + '" fill="rgba(232,0,45,0.08)" stroke="rgba(232,0,45,0.30)" stroke-width="1"/>');
-    p.push('<rect x="' + agaGpX + '" y="' + (fullY(0) - 3).toFixed(1) + '" width="4" height="6" fill="rgba(13,13,20,0.35)" rx="0.5"/>');
-    p.push('<circle cx="' + agaFoX + '" cy="' + foY1 + '" r="18" fill="none" stroke="rgba(232,0,45,0.20)" stroke-width="1"/>');
-    p.push('<circle cx="' + agaFoX + '" cy="' + foY2 + '" r="18" fill="none" stroke="rgba(232,0,45,0.20)" stroke-width="1"/>');
-    p.push('<circle cx="' + agaFoX + '" cy="' + foY1 + '" r="2" fill="rgba(232,0,45,0.35)"/>');
-    p.push('<circle cx="' + agaFoX + '" cy="' + foY2 + '" r="2" fill="rgba(232,0,45,0.35)"/>');
-
-    // Zone labels
-    p.push('<text x="' + (CX + 80) + '" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(20,100,200,0.55)" text-anchor="middle" letter-spacing="0.1em">FOR</text>');
-    p.push('<text x="' + (CX - 80) + '" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(232,0,45,0.55)" text-anchor="middle" letter-spacing="0.1em">AGAINST</text>');
-
-    // AGAINST shots first (drawn under FOR)
-    var agaNonGoals = sa.filter(function(s) { return !s.is_goal; });
-    var agaGoals    = sa.filter(function(s) { return  s.is_goal; });
-    agaNonGoals.forEach(function(s) {
-      p.push(shotDot(fullX_aga(s.x).toFixed(1), fullY(s.y).toFixed(1), s.xg, false, '#E8002D', 'rgba(232,0,45,0.13)', 'rgba(232,0,45,0.35)'));
-    });
-    agaGoals.forEach(function(s) {
-      p.push(shotDot(fullX_aga(s.x).toFixed(1), fullY(s.y).toFixed(1), s.xg, true, '#E8002D', 'rgba(232,0,45,0.13)', 'rgba(232,0,45,0.35)'));
+    // Hash marks
+    [toSvgY(-22) - 18, toSvgY(-22) + 18, toSvgY(22) - 18, toSvgY(22) + 18].forEach(function (hY) {
+      var hYf = hY.toFixed(1);
+      p.push('<line x1="' + (toSvgX(69) - 6).toFixed(1) + '" y1="' + hYf + '" x2="' + (toSvgX(69) + 6).toFixed(1) + '" y2="' + hYf + '" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
     });
 
-    // FOR shots on top
-    var forNonGoals = sf.filter(function(s) { return !s.is_goal; });
-    var forGoals    = sf.filter(function(s) { return  s.is_goal; });
-    forNonGoals.forEach(function(s) {
-      p.push(shotDot(fullX_for(s.x).toFixed(1), fullY(s.y).toFixed(1), s.xg, false, 'rgba(20,100,200,0.90)', 'rgba(20,100,200,0.13)', 'rgba(20,100,200,0.35)'));
-    });
-    forGoals.forEach(function(s) {
-      p.push(shotDot(fullX_for(s.x).toFixed(1), fullY(s.y).toFixed(1), s.xg, true, 'rgba(20,100,200,0.90)', 'rgba(20,100,200,0.13)', 'rgba(20,100,200,0.35)'));
-    });
+    // Shot dots — non-goals first, goals on top
+    var nonGoals = shots.filter(function (s) { return !s.is_goal; });
+    var goals    = shots.filter(function (s) { return  s.is_goal; });
 
-    // Legend (bottom right)
-    var lx = W - 10, ly = H - 12;
-    p.push('<circle cx="' + (lx - 132) + '" cy="' + ly + '" r="4" fill="rgba(20,100,200,0.25)" stroke="rgba(20,100,200,0.55)" stroke-width="0.7"/>');
-    p.push('<text x="' + (lx - 124) + '" y="' + (ly + 3) + '" font-family="JetBrains Mono,monospace" font-size="8" fill="rgba(13,13,20,0.55)" letter-spacing="0.06em">SHOT FOR</text>');
-    p.push('<circle cx="' + (lx - 60) + '" cy="' + ly + '" r="4" fill="rgba(232,0,45,0.25)" stroke="rgba(232,0,45,0.55)" stroke-width="0.7"/>');
-    p.push('<text x="' + (lx - 52) + '" y="' + (ly + 3) + '" font-family="JetBrains Mono,monospace" font-size="8" fill="rgba(13,13,20,0.55)" letter-spacing="0.06em">SHOT AGT</text>');
+    function dot(s) {
+      var sx  = toSvgX(s.x).toFixed(1);
+      var sy  = toSvgY(s.y).toFixed(1);
+      var xg  = s.xg != null ? s.xg : 0.05;
+      var r   = Math.max(2.5, Math.min(9, Math.sqrt(xg) * 22)).toFixed(1);
+      var tip = (s.is_goal ? 'Goal' : 'Shot') + ' · xG ' + xg.toFixed(3);
+      if (s.is_goal) {
+        return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + goalFill + '" opacity="0.90"><title>' + tip + '</title></circle>';
+      }
+      return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + nonGoalFill + '" stroke="' + nonGoalStr + '" stroke-width="0.5"><title>' + tip + '</title></circle>';
+    }
+
+    nonGoals.forEach(function (s) { p.push(dot(s)); });
+    goals.forEach(function (s)    { p.push(dot(s)); });
 
     p.push('</svg>');
-    return { svgStr: p.join(''), xgfPct: xgfPct, xgaPct: xgaPct };
+    return p.join('');
+  }
+
+  // ── Summary text ──────────────────────────────────────────────────────────
+  function summary(shots) {
+    var n   = shots.length;
+    var xg  = shots.reduce(function (a, s) { return a + (s.xg || 0); }, 0);
+    var g   = shots.filter(function (s) { return s.is_goal; }).length;
+    return n + ' shots · xG ' + xg.toFixed(2) + ' · ' + g + ' G';
+  }
+
+  // ── Build one column HTML ─────────────────────────────────────────────────
+  function halfHtml(title, shots, isFor) {
+    return '<div class="shot-half">'
+      + '<div class="shot-half-label">' + title + '</div>'
+      + buildRinkSvg(shots, isFor)
+      + '<div class="shot-half-summary">' + summary(shots) + '</div>'
+      + '</div>';
   }
 
   // ── Main fetch + render ────────────────────────────────────────────────────
   function loadShotMap() {
-    var section    = document.getElementById('section-shotmap');
-    var container  = document.getElementById('shot-map-container');
-    var wrap       = document.getElementById('shot-map-wrap');
-    var balanceBar = document.getElementById('balance-bar');
-    var barAga     = document.getElementById('bar-aga');
-    var barFor     = document.getElementById('bar-for');
-    if (!section || !container || !wrap) return;
+    var section = document.getElementById('section-shotmap');
+    var halves  = document.getElementById('shot-map-halves');
+    var wrap    = document.getElementById('shot-map-wrap');
+    if (!section || !halves || !wrap) return;
 
     fetch('https://api.hockeygamebot.com/v1/lines/' + slugParam + '/shots')
       .then(function (resp) {
@@ -1126,21 +981,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
         var sf = data.shots_for     || [];
         var sa = data.shots_against || [];
         if (sf.length === 0 && sa.length === 0) { showEmpty(wrap, section); return; }
-
-        var result = buildFullRinkSvg(sf, sa);
-        container.innerHTML = result.svgStr;
-
-        // Balance bar
-        if (balanceBar && barAga && barFor) {
-          var pctFor = result.xgfPct.toFixed(1);
-          var pctAga = result.xgaPct.toFixed(1);
-          barAga.style.width = pctAga + '%';
-          barFor.style.width = pctFor + '%';
-          barAga.textContent = result.xgaPct > 18 ? 'xGA ' + pctAga + '%' : '';
-          barFor.textContent = result.xgfPct > 18 ? 'xGF ' + pctFor + '%' : '';
-          balanceBar.style.display = 'flex';
-        }
-
+        halves.innerHTML = halfHtml('Shots For', sf, true) + halfHtml('Shots Against', sa, false);
         section.style.display = '';
       })
       .catch(function () { showEmpty(wrap, section); });
