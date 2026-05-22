@@ -52,6 +52,8 @@ for (const p of loadPlayers()) {
   --red:     #E8002D;
   --green:   #22c55e;
   --grid-line: rgba(13,13,20,0.04);
+  --stats-pos: #166534;
+  --stats-neg: #991b1b;
   --display: "Barlow Condensed", sans-serif;
   --body:    "Barlow", sans-serif;
   --mono:    "JetBrains Mono", monospace;
@@ -416,6 +418,26 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .chart-dl-btn { font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s; }
 .chart-dl-btn:hover { border-color: var(--ink-48); color: var(--ink); }
 
+/* ── LINE COMBINATIONS ── */
+.lc-table-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+table.lc { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.lc thead tr { border-bottom: 1px solid var(--ink-20); }
+table.lc th { padding: 9px 12px; text-align: left; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); white-space: nowrap; }
+table.lc th:not(:first-child):not(:nth-child(2)) { text-align: center; }
+table.lc td { padding: 10px 12px; border-bottom: 1px solid var(--ink-06); white-space: nowrap; vertical-align: middle; }
+table.lc td:not(:first-child):not(:nth-child(2)) { text-align: center; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+table.lc tr:last-child td { border-bottom: none; }
+table.lc tbody tr:hover { background: var(--ink-04); }
+.lc-team-divider { padding: 7px 12px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-bottom: 1px solid var(--ink-14); display: flex; align-items: center; gap: 8px; }
+.lc-team-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.lc-line-label { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; }
+.lc-players { font-family: var(--body); font-weight: 600; font-size: 13px; }
+.lc-xgf-pos { color: var(--stats-pos); font-weight: 700; }
+.lc-xgf-neg { color: var(--stats-neg); font-weight: 700; }
+.lc-no-data { padding: 28px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; background: var(--surface); border: 1px solid var(--ink-14); }
+.lc-section-dl-btn { font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.lc-section-dl-btn:hover { border-color: var(--ink-48); color: var(--ink); }
+
 /* ── FOOTER ── */
 .foot { margin-top: 48px; border-top: 1px solid var(--ink-14); padding: 24px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
 .foot-inner { max-width: 1280px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
@@ -716,6 +738,18 @@ table.ps tbody tr:hover { background: var(--ink-04); }
         <div class="player-stats-grid" id="player-stats-grid"></div>
       </div>
 
+      <!-- LINE COMBINATIONS -->
+      <div class="section" id="section-linecombos" style="display:none">
+        <div class="section-head">
+          <h2 class="section-title">Line <span class="accent">Combinations</span></h2>
+          <div style="display:flex;align-items:center;gap:12px">
+            <button class="lc-section-dl-btn" id="lc-dl-btn" style="display:none">↓ PNG</button>
+            <span class="section-meta">all-sit · &ge;2 min TOI</span>
+          </div>
+        </div>
+        <div id="linecombos-content"></div>
+      </div>
+
       <!-- FROM THE BOT — cards + posts -->
       <div class="section" id="section-bot" style="display:none;padding-bottom:56px">
         <div class="section-head">
@@ -794,6 +828,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
   window._HGB_SPARKLINES = _sparklineMap;
 </script>
 
+<script is:inline src="/js/table-export.js"></script>
 <script is:inline>
 (function () {
   'use strict';
@@ -2749,9 +2784,129 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     img.src = url;
   }
 
+  // ── Line Combinations ────────────────────────────────────────────────────────
+
+  function renderLineCombos(linesData, awayAbbr, homeAbbr, awayColor, homeColor) {
+    const section = document.getElementById('section-linecombos');
+    const container = document.getElementById('linecombos-content');
+    const dlBtn = document.getElementById('lc-dl-btn');
+    if (!section || !container) return;
+
+    section.style.display = '';
+
+    if (!Array.isArray(linesData) || linesData.length === 0) {
+      container.innerHTML = '<div class="lc-no-data">Shift data not yet available for this game.</div>';
+      return;
+    }
+
+    // Filter: ≥2.0 min TOI
+    const filtered = linesData.filter(c => (c.toi_min ?? 0) >= 2.0);
+    if (filtered.length === 0) {
+      container.innerHTML = '<div class="lc-no-data">Shift data not yet available for this game.</div>';
+      return;
+    }
+
+    // Group by team then by type (F / D)
+    function buildTeamRows(abbr) {
+      const teamCombos = filtered.filter(c => c.team === abbr);
+      const fLines = teamCombos.filter(c => c.type === 'F').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      const dPairs = teamCombos.filter(c => c.type === 'D').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      return { fLines, dPairs };
+    }
+
+    function xgfClass(v) {
+      if (v == null) return '';
+      if (v >= 55) return 'lc-xgf-pos';
+      if (v <= 45) return 'lc-xgf-neg';
+      return '';
+    }
+
+    function renderTeamBlock(abbr, combos, color, labelPrefix) {
+      if (!combos.length) return '';
+      let rows = '';
+      combos.forEach((c, i) => {
+        const label = `${labelPrefix} ${i + 1}`;
+        const players = (c.players || []).join(' · ');
+        const toi = c.toi_min != null ? c.toi_min.toFixed(1) : '—';
+        const xgfPct = c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—';
+        const xgfCls = xgfClass(c.xgf_pct);
+        const goals = `${c.gf ?? 0}–${c.ga ?? 0}`;
+        rows += `<tr>
+          <td class="lc-line-label">${esc(label)}</td>
+          <td class="lc-players">${esc(players)}</td>
+          <td>${esc(toi)}</td>
+          <td class="${xgfCls}">${esc(xgfPct)}</td>
+          <td>${esc(goals)}</td>
+        </tr>`;
+      });
+      return rows;
+    }
+
+    const teams = [awayAbbr, homeAbbr];
+    const teamColors = { [awayAbbr]: awayColor, [homeAbbr]: homeColor };
+
+    let html = '<div class="lc-table-wrap"><table class="lc"><thead><tr>' +
+      '<th>Line</th><th>Players</th><th>TOI</th><th>xGF%</th><th>GF–GA</th>' +
+      '</tr></thead><tbody>';
+
+    let exportRows = [];
+
+    for (const abbr of teams) {
+      const { fLines, dPairs } = buildTeamRows(abbr);
+      if (!fLines.length && !dPairs.length) continue;
+      const color = teamColors[abbr] || '#0d0d14';
+      html += `<tr><td colspan="5" class="lc-team-divider">
+        <span class="lc-team-dot" style="background:${color}"></span>${esc(abbr)}
+      </td></tr>`;
+
+      if (fLines.length) {
+        html += renderTeamBlock(abbr, fLines, color, 'F Line');
+        fLines.forEach((c, i) => exportRows.push({ team: abbr, line: `F ${i + 1}`, players: (c.players || []).join(' · '), toi: c.toi_min != null ? c.toi_min.toFixed(1) : '—', xgf_pct: c.xgf_pct, xgfDisp: c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—', goals: `${c.gf ?? 0}–${c.ga ?? 0}` }));
+      }
+      if (dPairs.length) {
+        html += renderTeamBlock(abbr, dPairs, color, 'D Pair');
+        dPairs.forEach((c, i) => exportRows.push({ team: abbr, line: `D ${i + 1}`, players: (c.players || []).join(' · '), toi: c.toi_min != null ? c.toi_min.toFixed(1) : '—', xgf_pct: c.xgf_pct, xgfDisp: c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—', goals: `${c.gf ?? 0}–${c.ga ?? 0}` }));
+      }
+    }
+
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+
+    // Wire PNG export button
+    if (dlBtn && exportRows.length > 0) {
+      dlBtn.style.display = '';
+      dlBtn.onclick = async function () {
+        if (!window.HGB_Export) return;
+        const cols = [
+          { label: 'Team',    key: 'team',     width: 56,  align: 'center' },
+          { label: 'Line',    key: 'line',     width: 60,  align: 'center' },
+          { label: 'Players', key: 'players',  width: 310, align: 'left', fontFamily: 'body', bold: true },
+          { label: 'TOI',     key: 'toi',      width: 64,  align: 'center' },
+          { label: 'xGF%',    key: 'xgfDisp',  width: 72,  align: 'center',
+            color: (v, row, tok) => {
+              if (row.xgf_pct == null) return null;
+              if (row.xgf_pct >= 55) return tok.pos;
+              if (row.xgf_pct <= 45) return tok.neg;
+              return null;
+            },
+            bold: (v, row) => row.xgf_pct != null && (row.xgf_pct >= 55 || row.xgf_pct <= 45),
+          },
+          { label: 'GF–GA',   key: 'goals',    width: 70,  align: 'center' },
+        ];
+        await window.HGB_Export.downloadTablePng({
+          title: 'Line Combinations',
+          filterChips: [awayAbbr, homeAbbr, '≥2 min'],
+          rows: exportRows,
+          columns: cols,
+          filename: `hgb-lines-${_currentGameId}.png`,
+        });
+      };
+    }
+  }
+
   // ── Main render ─────────────────────────────────────────────────────────────
 
-  function renderGame(boxscore, flow, eventsData, state, onIce) {
+  function renderGame(boxscore, flow, eventsData, state, onIce, linesData) {
     const { awayAbbr, homeAbbr, awayColor, homeColor, awayScore, homeScore } =
       renderHeader(boxscore, state);
 
@@ -2804,6 +2959,7 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       renderShotMap(eventsData, flow, awayAbbr, homeAbbr, awayColor, homeColor);
       renderOnIce(onIce, awayColor, homeColor, awayAbbr, homeAbbr);
       renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
+      renderLineCombos(linesData, awayAbbr, homeAbbr, awayColor, homeColor);
       if (!renderGame._botLoaded) {
         renderGame._botLoaded = true;
         renderBotPosts(awayAbbr, homeAbbr, boxscore.gameDate || '');
@@ -2831,15 +2987,17 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     }
     if (!boxscoreRes.ok) throw new Error(`Game ${gameId} not found (HTTP ${boxscoreRes.status})`);
     const boxscore = await boxscoreRes.json();
-    const [flowRes, eventsRes, onIceRes] = await Promise.all([
+    const [flowRes, eventsRes, onIceRes, linesRes] = await Promise.all([
       fetch(`${HGB_API}/v1/games/${gameId}/flow`).catch(() => null),
       fetch(`${HGB_API}/v1/games/${gameId}/events?sort=asc`).catch(() => null),
       fetch(`${HGB_API}/v1/games/${gameId}/on-ice`).catch(() => null),
+      fetch(`${HGB_API}/v1/games/${gameId}/lines`).catch(() => null),
     ]);
     const flow = flowRes?.ok ? await flowRes.json().catch(() => EMPTY_FLOW) : EMPTY_FLOW;
     const eventsData = eventsRes?.ok ? await eventsRes.json().catch(() => null) : null;
     const onIce = onIceRes?.ok ? await onIceRes.json().catch(() => null) : null;
-    return { boxscore, flow, eventsData, onIce };
+    const linesData = linesRes?.ok ? await linesRes.json().catch(() => null) : null;
+    return { boxscore, flow, eventsData, onIce, linesData };
   }
 
   async function init() {
@@ -2859,10 +3017,10 @@ table.ps tbody tr:hover { background: var(--ink-04); }
     }
 
     try {
-      const { boxscore, flow, eventsData, onIce } = await fetchAll(gameId);
+      const { boxscore, flow, eventsData, onIce, linesData } = await fetchAll(gameId);
       const state = gameState(boxscore.gameState);
 
-      renderGame(boxscore, flow, eventsData, state, onIce);
+      renderGame(boxscore, flow, eventsData, state, onIce, linesData);
 
       document.getElementById('loading-state').style.display = 'none';
       document.getElementById('game-content').style.display = 'block';
@@ -2870,9 +3028,9 @@ table.ps tbody tr:hover { background: var(--ink-04); }
       if (state === 'live') {
         const interval = setInterval(async () => {
           try {
-            const { boxscore: bs, flow: fl, eventsData: ev, onIce: oi } = await fetchAll(gameId);
+            const { boxscore: bs, flow: fl, eventsData: ev, onIce: oi, linesData: ld } = await fetchAll(gameId);
             const newState = gameState(bs.gameState);
-            renderGame(bs, fl, ev, newState, oi);
+            renderGame(bs, fl, ev, newState, oi, ld);
             if (newState !== 'live') {
               clearInterval(interval);
               document.getElementById('refresh-indicator').style.display = 'none';
