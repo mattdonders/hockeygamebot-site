@@ -327,6 +327,9 @@ const seasonRecord = (() => {
     .gl-ot { color: var(--ink-48); font-weight: 700; }
     .gl-link { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-14); transition: border-color 0.15s; }
     .gl-link:hover { border-color: var(--red); }
+    .tbl-more { border-top: 1px solid var(--ink-14); padding: 12px 18px; text-align: center; }
+    .tbl-more button { background: none; border: 1px solid var(--ink-20); padding: 5px 20px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; }
+    .tbl-more button:hover { border-color: var(--ink); color: var(--ink); }
     .gl-empty { padding: 32px 18px; text-align: center; font-family: var(--mono);
       font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
 
@@ -542,6 +545,9 @@ const seasonRecord = (() => {
         </thead>
         <tbody id="player-tbody"></tbody>
       </table>
+      <div id="player-more-row" class="tbl-more" style="display:none">
+        <button id="player-show-all-btn">Show all players</button>
+      </div>
     </div>
 
     <!-- GOALIES SECTION -->
@@ -682,9 +688,10 @@ function fmtDate(d) {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let activeOpp   = '';   // '' = all opponents
-let sortKey     = 'imp';  // HGB Impact default — WAR has RAPM collinearity artifacts for linemates
-let sortAsc     = false;
+let activeOpp     = '';   // '' = all opponents
+let sortKey       = 'imp';  // HGB Impact default — WAR has RAPM collinearity artifacts for linemates
+let sortAsc       = false;
+let playerShowAll = false;
 
 // Track current KPI values for PNG export
 let kpiState = {
@@ -813,15 +820,28 @@ function renderPlayerTable() {
     return sortAsc ? av - bv : bv - av;
   });
 
-  const tbody = document.getElementById('player-tbody');
-  const isOpp = activeOpp !== '';
+  const tbody   = document.getElementById('player-tbody');
+  const moreRow = document.getElementById('player-more-row');
+  const isOpp   = activeOpp !== '';
+
+  // Season view: cap at 10 by HGB Impact; opponent view: show all
+  const PLAYER_LIMIT = 10;
+  const shown = (!isOpp && !playerShowAll) ? rows.slice(0, PLAYER_LIMIT) : rows;
 
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="10" class="gl-empty">No qualifying players vs this opponent.</td></tr>`;
+    if (moreRow) moreRow.style.display = 'none';
     return;
   }
 
-  tbody.innerHTML = rows.map((r, i) => `<tr>
+  if (moreRow) {
+    const hasMore = !isOpp && rows.length > PLAYER_LIMIT;
+    moreRow.style.display = hasMore && !playerShowAll ? '' : 'none';
+    const btn = document.getElementById('player-show-all-btn');
+    if (btn) btn.textContent = `Show all ${rows.length} players`;
+  }
+
+  tbody.innerHTML = shown.map((r, i) => `<tr>
     <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
     <td><div class="td-player">
       <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" width="22" height="22" loading="lazy">
@@ -873,14 +893,20 @@ function renderPlayerTable() {
     : `season · ${rows.length} players`;
 }
 
-// Sort click
+// Sort click — reset show-all when user re-sorts
 document.querySelectorAll('#player-thead th[data-sort]').forEach(th => {
   th.addEventListener('click', () => {
     const k = th.dataset.sort;
     if (sortKey === k) sortAsc = !sortAsc;
-    else { sortKey = k; sortAsc = false; }
+    else { sortKey = k; sortAsc = false; playerShowAll = false; }
     renderPlayerTable();
   });
+});
+
+// Show all button
+document.getElementById('player-show-all-btn')?.addEventListener('click', () => {
+  playerShowAll = true;
+  renderPlayerTable();
 });
 
 // ── Game log ──────────────────────────────────────────────────────────────────
@@ -951,6 +977,7 @@ function updateFilterMeta() {
 // ── Opponent change ───────────────────────────────────────────────────────────
 
 function applyFilter() {
+  playerShowAll = false; // reset when opponent filter changes
   updateOverview();
   renderPlayerTable();
   renderGameLog();
