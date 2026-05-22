@@ -296,6 +296,17 @@ export const LineRecordSchema = z.object({
   sh_pct:  z.number().nullable().optional(),
   sv_pct:  z.number().nullable().optional(),
   pdo:     z.number().nullable().optional(),
+  game_log: z.array(z.object({
+    game_id:  z.string(),
+    date:     z.string(),
+    opp:      z.string(),
+    xgf:      z.number(),
+    xga:      z.number(),
+    xgf_pct:  z.number().nullable(),
+    toi_min:  z.number(),
+    gf:       z.number().int(),
+    ga:       z.number().int(),
+  })).optional(),
 });
 export const LinesSchema = z.array(LineRecordSchema);
 export type LineRecord = z.infer<typeof LineRecordSchema>;

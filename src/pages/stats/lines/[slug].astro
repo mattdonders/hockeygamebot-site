@@ -288,6 +288,14 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
   .breakdown-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ── Form sparkline ──────────────────────────────────────────────────── */
+.form-wrap { background: var(--surface); border: 1px solid var(--ink); padding: 16px 20px 12px; margin-bottom: 2px; position: relative; }
+.form-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.form-title { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); }
+.form-meta-label { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.06em; }
+.form-sparkline { display: block; width: 100%; height: 72px; overflow: visible; }
+.form-tooltip { position: absolute; background: var(--ink); color: var(--bg); font-family: var(--mono); font-size: 11px; line-height: 1.4; padding: 5px 8px; white-space: nowrap; pointer-events: none; display: none; z-index: 20; }
+
 /* ── Shot Map ─────────────────────────────────────────────────────────── */
 .shot-map-wrap { background: var(--surface); border: 1px solid var(--ink-10); padding: 20px 20px 16px; }
 .shot-map-halves { display: flex; gap: 16px; }
@@ -403,6 +411,18 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     ))}
   </div>
 
+  <!-- Form sparkline (populated by JS from game_log) -->
+  <div id="section-form" style="display:none">
+    <div class="form-wrap">
+      <div class="form-header">
+        <span class="form-title">Form</span>
+        <span class="form-meta-label" id="form-meta"></span>
+      </div>
+      <svg id="form-sparkline" class="form-sparkline" viewBox="0 0 1000 72" preserveAspectRatio="none"></svg>
+      <div id="form-tooltip" class="form-tooltip"></div>
+    </div>
+  </div>
+
   <!-- Stage 2: Stat Breakdown -->
   <div class="section-header">
     <span class="section-label">Breakdown</span>
@@ -485,6 +505,8 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     sf_pct:    line.sf_pct,
     sh_pct:    line.sh_pct,
     sv_pct:    line.sv_pct,
+    // Sparkline
+    game_log:  line.game_log ?? [],
   },
   playerData: linePlayers.map(p => ({
     first_name: p.first_name,
@@ -866,6 +888,103 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
     await drawCard();
   });
+
+  // ── Form sparkline ───────────────────────────────────────────────────────────
+  (function () {
+    var gameLog = lineData.game_log || [];
+    if (gameLog.length < 2) return;
+
+    var section  = document.getElementById('section-form');
+    var svg      = document.getElementById('form-sparkline');
+    var metaEl   = document.getElementById('form-meta');
+    var tooltip  = document.getElementById('form-tooltip');
+
+    section.style.display = 'block';
+
+    var W = 1000, H = 72;
+    var PAD_L = 28, PAD_R = 8, PAD_T = 8, PAD_B = 8;
+    var iW = W - PAD_L - PAD_R;
+    var iH = H - PAD_T - PAD_B;
+    var n = gameLog.length;
+
+    metaEl.textContent = '· ' + n + ' game' + (n !== 1 ? 's' : '');
+
+    function yScale(pct) { return PAD_T + iH * (1 - pct / 100); }
+    function xScale(i)   { return PAD_L + (n > 1 ? i / (n - 1) * iW : iW / 2); }
+    var y50 = yScale(50);
+
+    var pts = gameLog.map(function(g, i) {
+      return {
+        x:   xScale(i),
+        y:   g.xgf_pct != null ? yScale(g.xgf_pct) : y50,
+        pct: g.xgf_pct,
+        date: g.date,
+        opp:  g.opp,
+        toi:  g.toi_min,
+        gf:   g.gf,
+        ga:   g.ga,
+      };
+    });
+
+    var html = '';
+
+    // y-axis labels: 75 / 50 / 25
+    var labelStyle = 'font-size="9" font-family="JetBrains Mono,monospace" fill="rgba(13,13,20,0.35)" text-anchor="end"';
+    html += '<text x="' + (PAD_L - 4) + '" y="' + (yScale(75) + 3.5).toFixed(1) + '" ' + labelStyle + '>75</text>';
+    html += '<text x="' + (PAD_L - 4) + '" y="' + (y50 + 3.5).toFixed(1) + '" ' + labelStyle + '>50</text>';
+    html += '<text x="' + (PAD_L - 4) + '" y="' + (yScale(25) + 3.5).toFixed(1) + '" ' + labelStyle + '>25</text>';
+
+    // Reference lines at 25 / 50 / 75
+    var refStyle = ' stroke="rgba(13,13,20,0.10)" stroke-width="0.8" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"';
+    html += '<line x1="' + PAD_L + '" y1="' + yScale(75).toFixed(1) + '" x2="' + (W - PAD_R) + '" y2="' + yScale(75).toFixed(1) + '"' + refStyle + '/>';
+    html += '<line x1="' + PAD_L + '" y1="' + y50.toFixed(1)        + '" x2="' + (W - PAD_R) + '" y2="' + y50.toFixed(1)        + '" stroke="rgba(13,13,20,0.20)" stroke-width="0.8" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>';
+    html += '<line x1="' + PAD_L + '" y1="' + yScale(25).toFixed(1) + '" x2="' + (W - PAD_R) + '" y2="' + yScale(25).toFixed(1) + '"' + refStyle + '/>';
+
+    // Line segments
+    for (var i = 1; i < pts.length; i++) {
+      var a = pts[i - 1], b = pts[i];
+      var color = (a.pct != null && a.pct >= 50 && b.pct != null && b.pct >= 50)
+        ? '#22c55e'
+        : (a.pct != null && a.pct < 50 && b.pct != null && b.pct < 50)
+          ? '#ef4444'
+          : 'rgba(13,13,20,0.25)';
+      html += '<line x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) + '" stroke="' + color + '" stroke-width="1.5" opacity="0.8" vector-effect="non-scaling-stroke"/>';
+    }
+
+    // Dots + invisible hit targets
+    pts.forEach(function(pt, i) {
+      var fill = pt.pct != null ? (pt.pct >= 50 ? '#22c55e' : '#ef4444') : 'rgba(13,13,20,0.3)';
+      html += '<circle cx="' + pt.x.toFixed(1) + '" cy="' + pt.y.toFixed(1) + '" r="3" fill="' + fill + '" stroke="white" stroke-width="1" vector-effect="non-scaling-stroke"/>';
+      html += '<circle cx="' + pt.x.toFixed(1) + '" cy="' + pt.y.toFixed(1) + '" r="14" fill="transparent" class="spark-hit" data-i="' + i + '"/>';
+    });
+
+    svg.innerHTML = html;
+
+    // Tooltip
+    svg.addEventListener('mouseover', function(e) {
+      var hit = e.target.closest ? e.target.closest('.spark-hit') : null;
+      if (!hit) { tooltip.style.display = 'none'; return; }
+      var pt = pts[parseInt(hit.dataset.i)];
+      var pctStr = pt.pct != null ? pt.pct.toFixed(1) + '% xGF' : '—';
+      tooltip.textContent = pt.date + ' · vs ' + pt.opp + ' · ' + pctStr + ' · ' + pt.toi + 'm (' + pt.gf + '–' + pt.ga + ')';
+      tooltip.style.display = 'block';
+    });
+    svg.addEventListener('mousemove', function(e) {
+      if (tooltip.style.display === 'none') return;
+      var wrap = tooltip.parentElement.getBoundingClientRect();
+      var left = e.clientX - wrap.left + 14;
+      if (left + tooltip.offsetWidth + 20 > wrap.width) left = e.clientX - wrap.left - tooltip.offsetWidth - 14;
+      tooltip.style.left  = left + 'px';
+      tooltip.style.top   = (e.clientY - wrap.top - 38) + 'px';
+    });
+    svg.addEventListener('mouseout', function(e) {
+      var relTarget = e.relatedTarget;
+      if (!relTarget || !relTarget.closest || !relTarget.closest('.spark-hit')) {
+        tooltip.style.display = 'none';
+      }
+    });
+  }());
+
 })();
 </script>
 
