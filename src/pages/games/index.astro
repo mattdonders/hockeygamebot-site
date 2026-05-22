@@ -303,6 +303,19 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .ps-toi { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
 .ps-ixg { font-family: var(--mono); font-size: 11px; font-weight: 600; }
 .ps-divider { padding: 5px 8px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-top: 1px solid var(--ink-14); }
+/* Combined goalies table */
+#combined-goalies { border-top: 2px solid var(--ink-14); }
+.cg-head { padding: 8px 12px 6px; font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); background: var(--bg-2); }
+.cg-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.cg-table th { padding: 7px 12px; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); text-align: center; border-bottom: 1px solid var(--ink-14); }
+.cg-table th:first-child, .cg-table th:nth-child(2), .cg-table th:nth-child(3) { text-align: left; }
+.cg-table td { padding: 8px 12px; text-align: center; border-bottom: 1px solid var(--ink-06); color: var(--ink); }
+.cg-table td:first-child { color: var(--ink-32); font-size: 10px; }
+.cg-table td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; font-size: 13px; }
+.cg-table td:nth-child(3) { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; }
+.cg-table tr:last-child td { border-bottom: none; }
+.gsax-pos { color: var(--stats-pos); font-weight: 700; }
+.gsax-neg { color: var(--stats-neg); font-weight: 700; }
 
 /* ── SHOT MAP ── */
 .shot-map-outer { position: relative; background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; }
@@ -736,6 +749,7 @@ table.lc tbody tr:hover { background: var(--ink-04); }
           <span class="section-meta">ixG · HGB xG model · all-sit</span>
         </div>
         <div class="player-stats-grid" id="player-stats-grid"></div>
+        <div id="combined-goalies"></div>
       </div>
 
       <!-- LINE COMBINATIONS -->
@@ -2141,6 +2155,22 @@ table.lc tbody tr:hover { background: var(--ink-04); }
       ixgByPlayer[pid] = (ixgByPlayer[pid] || 0) + xg;
     }
 
+    // Compute xGA per team from events for GSAx (SOG + GOAL only — matches goalie-facing shots)
+    const homePids = new Set([...(pbs.homeTeam?.forwards||[]), ...(pbs.homeTeam?.defense||[])].map(p => p.playerId));
+    const awayPids = new Set([...(pbs.awayTeam?.forwards||[]), ...(pbs.awayTeam?.defense||[])].map(p => p.playerId));
+    const xgByTeam = { home: 0, away: 0 };
+    for (const ev of (eventsData?.events || [])) {
+      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'GOAL') continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const pid = ev.payload?.details?.shootingPlayerId || ev.payload?.details?.scoringPlayerId;
+      if (homePids.has(pid))      xgByTeam.home += xg;
+      else if (awayPids.has(pid)) xgByTeam.away += xg;
+    }
+    // home goalie faces away shots; away goalie faces home shots
+    const xgaHome = xgByTeam.away;
+    const xgaAway = xgByTeam.home;
+
     // Sort state per team card: { col, dir }
     const sortState = { away: { col: 'ixg', dir: -1 }, home: { col: 'ixg', dir: -1 } };
 
@@ -2260,52 +2290,60 @@ table.lc tbody tr:hover { background: var(--ink-04); }
     }
 
     function buildTeamCard(teamData, teamKey, abbr, color) {
-      const fwd  = teamData.forwards  || [];
-      const def  = teamData.defense   || [];
-      const gols = teamData.goalies   || [];
-      const all  = [...fwd, ...def];
+      const fwd = teamData.forwards || [];
+      const def = teamData.defense  || [];
+      const all = [...fwd, ...def];
       if (!all.length) return '';
-
-      const skaterTbl = buildSkaterTable(all, teamKey, color);
-
-      // Separate goalie table
-      const activeGolies = gols.filter(g => g.toi && g.toi !== '00:00');
-      let goalieSection = '';
-      if (activeGolies.length) {
-        const goalieRows = activeGolies.map(g => {
-          const sa = g.shotsAgainst ?? 0;
-          const sv = g.saves ?? 0;
-          const ga = g.goalsAgainst ?? 0;
-          const svPct = sa > 0 ? (sv / sa).toFixed(3) : '—';
-          return `<tr>
-            <td><span class="ps-num">${esc(String(g.sweaterNumber ?? ''))}</span></td>
-            <td><span class="ps-name">${esc(g.name?.default || '')}</span></td>
-            <td><span class="ps-toi">${esc(g.toi)}</span></td>
-            <td>${sa}</td>
-            <td>${sv}</td>
-            <td>${ga}</td>
-            <td style="font-weight:700">${svPct}</td>
-          </tr>`;
-        }).join('');
-        goalieSection = `<div class="goalie-section-head">Goaltenders</div>
-          <div style="overflow-x:auto">
-            <table class="ps">
-              <thead><tr>
-                <th>#</th><th>Goalie</th><th>TOI</th>
-                <th>SA</th><th>SV</th><th>GA</th><th>SV%</th>
-              </tr></thead>
-              <tbody>${goalieRows}</tbody>
-            </table>
-          </div>`;
-      }
-
       return `<div class="player-team-card">
         <div class="player-team-head">
           <div class="player-team-dot" style="background:${color}"></div>
           <span class="player-team-label">${esc(abbr)}</span>
         </div>
-        <div style="overflow-x:auto">${skaterTbl}</div>
-        ${goalieSection}
+        <div style="overflow-x:auto">${buildSkaterTable(all, teamKey, color)}</div>
+      </div>`;
+    }
+
+    function buildCombinedGoalies() {
+      const allGoalies = [
+        ...(pbs.awayTeam?.goalies || []).map(g => ({ ...g, abbr: awayAbbr, color: awayColor, xga: xgaAway })),
+        ...(pbs.homeTeam?.goalies || []).map(g => ({ ...g, abbr: homeAbbr, color: homeColor, xga: xgaHome })),
+      ].filter(g => g.toi && g.toi !== '00:00');
+      if (!allGoalies.length) return '';
+
+      const rows = allGoalies.map(g => {
+        const sa    = g.shotsAgainst ?? 0;
+        const sv    = g.saves ?? 0;
+        const ga    = g.goalsAgainst ?? 0;
+        const svPct = sa > 0 ? (sv / sa).toFixed(3) : '—';
+        const gsax  = g.xga > 0 ? g.xga - ga : null;
+        const gsaxFmt = gsax != null
+          ? `${gsax >= 0 ? '+' : ''}${gsax.toFixed(2)}`
+          : '—';
+        const gsaxCls = gsax == null ? '' : gsax >= 0 ? 'gsax-pos' : 'gsax-neg';
+        return `<tr>
+          <td><span class="ps-num">${esc(String(g.sweaterNumber ?? ''))}</span></td>
+          <td><span class="ps-name">${esc(g.name?.default || '')}</span></td>
+          <td style="font-weight:700;color:${g.color}">${esc(g.abbr)}</td>
+          <td><span class="ps-toi">${esc(g.toi)}</span></td>
+          <td>${sa}</td>
+          <td>${sv}</td>
+          <td>${ga}</td>
+          <td style="font-weight:700">${svPct}</td>
+          <td class="${gsaxCls}">${gsaxFmt}</td>
+        </tr>`;
+      }).join('');
+
+      return `<div id="combined-goalies">
+        <div class="cg-head">Goaltenders</div>
+        <div style="overflow-x:auto">
+          <table class="cg-table">
+            <thead><tr>
+              <th>#</th><th>Goalie</th><th>Team</th><th>TOI</th>
+              <th>SA</th><th>SV</th><th>GA</th><th>SV%</th><th>GSAx</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>`;
     }
 
@@ -2318,6 +2356,8 @@ table.lc tbody tr:hover { background: var(--ink-04); }
         buildTeamCard(away, 'away', awayAbbr, awayColor),
         buildTeamCard(home, 'home', homeAbbr, homeColor),
       ].join('');
+      const cgEl = document.getElementById('combined-goalies');
+      if (cgEl) cgEl.outerHTML = buildCombinedGoalies();
 
       // Wire sort clicks
       grid.querySelectorAll('table.ps th[data-col]').forEach(th => {
