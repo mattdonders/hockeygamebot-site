@@ -868,5 +868,136 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
   });
 })();
 </script>
+
+<script is:inline define:vars={{ slugParam: Astro.params.slug }}>
+(function () {
+  'use strict';
+
+  // ── Rink coordinate mapping ───────────────────────────────────────────────
+  // ViewBox: 0 0 200 170
+  // NHL x: 0 (center) → 100 (goal line)  →  SVG x: 8 → 191
+  // NHL y: -42.5 → 42.5                   →  SVG y: 3 → 167
+  function toSvgX(nhlX) { return (nhlX / 100) * 183 + 8; }
+  function toSvgY(nhlY) { return ((nhlY + 42.5) / 85) * 164 + 3; }
+
+  // ── Build half-rink SVG string ────────────────────────────────────────────
+  function buildRinkSvg(shots, isFor) {
+    var goalFill    = '#E8002D';
+    var nonGoalFill = isFor ? 'rgba(13,13,20,0.25)' : 'rgba(232,0,45,0.20)';
+    var nonGoalStr  = isFor ? 'rgba(13,13,20,0.30)' : 'rgba(232,0,45,0.35)';
+
+    var p = [];
+    p.push('<svg class="shot-map-svg" viewBox="0 0 200 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="' + (isFor ? 'Shots for' : 'Shots against') + ' rink half">');
+
+    // Ice surface
+    p.push('<rect x="2" y="2" width="196" height="166" rx="6" ry="6" fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>');
+
+    // Blue line (dashed) at nhlX=0
+    var blX = toSvgX(0).toFixed(1);
+    p.push('<line x1="' + blX + '" y1="2" x2="' + blX + '" y2="168" stroke="rgba(13,13,20,0.20)" stroke-width="1.5" stroke-dasharray="4 3"/>');
+
+    // Goal line at nhlX=100
+    var glX = toSvgX(100).toFixed(1);
+    p.push('<line x1="' + glX + '" y1="2" x2="' + glX + '" y2="168" stroke="rgba(232,0,45,0.55)" stroke-width="1.5"/>');
+
+    // Goal crease: arc in front of goal line
+    var cY = toSvgY(0).toFixed(1);
+    var cYm = (toSvgY(0) - 20).toFixed(1);
+    var cYp = (toSvgY(0) + 20).toFixed(1);
+    p.push('<path d="M' + glX + ',' + cYm + ' A20,20 0 0,0 ' + glX + ',' + cYp + '" fill="rgba(232,0,45,0.10)" stroke="rgba(232,0,45,0.40)" stroke-width="1"/>');
+
+    // Goal posts (tiny rect)
+    p.push('<rect x="' + glX + '" y="' + (toSvgY(0) - 3).toFixed(1) + '" width="4" height="6" fill="rgba(13,13,20,0.40)" rx="0.5"/>');
+
+    // Faceoff circles at ~nhlX=69, nhlY=±22
+    var foX = toSvgX(69).toFixed(1);
+    var foY1 = toSvgY(-22).toFixed(1);
+    var foY2 = toSvgY(22).toFixed(1);
+    p.push('<circle cx="' + foX + '" cy="' + foY1 + '" r="20" fill="none" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
+    p.push('<circle cx="' + foX + '" cy="' + foY2 + '" r="20" fill="none" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
+    p.push('<circle cx="' + foX + '" cy="' + foY1 + '" r="2" fill="rgba(232,0,45,0.40)"/>');
+    p.push('<circle cx="' + foX + '" cy="' + foY2 + '" r="2" fill="rgba(232,0,45,0.40)"/>');
+
+    // Hash marks
+    [toSvgY(-22) - 18, toSvgY(-22) + 18, toSvgY(22) - 18, toSvgY(22) + 18].forEach(function (hY) {
+      var hYf = hY.toFixed(1);
+      p.push('<line x1="' + (toSvgX(69) - 6).toFixed(1) + '" y1="' + hYf + '" x2="' + (toSvgX(69) + 6).toFixed(1) + '" y2="' + hYf + '" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
+    });
+
+    // Shot dots — non-goals first, goals on top
+    var nonGoals = shots.filter(function (s) { return !s.is_goal; });
+    var goals    = shots.filter(function (s) { return  s.is_goal; });
+
+    function dot(s) {
+      var sx  = toSvgX(s.x).toFixed(1);
+      var sy  = toSvgY(s.y).toFixed(1);
+      var xg  = s.xg != null ? s.xg : 0.05;
+      var r   = Math.max(2.5, Math.min(9, Math.sqrt(xg) * 22)).toFixed(1);
+      var tip = (s.is_goal ? 'Goal' : 'Shot') + ' · xG ' + xg.toFixed(3);
+      if (s.is_goal) {
+        return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + goalFill + '" opacity="0.90"><title>' + tip + '</title></circle>';
+      }
+      return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + nonGoalFill + '" stroke="' + nonGoalStr + '" stroke-width="0.5"><title>' + tip + '</title></circle>';
+    }
+
+    nonGoals.forEach(function (s) { p.push(dot(s)); });
+    goals.forEach(function (s)    { p.push(dot(s)); });
+
+    p.push('</svg>');
+    return p.join('');
+  }
+
+  // ── Summary text ──────────────────────────────────────────────────────────
+  function summary(shots) {
+    var n   = shots.length;
+    var xg  = shots.reduce(function (a, s) { return a + (s.xg || 0); }, 0);
+    var g   = shots.filter(function (s) { return s.is_goal; }).length;
+    return n + ' shots · xG ' + xg.toFixed(2) + ' · ' + g + ' G';
+  }
+
+  // ── Build one column HTML ─────────────────────────────────────────────────
+  function halfHtml(title, shots, isFor) {
+    return '<div class="shot-half">'
+      + '<div class="shot-half-label">' + title + '</div>'
+      + buildRinkSvg(shots, isFor)
+      + '<div class="shot-half-summary">' + summary(shots) + '</div>'
+      + '</div>';
+  }
+
+  // ── Main fetch + render ────────────────────────────────────────────────────
+  function loadShotMap() {
+    var section = document.getElementById('section-shotmap');
+    var halves  = document.getElementById('shot-map-halves');
+    var wrap    = document.getElementById('shot-map-wrap');
+    if (!section || !halves || !wrap) return;
+
+    fetch('https://api.hockeygamebot.com/v1/lines/' + slugParam + '/shots')
+      .then(function (resp) {
+        if (!resp.ok) { showEmpty(wrap, section); return null; }
+        return resp.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        var sf = data.shots_for     || [];
+        var sa = data.shots_against || [];
+        if (sf.length === 0 && sa.length === 0) { showEmpty(wrap, section); return; }
+        halves.innerHTML = halfHtml('Shots For', sf, true) + halfHtml('Shots Against', sa, false);
+        section.style.display = '';
+      })
+      .catch(function () { showEmpty(wrap, section); });
+  }
+
+  function showEmpty(wrap, section) {
+    wrap.innerHTML = '<div class="shot-map-empty">Shot data not available for this line.</div>';
+    section.style.display = '';
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadShotMap);
+  } else {
+    loadShotMap();
+  }
+})();
+</script>
 </body>
 </html>
