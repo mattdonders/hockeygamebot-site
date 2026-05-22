@@ -6,7 +6,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
-import { loadPlayers, loadAllTeamGames, loadTeamPlayerGames } from '../../lib/stats-loader';
+import { loadPlayers, loadAllTeamGames, loadTeamPlayerGames, loadGoalies } from '../../lib/stats-loader';
 import { pickTeamColor } from '../../lib/team-colors';
 
 export async function getStaticPaths() {
@@ -46,8 +46,9 @@ export async function getStaticPaths() {
   ];
   // Full-name lookup passed as prop for client-side opponent dropdown
   const TEAM_NAMES: Record<string, string> = Object.fromEntries(TEAMS.map(t => [t.abbr, t.name]));
-  const allPlayers  = loadPlayers();
+  const allPlayers   = loadPlayers();
   const allTeamGames = loadAllTeamGames();
+  const allGoalies   = loadGoalies();
 
   // Fetch standings once for all 32 pages
   const standings = new Map<string, { clinch: string | null; record: string }>();
@@ -74,18 +75,22 @@ export async function getStaticPaths() {
     const teamGames     = allTeamGames[abbr] ?? [];
     const stats         = standings.get(abbr) ?? null;
 
+    const teamGoalies = allGoalies
+      .filter(g => g.team_abbrev === abbr && g.game_type === 2)
+      .sort((a, b) => (b.sa ?? 0) - (a.sa ?? 0));
+
     return {
       params: { abbr: abbr.toLowerCase() },
       props:  { abbr, name: team.name,
                 xHandle: (team as any).xHandle ?? `${abbr}GameBot`,
                 stats, playoffMode,
-                teamPlayers, playerGameMap, teamGames, TEAM_NAMES },
+                teamPlayers, playerGameMap, teamGames, teamGoalies, TEAM_NAMES },
     };
   });
 }
 
 const { abbr, name, xHandle, stats, playoffMode,
-        teamPlayers, playerGameMap, teamGames, TEAM_NAMES } = Astro.props;
+        teamPlayers, playerGameMap, teamGames, teamGoalies, TEAM_NAMES } = Astro.props;
 
 const teamColor  = pickTeamColor(abbr);
 const logoUrl    = `https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg`;
@@ -126,6 +131,7 @@ const seasonRecord = (() => {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg:       #EFEEE8;
+      --bg-2:     #E4E3DC;
       --ink:      #0d0d14;
       --red:      #E8002D;
       --surface:  #FFFFFF;
@@ -138,9 +144,29 @@ const seasonRecord = (() => {
       --ink-32:   rgba(13,13,20,0.32);
       --ink-48:   rgba(13,13,20,0.48);
       --ink-72:   rgba(13,13,20,0.72);
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
       --display:  'Barlow Condensed', sans-serif;
       --body:     'Barlow', sans-serif;
       --mono:     'JetBrains Mono', monospace;
+    }
+    html[data-theme="dark"] {
+      --bg:      #0D0D14;
+      --bg-2:    #14141E;
+      --surface: #1A1A26;
+      --ink:     #EFEEE8;
+      --ink-72:  rgba(239,238,232,0.72);
+      --ink-48:  rgba(239,238,232,0.48);
+      --ink-32:  rgba(239,238,232,0.32);
+      --ink-20:  rgba(239,238,232,0.20);
+      --ink-14:  rgba(239,238,232,0.14);
+      --ink-10:  rgba(239,238,232,0.10);
+      --ink-06:  rgba(239,238,232,0.06);
+      --ink-04:  rgba(239,238,232,0.04);
+      --red:     #FF3355;
+      --stats-pos: #4ade80;
+      --stats-neg: #f87171;
+      --grid-line: rgba(239,238,232,0.04);
     }
     html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
 
@@ -224,8 +250,9 @@ const seasonRecord = (() => {
       letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); }
     .overview-eyebrow .accent { color: var(--red); }
     .overview-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
-    .overview-stats { display: grid; grid-template-columns: repeat(4, 1fr); }
-    @media (max-width: 640px) { .overview-stats { grid-template-columns: repeat(2, 1fr); } }
+    .overview-stats { display: grid; grid-template-columns: repeat(6, 1fr); }
+    @media (max-width: 900px) { .overview-stats { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 480px) { .overview-stats { grid-template-columns: repeat(2, 1fr); } }
     .ov-cell { padding: 18px 20px; border-right: 1px solid var(--ink-06); text-align: center; }
     .ov-cell:last-child { border-right: none; }
     .ov-val { font-family: var(--display); font-weight: 800; font-size: 36px;
@@ -323,6 +350,49 @@ const seasonRecord = (() => {
       padding: 20px 0; font-family: var(--mono); font-size: 10px;
       color: rgba(239,238,232,0.24); letter-spacing: 0.08em; text-align: center; }
 
+    /* ── Section header row (eyebrow + export button) ── */
+    .section-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .export-btn {
+      font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.14em;
+      text-transform: uppercase; padding: 6px 14px; border: 1px solid var(--ink-20);
+      background: var(--surface); color: var(--ink-48); cursor: pointer;
+      transition: border-color 0.12s, color 0.12s; flex-shrink: 0;
+    }
+    .export-btn:hover { border-color: var(--ink); color: var(--ink); }
+
+    /* ── Goalie table ── */
+    .gt-table { width: 100%; border-collapse: collapse; }
+    .gt-table thead th { padding: 9px 14px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
+      border-bottom: 2px solid var(--ink-14); text-align: right; }
+    .gt-table thead th:first-child { text-align: left; padding-left: 16px; }
+    .gt-table tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
+    .gt-table tbody tr:last-child { border-bottom: none; }
+    .gt-table tbody tr:hover { background: var(--ink-04); }
+    .gt-table td { padding: 9px 14px; font-family: var(--mono); font-size: 12.5px;
+      color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; vertical-align: middle; }
+    .gt-table td:first-child { text-align: left; padding-left: 16px;
+      font-family: var(--body); font-size: 15px; font-weight: 600; }
+    .gt-table .gsax-pos { color: var(--stats-pos); font-weight: 700; }
+    .gt-table .gsax-neg { color: var(--stats-neg); font-weight: 700; }
+    .gt-empty { padding: 32px 18px; text-align: center; font-family: var(--mono);
+      font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
+
+    /* ── Lines link card ── */
+    .link-card {
+      background: var(--surface); border: 1px solid var(--ink-14);
+      padding: 20px 24px; display: flex; align-items: center; justify-content: space-between;
+      text-decoration: none; color: var(--ink); transition: border-color 0.12s, background 0.12s;
+    }
+    .link-card:hover { border-color: var(--ink); background: var(--bg-2); }
+    .link-card-left { display: flex; flex-direction: column; gap: 5px; }
+    .link-card-label { font-family: var(--display); font-weight: 800; font-size: 18px;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink); }
+    .link-card-sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-48); letter-spacing: 0.06em; }
+    .link-card-arrow { font-family: var(--display); font-weight: 800; font-size: 22px;
+      color: var(--ink-32); transition: color 0.12s, transform 0.12s; }
+    .link-card:hover .link-card-arrow { color: var(--red); transform: translateX(3px); }
+
     /* ── Responsive ── */
     @media (max-width: 768px) {
       .mast-inner { padding: 28px 0; }
@@ -399,27 +469,40 @@ const seasonRecord = (() => {
     </div>
 
     <!-- TEAM OVERVIEW CARD -->
-    <div class="overview-card">
-      <div class="overview-head">
+    <div>
+      <div class="section-header" style="margin-bottom:8px">
         <span class="overview-eyebrow">Team overview &nbsp;<span class="accent" id="overview-accent">Season</span></span>
-        <span class="overview-meta" id="overview-meta">5v5 · 2025–26</span>
+        <button class="export-btn" id="kpi-export-btn">↓ PNG</button>
       </div>
-      <div class="overview-stats" id="overview-stats">
-        <div class="ov-cell">
-          <div class="ov-val" id="ov-record">{seasonRecord}</div>
-          <div class="ov-label">Record</div>
+      <div class="overview-card">
+        <div class="overview-head">
+          <span class="overview-meta" id="overview-meta">5v5 · 2025–26</span>
         </div>
-        <div class="ov-cell">
-          <div class="ov-val" id="ov-xgfpct">{seasonXgfPct}{teamGames.length > 0 ? '%' : ''}</div>
-          <div class="ov-label">xGF% 5v5</div>
-        </div>
-        <div class="ov-cell">
-          <div class="ov-val" id="ov-gf">{allTeamGf}</div>
-          <div class="ov-label">Goals For</div>
-        </div>
-        <div class="ov-cell">
-          <div class="ov-val" id="ov-ga">{allTeamGa}</div>
-          <div class="ov-label">Goals Against</div>
+        <div class="overview-stats" id="overview-stats">
+          <div class="ov-cell">
+            <div class="ov-val" id="ov-record">{seasonRecord}</div>
+            <div class="ov-label">Record</div>
+          </div>
+          <div class="ov-cell">
+            <div class="ov-val" id="ov-gf">{allTeamGf}</div>
+            <div class="ov-label">Goals For</div>
+          </div>
+          <div class="ov-cell">
+            <div class="ov-val" id="ov-ga">{allTeamGa}</div>
+            <div class="ov-label">Goals Against</div>
+          </div>
+          <div class="ov-cell">
+            <div class="ov-val" id="ov-xgf">{allXgf.toFixed(1)}</div>
+            <div class="ov-label">xGF 5v5</div>
+          </div>
+          <div class="ov-cell">
+            <div class="ov-val" id="ov-xga">{allXga.toFixed(1)}</div>
+            <div class="ov-label">xGA 5v5</div>
+          </div>
+          <div class="ov-cell">
+            <div class="ov-val" id="ov-xgfpct">{seasonXgfPct}{teamGames.length > 0 ? '%' : ''}</div>
+            <div class="ov-label">xGF% 5v5</div>
+          </div>
         </div>
       </div>
     </div>
@@ -460,6 +543,54 @@ const seasonRecord = (() => {
         <tbody id="player-tbody"></tbody>
       </table>
     </div>
+
+    <!-- GOALIES SECTION -->
+    <div class="table-card">
+      <div class="table-head">
+        <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;Goalies</span>
+        <span class="filter-meta">{teamGoalies.length} goalie{teamGoalies.length !== 1 ? 's' : ''} · 2025–26</span>
+      </div>
+      {teamGoalies.length === 0 ? (
+        <div class="gt-empty">No goalie data available.</div>
+      ) : (
+        <table class="gt-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>GP</th>
+              <th>GSAx</th>
+              <th>SV%</th>
+              <th>SA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {teamGoalies.map(g => {
+              const gsaxFmt = (g.gsax >= 0 ? '+' : '') + g.gsax.toFixed(2);
+              const gsaxCls = g.gsax >= 0 ? 'gsax-pos' : 'gsax-neg';
+              const svPctFmt = g.sv_pct != null ? (g.sv_pct * 100).toFixed(2) + '%' : '—';
+              return (
+                <tr>
+                  <td>{g.name}</td>
+                  <td>{g.gp ?? '—'}</td>
+                  <td class={gsaxCls}>{gsaxFmt}</td>
+                  <td>{svPctFmt}</td>
+                  <td>{g.sa}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+
+    <!-- LINES LINK CARD -->
+    <a class="link-card" href={`/stats/lines?team=${abbr}`}>
+      <div class="link-card-left">
+        <div class="link-card-label">Lines &amp; Pairs</div>
+        <div class="link-card-sub">View all {abbr} forward lines and defensive pairs at 5v5</div>
+      </div>
+      <div class="link-card-arrow">→</div>
+    </a>
 
     <!-- GAME LOG -->
     <div class="gl-card">
@@ -516,7 +647,9 @@ const seasonRecord = (() => {
 </body>
 </html>
 
-<script define:vars={{ teamPlayers, playerGameMap, teamGames, teamAbbr: abbr, TEAM_NAMES }}>
+<script is:inline src="/js/table-export.js"></script>
+<script define:vars={{ teamPlayers, playerGameMap, teamGames, teamAbbr: abbr, teamName: name, TEAM_NAMES,
+  initXgf: allXgf, initXga: allXga }}>
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -553,6 +686,14 @@ let activeOpp   = '';   // '' = all opponents
 let sortKey     = 'imp';  // HGB Impact default — WAR has RAPM collinearity artifacts for linemates
 let sortAsc     = false;
 
+// Track current KPI values for PNG export
+let kpiState = {
+  record: '—', gf: 0, ga: 0,
+  xgf: initXgf, xga: initXga,
+  xgfPct: '—',
+  filterLabel: 'Season',
+};
+
 // ── Build opponent dropdown ───────────────────────────────────────────────────
 
 const opps = [...new Set(teamGames.map(g => g.opp_abbrev))].sort();
@@ -586,15 +727,21 @@ function updateOverview() {
   const xgf = games.reduce((s, g) => s + g.xgf_5v5, 0);
   const xga = games.reduce((s, g) => s + g.xga_5v5, 0);
   const xgfPct = xgf + xga > 0 ? ((xgf / (xgf + xga)) * 100).toFixed(1) + '%' : '—';
+  const record = games.length ? `${w}-${l}-${ot}` : '—';
+  const filterLabel = activeOpp ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp}` : 'Season';
 
-  document.getElementById('ov-record').textContent = games.length ? `${w}-${l}-${ot}` : '—';
-  document.getElementById('ov-xgfpct').textContent = xgfPct;
-  document.getElementById('ov-gf').textContent     = String(gf);
-  document.getElementById('ov-ga').textContent     = String(ga);
-  document.getElementById('overview-accent').textContent = activeOpp
-    ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp}` : 'Season';
+  document.getElementById('ov-record').textContent  = record;
+  document.getElementById('ov-gf').textContent      = String(gf);
+  document.getElementById('ov-ga').textContent      = String(ga);
+  document.getElementById('ov-xgf').textContent     = xgf.toFixed(1);
+  document.getElementById('ov-xga').textContent     = xga.toFixed(1);
+  document.getElementById('ov-xgfpct').textContent  = xgfPct;
+  document.getElementById('overview-accent').textContent = filterLabel;
   document.getElementById('overview-meta').textContent = activeOpp
     ? `5v5 · ${games.length} games` : '5v5 · 2025–26';
+
+  // Track for PNG export
+  kpiState = { record, gf, ga, xgf, xga, xgfPct, filterLabel };
 }
 
 // ── Player table ──────────────────────────────────────────────────────────────
@@ -865,5 +1012,147 @@ async function loadTonightGame() {
 
 applyFilter();
 loadTonightGame();
+
+// ── KPI Card PNG Export ────────────────────────────────────────────────────────
+
+document.getElementById('kpi-export-btn').addEventListener('click', async function () {
+  if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+  const SCALE  = 2;
+  const W      = 900;
+  const PAD    = 40;
+  const TITLE_H = 80;
+  const CHIP_ROW_H = 48;
+  const KPI_H  = 110;
+  const FOOT_H = 28;
+  const totalH = TITLE_H + CHIP_ROW_H + KPI_H + FOOT_H;
+  const NUM_CELLS = 6;
+  const CELL_W = (W - PAD * 2) / NUM_CELLS;
+
+  const BG      = '#EFEEE8';
+  const INK     = '#0D0D14';
+  const RED     = '#E8002D';
+  const SURFACE = '#FFFFFF';
+  const INK14   = 'rgba(13,13,20,0.14)';
+  const INK32   = 'rgba(13,13,20,0.32)';
+  const INK48   = 'rgba(13,13,20,0.48)';
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = W * SCALE;
+  canvas.height = totalH * SCALE;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+
+  // Background
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, totalH);
+
+  let y = 0;
+
+  // Title row
+  ctx.fillStyle = INK;
+  ctx.font = '800 36px "Barlow Condensed", sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText((teamAbbr + ' — ' + teamName).toUpperCase(), PAD, y + TITLE_H / 2);
+  y += TITLE_H;
+
+  // Chip row — filter label (left) + brand pill (right)
+  const chipH = 24;
+  const chipY0 = y + (CHIP_ROW_H - chipH) / 2;
+  ctx.font = '700 10px "Barlow Condensed", sans-serif';
+
+  // Filter chip
+  const filterText = kpiState.filterLabel.toUpperCase();
+  const ftw = ctx.measureText(filterText).width;
+  const fChipW = ftw + 22;
+  ctx.beginPath(); ctx.rect(PAD, chipY0, fChipW, chipH);
+  ctx.fillStyle = INK; ctx.fill();
+  ctx.fillStyle = BG;
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.fillText(filterText, PAD + 11, chipY0 + chipH / 2);
+
+  // Season chip
+  const seasonText = 'REGULAR SEASON · 2025–26';
+  const stw = ctx.measureText(seasonText).width;
+  const sChipW = stw + 22;
+  ctx.beginPath(); ctx.rect(PAD + fChipW + 8, chipY0, sChipW, chipH);
+  ctx.fillStyle = INK48; ctx.fill();
+  ctx.fillStyle = BG;
+  ctx.textAlign = 'left';
+  ctx.fillText(seasonText, PAD + fChipW + 8 + 11, chipY0 + chipH / 2);
+
+  // Brand pill
+  const brandText = 'HOCKEYGAMEBOT.COM';
+  const btw = ctx.measureText(brandText).width;
+  const bChipW = btw + 22;
+  const bx = W - PAD - bChipW;
+  ctx.beginPath(); ctx.rect(bx, chipY0, bChipW, chipH);
+  ctx.fillStyle = RED; ctx.fill();
+  ctx.fillStyle = BG; ctx.textAlign = 'left';
+  ctx.fillText(brandText, bx + 11, chipY0 + chipH / 2);
+
+  y += CHIP_ROW_H;
+
+  // KPI grid top border
+  ctx.fillStyle = INK;
+  ctx.fillRect(0, y, W, 2);
+  y += 2;
+
+  // KPI cells surface
+  ctx.fillStyle = SURFACE;
+  ctx.fillRect(0, y, W, KPI_H);
+
+  const kpis = [
+    { label: 'Record',     value: kpiState.record },
+    { label: 'Goals For',  value: String(kpiState.gf) },
+    { label: 'Goals Against', value: String(kpiState.ga) },
+    { label: 'xGF 5v5',   value: kpiState.xgf.toFixed(1) },
+    { label: 'xGA 5v5',   value: kpiState.xga.toFixed(1) },
+    { label: 'xGF% 5v5',  value: String(kpiState.xgfPct) },
+  ];
+
+  kpis.forEach((kpi, i) => {
+    const cx = PAD + i * CELL_W;
+
+    // Divider (between cells)
+    if (i > 0) {
+      ctx.fillStyle = INK14;
+      ctx.fillRect(cx, y, 1, KPI_H);
+    }
+
+    // Value
+    ctx.fillStyle = INK;
+    ctx.font = '800 32px "Barlow Condensed", sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillText(kpi.value, cx + CELL_W / 2, y + KPI_H * 0.42);
+
+    // Label
+    ctx.fillStyle = INK32;
+    ctx.font = '600 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(kpi.label.toUpperCase(), cx + CELL_W / 2, y + KPI_H * 0.72);
+  });
+
+  y += KPI_H;
+
+  // Footer breathing room
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, y, W, FOOT_H);
+
+  // Download
+  canvas.toBlob(function (blob) {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hgb-${teamAbbr.toLowerCase()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+});
 
 </script>
