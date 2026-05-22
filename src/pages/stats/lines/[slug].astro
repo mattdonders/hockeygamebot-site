@@ -497,7 +497,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
   // ── PNG Export ─────────────────────────────────────────────────────────────
 
   const SCALE = 2;
-  const W     = 900;   // 1× width; canvas will be 1800px
+  const W     = 560;   // 1× width; mobile-proportioned card
 
   function _cssVar(name, fallback) {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -530,6 +530,21 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     });
   }
 
+  function _svgToImage(svgStr, w, h) {
+    return new Promise(function (resolve) {
+      var sized = svgStr
+        .replace(/class="full-rink-svg"\s*/, '')
+        .replace(/width="[^"]*"/, 'width="' + w + '"');
+      if (!sized.includes('height=')) sized = sized.replace('<svg ', '<svg height="' + h + '" ');
+      var blob = new Blob([sized], { type: 'image/svg+xml;charset=utf-8' });
+      var url  = URL.createObjectURL(blob);
+      var img  = new Image();
+      img.onload  = function () { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+
   async function drawCard() {
     const BG      = '#EFEEE8';
     const INK     = '#0D0D14';
@@ -545,7 +560,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     const POS     = _cssVar('--stats-pos', '#166534');
     const NEG     = _cssVar('--stats-neg', '#991b1b');
 
-    const PAD     = 40;
+    const PAD     = 28;
 
     // ── Helper: format stat value ─────────────────────────────────────────────
     function _fmt(v, dec) {
@@ -556,17 +571,26 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     }
 
     // Heights at 1×
-    const TITLE_H   = 80;
-    const CHIPS_H   = 48;
-    const PLAYERS_H = 96;
+    const TITLE_H   = 68;
+    const CHIPS_H   = 40;
+    const PLAYERS_H = 88;
     const SEP_H     = 1;
-    const KPI_LH    = 30; // KPI label row
-    const KPI_VH    = 48; // KPI value row
-    const BD_SEP_H  = 24; // "Breakdown" section header
-    const BD_LH     = 22; // breakdown label row
-    const BD_VH     = 46; // breakdown value row
+    const KPI_LH    = 26; // KPI label row
+    const KPI_VH    = 42; // KPI value row
+    const BD_SEP_H  = 20; // "Breakdown" section header
+    const BD_LH     = 18; // breakdown label row
+    const BD_VH     = 40; // breakdown value row
     const FOOT_H    = 24;
-    const TOTAL_H   = TITLE_H + CHIPS_H + PLAYERS_H + SEP_H + KPI_LH + KPI_VH + BD_SEP_H + BD_LH + BD_VH + FOOT_H;
+
+    // Shot map section (conditional — only if data was already fetched)
+    const hasShotMap  = typeof window.buildFullRink === 'function' && !!window._hgbShotData;
+    const RINK_W      = W - PAD * 2;
+    const SM_SEP_H    = hasShotMap ? 8  : 0;
+    const SM_LH       = hasShotMap ? 24 : 0;
+    const SM_H        = hasShotMap ? Math.round(RINK_W * 170 / 390) : 0;
+    const SM_BAL_H    = hasShotMap ? 22 : 0;
+
+    const TOTAL_H   = TITLE_H + CHIPS_H + PLAYERS_H + SEP_H + KPI_LH + KPI_VH + BD_SEP_H + BD_LH + BD_VH + SM_SEP_H + SM_LH + SM_H + SM_BAL_H + FOOT_H;
 
     const canvas  = document.createElement('canvas');
     canvas.width  = W * SCALE;
@@ -583,7 +607,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     // ── Title row ────────────────────────────────────────────────────────────
     ctx.fillStyle = SURFACE;
     ctx.fillRect(0, y, W, TITLE_H);
-    ctx.font = '800 28px "Barlow Condensed", sans-serif';
+    ctx.font = '800 22px "Barlow Condensed", sans-serif';
     ctx.fillStyle = INK;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
@@ -593,7 +617,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     }).join(' – ');
     ctx.fillText(lastNamesDisplay, PAD, y + TITLE_H / 2);
     // Team badge top-right
-    ctx.font = '700 11px "Barlow Condensed", sans-serif';
+    ctx.font = '700 10px "Barlow Condensed", sans-serif';
     ctx.fillStyle = INK48;
     ctx.textAlign = 'right';
     ctx.fillText(lineData.team + ' · ' + lineTypeLabel + ' · 5v5', W - PAD, y + TITLE_H / 2);
@@ -724,7 +748,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     y += KPI_LH;
 
     // Value row
-    ctx.font = '800 22px "Barlow Condensed", sans-serif';
+    ctx.font = '800 18px "Barlow Condensed", sans-serif';
     ctx.textBaseline = 'middle';
     for (var ki2 = 0; ki2 < kpiItems.length; ki2++) {
       const item = kpiItems[ki2];
@@ -798,7 +822,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
       const bx0  = PAD + bi2 * bdColW;
 
       // Against (de-emphasized)
-      ctx.font = '800 15px "Barlow Condensed", sans-serif';
+      ctx.font = '800 11px "Barlow Condensed", sans-serif';
       ctx.fillStyle = INK72;
       ctx.fillText(bk.against, bx0 + bdCellW / 2, y + BD_VH / 2 - 7);
       ctx.font = '400 7px "JetBrains Mono", monospace';
@@ -816,7 +840,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
           else if (bk.pctVal <= 45) pctColor = NEG;
         }
       }
-      ctx.font = '800 15px "Barlow Condensed", sans-serif';
+      ctx.font = '800 11px "Barlow Condensed", sans-serif';
       ctx.fillStyle = pctColor;
       ctx.fillText(bk.pct, bx0 + bdCellW * 1.5, y + BD_VH / 2 - 7);
       ctx.font = '400 7px "JetBrains Mono", monospace';
@@ -824,7 +848,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
       ctx.fillText(bk.pLbl, bx0 + bdCellW * 1.5, y + BD_VH / 2 + 9);
 
       // For (full emphasis)
-      ctx.font = '800 15px "Barlow Condensed", sans-serif';
+      ctx.font = '800 11px "Barlow Condensed", sans-serif';
       ctx.fillStyle = INK;
       ctx.fillText(bk.forVal, bx0 + bdCellW * 2.5, y + BD_VH / 2 - 7);
       ctx.font = '400 7px "JetBrains Mono", monospace';
@@ -838,6 +862,44 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
       }
     }
     y += BD_VH;
+
+    // ── Shot map section ──────────────────────────────────────────────────────
+    if (hasShotMap) {
+      ctx.fillStyle = INK10;
+      ctx.fillRect(PAD, y, W - PAD * 2, 1);
+      y += SM_SEP_H;
+
+      ctx.font = '700 7px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText('SHOT MAP', PAD, y + SM_LH / 2);
+      y += SM_LH;
+
+      var shotRes = window.buildFullRink(window._hgbShotData.sf, window._hgbShotData.sa);
+      var rinkImg = await _svgToImage(shotRes.svg, RINK_W * SCALE, SM_H * SCALE);
+      if (rinkImg) ctx.drawImage(rinkImg, PAD, y, RINK_W, SM_H);
+      y += SM_H;
+
+      var bBarY = y + (SM_BAL_H - 10) / 2;
+      var bBarH = 10;
+      var agaW  = RINK_W * (shotRes.xgaPct / 100);
+      ctx.save();
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') ctx.roundRect(PAD, bBarY, RINK_W, bBarH, 2);
+      else ctx.rect(PAD, bBarY, RINK_W, bBarH);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(232,0,45,0.70)';
+      ctx.fillRect(PAD, bBarY, agaW, bBarH);
+      ctx.fillStyle = 'rgba(20,100,200,0.70)';
+      ctx.fillRect(PAD + agaW, bBarY, RINK_W - agaW, bBarH);
+      ctx.restore();
+      ctx.font = '700 7px "JetBrains Mono", monospace';
+      ctx.textBaseline = 'middle';
+      if (shotRes.xgaPct > 18) { ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'left';  ctx.fillText('xGA ' + shotRes.xgaPct.toFixed(1) + '%', PAD + 4, bBarY + bBarH / 2); }
+      if (shotRes.xgfPct > 18) { ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'right'; ctx.fillText('xGF ' + shotRes.xgfPct.toFixed(1) + '%', PAD + RINK_W - 4, bBarY + bBarH / 2); }
+      y += SM_BAL_H;
+    }
 
     // ── Footer strip ──────────────────────────────────────────────────────────
     ctx.fillStyle = INK;
@@ -930,6 +992,8 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     return { svg: p.join(''), xgfPct: fp, xgaPct: ap };
   }
 
+  window.buildFullRink = buildFullRink;
+
   // ── Fetch and render ──────────────────────────────────────────────────────
   function loadShotMap() {
     var section   = document.getElementById('section-shotmap');
@@ -945,6 +1009,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
         if (!data) return;
         var sf = data.shots_for || [], sa = data.shots_against || [];
         if (!sf.length && !sa.length) { showEmpty(wrap, section); return; }
+        window._hgbShotData = { sf: sf, sa: sa };
         var res = buildFullRink(sf, sa);
         container.innerHTML = res.svg;
         if (bar && barFor && barAga) {
