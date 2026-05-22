@@ -289,18 +289,10 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
 }
 
 /* ── Shot Map ─────────────────────────────────────────────────────────── */
-.shot-map-wrap { background: var(--surface); border: 1px solid var(--ink-10); padding: 20px 20px 16px; }
-.shot-map-halves { display: flex; gap: 16px; }
-.shot-half { flex: 1; display: flex; flex-direction: column; align-items: center; }
-.shot-half-label { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 8px; text-align: center; }
-.shot-half-summary { font-family: var(--mono); font-size: 10px; font-weight: 400; letter-spacing: 0.06em; color: var(--ink-48); margin-top: 8px; text-align: center; }
-.shot-map-svg { width: 100%; max-width: 360px; height: auto; display: block; }
+.shot-map-wrap { background: var(--surface); border: 1px solid var(--ink-10); padding: 16px 16px 12px; }
+.full-rink-svg { width: 100%; height: auto; display: block; }
 .shot-map-empty { padding: 32px 0; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.08em; }
-@media (max-width: 639px) {
-  .shot-map-halves { flex-direction: column; align-items: center; }
-  .shot-half { width: 100%; }
-  .shot-map-svg { max-width: 100%; }
-}
+.balance-bar { display: flex; height: 12px; margin-top: 8px; border-radius: 2px; overflow: hidden; font: 700 9px/12px 'JetBrains Mono', monospace; }
 
 /* ── Footer ──────────────────────────────────────────────────────────── */
 .foot { border-top: 1px solid var(--ink-14); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
@@ -441,8 +433,10 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
       <span class="section-label">Shot Map</span>
     </div>
     <div class="shot-map-wrap" id="shot-map-wrap">
-      <div class="shot-map-halves" id="shot-map-halves">
-        <!-- populated by JS -->
+      <div id="shot-map-container"><!-- full-rink SVG injected by JS --></div>
+      <div class="balance-bar" id="balance-bar" style="display:none">
+        <div id="bar-aga" style="background:rgba(232,0,45,0.70);display:flex;align-items:center;padding-left:5px;color:rgba(255,255,255,0.92);overflow:hidden;white-space:nowrap"></div>
+        <div id="bar-for" style="background:rgba(20,100,200,0.70);display:flex;align-items:center;justify-content:flex-end;padding-right:5px;color:rgba(255,255,255,0.92);overflow:hidden;white-space:nowrap"></div>
       </div>
     </div>
   </div>
@@ -873,124 +867,103 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
 (function () {
   'use strict';
 
-  // ── Rink coordinate mapping ───────────────────────────────────────────────
-  // ViewBox: 0 0 200 170
-  // NHL x: 0 (center) → 100 (goal line)  →  SVG x: 8 → 191
-  // NHL y: -42.5 → 42.5                   →  SVG y: 3 → 167
-  function toSvgX(nhlX) { return (nhlX / 100) * 183 + 8; }
-  function toSvgY(nhlY) { return ((nhlY + 42.5) / 85) * 164 + 3; }
+  // ── Full-rink coordinate mapping ──────────────────────────────────────────
+  // ViewBox: 0 0 390 170  |  Center ice at x=195
+  // FOR (right): nhlX 0-100 → SVG x 195-377
+  // AGAINST (left, mirrored): nhlX 0-100 → SVG x 195-13
+  var W = 390, H = 170, CX = 195;
+  function fxFor(x) { return CX + (x / 100) * 182; }
+  function fxAga(x) { return CX - (x / 100) * 182; }
+  function fy(y)    { return ((y + 42.5) / 85) * 164 + 3; }
 
-  // ── Build half-rink SVG string ────────────────────────────────────────────
-  function buildRinkSvg(shots, isFor) {
-    var goalFill    = '#E8002D';
-    var nonGoalFill = isFor ? 'rgba(13,13,20,0.25)' : 'rgba(232,0,45,0.20)';
-    var nonGoalStr  = isFor ? 'rgba(13,13,20,0.30)' : 'rgba(232,0,45,0.35)';
+  // ── Shot dot helper ───────────────────────────────────────────────────────
+  function dot(sx, sy, xg, isGoal, gFill, ngFill, ngStr) {
+    var r = isGoal ? '4.0' : Math.max(1.8, Math.min(4.5, 1.5 + (xg || 0.05) * 14)).toFixed(1);
+    var tip = (isGoal ? 'Goal' : 'Shot') + ' xG ' + (xg || 0).toFixed(3);
+    if (isGoal) return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + gFill + '" opacity="0.90"><title>' + tip + '</title></circle>';
+    return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + ngFill + '" stroke="' + ngStr + '" stroke-width="0.6"><title>' + tip + '</title></circle>';
+  }
 
+  // ── Full-rink SVG builder ─────────────────────────────────────────────────
+  function buildFullRink(sf, sa) {
+    var xgf = sf.reduce(function(a,s){return a+(s.xg||0);},0);
+    var xga = sa.reduce(function(a,s){return a+(s.xg||0);},0);
+    var tot = xgf + xga;
+    var fp  = tot > 0 ? xgf/tot*100 : 50;
+    var ap  = 100 - fp;
+    var fo  = Math.max(0, (fp-50)/50*0.22).toFixed(3);
+    var ao  = Math.max(0, (ap-50)/50*0.22).toFixed(3);
+    var cY  = fy(0).toFixed(1);
+    var cYm = (fy(0)-20).toFixed(1);
+    var cYp = (fy(0)+20).toFixed(1);
+    var foY1 = fy(-22).toFixed(1), foY2 = fy(22).toFixed(1);
     var p = [];
-    p.push('<svg class="shot-map-svg" viewBox="0 0 200 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="' + (isFor ? 'Shots for' : 'Shots against') + ' rink half">');
-
-    // Ice surface
-    p.push('<rect x="2" y="2" width="196" height="166" rx="6" ry="6" fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>');
-
-    // Blue line (dashed) at nhlX=0
-    var blX = toSvgX(0).toFixed(1);
-    p.push('<line x1="' + blX + '" y1="2" x2="' + blX + '" y2="168" stroke="rgba(13,13,20,0.20)" stroke-width="1.5" stroke-dasharray="4 3"/>');
-
-    // Goal line at nhlX=100
-    var glX = toSvgX(100).toFixed(1);
-    p.push('<line x1="' + glX + '" y1="2" x2="' + glX + '" y2="168" stroke="rgba(232,0,45,0.55)" stroke-width="1.5"/>');
-
-    // Goal crease: arc in front of goal line
-    var cY = toSvgY(0).toFixed(1);
-    var cYm = (toSvgY(0) - 20).toFixed(1);
-    var cYp = (toSvgY(0) + 20).toFixed(1);
-    p.push('<path d="M' + glX + ',' + cYm + ' A20,20 0 0,0 ' + glX + ',' + cYp + '" fill="rgba(232,0,45,0.10)" stroke="rgba(232,0,45,0.40)" stroke-width="1"/>');
-
-    // Goal posts (tiny rect)
-    p.push('<rect x="' + glX + '" y="' + (toSvgY(0) - 3).toFixed(1) + '" width="4" height="6" fill="rgba(13,13,20,0.40)" rx="0.5"/>');
-
-    // Faceoff circles at ~nhlX=69, nhlY=±22
-    var foX = toSvgX(69).toFixed(1);
-    var foY1 = toSvgY(-22).toFixed(1);
-    var foY2 = toSvgY(22).toFixed(1);
-    p.push('<circle cx="' + foX + '" cy="' + foY1 + '" r="20" fill="none" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
-    p.push('<circle cx="' + foX + '" cy="' + foY2 + '" r="20" fill="none" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
-    p.push('<circle cx="' + foX + '" cy="' + foY1 + '" r="2" fill="rgba(232,0,45,0.40)"/>');
-    p.push('<circle cx="' + foX + '" cy="' + foY2 + '" r="2" fill="rgba(232,0,45,0.40)"/>');
-
-    // Hash marks
-    [toSvgY(-22) - 18, toSvgY(-22) + 18, toSvgY(22) - 18, toSvgY(22) + 18].forEach(function (hY) {
-      var hYf = hY.toFixed(1);
-      p.push('<line x1="' + (toSvgX(69) - 6).toFixed(1) + '" y1="' + hYf + '" x2="' + (toSvgX(69) + 6).toFixed(1) + '" y2="' + hYf + '" stroke="rgba(232,0,45,0.25)" stroke-width="1"/>');
-    });
-
-    // Shot dots — non-goals first, goals on top
-    var nonGoals = shots.filter(function (s) { return !s.is_goal; });
-    var goals    = shots.filter(function (s) { return  s.is_goal; });
-
-    function dot(s) {
-      var sx  = toSvgX(s.x).toFixed(1);
-      var sy  = toSvgY(s.y).toFixed(1);
-      var xg  = s.xg != null ? s.xg : 0.05;
-      var r   = Math.max(2.5, Math.min(9, Math.sqrt(xg) * 22)).toFixed(1);
-      var tip = (s.is_goal ? 'Goal' : 'Shot') + ' · xG ' + xg.toFixed(3);
-      if (s.is_goal) {
-        return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + goalFill + '" opacity="0.90"><title>' + tip + '</title></circle>';
-      }
-      return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + nonGoalFill + '" stroke="' + nonGoalStr + '" stroke-width="0.5"><title>' + tip + '</title></circle>';
-    }
-
-    nonGoals.forEach(function (s) { p.push(dot(s)); });
-    goals.forEach(function (s)    { p.push(dot(s)); });
-
+    p.push('<svg class="full-rink-svg" viewBox="0 0 390 170" xmlns="http://www.w3.org/2000/svg" width="100%">');
+    p.push('<rect x="2" y="2" width="386" height="166" rx="6" fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>');
+    p.push('<rect x="'+CX+'" y="2" width="'+(CX-2)+'" height="166" fill="rgba(20,100,200,'+fo+')"/>');
+    p.push('<rect x="2" y="2" width="'+(CX-2)+'" height="166" fill="rgba(232,0,45,'+ao+')"/>');
+    p.push('<line x1="'+CX+'" y1="2" x2="'+CX+'" y2="168" stroke="rgba(13,13,20,0.25)" stroke-width="1.5"/>');
+    p.push('<circle cx="'+CX+'" cy="'+cY+'" r="8" fill="none" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>');
+    var fBL=fxFor(0).toFixed(1),fGL=fxFor(100).toFixed(1),fFo=fxFor(69).toFixed(1);
+    p.push('<line x1="'+fBL+'" y1="2" x2="'+fBL+'" y2="168" stroke="rgba(20,100,200,0.28)" stroke-width="1.2" stroke-dasharray="4 3"/>');
+    p.push('<line x1="'+fGL+'" y1="2" x2="'+fGL+'" y2="168" stroke="rgba(232,0,45,0.40)" stroke-width="1.2"/>');
+    p.push('<path d="M'+fGL+','+cYm+' A20,20 0 0,0 '+fGL+','+cYp+'" fill="rgba(20,100,200,0.07)" stroke="rgba(20,100,200,0.28)" stroke-width="1"/>');
+    p.push('<rect x="'+fGL+'" y="'+(fy(0)-3).toFixed(1)+'" width="4" height="6" fill="rgba(13,13,20,0.35)" rx="0.5"/>');
+    p.push('<circle cx="'+fFo+'" cy="'+foY1+'" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>');
+    p.push('<circle cx="'+fFo+'" cy="'+foY2+'" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>');
+    p.push('<circle cx="'+fFo+'" cy="'+foY1+'" r="2" fill="rgba(232,0,45,0.32)"/>');
+    p.push('<circle cx="'+fFo+'" cy="'+foY2+'" r="2" fill="rgba(232,0,45,0.32)"/>');
+    var aBL=fxAga(0).toFixed(1),aGL=fxAga(100).toFixed(1),aFo=fxAga(69).toFixed(1);
+    p.push('<line x1="'+aBL+'" y1="2" x2="'+aBL+'" y2="168" stroke="rgba(232,0,45,0.22)" stroke-width="1.2" stroke-dasharray="4 3"/>');
+    p.push('<line x1="'+aGL+'" y1="2" x2="'+aGL+'" y2="168" stroke="rgba(232,0,45,0.40)" stroke-width="1.2"/>');
+    p.push('<path d="M'+aGL+','+cYm+' A20,20 0 0,1 '+aGL+','+cYp+'" fill="rgba(232,0,45,0.07)" stroke="rgba(232,0,45,0.28)" stroke-width="1"/>');
+    p.push('<rect x="'+(parseFloat(aGL)-4).toFixed(1)+'" y="'+(fy(0)-3).toFixed(1)+'" width="4" height="6" fill="rgba(13,13,20,0.35)" rx="0.5"/>');
+    p.push('<circle cx="'+aFo+'" cy="'+foY1+'" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>');
+    p.push('<circle cx="'+aFo+'" cy="'+foY2+'" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>');
+    p.push('<circle cx="'+aFo+'" cy="'+foY1+'" r="2" fill="rgba(232,0,45,0.32)"/>');
+    p.push('<circle cx="'+aFo+'" cy="'+foY2+'" r="2" fill="rgba(232,0,45,0.32)"/>');
+    p.push('<text x="'+(CX-82)+'" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(232,0,45,0.55)" text-anchor="middle" letter-spacing="0.10em">← AGAINST</text>');
+    p.push('<text x="'+(CX+82)+'" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(20,100,200,0.55)" text-anchor="middle" letter-spacing="0.10em">FOR →</text>');
+    sa.forEach(function(s){p.push(dot(fxAga(s.x).toFixed(1),fy(s.y).toFixed(1),s.xg,s.is_goal,'#E8002D','rgba(232,0,45,0.13)','rgba(232,0,45,0.35)'));});
+    sf.forEach(function(s){p.push(dot(fxFor(s.x).toFixed(1),fy(s.y).toFixed(1),s.xg,s.is_goal,'rgba(20,100,200,0.90)','rgba(20,100,200,0.13)','rgba(20,100,200,0.35)'));});
     p.push('</svg>');
-    return p.join('');
+    return { svg: p.join(''), xgfPct: fp, xgaPct: ap };
   }
 
-  // ── Summary text ──────────────────────────────────────────────────────────
-  function summary(shots) {
-    var n   = shots.length;
-    var xg  = shots.reduce(function (a, s) { return a + (s.xg || 0); }, 0);
-    var g   = shots.filter(function (s) { return s.is_goal; }).length;
-    return n + ' shots · xG ' + xg.toFixed(2) + ' · ' + g + ' G';
-  }
-
-  // ── Build one column HTML ─────────────────────────────────────────────────
-  function halfHtml(title, shots, isFor) {
-    return '<div class="shot-half">'
-      + '<div class="shot-half-label">' + title + '</div>'
-      + buildRinkSvg(shots, isFor)
-      + '<div class="shot-half-summary">' + summary(shots) + '</div>'
-      + '</div>';
-  }
-
-  // ── Main fetch + render ────────────────────────────────────────────────────
+  // ── Fetch and render ──────────────────────────────────────────────────────
   function loadShotMap() {
-    var section = document.getElementById('section-shotmap');
-    var halves  = document.getElementById('shot-map-halves');
-    var wrap    = document.getElementById('shot-map-wrap');
-    if (!section || !halves || !wrap) return;
-
+    var section   = document.getElementById('section-shotmap');
+    var container = document.getElementById('shot-map-container');
+    var bar       = document.getElementById('balance-bar');
+    var barFor    = document.getElementById('bar-for');
+    var barAga    = document.getElementById('bar-aga');
+    var wrap      = document.getElementById('shot-map-wrap');
+    if (!section || !container || !wrap) return;
     fetch('https://api.hockeygamebot.com/v1/lines/' + slugParam + '/shots')
-      .then(function (resp) {
-        if (!resp.ok) { showEmpty(wrap, section); return null; }
-        return resp.json();
-      })
-      .then(function (data) {
+      .then(function(r) { if (!r.ok) { showEmpty(wrap, section); return null; } return r.json(); })
+      .then(function(data) {
         if (!data) return;
-        var sf = data.shots_for     || [];
-        var sa = data.shots_against || [];
-        if (sf.length === 0 && sa.length === 0) { showEmpty(wrap, section); return; }
-        halves.innerHTML = halfHtml('Shots For', sf, true) + halfHtml('Shots Against', sa, false);
+        var sf = data.shots_for || [], sa = data.shots_against || [];
+        if (!sf.length && !sa.length) { showEmpty(wrap, section); return; }
+        var res = buildFullRink(sf, sa);
+        container.innerHTML = res.svg;
+        if (bar && barFor && barAga) {
+          barAga.style.width = res.xgaPct.toFixed(1) + '%';
+          barFor.style.width = res.xgfPct.toFixed(1) + '%';
+          if (res.xgaPct > 18) barAga.textContent = 'xGA ' + res.xgaPct.toFixed(1) + '%';
+          if (res.xgfPct > 18) barFor.textContent = 'xGF ' + res.xgfPct.toFixed(1) + '%';
+          bar.style.display = 'flex';
+        }
         section.style.display = '';
       })
-      .catch(function () { showEmpty(wrap, section); });
+      .catch(function() { showEmpty(wrap, section); });
   }
 
   function showEmpty(wrap, section) {
     wrap.innerHTML = '<div class="shot-map-empty">Shot data not available for this line.</div>';
     section.style.display = '';
   }
+
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', loadShotMap);
