@@ -282,6 +282,20 @@ export const LineRecordSchema = z.object({
   gf:       z.number().nullable().optional(),
   ga:       z.number().nullable().optional(),
   gf_pct:   z.number().nullable().optional(),
+  // Stage 2 breakdown fields — added May 2026; nullable/optional for graceful
+  // null handling while pipeline data propagates.
+  cf:      z.number().int().nullable().optional(),
+  ca:      z.number().int().nullable().optional(),
+  cf_pct:  z.number().nullable().optional(),
+  ff:      z.number().int().nullable().optional(),
+  fa:      z.number().int().nullable().optional(),
+  ff_pct:  z.number().nullable().optional(),
+  sf:      z.number().int().nullable().optional(),
+  sa:      z.number().int().nullable().optional(),
+  sf_pct:  z.number().nullable().optional(),
+  sh_pct:  z.number().nullable().optional(),
+  sv_pct:  z.number().nullable().optional(),
+  pdo:     z.number().nullable().optional(),
 });
 export const LinesSchema = z.array(LineRecordSchema);
 export type LineRecord = z.infer<typeof LineRecordSchema>;

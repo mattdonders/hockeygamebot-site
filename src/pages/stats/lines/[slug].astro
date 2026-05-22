@@ -64,6 +64,25 @@ function xgfClass(v: number | null | undefined): string {
   return '';
 }
 
+function pdoClass(v: number | null | undefined): string {
+  if (v == null) return '';
+  if (v >= 101)  return 'kpi-pos';
+  if (v <= 99)   return 'kpi-neg';
+  return '';
+}
+
+function bdPctCls(pctVal: number | null | undefined, pctType: 'std' | 'pdo'): string {
+  if (pctVal == null) return 'bd-pct';
+  if (pctType === 'pdo') {
+    if (pctVal >= 101) return 'bd-pct bd-pos';
+    if (pctVal <= 99)  return 'bd-pct bd-neg';
+    return 'bd-pct';
+  }
+  if (pctVal >= 55) return 'bd-pct bd-pos';
+  if (pctVal <= 45) return 'bd-pct bd-neg';
+  return 'bd-pct';
+}
+
 const kpis = [
   { label: 'GP',     value: String(line.games),                          cls: '' },
   { label: 'TOI',    value: Math.round(line.toi_min) + 'm',              cls: '' },
@@ -73,8 +92,54 @@ const kpis = [
   { label: 'XGF',    value: line.xgf  != null ? line.xgf.toFixed(2)  : '—', cls: '' },
   { label: 'XGA',    value: line.xga  != null ? line.xga.toFixed(2)  : '—', cls: '' },
   { label: 'XGF%',   value: line.xgf_pct != null ? line.xgf_pct.toFixed(1) + '%' : '—', cls: xgfClass(line.xgf_pct) },
-  { label: 'PDO',    value: '—', cls: 'kpi-placeholder' },
+  { label: 'PDO',    value: line.pdo != null ? line.pdo.toFixed(1) : '—', cls: line.pdo != null ? pdoClass(line.pdo) : 'kpi-placeholder' },
 ] as const;
+
+// ── Stage 2: breakdown blocks ──────────────────────────────────────────────
+
+const fmt  = (v: number | null | undefined, decimals = 0) =>
+  v != null ? v.toFixed(decimals) : '—';
+const fmtP = (v: number | null | undefined) =>
+  v != null ? v.toFixed(1) + '%' : '—';
+
+interface BreakdownBlock {
+  label:        string;
+  against:      string;
+  pct:          string;
+  pctVal:       number | null | undefined;
+  pctType:      'std' | 'pdo';
+  forVal:       string;
+  againstLabel: string;
+  pctLabel:     string;
+  forLabel:     string;
+}
+
+const breakdownBlocks: BreakdownBlock[] = [
+  {
+    label: 'CORSI', againstLabel: 'CA', pctLabel: 'CF%', forLabel: 'CF',
+    against: fmt(line.ca),   pct: fmtP(line.cf_pct),  pctVal: line.cf_pct,  pctType: 'std', forVal: fmt(line.cf),
+  },
+  {
+    label: 'FENWICK', againstLabel: 'FA', pctLabel: 'FF%', forLabel: 'FF',
+    against: fmt(line.fa),   pct: fmtP(line.ff_pct),  pctVal: line.ff_pct,  pctType: 'std', forVal: fmt(line.ff),
+  },
+  {
+    label: 'SHOTS', againstLabel: 'SA', pctLabel: 'SF%', forLabel: 'SF',
+    against: fmt(line.sa),   pct: fmtP(line.sf_pct),  pctVal: line.sf_pct,  pctType: 'std', forVal: fmt(line.sf),
+  },
+  {
+    label: 'xG', againstLabel: 'XGA', pctLabel: 'XGF%', forLabel: 'XGF',
+    against: fmt(line.xga, 2), pct: fmtP(line.xgf_pct), pctVal: line.xgf_pct, pctType: 'std', forVal: fmt(line.xgf, 2),
+  },
+  {
+    label: 'GOALS', againstLabel: 'GA', pctLabel: 'GF%', forLabel: 'GF',
+    against: fmt(line.ga),   pct: fmtP(line.gf_pct),  pctVal: line.gf_pct,  pctType: 'std', forVal: fmt(line.gf),
+  },
+  {
+    label: 'PDO', againstLabel: 'SV%', pctLabel: 'PDO', forLabel: 'SH%',
+    against: fmtP(line.sv_pct), pct: line.pdo != null ? line.pdo.toFixed(1) : '—', pctVal: line.pdo, pctType: 'pdo', forVal: fmtP(line.sh_pct),
+  },
+];
 
 // ── Headshot URL ───────────────────────────────────────────────────────────
 const headshotUrl = (id: number) =>
@@ -200,6 +265,29 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
 .kpi-cell.kpi-placeholder .kpi-label::after { content: " ·"; }
 .kpi-unit { font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--ink-48); margin-left: 1px; }
 
+/* ── Breakdown blocks ────────────────────────────────────────────────── */
+.section-header { padding: 28px 0 12px; }
+.section-label { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); }
+.breakdown-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; margin-bottom: 2px; }
+.bd-block { background: var(--surface); border: 1px solid var(--ink-10); padding: 14px 12px 12px; text-align: center; }
+.bd-block-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 10px; }
+.bd-row { display: flex; align-items: baseline; justify-content: center; gap: 0; }
+.bd-cell { flex: 1; text-align: center; }
+.bd-val { font-family: var(--display); font-weight: 800; font-size: clamp(16px, 2vw, 22px); line-height: 1; letter-spacing: -0.01em; color: var(--ink); }
+.bd-val.bd-against { color: var(--ink-72); }
+.bd-val.bd-pct { color: var(--ink); }
+.bd-val.bd-pct.bd-pos { color: var(--stats-pos); }
+.bd-val.bd-pct.bd-neg { color: var(--stats-neg); }
+.bd-sub { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); margin-top: 3px; }
+.bd-divider { width: 1px; background: var(--ink-10); align-self: stretch; margin: 2px 4px; flex-shrink: 0; }
+
+@media (max-width: 899px) {
+  .breakdown-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 639px) {
+  .breakdown-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* ── Footer ──────────────────────────────────────────────────────────── */
 .foot { border-top: 1px solid var(--ink-14); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
 .foot-inner { max-width: 1280px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
@@ -301,6 +389,38 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     ))}
   </div>
 
+  <!-- Stage 2: Stat Breakdown -->
+  <div class="section-header">
+    <span class="section-label">Breakdown</span>
+  </div>
+
+  <div class="breakdown-grid" id="breakdown-grid">
+    {breakdownBlocks.map(block => {
+      const pctCls = bdPctCls(block.pctVal, block.pctType);
+      return (
+        <div class="bd-block">
+          <div class="bd-block-label">{block.label}</div>
+          <div class="bd-row">
+            <div class="bd-cell">
+              <div class="bd-val bd-against">{block.against}</div>
+              <div class="bd-sub">{block.againstLabel}</div>
+            </div>
+            <div class="bd-divider"></div>
+            <div class="bd-cell">
+              <div class={`bd-val ${pctCls}`}>{block.pct}</div>
+              <div class="bd-sub">{block.pctLabel}</div>
+            </div>
+            <div class="bd-divider"></div>
+            <div class="bd-cell">
+              <div class="bd-val">{block.forVal}</div>
+              <div class="bd-sub">{block.forLabel}</div>
+            </div>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+
 </div>
 
 <footer class="foot">
@@ -326,6 +446,19 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     xgf:       line.xgf,
     xga:       line.xga,
     xgf_pct:   line.xgf_pct,
+    pdo:       line.pdo,
+    // Stage 2 fields
+    cf:        line.cf,
+    ca:        line.ca,
+    cf_pct:    line.cf_pct,
+    ff:        line.ff,
+    fa:        line.fa,
+    ff_pct:    line.ff_pct,
+    sf:        line.sf,
+    sa:        line.sa,
+    sf_pct:    line.sf_pct,
+    sh_pct:    line.sh_pct,
+    sv_pct:    line.sv_pct,
   },
   playerData: linePlayers.map(p => ({
     first_name: p.first_name,
@@ -369,14 +502,25 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     const INK     = '#0D0D14';
     const SURFACE = '#FFFFFF';
     const RED     = '#E8002D';
+    const INK72   = 'rgba(13,13,20,0.72)';
     const INK48   = 'rgba(13,13,20,0.48)';
+    const INK32   = 'rgba(13,13,20,0.32)';
     const INK20   = 'rgba(13,13,20,0.20)';
     const INK14   = 'rgba(13,13,20,0.14)';
+    const INK10   = 'rgba(13,13,20,0.10)';
     const INK06   = 'rgba(13,13,20,0.06)';
     const POS     = _cssVar('--stats-pos', '#166534');
     const NEG     = _cssVar('--stats-neg', '#991b1b');
 
     const PAD     = 40;
+
+    // ── Helper: format stat value ─────────────────────────────────────────────
+    function _fmt(v, dec) {
+      return v != null ? Number(v).toFixed(dec != null ? dec : 0) : '—';
+    }
+    function _fmtP(v) {
+      return v != null ? Number(v).toFixed(1) + '%' : '—';
+    }
 
     // Heights at 1×
     const TITLE_H   = 80;
@@ -385,8 +529,11 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     const SEP_H     = 1;
     const KPI_LH    = 30; // KPI label row
     const KPI_VH    = 48; // KPI value row
+    const BD_SEP_H  = 24; // "Breakdown" section header
+    const BD_LH     = 22; // breakdown label row
+    const BD_VH     = 46; // breakdown value row
     const FOOT_H    = 24;
-    const TOTAL_H   = TITLE_H + CHIPS_H + PLAYERS_H + SEP_H + KPI_LH + KPI_VH + FOOT_H;
+    const TOTAL_H   = TITLE_H + CHIPS_H + PLAYERS_H + SEP_H + KPI_LH + KPI_VH + BD_SEP_H + BD_LH + BD_VH + FOOT_H;
 
     const canvas  = document.createElement('canvas');
     canvas.width  = W * SCALE;
@@ -484,16 +631,18 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     y += SEP_H;
 
     // ── KPI grid ──────────────────────────────────────────────────────────────
+    var pdoKpiVal  = lineData.pdo != null ? lineData.pdo.toFixed(1) : '—';
+    var pdoKpiPct  = lineData.pdo;
     const kpiItems = [
-      { label: 'GP',    value: String(lineData.games),                                      pct: null },
-      { label: 'TOI',   value: Math.round(lineData.toi_min) + 'm',                         pct: null },
-      { label: 'GF',    value: lineData.gf  != null ? String(lineData.gf)   : '—',    pct: null },
-      { label: 'GA',    value: lineData.ga  != null ? String(lineData.ga)   : '—',    pct: null },
-      { label: 'GF%',   value: lineData.gf_pct  != null ? lineData.gf_pct.toFixed(1)  + '%' : '—', pct: lineData.gf_pct },
-      { label: 'XGF',   value: lineData.xgf  != null ? lineData.xgf.toFixed(2)  : '—', pct: null },
-      { label: 'XGA',   value: lineData.xga  != null ? lineData.xga.toFixed(2)  : '—', pct: null },
-      { label: 'XGF%',  value: lineData.xgf_pct != null ? lineData.xgf_pct.toFixed(1) + '%' : '—', pct: lineData.xgf_pct },
-      { label: 'PDO',   value: '—',                                                   pct: null },
+      { label: 'GP',    value: String(lineData.games),                                                pct: null,         pctType: 'std' },
+      { label: 'TOI',   value: Math.round(lineData.toi_min) + 'm',                                   pct: null,         pctType: 'std' },
+      { label: 'GF',    value: lineData.gf  != null ? String(lineData.gf)   : '—',                   pct: null,         pctType: 'std' },
+      { label: 'GA',    value: lineData.ga  != null ? String(lineData.ga)   : '—',                   pct: null,         pctType: 'std' },
+      { label: 'GF%',   value: lineData.gf_pct  != null ? lineData.gf_pct.toFixed(1)  + '%' : '—',  pct: lineData.gf_pct,  pctType: 'std' },
+      { label: 'XGF',   value: lineData.xgf  != null ? lineData.xgf.toFixed(2)  : '—',              pct: null,         pctType: 'std' },
+      { label: 'XGA',   value: lineData.xga  != null ? lineData.xga.toFixed(2)  : '—',              pct: null,         pctType: 'std' },
+      { label: 'XGF%',  value: lineData.xgf_pct != null ? lineData.xgf_pct.toFixed(1) + '%' : '—', pct: lineData.xgf_pct, pctType: 'std' },
+      { label: 'PDO',   value: pdoKpiVal,                                                             pct: pdoKpiPct,    pctType: 'pdo' },
     ];
     const kColW = (W - PAD * 2) / kpiItems.length;
 
@@ -516,10 +665,15 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
       const kx   = PAD + ki2 * kColW + kColW / 2;
       var valueColor = INK;
       if (item.pct != null) {
-        if (item.pct >= 55)      valueColor = POS;
-        else if (item.pct <= 45) valueColor = NEG;
+        if (item.pctType === 'pdo') {
+          if (item.pct >= 101)     valueColor = POS;
+          else if (item.pct <= 99) valueColor = NEG;
+        } else {
+          if (item.pct >= 55)      valueColor = POS;
+          else if (item.pct <= 45) valueColor = NEG;
+        }
       }
-      if (ki2 === kpiItems.length - 1) valueColor = INK20; // PDO placeholder
+      if (ki2 === kpiItems.length - 1 && lineData.pdo == null) valueColor = INK20; // PDO placeholder
       ctx.fillStyle = valueColor;
       ctx.textAlign = 'center';
       ctx.fillText(item.value, kx, y + KPI_VH / 2);
@@ -532,6 +686,92 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
       ctx.fillRect(dx, y - KPI_LH, 1, KPI_LH + KPI_VH);
     }
     y += KPI_VH;
+
+    // ── Breakdown section header ──────────────────────────────────────────────
+    // thin separator line
+    ctx.fillStyle = INK10;
+    ctx.fillRect(PAD, y, W - PAD * 2, 1);
+    // "BREAKDOWN" label
+    ctx.font = '700 8px "JetBrains Mono", monospace';
+    ctx.fillStyle = INK48;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText('BREAKDOWN', PAD, y + BD_SEP_H / 2);
+    y += BD_SEP_H;
+
+    // ── Breakdown 6-block grid ────────────────────────────────────────────────
+    const bdBlocks = [
+      { label: 'CORSI',   against: _fmt(lineData.ca),     pct: _fmtP(lineData.cf_pct),  pctVal: lineData.cf_pct,  pctType: 'std', forVal: _fmt(lineData.cf),     aLbl: 'CA',  pLbl: 'CF%',  fLbl: 'CF'  },
+      { label: 'FENWICK', against: _fmt(lineData.fa),     pct: _fmtP(lineData.ff_pct),  pctVal: lineData.ff_pct,  pctType: 'std', forVal: _fmt(lineData.ff),     aLbl: 'FA',  pLbl: 'FF%',  fLbl: 'FF'  },
+      { label: 'SHOTS',   against: _fmt(lineData.sa),     pct: _fmtP(lineData.sf_pct),  pctVal: lineData.sf_pct,  pctType: 'std', forVal: _fmt(lineData.sf),     aLbl: 'SA',  pLbl: 'SF%',  fLbl: 'SF'  },
+      { label: 'xG',      against: _fmt(lineData.xga, 2), pct: _fmtP(lineData.xgf_pct), pctVal: lineData.xgf_pct, pctType: 'std', forVal: _fmt(lineData.xgf, 2), aLbl: 'XGA', pLbl: 'XGF%', fLbl: 'XGF' },
+      { label: 'GOALS',   against: _fmt(lineData.ga),     pct: _fmtP(lineData.gf_pct),  pctVal: lineData.gf_pct,  pctType: 'std', forVal: _fmt(lineData.gf),     aLbl: 'GA',  pLbl: 'GF%',  fLbl: 'GF'  },
+      { label: 'PDO',     against: _fmtP(lineData.sv_pct), pct: lineData.pdo != null ? lineData.pdo.toFixed(1) : '—', pctVal: lineData.pdo, pctType: 'pdo', forVal: _fmtP(lineData.sh_pct), aLbl: 'SV%', pLbl: 'PDO', fLbl: 'SH%' },
+    ];
+
+    const bdColW  = (W - PAD * 2) / bdBlocks.length;
+    const bdCellW = bdColW / 3; // 3 sub-cells per block
+
+    // Label row
+    ctx.font = '700 7px "JetBrains Mono", monospace';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    for (var bi = 0; bi < bdBlocks.length; bi++) {
+      const bk = bdBlocks[bi];
+      const bx0 = PAD + bi * bdColW + bdColW / 2;
+      ctx.fillStyle = INK48;
+      ctx.fillText(bk.label, bx0, y + BD_LH / 2);
+    }
+    y += BD_LH;
+
+    // Value row — 3 sub-cells per block
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    for (var bi2 = 0; bi2 < bdBlocks.length; bi2++) {
+      const bk   = bdBlocks[bi2];
+      const bx0  = PAD + bi2 * bdColW;
+
+      // Against (de-emphasized)
+      ctx.font = '800 15px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK72;
+      ctx.fillText(bk.against, bx0 + bdCellW / 2, y + BD_VH / 2 - 7);
+      ctx.font = '400 7px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32;
+      ctx.fillText(bk.aLbl, bx0 + bdCellW / 2, y + BD_VH / 2 + 9);
+
+      // % (center, threshold-colored)
+      var pctColor = INK;
+      if (bk.pctVal != null) {
+        if (bk.pctType === 'pdo') {
+          if (bk.pctVal >= 101)     pctColor = POS;
+          else if (bk.pctVal <= 99) pctColor = NEG;
+        } else {
+          if (bk.pctVal >= 55)      pctColor = POS;
+          else if (bk.pctVal <= 45) pctColor = NEG;
+        }
+      }
+      ctx.font = '800 15px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = pctColor;
+      ctx.fillText(bk.pct, bx0 + bdCellW * 1.5, y + BD_VH / 2 - 7);
+      ctx.font = '400 7px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32;
+      ctx.fillText(bk.pLbl, bx0 + bdCellW * 1.5, y + BD_VH / 2 + 9);
+
+      // For (full emphasis)
+      ctx.font = '800 15px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK;
+      ctx.fillText(bk.forVal, bx0 + bdCellW * 2.5, y + BD_VH / 2 - 7);
+      ctx.font = '400 7px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32;
+      ctx.fillText(bk.fLbl, bx0 + bdCellW * 2.5, y + BD_VH / 2 + 9);
+
+      // Block divider
+      if (bi2 < bdBlocks.length - 1) {
+        ctx.fillStyle = INK10;
+        ctx.fillRect(bx0 + bdColW - 0.5, y, 1, BD_VH);
+      }
+    }
+    y += BD_VH;
 
     // ── Footer strip ──────────────────────────────────────────────────────────
     ctx.fillStyle = INK;
