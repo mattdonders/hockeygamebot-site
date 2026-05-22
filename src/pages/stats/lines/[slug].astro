@@ -288,6 +288,20 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
   .breakdown-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ── Shot Map ─────────────────────────────────────────────────────────── */
+.shot-map-wrap { background: var(--surface); border: 1px solid var(--ink-10); padding: 20px 20px 16px; }
+.shot-map-halves { display: flex; gap: 16px; }
+.shot-half { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.shot-half-label { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 8px; text-align: center; }
+.shot-half-summary { font-family: var(--mono); font-size: 10px; font-weight: 400; letter-spacing: 0.06em; color: var(--ink-48); margin-top: 8px; text-align: center; }
+.shot-map-svg { width: 100%; max-width: 360px; height: auto; display: block; }
+.shot-map-empty { padding: 32px 0; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.08em; }
+@media (max-width: 639px) {
+  .shot-map-halves { flex-direction: column; align-items: center; }
+  .shot-half { width: 100%; }
+  .shot-map-svg { max-width: 100%; }
+}
+
 /* ── Footer ──────────────────────────────────────────────────────────── */
 .foot { border-top: 1px solid var(--ink-14); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
 .foot-inner { max-width: 1280px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
@@ -421,6 +435,18 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     })}
   </div>
 
+  <!-- Stage 3: Shot Map -->
+  <div id="section-shotmap" style="display:none">
+    <div class="section-header">
+      <span class="section-label">Shot Map</span>
+    </div>
+    <div class="shot-map-wrap" id="shot-map-wrap">
+      <div class="shot-map-halves" id="shot-map-halves">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <footer class="foot">
@@ -464,6 +490,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     first_name: p.first_name,
     last_name:  p.last_name,
     pos:        p.pos,
+    player_id:  p.player_id,
   })),
   seasonDisplay,
   gameTypeLabel,
@@ -497,7 +524,19 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     }
   }
 
-  function drawCard() {
+  // Load a single headshot via proxy; resolves to HTMLImageElement or null on error.
+  function _loadHeadshot(playerId) {
+    return new Promise(function (resolve) {
+      if (!playerId) { resolve(null); return; }
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload  = function () { resolve(img); };
+      img.onerror = function () { resolve(null); };
+      img.src = 'https://api.hockeygamebot.com/v1/proxy/headshot/' + lineData.team + '/' + playerId;
+    });
+  }
+
+  async function drawCard() {
     const BG      = '#EFEEE8';
     const INK     = '#0D0D14';
     const SURFACE = '#FFFFFF';
@@ -525,7 +564,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     // Heights at 1×
     const TITLE_H   = 80;
     const CHIPS_H   = 48;
-    const PLAYERS_H = 64;
+    const PLAYERS_H = 96;
     const SEP_H     = 1;
     const KPI_LH    = 30; // KPI label row
     const KPI_VH    = 48; // KPI value row
@@ -603,24 +642,57 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
     ctx.fillText(brandText, bx + 9, chipY0 + chipH / 2);
     y += CHIPS_H;
 
-    // ── Players row ───────────────────────────────────────────────────────────
+    // ── Players row (headshot circles + name + position) ─────────────────────
     ctx.fillStyle = BG;
     ctx.fillRect(0, y, W, PLAYERS_H);
     if (playerData.length > 0) {
-      const colW = (W - PAD * 2) / playerData.length;
-      ctx.textBaseline = 'middle';
+      // Fetch all headshots in parallel before drawing
+      var headshots = await Promise.all(playerData.map(function (p) {
+        return _loadHeadshot(p.player_id);
+      }));
+      const colW  = (W - PAD * 2) / playerData.length;
+      const R     = 28; // circle radius at 1×
+      const CY    = y + R + 4; // vertical center of circle
       for (var pi = 0; pi < playerData.length; pi++) {
         const p   = playerData[pi];
-        const px0 = PAD + pi * colW + colW / 2;
-        ctx.textAlign = 'center';
-        // Full name
-        ctx.font = '700 14px "Barlow Condensed", sans-serif';
+        const img = headshots[pi];
+        const cx  = PAD + pi * colW + colW / 2;
+
+        if (img) {
+          // Draw circular headshot
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, CY, R, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(img, cx - R, CY - R, R * 2, R * 2);
+          ctx.restore();
+        } else {
+          // Fallback: initials circle
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, CY, R, 0, Math.PI * 2);
+          ctx.fillStyle = INK10;
+          ctx.fill();
+          ctx.restore();
+          ctx.font = '800 18px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = INK32;
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'center';
+          ctx.fillText((p.first_name.charAt(0) + p.last_name.charAt(0)).toUpperCase(), cx, CY);
+        }
+
+        // Name below circle
+        const nameY = CY + R + 10;
+        ctx.font = '700 13px "Barlow Condensed", sans-serif';
         ctx.fillStyle = INK;
-        ctx.fillText((p.first_name + ' ' + p.last_name).toUpperCase(), px0, y + PLAYERS_H / 2 - 9);
-        // Position
-        ctx.font = '400 10px "JetBrains Mono", monospace';
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'center';
+        ctx.fillText((p.first_name + ' ' + p.last_name).toUpperCase(), cx, nameY);
+
+        // Position badge
+        ctx.font = '700 9px "JetBrains Mono", monospace';
         ctx.fillStyle = INK48;
-        ctx.fillText(p.pos, px0, y + PLAYERS_H / 2 + 9);
+        ctx.fillText(p.pos, cx, nameY + 16);
       }
     }
     y += PLAYERS_H;
@@ -792,7 +864,7 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
 
   document.getElementById('dl-btn').addEventListener('click', async function () {
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
-    drawCard();
+    await drawCard();
   });
 })();
 </script>
