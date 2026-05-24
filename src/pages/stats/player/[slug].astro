@@ -34,12 +34,12 @@ export async function getStaticPaths() {
   warD.forEach((p, i) => warPctMap.set(p.player_id, Math.round(100 - (i / warD.length) * 100)));
 
   function findPeers(all: PlayerSummary[], current: PlayerSummary) {
-    const curWar = (current.rapm ?? 0) * 60;
+    const curWar = current.war ?? 0;
     const candidates = all
-      .filter(p => p.player_id !== current.player_id && p.pos_group === current.pos_group)
-      .sort((a, b) => Math.abs((a.rapm ?? 0) * 60 - curWar) - Math.abs((b.rapm ?? 0) * 60 - curWar));
-    for (const band of [2, 5, 10]) {
-      const inBand = candidates.filter(p => Math.abs((p.rapm ?? 0) * 60 - curWar) <= band);
+      .filter(p => p.player_id !== current.player_id && p.pos_group === current.pos_group && p.war != null)
+      .sort((a, b) => Math.abs((a.war ?? 0) - curWar) - Math.abs((b.war ?? 0) - curWar));
+    for (const band of [0.5, 1.5, 3]) {
+      const inBand = candidates.filter(p => Math.abs((p.war ?? 0) - curWar) <= band);
       if (inBand.length >= 3) return inBand.slice(0, 4);
     }
     return candidates.slice(0, 4);
@@ -53,7 +53,7 @@ export async function getStaticPaths() {
       player_id: p.player_id, slug: p.slug,
       first_name: p.first_name, last_name: p.last_name,
       display_name: p.display_name, team_abbrev: p.team_abbrev,
-      pos: p.pos, gp: p.gp, rapm: p.rapm,
+      pos: p.pos, gp: p.gp, rapm: p.rapm, war: p.war,
     }));
     const warPct = warPctMap.get(player.player_id) ?? null;
     return { params: { slug: player.slug }, props: { player, playerGames, rankInfo, rapmRank, peers, warPct } };
@@ -67,7 +67,7 @@ interface Props {
   rapmRank: { rankPos: number; totalPos: number; rankAll: number; totalAll: number } | null;
   peers: Array<{
     player_id: number; slug: string; first_name: string; last_name: string;
-    display_name: string; team_abbrev: string; pos: string; gp: number; rapm: number | null;
+    display_name: string; team_abbrev: string; pos: string; gp: number; rapm: number | null; war: number | null;
   }>;
   warPct: number | null;
 }
@@ -722,20 +722,17 @@ const pctBars = [
             <span class="card-meta">by WAR</span>
           </div>
           <div class="peer-strip">
-            {peers.map(peer => {
-              const peerWar = peer.rapm != null ? peer.rapm * 60 : null;
-              return (
-                <a href={`/stats/player/${peer.slug}`} class="peer-row">
-                  <div style="flex:1">
-                    <div class="peer-name">{peer.first_name[0]}. {peer.last_name}</div>
-                    <div class="peer-meta">{peer.team_abbrev} · {peer.pos} · {peer.gp} GP</div>
-                  </div>
-                  {peerWar != null
-                    ? <span class={`peer-rapm ${peerWar >= 0 ? 'pos' : 'neg'}`}>{sign(peerWar)}{peerWar.toFixed(2)}</span>
-                    : <span class="peer-rapm" style="color:var(--ink-32)">—</span>}
-                </a>
-              );
-            })}
+            {peers.map(peer => (
+              <a href={`/stats/player/${peer.slug}`} class="peer-row">
+                <div style="flex:1">
+                  <div class="peer-name">{peer.first_name[0]}. {peer.last_name}</div>
+                  <div class="peer-meta">{peer.team_abbrev} · {peer.pos} · {peer.gp} GP</div>
+                </div>
+                {peer.war != null
+                  ? <span class={`peer-rapm ${peer.war >= 0 ? 'pos' : 'neg'}`}>{sign(peer.war)}{peer.war.toFixed(2)}</span>
+                  : <span class="peer-rapm" style="color:var(--ink-32)">—</span>}
+              </a>
+            ))}
           </div>
         </div>
       )}
