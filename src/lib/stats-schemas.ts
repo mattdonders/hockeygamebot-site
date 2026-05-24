@@ -101,6 +101,9 @@ export const PlayerRecordSchema = z.object({
   sc_pct:           z.number().optional(),
   hdc_pct:          z.number().optional(),
   toi_pp_sec_total: z.number().optional(),
+  // Penalty differential — draw/take counts for WAR breakdown display
+  penalties_drawn: z.number().int().optional(),
+  penalties_taken: z.number().int().optional(),
   // Playoff counting stats — null when player has no playoff appearances
   playoff_gp:      z.number().int().nonnegative().nullable().optional(),
   playoff_goals:   z.number().int().nonnegative().nullable().optional(),
