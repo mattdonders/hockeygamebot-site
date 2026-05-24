@@ -56,6 +56,8 @@ const PercentilesSchema = z.object({
   ev_offence: z.number(),
   ev_defence: z.number(),
   finishing: z.number(),
+  pp_off: z.number().optional(),  // PP RAPM percentile — only for ≥50 min PP TOI
+  pk_def: z.number().optional(),  // PK RAPM percentile — only for ≥50 min PK TOI
 });
 
 // ── Players (players.json) ──────────────────────────────────────────────────
