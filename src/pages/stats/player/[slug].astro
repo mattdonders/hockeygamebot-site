@@ -551,18 +551,14 @@ const pctBars = [
     <!-- SIDEBAR -->
     <div class="content-side">
 
-      <!-- Generate Card CTA -->
+      <!-- Player Card Export -->
       <div class="cta-card">
-        <div class="cta-title">Generate Card</div>
-        <div class="cta-desc">Export a publication-quality PNG for this player. Same format the bots ship during games.</div>
-        <div class="cta-formats">
-          <span class="cta-fmt">HGB Impact</span>
-          <span class="cta-fmt">RAPM</span>
-          <span class="cta-fmt">Game Log</span>
-          <span class="cta-fmt">With / Without</span>
-        </div>
-        <a href={`/cards?player=${player.player_id}`} class="cta-btn">Generate Card →</a>
-        <div class="cta-note">3 free per day · Unlimited with Patreon</div>
+        <div class="cta-title">Player Card</div>
+        <div class="cta-desc">Export a shareable PNG — rates, percentile profile, and impact trend.</div>
+        <button id="download-card-btn" class="cta-btn" style="width:100%;cursor:pointer;border:none;">
+          Download Card →
+        </button>
+        <div class="cta-note" id="card-status">560 × 640px · 2× retina</div>
       </div>
 
       <!-- Similar Players -->
@@ -606,6 +602,376 @@ const pctBars = [
 </div>
 
 <footer>hockeygamebot.com · HGB Stats · 2025–26</footer>
+
+<script define:vars={{
+  _card: {
+    firstName:   player.first_name,
+    lastName:    player.last_name,
+    pos:         player.pos,
+    posLabel:    posLabel,
+    team:        player.team_abbrev,
+    gp:          player.gp,
+    toiAvgSec:   player.toi_avg_sec,
+    war:         player.war,
+    impact:      player.avg_gs_centered,
+    impactPct:   player.percentiles_vs_pos.game_score,
+    ratesG:      player.rates_per_60.goals,
+    ratesA1:     player.rates_per_60.a1,
+    ratesXg:     player.rates_per_60.ixg,
+    finishing:   player.rates_per_60.finishing,
+    ppToiSec:    player.toi_pp_sec_total ?? 0,
+    totalToiSec: player.toi_avg_sec * player.gp,
+    percentiles: player.percentiles_vs_pos,
+    recentGS:    allGames.slice(-10).map(g => g.gs_display),
+    teamColor:   teamColor,
+    headshotUrl: headshotUrl,
+    playerId:    player.player_id,
+    slug:        player.slug,
+  }
+}}>
+  // ── Player card download ────────────────────────────────────────────────
+  (function() {
+    const btn    = document.getElementById('download-card-btn');
+    const status = document.getElementById('card-status');
+    if (!btn) return;
+
+    const D = _card;
+
+    // ── helpers ──────────────────────────────────────────────────────────
+    function fmtToi(sec) {
+      const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+      return m + ':' + String(s).padStart(2, '0');
+    }
+    function ordinal(n) {
+      const a = Math.round(n), m10 = a % 10, m100 = a % 100;
+      if (m100 >= 11 && m100 <= 13) return a + 'th';
+      if (m10 === 1) return a + 'st';
+      if (m10 === 2) return a + 'nd';
+      if (m10 === 3) return a + 'rd';
+      return a + 'th';
+    }
+    function rrect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') { ctx.roundRect(x, y, w, h, r); }
+      else {
+        ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+        ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+        ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+        ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+      }
+    }
+    function loadImg(src) {
+      return new Promise(res => {
+        const img = new Image(); img.crossOrigin = 'anonymous';
+        img.onload = () => res(img); img.onerror = () => res(null);
+        img.src = src;
+      });
+    }
+
+    async function drawCard() {
+      const BG      = '#EFEEE8';
+      const INK     = '#0D0D14';
+      const SURFACE = '#FFFFFF';
+      const RED     = '#E8002D';
+      const INK72   = 'rgba(13,13,20,0.72)';
+      const INK48   = 'rgba(13,13,20,0.48)';
+      const INK32   = 'rgba(13,13,20,0.32)';
+      const INK20   = 'rgba(13,13,20,0.20)';
+      const INK14   = 'rgba(13,13,20,0.14)';
+      const INK10   = 'rgba(13,13,20,0.10)';
+      const INK06   = 'rgba(13,13,20,0.06)';
+      const TEAM_C  = D.teamColor || INK;
+
+      const SCALE = 2;
+      const W     = 560;
+      const PAD   = 28;
+
+      // section heights
+      const HDR_H    = 48;
+      const CHIP_H   = 32;
+      const HERO_H   = 112;
+      const SEP_H    = 1;
+      const KPI_LH   = 24;
+      const KPI_VH   = 42;
+      const SEC_SEP  = 28;
+      const PCT_LBL  = 22;
+      const N_BARS   = 8;
+      const BAR_ROW  = 22;
+      const PCT_H    = N_BARS * BAR_ROW;
+      const SP_LBL   = 22;
+      const SP_H     = 56;
+      const FOOT_H   = 36;
+
+      const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + KPI_LH + KPI_VH +
+                      SEC_SEP + PCT_LBL + PCT_H + SEC_SEP + SP_LBL + SP_H + FOOT_H;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = W * SCALE;
+      canvas.height = TOTAL_H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      // ── background ──────────────────────────────────────────────────────
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, TOTAL_H);
+
+      let y = 0;
+
+      // ── header (white) ──────────────────────────────────────────────────
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, y, W, HDR_H);
+      ctx.font = '800 22px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
+      ctx.font = '700 10px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK48;
+      ctx.textAlign = 'right';
+      ctx.fillText(D.team + ' · ' + D.pos + ' · 2025-26', W - PAD, y + HDR_H / 2);
+      ctx.fillStyle = INK;
+      ctx.fillRect(0, y + HDR_H - 2, W, 2);
+      y += HDR_H;
+
+      // ── chips ────────────────────────────────────────────────────────────
+      const chipH = 18, chipY0 = y + (CHIP_H - chipH) / 2;
+      const chips = [D.team, D.posLabel.toUpperCase(), '2025-26'];
+      let cx = PAD;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      for (let ci = 0; ci < chips.length; ci++) {
+        const tw = ctx.measureText(chips[ci]).width;
+        const cw = tw + 18;
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci === 0 ? TEAM_C : INK;
+        ctx.fill();
+        ctx.fillStyle = BG;
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+        cx += cw + 6;
+      }
+      // HGB brand chip right
+      const brand = 'HOCKEYGAMEBOT';
+      const btw = ctx.measureText(brand).width;
+      const bcw = btw + 18;
+      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
+      y += CHIP_H;
+
+      // ── hero (headshot + name) ───────────────────────────────────────────
+      const R = 38, CX = W / 2, CY = y + 12 + R;
+      const hsImg = await loadImg(D.headshotUrl);
+      ctx.save(); ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, CX - R, CY - R, R * 2, R * 2);
+      } else {
+        ctx.fillStyle = INK10; ctx.fill();
+        ctx.font = '800 24px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), CX, CY);
+      }
+      ctx.restore();
+      // ring
+      ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 3; ctx.stroke();
+      // name + team below
+      const nameY = CY + R + 12;
+      ctx.font = '800 17px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), CX, nameY);
+      ctx.font = '600 10px "Barlow", sans-serif';
+      ctx.fillStyle = INK48;
+      ctx.fillText(D.team + ' · ' + D.posLabel, CX, nameY + 20);
+      y += HERO_H;
+
+      // separator
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, W, SEP_H); y += SEP_H;
+
+      // ── KPI grid (3 groups of 3) ─────────────────────────────────────────
+      const ppPct = D.totalToiSec > 0
+        ? ((D.ppToiSec / D.totalToiSec) * 100).toFixed(1) + '%'
+        : '—';
+      const warVal = D.war != null ? D.war.toFixed(1) : '—';
+      const finVal = D.finishing != null
+        ? (D.finishing >= 0 ? '+' : '') + D.finishing.toFixed(2)
+        : '—';
+
+      const kpis = [
+        // group 1 — production
+        { label: 'G / 60',  val: D.ratesG.toFixed(2) },
+        { label: 'A1 / 60', val: D.ratesA1.toFixed(2) },
+        { label: 'xG / 60', val: D.ratesXg.toFixed(2) },
+        // group 2 — value
+        { label: 'WAR',     val: warVal },
+        { label: 'IMPACT',  val: ordinal(D.impactPct) },
+        { label: 'FINISH',  val: finVal },
+        // group 3 — deployment
+        { label: 'TOI / GP', val: fmtToi(D.toiAvgSec) },
+        { label: 'GP',       val: String(D.gp) },
+        { label: 'PP TOI%',  val: ppPct },
+      ];
+
+      const kColW = (W - PAD * 2) / 9;
+      // group dividers at indices 3 and 6
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'middle';
+      for (let ki = 0; ki < kpis.length; ki++) {
+        const kx = PAD + ki * kColW + kColW / 2;
+        if (ki === 3 || ki === 6) {
+          ctx.fillStyle = INK14;
+          ctx.fillRect(PAD + ki * kColW - 1, y + 4, 1, KPI_LH + KPI_VH - 8);
+          ctx.fillStyle = INK48;
+        }
+        ctx.textAlign = 'center';
+        ctx.fillText(kpis[ki].label, kx, y + KPI_LH / 2);
+      }
+      y += KPI_LH;
+
+      ctx.font = '800 22px "Barlow Condensed", sans-serif';
+      ctx.textBaseline = 'middle';
+      for (let ki = 0; ki < kpis.length; ki++) {
+        const kx = PAD + ki * kColW + kColW / 2;
+        // color WAR green if positive
+        if (kpis[ki].label === 'WAR' && D.war != null && D.war > 0) {
+          ctx.fillStyle = '#14803c';
+        } else if (kpis[ki].label === 'FINISH') {
+          ctx.fillStyle = D.finishing != null && D.finishing > 0 ? '#14803c'
+                        : D.finishing != null && D.finishing < 0 ? RED : INK;
+        } else {
+          ctx.fillStyle = INK;
+        }
+        ctx.textAlign = 'center';
+        ctx.fillText(kpis[ki].val, kx, y + KPI_VH / 2);
+      }
+      y += KPI_VH;
+
+      // ── percentile section ───────────────────────────────────────────────
+      y += SEC_SEP;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText('PERCENTILE PROFILE vs ' + D.posLabel.toUpperCase() + 'S', PAD, y + PCT_LBL / 2);
+      ctx.fillStyle = INK14;
+      ctx.fillRect(PAD + ctx.measureText('PERCENTILE PROFILE vs ' + D.posLabel.toUpperCase() + 'S').width + 8,
+                   y + PCT_LBL / 2, W - PAD * 2 - ctx.measureText('PERCENTILE PROFILE vs ' + D.posLabel.toUpperCase() + 'S').width - 8, 1);
+      y += PCT_LBL;
+
+      const pct = D.percentiles;
+      const barRows = [
+        { label: 'EV Offence', val: pct.ev_offence, blue: false },
+        { label: 'Goals / 60', val: pct.goals,      blue: false },
+        { label: 'xG / 60',    val: pct.ixg,        blue: false },
+        { label: 'A1 / 60',    val: pct.a1,         blue: false },
+        { label: 'Finishing',  val: pct.finishing,  blue: false },
+        { label: 'EV Defense', val: pct.ev_defence, blue: true  },
+        { label: 'Shots / 60', val: pct.shots,      blue: false },
+        { label: 'Pen. Diff',  val: pct.pen_diff,   blue: false },
+      ];
+
+      const BAR_LABEL_W = 82;
+      const BAR_RANK_W  = 32;
+      const BAR_AVAIL   = W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
+      const BAR_H_PX    = 8;
+
+      for (const row of barRows) {
+        const by = y + (BAR_ROW - BAR_H_PX) / 2;
+        // label
+        ctx.font = '600 10px "Barlow", sans-serif';
+        ctx.fillStyle = INK72; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(row.label, PAD, y + BAR_ROW / 2);
+        // track
+        const bx = PAD + BAR_LABEL_W;
+        rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 2);
+        ctx.fillStyle = INK10; ctx.fill();
+        // fill
+        const fillW = Math.max(4, (row.val / 100) * BAR_AVAIL);
+        rrect(ctx, bx, by, fillW, BAR_H_PX, 2);
+        ctx.fillStyle = row.val >= 75 ? (row.blue ? '#4285f4' : '#14803c')
+                      : row.val >= 50 ? (row.blue ? '#7baaf7' : '#34a853')
+                      : row.val >= 25 ? INK32 : RED;
+        ctx.fill();
+        // ordinal right
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK48; ctx.textAlign = 'right';
+        ctx.fillText(ordinal(row.val), W - PAD, y + BAR_ROW / 2);
+        y += BAR_ROW;
+      }
+
+      // ── sparkline (last 10 games) ────────────────────────────────────────
+      y += SEC_SEP;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText('LAST 10 GAMES — HGB IMPACT', PAD, y + SP_LBL / 2);
+      y += SP_LBL;
+
+      const gs = D.recentGS;
+      if (gs.length >= 2) {
+        const spMin = -5, spMax = 12;
+        const spW = W - PAD * 2, spH = SP_H;
+        const spX = i => PAD + (i / (gs.length - 1)) * spW;
+        const spY = v => y + spH - ((Math.min(spMax, Math.max(spMin, v)) - spMin) / (spMax - spMin)) * spH;
+        const sp0 = spY(0);
+
+        // area fill
+        ctx.beginPath();
+        ctx.moveTo(spX(0), spY(gs[0]));
+        for (let i = 1; i < gs.length; i++) ctx.lineTo(spX(i), spY(gs[i]));
+        ctx.lineTo(spX(gs.length - 1), sp0);
+        ctx.lineTo(spX(0), sp0);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(20,128,60,0.12)';
+        ctx.fill();
+
+        // zero line
+        ctx.strokeStyle = INK14; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(PAD, sp0); ctx.lineTo(W - PAD, sp0); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // line
+        ctx.beginPath();
+        ctx.moveTo(spX(0), spY(gs[0]));
+        for (let i = 1; i < gs.length; i++) ctx.lineTo(spX(i), spY(gs[i]));
+        ctx.strokeStyle = '#14803c'; ctx.lineWidth = 2; ctx.stroke();
+
+        // dots
+        for (let i = 0; i < gs.length; i++) {
+          ctx.beginPath(); ctx.arc(spX(i), spY(gs[i]), 3, 0, Math.PI * 2);
+          ctx.fillStyle = gs[i] >= 0 ? '#14803c' : RED; ctx.fill();
+        }
+      }
+      y += SP_H;
+
+      // ── footer ───────────────────────────────────────────────────────────
+      ctx.fillStyle = INK06; ctx.fillRect(0, y, W, FOOT_H);
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26', W / 2, y + FOOT_H / 2);
+
+      return canvas;
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.textContent = 'Generating…';
+      btn.disabled = true;
+      status.textContent = 'Drawing card…';
+      try {
+        const canvas = await drawCard();
+        const url = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `hgb_${D.slug}_25-26.png`;
+        a.click();
+        status.textContent = 'Downloaded ✓';
+      } catch (e) {
+        console.error(e);
+        status.textContent = 'Error — try again';
+      } finally {
+        btn.textContent = 'Download Card →';
+        btn.disabled = false;
+      }
+    });
+  })();
+</script>
 
 <script>
   // Impact trend chart — dot hover tooltips
