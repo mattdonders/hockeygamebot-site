@@ -22,9 +22,9 @@ const GL  = fxFor(89);  // 357.0 — goal line
 const EB  = fxFor(100); // 377.0 — end boards
 const FO  = fxFor(69);  // 320.6 — face-off dot x
 
-// ViewBox: just before blue line to just past end boards
-const VB_X = Math.floor(BL) - 8;           // ~232
-const VB_W = Math.ceil(EB) - VB_X + 8;     // ~153
+// ViewBox: centre ice to just past end boards — shots near blue line stay inside
+const VB_X = 193;                           // centre ice
+const VB_W = Math.ceil(EB) - VB_X + 6;     // ~190
 
 function rinkElementsFor(): string[] {
   const p: string[] = [];
@@ -36,29 +36,33 @@ function rinkElementsFor(): string[] {
   const cYm   = (fy(0) - 20).toFixed(1);
   const cYp   = (fy(0) + 20).toFixed(1);
 
-  // Rink background (full zone: blue line → end boards)
-  p.push(`<rect x="${BL.toFixed(1)}" y="2" width="${(EB - BL).toFixed(1)}" height="166" rx="0" fill="#E8F4F8" stroke="rgba(13,13,20,0.10)" stroke-width="0"/>`);
-  // Outer border
-  p.push(`<rect x="${(BL - 1).toFixed(1)}" y="2" width="${(EB - BL + 2).toFixed(1)}" height="166" rx="5" fill="none" stroke="rgba(13,13,20,0.14)" stroke-width="1"/>`);
-  // Light blue tint for offensive zone
+  // Full rink background (centre ice → end boards)
+  p.push(`<rect x="193" y="2" width="${(EB - 193).toFixed(1)}" height="166" rx="5" fill="#E8F4F8" stroke="rgba(13,13,20,0.14)" stroke-width="1"/>`);
+  // Offensive zone tint (blue line → end boards)
   p.push(`<rect x="${BL.toFixed(1)}" y="2" width="${(EB - BL).toFixed(1)}" height="166" fill="rgba(20,100,200,0.04)"/>`);
-  // End boards zone (behind goal) — subtle darker shade
+  // Behind-goal tint
   p.push(`<rect x="${GL.toFixed(1)}" y="2" width="${(EB - GL).toFixed(1)}" height="166" fill="rgba(13,13,20,0.03)"/>`);
+
+  // Centre ice line
+  p.push(`<line x1="195" y1="2" x2="195" y2="168" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>`);
+  // Centre circle (half — only right side visible)
+  p.push(`<circle cx="195" cy="${cY}" r="21" fill="none" stroke="rgba(13,13,20,0.15)" stroke-width="1"/>`);
+  // Centre dot
+  p.push(`<circle cx="195" cy="${cY}" r="2" fill="rgba(13,13,20,0.20)"/>`);
 
   // Blue line
   p.push(`<line x1="${BL.toFixed(1)}" y1="2" x2="${BL.toFixed(1)}" y2="168" stroke="rgba(20,100,200,0.55)" stroke-width="2.5" stroke-dasharray="5 3"/>`);
   // Goal line
   p.push(`<line x1="${GL.toFixed(1)}" y1="2" x2="${GL.toFixed(1)}" y2="168" stroke="rgba(232,0,45,0.50)" stroke-width="1.5"/>`);
-  // End boards line
+  // End boards
   p.push(`<line x1="${EB.toFixed(1)}" y1="2" x2="${EB.toFixed(1)}" y2="168" stroke="rgba(13,13,20,0.20)" stroke-width="1"/>`);
 
-  // Crease — D-shape curving toward centre ice from goal line
+  // Crease — D-shape curving toward centre ice
   p.push(`<path d="M${GL.toFixed(1)},${cYm} A20,20 0 0,0 ${GL.toFixed(1)},${cYp}" fill="rgba(20,100,200,0.09)" stroke="rgba(20,100,200,0.32)" stroke-width="1"/>`);
-  // Goal mouth (rect sticking into end boards zone)
+  // Goal mouth
   p.push(`<rect x="${GL.toFixed(1)}" y="${gpTop}" width="5" height="${(parseFloat(gpBot) - parseFloat(gpTop)).toFixed(1)}" fill="rgba(13,13,20,0.40)" rx="0.5"/>`);
 
-  // Face-off circles — correct r in NHL-foot scale: 15 ft radius
-  // 15 / 100 * 182 = 27.3 SVG units — too large visually; use r=18 to match line page
+  // Face-off circles (r=18 matches line page; proportionally fine with wider viewBox)
   p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY1}" r="18" fill="none" stroke="rgba(232,0,45,0.22)" stroke-width="1"/>`);
   p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY2}" r="18" fill="none" stroke="rgba(232,0,45,0.22)" stroke-width="1"/>`);
   p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY1}" r="2" fill="rgba(232,0,45,0.38)"/>`);
