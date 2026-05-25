@@ -2,7 +2,7 @@
 import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
-import { loadPlayers, loadPlayerGames, type GameLogEntry, type PlayerSummary } from '../../../lib/stats-loader';
+import { loadPlayers, loadPlayerGames, loadPlayerShots, type GameLogEntry, type PlayerSummary, type PlayerShot } from '../../../lib/stats-loader';
 import { pickTeamColor } from '../../../lib/team-colors';
 
 export async function getStaticPaths() {
@@ -126,6 +126,13 @@ const iArea = allGames.length >= 2
 const posLabel      = player.pos_group === 'F' ? 'Forward' : 'Defenseman';
 const posPlural     = player.pos_group === 'F' ? 'forwards' : 'defensemen';
 
+// ── Shot map data ──────────────────────────────────────────────────────────
+const playerShots = loadPlayerShots(player.player_id);
+// SVG coordinate helpers (viewBox 0 0 200 168)
+// NHL x_n 25→89 → SVG x 10→190; NHL y -42.5→42.5 → SVG y 8→160
+const smX = (x: number) => ((x - 25) / 64 * 180 + 10).toFixed(1);
+const smY = (y: number) => ((y + 42.5) / 85 * 152 + 8).toFixed(1);
+
 const pctBars = [
   { label: 'EV Offense', key: 'ev_offence', val: player.percentiles_vs_pos.ev_offence, grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
   { label: 'EV Defense', key: 'ev_defence', val: player.percentiles_vs_pos.ev_defence, grad: 'linear-gradient(90deg,#e8f0fe,#4285f4)' },
@@ -202,6 +209,13 @@ const pctBars = [
     .season-cell.pts { grid-column: 1 / -1; padding-top: 8px; }
     .season-cell-val { font-family: var(--display); font-weight: 800; font-size: 26px; line-height: 1; color: var(--ink); }
     .season-cell-lbl { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-32); margin-top: 3px; }
+
+    /* Shot map */
+    .shot-map-wrap { padding: 12px 16px 8px; }
+    .shot-map-svg { width: 100%; height: auto; display: block; }
+    .shot-map-legend { display: flex; align-items: center; gap: 16px; font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.04em; margin-top: 8px; justify-content: center; }
+    .sm-legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+    .sm-legend-shot { background: transparent; border: 1.5px solid; }
 
     /* Breadcrumb */
     .breadcrumb { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--ink-32); margin-bottom: 14px; }
@@ -578,6 +592,61 @@ const pctBars = [
           })}
         </div>
       </div>
+
+      <!-- SHOT MAP -->
+      {playerShots.length > 0 && (
+        <div class="card">
+          <div class="card-head">
+            <span class="card-eyebrow">Shot Map &nbsp;<span class="accent">Offensive Zone</span></span>
+            <span class="card-meta">{playerShots.length} shots · all situations · 2025–26</span>
+          </div>
+          <div class="shot-map-wrap">
+            <svg viewBox="0 0 200 168" xmlns="http://www.w3.org/2000/svg" class="shot-map-svg">
+              {/* Rink background */}
+              <rect x="10" y="8" width="180" height="152" fill="white"
+                stroke="rgba(13,13,20,0.12)" stroke-width="1.5" rx="3"/>
+              {/* Blue line */}
+              <line x1="10" y1="8" x2="10" y2="160"
+                stroke="rgba(50,100,220,0.55)" stroke-width="2.5"/>
+              {/* Goal line */}
+              <line x1="190" y1="8" x2="190" y2="160"
+                stroke="rgba(232,0,45,0.45)" stroke-width="1.5"/>
+              {/* Goal crease — D-shape at goal line */}
+              <path d={`M 190 ${smY(-3)} A 17 11 0 0 0 190 ${smY(3)}`}
+                fill="rgba(20,100,220,0.07)" stroke="rgba(20,100,220,0.30)" stroke-width="1"/>
+              {/* Goal mouth */}
+              <rect x="188" y={smY(-3)} width="4"
+                height={(parseFloat(smY(3)) - parseFloat(smY(-3))).toFixed(1)}
+                fill="rgba(13,13,20,0.35)" rx="1"/>
+              {/* Face-off circles */}
+              <circle cx={smX(69)} cy={smY(-22)} r="18"
+                fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>
+              <circle cx={smX(69)} cy={smY(22)} r="18"
+                fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>
+              <circle cx={smX(69)} cy={smY(-22)} r="1.5" fill="rgba(232,0,45,0.35)"/>
+              <circle cx={smX(69)} cy={smY(22)} r="1.5" fill="rgba(232,0,45,0.35)"/>
+              {/* Labels */}
+              <text x="12" y="18" font-family="JetBrains Mono,monospace" font-size="6.5"
+                font-weight="600" fill="rgba(50,100,220,0.6)" letter-spacing="0.08em">BLUE LINE</text>
+              {/* Shot dots — goals on top */}
+              {playerShots.filter(s => !s[2]).map(s => (
+                <circle cx={smX(s[0])} cy={smY(s[1])} r="3"
+                  fill={`${teamColor}22`} stroke={teamColor}
+                  stroke-width="0.8" opacity="0.65"/>
+              ))}
+              {playerShots.filter(s => s[2]).map(s => (
+                <circle cx={smX(s[0])} cy={smY(s[1])} r="4.5"
+                  fill={teamColor} stroke="white"
+                  stroke-width="0.8" opacity="0.9"/>
+              ))}
+            </svg>
+            <div class="shot-map-legend">
+              <span class="sm-legend-dot" style={`background:${teamColor};opacity:0.9`}></span> Goals
+              <span class="sm-legend-dot sm-legend-shot" style={`border-color:${teamColor}`}></span> Shots
+            </div>
+          </div>
+        </div>
+      )}
 
       <!-- IMPACT TREND -->
       <div class="card">

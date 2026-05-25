@@ -329,6 +329,19 @@ export const MethodologySchema = z.object({
 });
 export type Methodology = z.infer<typeof MethodologySchema>;
 
+// ── Player shots (player_shots.json) ────────────────────────────────────────
+
+/** [x_normalized, y_normalized, is_goal (0|1), shot_type] */
+export const PlayerShotSchema = z.tuple([
+  z.number(),  // x: 25–89 (blue line → back boards, absolute)
+  z.number(),  // y: −42.5 to +42.5 (normalized to attacking direction)
+  z.number(),  // is_goal: 0 or 1
+  z.string(),  // shot_type: wrist | slap | snap | backhand | etc.
+]);
+export const PlayerShotsSchema = z.record(z.string(), z.array(PlayerShotSchema));
+export type PlayerShot = z.infer<typeof PlayerShotSchema>;
+export type PlayerShots = z.infer<typeof PlayerShotsSchema>;
+
 // ── Parse helper ────────────────────────────────────────────────────────────
 
 /**

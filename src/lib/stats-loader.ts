@@ -6,6 +6,7 @@ import {
   GoaliesSchema,
   LinesSchema,
   StatsMetaSchema,
+  PlayerShotsSchema,
   parseOrThrow,
   type PlayerRecord,
   type LeaderboardEntry as ZLeaderboardEntry,
@@ -14,6 +15,7 @@ import {
   type GoalieRecord,
   type LineRecord,
   type StatsMeta,
+  type PlayerShot,
 } from './stats-schemas';
 
 const _BASE = 'https://api.hockeygamebot.com/v1/stats';
@@ -26,14 +28,15 @@ async function _fetchJSON(path: string) {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData] = await Promise.all([
   _fetchJSON('players'),
   _fetchJSON('leaderboards'),
   _fetchJSON('player-games'),
   _fetchJSON('meta'),
-  _fetchJSON('team-game-stats').catch(() => ({})),  // graceful fallback before export runs
-  _fetchJSON('goalies').catch(() => []),             // graceful fallback before pipeline adds it
+  _fetchJSON('team-game-stats').catch(() => ({})),
+  _fetchJSON('goalies').catch(() => []),
   _fetchJSON('lines').catch(() => []),
+  _fetchJSON('player-shots').catch(() => ({})),
 ]);
 
 const VALIDATED_PLAYERS      = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
@@ -43,6 +46,7 @@ const VALIDATED_META         = parseOrThrow(StatsMetaSchema,      metaData,     
 const VALIDATED_TEAM_GAMES   = parseOrThrow(TeamGameStatsSchema,  teamGameStatsData,  'team-game-stats');
 const VALIDATED_GOALIES      = parseOrThrow(GoaliesSchema,        goaliesData,        'goalies');
 const VALIDATED_LINES        = parseOrThrow(LinesSchema,          linesData,          'lines');
+const VALIDATED_PLAYER_SHOTS = parseOrThrow(PlayerShotsSchema,   playerShotsData,    'player-shots');
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -93,6 +97,12 @@ export function loadMeta(): MetaData {
 export function loadPlayerGames(playerId: number): GameLogEntry[] {
   return VALIDATED_PLAYER_GAMES[String(playerId)] ?? [];
 }
+
+export function loadPlayerShots(playerId: number): PlayerShot[] {
+  return VALIDATED_PLAYER_SHOTS[String(playerId)] ?? [];
+}
+
+export type { PlayerShot };
 
 export function loadTeamGames(abbr: string): TeamGameEntry[] {
   return VALIDATED_TEAM_GAMES[abbr.toUpperCase()] ?? [];
