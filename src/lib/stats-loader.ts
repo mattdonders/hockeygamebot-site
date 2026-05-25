@@ -40,18 +40,16 @@ const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsDa
   _fetchJSON('player-career').catch(() => ({})),
 ]);
 
-// Merge career_seasons into each player record by player_id key.
-const careerMap: Record<string, { seasons: unknown[] }> = playerCareerData ?? {};
-if (Array.isArray(playersData)) {
-  for (const player of playersData) {
-    const career = careerMap[String(player.player_id)];
-    if (career?.seasons) {
-      player.career_seasons = career.seasons;
-    }
-  }
-}
+const VALIDATED_PLAYERS_RAW  = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
 
-const VALIDATED_PLAYERS      = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
+// Merge career_seasons after Zod parsing — Zod strip mode rebuilds objects
+// from schema keys only, so mutations to raw data before parsing are lost.
+const careerMap: Record<string, { seasons: unknown[] }> = playerCareerData ?? {};
+const VALIDATED_PLAYERS = VALIDATED_PLAYERS_RAW.map(player => {
+  const career = careerMap[String(player.player_id)];
+  if (!career?.seasons?.length) return player;
+  return { ...player, career_seasons: career.seasons as typeof player.career_seasons };
+});
 const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema,   leaderboardsData,   'leaderboards');
 const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema,    playerGamesData,    'player-games');
 const VALIDATED_META         = parseOrThrow(StatsMetaSchema,      metaData,           'meta');
