@@ -89,6 +89,12 @@ export const PlayerRecordSchema = z.object({
   rapm_off: z.number().nullable(),
   rapm_def: z.number().nullable(),
   war: z.number().nullable(),
+  war_components: z.object({
+    ev5: z.number(),
+    pp:  z.number(),
+    pk:  z.number(),
+    pen: z.number(),
+  }).nullable().optional(),
   xgar: z.number().nullable(),
   qoc: z.number().nullable(),
   qot: z.number().nullable(),

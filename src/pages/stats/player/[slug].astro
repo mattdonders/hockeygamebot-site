@@ -589,16 +589,20 @@ const pctBars = [
 
       <!-- WAR BREAKDOWN -->
       {player.war != null && (() => {
-        const WAR_DIV = 4.58, PP_VAL = 0.20;
-        const totalToiHr  = (player.toi_avg_sec * player.gp) / 3600;
-        const penDrawn    = player.penalties_drawn ?? 0;
-        const penTaken    = player.penalties_taken ?? 0;
-        const penComp     = ((penDrawn - penTaken) * PP_VAL) / WAR_DIV;
-        const ev5Comp     = rapmNet != null ? (rapmNet * totalToiHr) / WAR_DIV : 0;
-        const stComp      = player.war - ev5Comp - penComp;
-        const maxComp     = Math.max(Math.abs(ev5Comp), Math.abs(stComp), Math.abs(penComp), 0.01);
-        const pct         = (v: number) => Math.max(0, Math.min(100, (Math.abs(v) / maxComp) * 100)).toFixed(1);
-        const fmt         = (v: number) => (v >= 0 ? '+' : '') + v.toFixed(2);
+        const wc      = player.war_components;
+        const ev5Comp = wc?.ev5 ?? 0;
+        const ppComp  = wc?.pp  ?? 0;
+        const pkComp  = wc?.pk  ?? 0;
+        const penComp = wc?.pen ?? 0;
+        const fmt     = (v: number) => (v >= 0 ? '+' : '') + v.toFixed(2);
+        const maxComp = Math.max(Math.abs(ev5Comp), Math.abs(ppComp), Math.abs(pkComp), Math.abs(penComp), 0.01);
+        const pct     = (v: number) => Math.max(0, Math.min(100, (Math.abs(v) / maxComp) * 100)).toFixed(1);
+        const rows = [
+          { label: '5v5 RAPM',       val: ev5Comp, style: `background:${teamColor}` },
+          { label: 'PP RAPM',        val: ppComp,  style: `background:${teamColor};opacity:0.55` },
+          { label: 'PK RAPM',        val: pkComp,  style: `background:${teamColor};opacity:0.30` },
+          { label: 'Pen. Differential', val: penComp, style: `background:rgba(13,13,20,0.22)` },
+        ].filter(r => wc != null || r.label === '5v5 RAPM');
         return (
           <div class="card">
             <div class="card-head">
@@ -606,27 +610,15 @@ const pctBars = [
               <span class="card-meta">2025–26 · wins above replacement</span>
             </div>
             <div class="war-components">
-              <div class="war-row">
-                <div class="war-row-label">5v5 RAPM</div>
-                <div class="war-bar-track">
-                  <div class="war-bar-fill" style={`width:${pct(ev5Comp)}%;background:${teamColor}`}></div>
+              {rows.map(r => (
+                <div class="war-row">
+                  <div class="war-row-label">{r.label}</div>
+                  <div class="war-bar-track">
+                    <div class="war-bar-fill" style={`width:${pct(r.val)}%;${r.style}`}></div>
+                  </div>
+                  <div class="war-row-val" style={r.label === '5v5 RAPM' ? `color:${teamColor}` : ''}>{fmt(r.val)}</div>
                 </div>
-                <div class="war-row-val" style={`color:${teamColor}`}>{fmt(ev5Comp)}</div>
-              </div>
-              <div class="war-row">
-                <div class="war-row-label">Special Teams</div>
-                <div class="war-bar-track">
-                  <div class="war-bar-fill" style={`width:${pct(stComp)}%;background:${teamColor};opacity:0.45`}></div>
-                </div>
-                <div class="war-row-val">{fmt(stComp)}</div>
-              </div>
-              <div class="war-row">
-                <div class="war-row-label">Pen. Differential</div>
-                <div class="war-bar-track">
-                  <div class="war-bar-fill" style={`width:${pct(penComp)}%;background:rgba(13,13,20,0.22)`}></div>
-                </div>
-                <div class="war-row-val">{fmt(penComp)}</div>
-              </div>
+              ))}
             </div>
             <div class="war-total-row">
               <div class="war-total-label">Total WAR</div>
