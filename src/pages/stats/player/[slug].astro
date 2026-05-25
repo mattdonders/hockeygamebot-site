@@ -244,6 +244,21 @@ const pctBars = [
     .war-rank-note { font-family: var(--mono); font-size: 10px; color: var(--ink-32); text-align: center; padding: 0 18px 14px; letter-spacing: 0.03em; }
     .war-rank-meta { display: flex; align-items: baseline; gap: 10px; }
 
+    /* Career stats table */
+    .career-table-wrap { overflow-x: auto; }
+    .career-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .career-table thead th { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-48); padding: 10px 12px 8px; border-bottom: 1px solid var(--ink-14); text-align: left; }
+    .career-table thead th.ct-num { text-align: right; }
+    .career-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--ink-06); font-family: var(--body); }
+    .career-table tbody tr:last-child td { border-bottom: 0; }
+    .career-table tbody tr.ct-current td { background: rgba(13,13,20,0.03); }
+    .career-table tbody tr.ct-current .ct-season { font-weight: 700; color: var(--ink); }
+    .ct-season { font-family: var(--mono); font-size: 12px; color: var(--ink-48); white-space: nowrap; }
+    .ct-team { display: flex; align-items: center; gap: 6px; }
+    .ct-team-logo { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
+    .ct-team-abbr { font-family: var(--mono); font-size: 11px; color: var(--ink-64); letter-spacing: 0.04em; }
+    .ct-num { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+
     /* Percentile bars */
     .pct-row { display: grid; grid-template-columns: 100px 72px 1fr 44px; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--ink-06); }
     .pct-row:last-child { border-bottom: 0; }
@@ -420,6 +435,7 @@ const pctBars = [
       .rapm-val.net-val { font-size: 44px; }
       .rapm-val { font-size: 36px; }
       .gl-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .ct-hide-mobile { display: none; }
 
       /* ── Masthead: stack left (headshot+name) above right (tiles) ── */
       .mast-card {
@@ -639,6 +655,73 @@ const pctBars = [
                 WAR ranks #{rapmRank.rankPos} among {posPlural} · {warPct}th percentile · top {(rapmRank.rankAll / rapmRank.totalAll * 100).toFixed(0)}% overall
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      <!-- CAREER STATS TABLE -->
+      {(player.career_seasons && player.career_seasons.length > 0) && (() => {
+        const CURRENT_SEASON = '20252026';
+        const fmtSeason = (s: string) => s.length === 8
+          ? `${s.slice(0,4)}–${s.slice(6,8)}`
+          : s;
+        const fmtToi5v5 = (sec: number) => {
+          const h = Math.floor(sec / 3600);
+          const m = Math.floor((sec % 3600) / 60);
+          return `${h}:${m.toString().padStart(2, '0')}`;
+        };
+        // gf_pct / xgf_pct arrive as percentage values (e.g. 52.4)
+        const fmtPct = (v: number | null) => v != null ? `${v.toFixed(1)}%` : '—';
+        const pctColor = (v: number | null) => {
+          if (v == null) return 'var(--ink-32)';
+          if (v >= 55) return '#137333';
+          if (v <= 45) return 'var(--red)';
+          return 'var(--ink)';
+        };
+        const sorted = [...player.career_seasons].sort((a, b) => b.season.localeCompare(a.season));
+        return (
+          <div class="card career-card">
+            <div class="card-head">
+              <span class="card-eyebrow">Career Stats &nbsp;<span class="accent">Season by Season</span></span>
+              <span class="card-meta">5v5 · min 600 TOI</span>
+            </div>
+            <div class="career-table-wrap">
+              <table class="career-table">
+                <thead>
+                  <tr>
+                    <th class="ct-season">Season</th>
+                    <th class="ct-team">Team</th>
+                    <th class="ct-num">GP</th>
+                    <th class="ct-num ct-hide-mobile">TOI 5v5</th>
+                    <th class="ct-num">GF%</th>
+                    <th class="ct-num">xGF%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map(row => {
+                    const isCurrent = row.season === CURRENT_SEASON;
+                    return (
+                      <tr class={isCurrent ? 'ct-current' : ''}>
+                        <td class="ct-season">{fmtSeason(row.season)}</td>
+                        <td class="ct-team">
+                          <img
+                            src={`https://assets.nhle.com/logos/nhl/svg/${row.team}_dark.svg`}
+                            alt={row.team}
+                            class="ct-team-logo"
+                            width="20" height="20"
+                          />
+                          <span class="ct-team-abbr">{row.team}</span>
+                        </td>
+                        <td class="ct-num">{row.gp}</td>
+                        <td class="ct-num ct-hide-mobile">{fmtToi5v5(row.toi_5v5_sec)}</td>
+                        <td class="ct-num" style={`color:${pctColor(row.gf_pct)};font-weight:600`}>{fmtPct(row.gf_pct)}</td>
+                        <td class="ct-num" style={`color:${pctColor(row.xgf_pct)};font-weight:600`}>{fmtPct(row.xgf_pct)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       })()}

@@ -28,7 +28,7 @@ async function _fetchJSON(path: string) {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData] = await Promise.all([
   _fetchJSON('players'),
   _fetchJSON('leaderboards'),
   _fetchJSON('player-games'),
@@ -37,7 +37,19 @@ const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsDa
   _fetchJSON('goalies').catch(() => []),
   _fetchJSON('lines').catch(() => []),
   _fetchJSON('player-shots').catch(() => ({})),
+  _fetchJSON('player-career').catch(() => ({})),
 ]);
+
+// Merge career_seasons into each player record by player_id key.
+const careerMap: Record<string, { seasons: unknown[] }> = playerCareerData ?? {};
+if (Array.isArray(playersData)) {
+  for (const player of playersData) {
+    const career = careerMap[String(player.player_id)];
+    if (career?.seasons) {
+      player.career_seasons = career.seasons;
+    }
+  }
+}
 
 const VALIDATED_PLAYERS      = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
 const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema,   leaderboardsData,   'leaderboards');
