@@ -911,9 +911,13 @@ const pctBars = [
       const SP_LBL   = 22;
       const SP_H     = 72;
       const FOOT_H   = 36;
+      const shotSvgEl = document.getElementById('player-shot-map-svg');
+      const SM_H     = shotSvgEl ? Math.round((W - PAD * 2) * 170 / 190) : 0;
 
       const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + KPI_LH + KPI_VH +
-                      SEC_SEP + PCT_LBL + PCT_H + SEC_SEP + SP_LBL + SP_H + FOOT_H;
+                      SEC_SEP + PCT_LBL + PCT_H + SEC_SEP +
+                      (SM_H ? SM_H + SEC_SEP + 16 : 0) +
+                      SP_LBL + SP_H + FOOT_H;
 
       const canvas = document.createElement('canvas');
       canvas.width  = W * SCALE;
@@ -1118,6 +1122,30 @@ const pctBars = [
         ctx.fillStyle = tierC; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
         ctx.fillText(Math.round(row.val) + '%', W - PAD, y + BAR_ROW_H / 2);
         y += BAR_ROW_H;
+      }
+
+      // ── shot map ─────────────────────────────────────────────────────────
+      if (shotSvgEl && SM_H > 0) {
+        y += SEC_SEP;
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText('SHOT MAP — OFFENSIVE ZONE', PAD, y + 11);
+        y += 16;
+        // convert the server-rendered SVG to an image
+        const svgStr = shotSvgEl.outerHTML;
+        const blob  = new Blob([svgStr], { type: 'image/svg+xml' });
+        const url   = URL.createObjectURL(blob);
+        await new Promise(resolve => {
+          const img = new Image();
+          img.onload = () => {
+            ctx.drawImage(img, PAD, y, W - PAD * 2, SM_H);
+            URL.revokeObjectURL(url);
+            resolve(null);
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+          img.src = url;
+        });
+        y += SM_H;
       }
 
       // ── sparkline (last 10 games) ────────────────────────────────────────

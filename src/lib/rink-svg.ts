@@ -98,5 +98,5 @@ export function buildPlayerShotMapSVG(
     p.push(`<circle cx="${fxFor(s[0]).toFixed(1)}" cy="${fy(s[1]).toFixed(1)}" r="4" fill="${teamColor}" stroke="white" stroke-width="0.8" opacity="0.92"/>`);
   }
 
-  return `<svg viewBox="${VB_X} 0 ${VB_W} 170" xmlns="http://www.w3.org/2000/svg" class="shot-map-svg">${p.join('')}</svg>`;
+  return `<svg id="player-shot-map-svg" viewBox="${VB_X} 0 ${VB_W} 170" xmlns="http://www.w3.org/2000/svg" class="shot-map-svg">${p.join('')}</svg>`;
 }
