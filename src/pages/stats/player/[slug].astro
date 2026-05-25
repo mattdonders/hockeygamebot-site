@@ -703,14 +703,20 @@ const pctBars = [
     <!-- SIDEBAR -->
     <aside class="content-side">
 
-      <!-- Share Card CTA — first in sidebar -->
+      <!-- Share Card CTA — three card options -->
       <div class="cta-card">
         <div class="cta-title">Share Card</div>
-        <div class="cta-desc">Export a shareable 560px PNG — WAR, percentile profile, and impact trend.</div>
-        <button id="download-card-btn" class="cta-btn" style="width:100%;cursor:pointer;border:none;">
-          Download Card →
+        <div class="cta-desc">560px retina PNGs — pick your format.</div>
+        <button id="download-card-btn" class="cta-btn" style="width:100%;cursor:pointer;border:none;margin-bottom:8px;">
+          Player Card →
         </button>
-        <div class="cta-note" id="card-status">560×retina · 2× PNG</div>
+        <button id="download-expanded-btn" class="cta-btn" style="width:100%;cursor:pointer;border:none;margin-bottom:8px;background:rgba(255,255,255,0.12);color:#fff;">
+          Expanded Card →
+        </button>
+        <button id="download-edge-btn" class="cta-btn" style="width:100%;cursor:pointer;border:none;background:rgba(255,255,255,0.12);color:#fff;">
+          NHL EDGE Card →
+        </button>
+        <div class="cta-note" id="card-status">560px · 2× retina PNG</div>
       </div>
 
       <!-- Rate Stats grid -->
@@ -845,6 +851,9 @@ const pctBars = [
     avgGsDisplay:  player.avg_gs_display,
     penDrawn:      player.penalties_drawn ?? 0,
     penTaken:      player.penalties_taken ?? 0,
+    totalG:        totalGoals,
+    totalA:        totalAssists,
+    totalS:        player.rates_per_60.shots * (player.toi_avg_sec * player.gp / 3600),
     ratesG:        player.rates_per_60.goals,
     ratesA1:       player.rates_per_60.a1,
     ratesXg:       player.rates_per_60.ixg,
@@ -858,6 +867,7 @@ const pctBars = [
     },
     qoc: player.qoc ?? null,
     qot: player.qot ?? null,
+    edge: player.edge ?? null,
     recentGS:    allGames.slice(-10).map(g => g.gs_display),
     teamColor:   teamColor,
     headshotUrl: headshotUrl,
@@ -1388,58 +1398,377 @@ const pctBars = [
       return canvas;
     }
 
-    btn.addEventListener('click', async () => {
-      btn.textContent = 'Generating…';
-      btn.disabled = true;
-      status.textContent = 'Drawing card…';
-      try {
-        if (document.fonts && document.fonts.ready) await document.fonts.ready;
-        const canvas = await drawCard();
-        canvas.toBlob(blob => {
-          if (!blob) return;
-          const url = URL.createObjectURL(blob);
-          const a   = document.createElement('a');
-          a.href     = url;
-          a.download = `hgb_${D.slug}_25-26.png`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+    // ── EDGE drawing helpers ─────────────────────────────────────────────
+    function edgeTierColor(pct, blue) {
+      if (pct == null) return INK32;
+      if (pct >= 75) return blue ? '#4285f4' : '#137333';
+      if (pct >= 50) return blue ? '#7baaf7' : '#34a853';
+      if (pct >= 25) return INK32;
+      return RED;
+    }
+
+    function drawEdgeStatBox(ctx, x, y, w, h, lbl, valStr, pct, avgStr, blue) {
+      const PAD = 10;
+      // box background
+      ctx.fillStyle = '#FFFFFF'; ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 4); ctx.fill();
+      ctx.strokeStyle = INK10; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.stroke();
+      // label
+      ctx.font = '700 7.5px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(lbl.toUpperCase(), x + PAD, y + 9);
+      // value
+      ctx.font = '800 28px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textBaseline = 'top';
+      ctx.fillText(valStr, x + PAD, y + 20);
+      // bar
+      const bx = x + PAD, bw = w - PAD * 2, bh = 6, by = y + h - 30;
+      ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 2); ctx.fill();
+      if (pct != null) {
+        const fc = edgeTierColor(pct, blue);
+        ctx.fillStyle = fc;
+        ctx.beginPath(); ctx.roundRect(bx, by, Math.max(6, (pct / 100) * bw), bh, 2); ctx.fill();
+        // pct label
+        ctx.font = '600 10px "Barlow", sans-serif';
+        ctx.fillStyle = fc; ctx.textBaseline = 'top';
+        ctx.fillText(`${Math.round(pct)}th percentile`, x + PAD, y + h - 22);
+      }
+      // avg
+      if (avgStr) {
+        ctx.font = '400 7.5px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'bottom';
+        ctx.fillText(avgStr, x + PAD, y + h - 4);
+      }
+    }
+
+    function drawEdgePairs(ctx, y, W, PAD, e) {
+      const bw = (W - PAD * 2 - 10) / 2;
+      const bh = 86;
+      const pairs = [
+        ['TOP SPEED', e.speed_max_mph != null ? `${e.speed_max_mph} mph` : '—', e.speed_max_pct, e.speed_max_league_avg_mph != null ? `avg ${e.speed_max_league_avg_mph} mph` : '', false],
+        ['MILES SKATED', e.distance_mi != null ? `${e.distance_mi} mi` : '—', e.distance_pct, e.distance_league_avg_mi != null ? `avg ${e.distance_league_avg_mi} mi` : '', false],
+        ['BURSTS > 20 MPH', e.bursts_over_20 != null ? `${e.bursts_over_20}` : '—', e.bursts_over_20_pct, e.bursts_over_20_league_avg != null ? `avg ${e.bursts_over_20_league_avg}` : '', false],
+        ['HARDEST SHOT', e.shot_speed_max_mph != null ? `${e.shot_speed_max_mph} mph` : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? `avg ${e.shot_speed_max_league_avg_mph} mph` : '', false],
+      ];
+      for (let i = 0; i < pairs.length; i++) {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const x = PAD + col * (bw + 10);
+        const by = y + row * (bh + 10);
+        drawEdgeStatBox(ctx, x, by, bw, bh, pairs[i][0], pairs[i][1], pairs[i][2], pairs[i][3], pairs[i][4]);
+      }
+      return y + 2 * (bh + 10) - 10;
+    }
+
+    function drawZoneBar(ctx, y, W, PAD, e, TEAM_C) {
+      const oz = e.oz_pct ?? 45, nz = e.nz_pct ?? 32, dz = e.dz_pct ?? 23;
+      const bw = W - PAD * 2, bh = 20, bx = PAD;
+      // background rounded rect
+      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 90, 4); ctx.fill();
+      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 90, 4); ctx.stroke();
+      // title
+      ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('ZONE TIME — EVEN STRENGTH', PAD + 6, y - 4);
+      y += 14;
+      // segmented bar
+      ctx.save(); ctx.beginPath(); ctx.roundRect(bx, y, bw, bh, 3); ctx.clip();
+      ctx.fillStyle = TEAM_C; ctx.fillRect(bx, y, bw * oz / 100, bh);
+      ctx.fillStyle = 'rgba(13,13,20,0.18)'; ctx.fillRect(bx + bw * oz / 100, y, bw * nz / 100, bh);
+      ctx.fillStyle = 'rgba(232,0,45,0.30)'; ctx.fillRect(bx + bw * (oz + nz) / 100, y, bw * dz / 100, bh);
+      ctx.restore();
+      y += bh + 8;
+      // labels
+      const segs = [['OFFENSIVE ZONE', `${oz.toFixed(0)}%`, oz], ['NEUTRAL ZONE', `${nz.toFixed(0)}%`, nz], ['DEFENSIVE ZONE', `${dz.toFixed(0)}%`, dz]];
+      let lx = PAD + 6;
+      for (const [name, pct, w] of segs) {
+        ctx.font = '800 16px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+        ctx.fillText(pct, lx, y);
+        ctx.font = '600 8px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+        ctx.fillText(name, lx, y + 18);
+        lx += bw * w / 100;
+      }
+      // OZ percentile note
+      if (e.oz_ev_pct_pct != null) {
+        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = TEAM_C; ctx.textBaseline = 'bottom';
+        ctx.fillText(`OZ time: ${Math.round(e.oz_ev_pct_pct)}th percentile`, PAD + 6, y + 40);
+      }
+      return y + 44;
+    }
+
+    function drawShotDanger(ctx, y, W, PAD, e) {
+      const colW = (W - PAD * 2 - 16) / 3;
+      const zones = [
+        { lbl: 'HIGH DANGER', color: TEAM_C,    n: e.shots_high,  np: e.shots_high_pct,  sh: e.shooting_pct_high,  shp: e.shooting_pct_high_pct },
+        { lbl: 'MID RANGE',   color: INK32,     n: e.shots_mid,   np: e.shots_mid_pct,   sh: e.shooting_pct_mid,   shp: e.shooting_pct_mid_pct },
+        { lbl: 'LONG RANGE',  color: INK32,     n: e.shots_long,  np: e.shots_long_pct,  sh: e.shooting_pct_long,  shp: e.shooting_pct_long_pct },
+      ];
+      // background card
+      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 185, 4); ctx.fill();
+      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 185, 4); ctx.stroke();
+      ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('SHOT LOCATION BY DANGER ZONE', PAD + 6, y - 4);
+      y += 12;
+      for (let i = 0; i < 3; i++) {
+        const z = zones[i];
+        const cx = PAD + i * (colW + 8);
+        const ry = y;
+        // zone chip
+        const chipColor = i === 0 ? `rgba(${parseInt(TEAM_C.slice(1,3),16)},${parseInt(TEAM_C.slice(3,5),16)},${parseInt(TEAM_C.slice(5,7),16)},0.14)` : 'rgba(13,13,20,0.06)';
+        ctx.fillStyle = chipColor; ctx.beginPath(); ctx.roundRect(cx, ry, colW, 16, 2); ctx.fill();
+        ctx.font = '700 7px "JetBrains Mono", monospace'; ctx.fillStyle = i === 0 ? TEAM_C : INK45;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(z.lbl, cx + colW / 2, ry + 8);
+        // Attempts
+        ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText('ATTEMPTS', cx, ry + 22);
+        ctx.font = '800 24px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+        ctx.fillText(z.n != null ? `${z.n}` : '—', cx, ry + 30);
+        const npColor = edgeTierColor(z.np, false);
+        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = npColor;
+        ctx.fillText(z.np != null ? `${Math.round(z.np)}th` : '', cx, ry + 56);
+        const abw = colW, abh = 5;
+        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, ry + 66, abw, abh, 2); ctx.fill();
+        if (z.np != null) { ctx.fillStyle = npColor; ctx.beginPath(); ctx.roundRect(cx, ry + 66, Math.max(4, (z.np/100)*abw), abh, 2); ctx.fill(); }
+        // Shooting %
+        ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+        ctx.fillText('SHOOTING %', cx, ry + 78);
+        ctx.font = '800 20px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+        ctx.fillText(z.sh != null ? `${z.sh}%` : '—', cx, ry + 88);
+        const shpColor = edgeTierColor(z.shp, false);
+        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = shpColor;
+        ctx.fillText(z.shp != null ? `${Math.round(z.shp)}th` : '', cx, ry + 110);
+        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, ry + 121, abw, abh, 2); ctx.fill();
+        if (z.shp != null) { ctx.fillStyle = shpColor; ctx.beginPath(); ctx.roundRect(cx, ry + 121, Math.max(4, (z.shp/100)*abw), abh, 2); ctx.fill(); }
+      }
+      return y + 133;
+    }
+
+    function drawEdgeDivider(ctx, y, W) {
+      ctx.fillStyle = INK10; ctx.fillRect(20, y + 10, (W - 40) / 2 - 80, 1);
+      ctx.font = '700 8px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('NHL EDGE ATHLETE TRACKING', W / 2, y + 10);
+      ctx.fillStyle = INK10; ctx.fillRect(W / 2 + 80, y + 10, (W - 40) / 2 - 80, 1);
+      return y + 24;
+    }
+
+    // ── Expanded card: existing card + EDGE section appended ─────────────
+    async function drawExpandedCard() {
+      const e = D.edge;
+      const W = 560, SCALE = 2, PAD = 20;
+      // draw the base portrait card first
+      const base = await drawCard();
+      const baseH = base.height / SCALE;
+      // compute EDGE section height
+      const EDGE_H = e ? (30 + 2 * 96 + 10 + 104 + 10 + 194 + 44) : 60;
+      const TOTAL_H = baseH + EDGE_H;
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = TOTAL_H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+      // copy base card
+      ctx.drawImage(base, 0, 0, W * SCALE, baseH * SCALE, 0, 0, W, baseH);
+      if (!e) {
+        ctx.fillStyle = INK10; ctx.fillRect(0, baseH, W, EDGE_H);
+        ctx.font = '700 10px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('EDGE DATA NOT YET AVAILABLE', W / 2, baseH + EDGE_H / 2);
+        return canvas;
+      }
+      // EDGE section background
+      ctx.fillStyle = '#EFEEE8'; ctx.fillRect(0, baseH, W, EDGE_H);
+      let y = baseH + 6;
+      y = drawEdgeDivider(ctx, y, W);
+      y += 8;
+      // draw pairs
+      const bw = (W - PAD * 2 - 10) / 2, bh = 86;
+      const pairs = [
+        ['TOP SPEED', e.speed_max_mph != null ? `${e.speed_max_mph} mph` : '—', e.speed_max_pct, e.speed_max_league_avg_mph != null ? `avg ${e.speed_max_league_avg_mph} mph` : ''],
+        ['MILES SKATED', e.distance_mi != null ? `${e.distance_mi} mi` : '—', e.distance_pct, e.distance_league_avg_mi != null ? `avg ${e.distance_league_avg_mi} mi` : ''],
+        ['BURSTS > 20 MPH', e.bursts_over_20 != null ? `${e.bursts_over_20}` : '—', e.bursts_over_20_pct, e.bursts_over_20_league_avg != null ? `avg ${e.bursts_over_20_league_avg}` : ''],
+        ['HARDEST SHOT', e.shot_speed_max_mph != null ? `${e.shot_speed_max_mph} mph` : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? `avg ${e.shot_speed_max_league_avg_mph} mph` : ''],
+      ];
+      for (let i = 0; i < 4; i++) {
+        const col = i % 2, row = Math.floor(i / 2);
+        drawEdgeStatBox(ctx, PAD + col * (bw + 10), y + row * (bh + 10), bw, bh, pairs[i][0], pairs[i][1], pairs[i][2], pairs[i][3], false);
+      }
+      y += 2 * (bh + 10) - 10 + 12;
+      y = drawZoneBar(ctx, y, W, PAD, e, TEAM_C);
+      y += 12;
+      y = drawShotDanger(ctx, y, W, PAD, e);
+      y += 10;
+      // footer
+      ctx.fillStyle = INK10; ctx.fillRect(0, y, W, 36);
+      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26 · EDGE DATA: NHL, INC.', W / 2, y + 18);
+      return canvas;
+    }
+
+    // ── EDGE card: hero + EDGE data (no percentile bars) ─────────────────
+    async function drawEdgeCard() {
+      const e = D.edge;
+      const W = 560, SCALE = 2, PAD = 20;
+      // heights
+      const HDR_H = 48, CHIP_H = 32, HERO_H = 88, SEP_H = 1, KPI_H = 60;
+      const EDGE_SEC_H = e ? (30 + 2 * 96 + 10 + 104 + 10 + 194) : 80;
+      const FOOT_H = 36;
+      const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + KPI_H + 16 + EDGE_SEC_H + 12 + FOOT_H;
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = TOTAL_H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+      ctx.fillStyle = '#EFEEE8'; ctx.fillRect(0, 0, W, TOTAL_H);
+      let y = 0;
+      const INK_V = '#0D0D14', RED_V = '#E8002D';
+      const INK06V = 'rgba(13,13,20,0.06)', INK10V = 'rgba(13,13,20,0.10)';
+      const INK14V = 'rgba(13,13,20,0.14)', INK32V = 'rgba(13,13,20,0.32)';
+      const INK45V = 'rgba(13,13,20,0.45)', INK48V = 'rgba(13,13,20,0.48)';
+      const rrect = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
+      // ── Header ───────────────────────────────────────────────────────────
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, y, W, HDR_H);
+      ctx.font = '800 22px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK_V; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(`${D.firstName.toUpperCase()} ${D.lastName.toUpperCase()}`, PAD, y + HDR_H / 2);
+      ctx.fillStyle = INK14V; ctx.fillRect(0, y + HDR_H - 1, W, 1);
+      y += HDR_H;
+      // ── Chips ────────────────────────────────────────────────────────────
+      const chips = [D.team, D.posLabel.toUpperCase(), '2025-26', 'HOCKEYGAMEBOT'];
+      let cx2 = PAD;
+      chips.forEach((txt, i) => {
+        ctx.font = '700 8px "JetBrains Mono", monospace';
+        const tw = ctx.measureText(txt).width + 16;
+        ctx.fillStyle = i === 0 ? TEAM_C : i < 3 ? INK_V : INK10V;
+        rrect(ctx, cx2, y + 7, tw, 18, 2); ctx.fill();
+        ctx.fillStyle = i < 3 ? '#FFFFFF' : INK_V;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(txt, cx2 + 8, y + 16);
+        cx2 += tw + 6;
+      });
+      y += CHIP_H;
+      // ── Hero row ────────────────────────────────────────────────────────
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, y, W, HERO_H);
+      ctx.fillStyle = INK06V; ctx.fillRect(0, y, W, 1);
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, y, 6, HERO_H);
+      // headshot circle
+      ctx.save();
+      ctx.beginPath(); ctx.arc(6 + 14 + 34, y + HERO_H / 2, 34, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = INK10V; ctx.fillRect(6, y, 82, HERO_H);
+      ctx.restore();
+      ctx.strokeStyle = INK14V; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(6 + 14 + 34, y + HERO_H / 2, 34, 0, Math.PI * 2); ctx.stroke();
+      // hero tiles
+      const tileX = 100;
+      const tiles = [
+        [D.warPct != null ? `${D.warPct}%` : '—', D.war != null ? `${D.war >= 0 ? '+' : ''}${D.war.toFixed(2)} WAR` : '—', TEAM_C],
+        [D.impactPct != null ? `${Math.round(D.impactPct)}%` : '—', `${D.avgGsDisplay?.toFixed(2) ?? '—'} GS avg`, INK_V],
+        [`${D.gp} GP`, `${D.totalG}G · ${D.totalA}A`, INK_V],
+      ];
+      const tileW = (W - tileX) / 3;
+      tiles.forEach(([big, small, color], i) => {
+        const tx = tileX + i * tileW;
+        if (i > 0) { ctx.fillStyle = INK06V; ctx.fillRect(tx, y + 16, 1, HERO_H - 32); }
+        ctx.font = '800 32px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(big, tx + tileW / 2, y + HERO_H / 2 - 8);
+        ctx.font = '400 8.5px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK48V; ctx.fillText(small, tx + tileW / 2, y + HERO_H / 2 + 14);
+      });
+      ctx.fillStyle = INK14V; ctx.fillRect(0, y + HERO_H - 1, W, 1);
+      y += HERO_H + SEP_H;
+      // ── KPI strip ────────────────────────────────────────────────────────
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, y, W, KPI_H);
+      const kpis = [
+        ['G / 60', D.ratesG?.toFixed(2) ?? '—'],['A1 / 60', D.ratesA1?.toFixed(2) ?? '—'],
+        ['xG / 60', D.ratesXg?.toFixed(2) ?? '—'],['Finishing', (D.finishing >= 0 ? '+' : '') + D.finishing?.toFixed(2)],
+        ['Shots / 60', ((D.totalS ?? 0) / Math.max(D.gp * D.toiAvgSec / 3600, 0.01)).toFixed(1)],
+      ];
+      kpis.forEach(([lbl, val], i) => {
+        const kx = PAD + i * ((W - PAD * 2) / 5);
+        if (i > 0) { ctx.fillStyle = INK06V; ctx.fillRect(kx, y + 10, 1, KPI_H - 20); }
+        ctx.font = '800 20px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK_V; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(val, kx + (W - PAD * 2) / 10, y + KPI_H / 2 - 6);
+        ctx.font = '700 8px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK48V;
+        ctx.fillText(lbl.toUpperCase(), kx + (W - PAD * 2) / 10, y + KPI_H / 2 + 10);
+      });
+      ctx.fillStyle = INK14V; ctx.fillRect(0, y + KPI_H - 1, W, 1);
+      y += KPI_H + 16;
+      // ── EDGE section ─────────────────────────────────────────────────────
+      if (!e) {
+        ctx.fillStyle = INK10V; ctx.fillRect(PAD, y, W - PAD * 2, 60);
+        ctx.font = '700 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32V;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('EDGE DATA NOT YET AVAILABLE', W / 2, y + 30);
+        y += 72;
+      } else {
+        y = drawEdgeDivider(ctx, y, W);
+        y += 8;
+        const bw2 = (W - PAD * 2 - 10) / 2, bh2 = 86;
+        const pairs2 = [
+          ['TOP SPEED', e.speed_max_mph != null ? `${e.speed_max_mph} mph` : '—', e.speed_max_pct, e.speed_max_league_avg_mph != null ? `avg ${e.speed_max_league_avg_mph} mph` : ''],
+          ['MILES SKATED', e.distance_mi != null ? `${e.distance_mi} mi` : '—', e.distance_pct, e.distance_league_avg_mi != null ? `avg ${e.distance_league_avg_mi} mi` : ''],
+          ['BURSTS > 20 MPH', e.bursts_over_20 != null ? `${e.bursts_over_20}` : '—', e.bursts_over_20_pct, e.bursts_over_20_league_avg != null ? `avg ${e.bursts_over_20_league_avg}` : ''],
+          ['HARDEST SHOT', e.shot_speed_max_mph != null ? `${e.shot_speed_max_mph} mph` : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? `avg ${e.shot_speed_max_league_avg_mph} mph` : ''],
+        ];
+        for (let i = 0; i < 4; i++) {
+          const col = i % 2, row = Math.floor(i / 2);
+          drawEdgeStatBox(ctx, PAD + col * (bw2 + 10), y + row * (bh2 + 10), bw2, bh2, pairs2[i][0], pairs2[i][1], pairs2[i][2], pairs2[i][3], false);
+        }
+        y += 2 * (bh2 + 10) - 10 + 12;
+        y = drawZoneBar(ctx, y, W, PAD, e, TEAM_C);
+        y += 12;
+        y = drawShotDanger(ctx, y, W, PAD, e);
+        y += 10;
+      }
+      // ── Footer ───────────────────────────────────────────────────────────
+      ctx.fillStyle = INK10V; ctx.fillRect(0, y, W, FOOT_H);
+      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32V; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26 · EDGE DATA: NHL, INC.', W / 2, y + FOOT_H / 2);
+      return canvas;
+    }
+
+    // ── shared canvas download helper ────────────────────────────────────
+    function downloadCanvas(canvas, filename) {
+      canvas.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a   = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    }
+
+    function bindCardBtn(id, label, drawFn, filename) {
+      const b = document.getElementById(id);
+      if (!b) return;
+      b.addEventListener('click', async () => {
+        b.textContent = 'Generating…'; b.disabled = true;
+        status.textContent = 'Drawing…';
+        try {
+          if (document.fonts && document.fonts.ready) await document.fonts.ready;
+          const canvas = await drawFn();
+          downloadCanvas(canvas, filename);
           status.textContent = 'Downloaded ✓';
           setTimeout(() => { status.textContent = '560px · 2× retina PNG'; }, 3000);
-        }, 'image/png');
-      } catch (e) {
-        console.error(e);
-        status.textContent = 'Error — try again';
-      } finally {
-        btn.textContent = 'Download Card →';
-        btn.disabled = false;
-      }
-    });
-
-    const wideBtn = document.getElementById('download-wide-btn');
-    if (wideBtn) {
-      wideBtn.addEventListener('click', async () => {
-        wideBtn.textContent = 'Generating…';
-        wideBtn.disabled = true;
-        status.textContent = 'Drawing wide card…';
-        try {
-          const canvas = await drawCardWide();
-          const url = canvas.toDataURL('image/png');
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `hgb_${D.slug}_wide_25-26.png`;
-          a.click();
-          status.textContent = 'Downloaded ✓';
         } catch (e) {
           console.error(e);
           status.textContent = 'Error — try again';
         } finally {
-          wideBtn.textContent = 'Wide Card →';
-          wideBtn.disabled = false;
+          b.textContent = label; b.disabled = false;
         }
       });
     }
+
+    bindCardBtn('download-card-btn',     'Player Card →',   drawCard,         `hgb_${D.slug}_25-26.png`);
+    bindCardBtn('download-expanded-btn', 'Expanded Card →', drawExpandedCard, `hgb_${D.slug}_expanded_25-26.png`);
+    bindCardBtn('download-edge-btn',     'NHL EDGE Card →', drawEdgeCard,     `hgb_${D.slug}_edge_25-26.png`);
   })();
 </script>
 
