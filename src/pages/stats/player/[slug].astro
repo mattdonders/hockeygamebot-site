@@ -3,6 +3,7 @@ import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
 import { loadPlayers, loadPlayerGames, loadPlayerShots, type GameLogEntry, type PlayerSummary, type PlayerShot } from '../../../lib/stats-loader';
+import { buildPlayerShotMapSVG } from '../../../lib/rink-svg';
 import { pickTeamColor } from '../../../lib/team-colors';
 
 export async function getStaticPaths() {
@@ -128,10 +129,9 @@ const posPlural     = player.pos_group === 'F' ? 'forwards' : 'defensemen';
 
 // ── Shot map data ──────────────────────────────────────────────────────────
 const playerShots = loadPlayerShots(player.player_id);
-// SVG coordinate helpers (viewBox 0 0 200 168)
-// NHL x_n 25→89 → SVG x 10→190; NHL y -42.5→42.5 → SVG y 8→160
-const smX = (x: number) => ((x - 25) / 64 * 180 + 10).toFixed(1);
-const smY = (y: number) => ((y + 42.5) / 85 * 152 + 8).toFixed(1);
+const shotMapSVG  = playerShots.length > 0
+  ? buildPlayerShotMapSVG(playerShots, teamColor)
+  : '';
 
 const pctBars = [
   { label: 'EV Offense', key: 'ev_offence', val: player.percentiles_vs_pos.ev_offence, grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
@@ -594,55 +594,14 @@ const pctBars = [
       </div>
 
       <!-- SHOT MAP -->
-      {playerShots.length > 0 && (
+      {shotMapSVG && (
         <div class="card">
           <div class="card-head">
             <span class="card-eyebrow">Shot Map &nbsp;<span class="accent">Offensive Zone</span></span>
             <span class="card-meta">{playerShots.length} shots · all situations · 2025–26</span>
           </div>
           <div class="shot-map-wrap">
-            <svg viewBox="0 0 200 168" xmlns="http://www.w3.org/2000/svg" class="shot-map-svg" style="overflow:visible">
-              {/* Rink background */}
-              <rect x="8" y="4" width="184" height="160" fill="white"
-                stroke="rgba(13,13,20,0.10)" stroke-width="1" rx="3"/>
-              {/* Blue line */}
-              <line x1="8" y1="4" x2="8" y2="164"
-                stroke="rgba(50,100,220,0.50)" stroke-width="3"/>
-              {/* Goal line */}
-              <line x1="192" y1="4" x2="192" y2="164"
-                stroke="rgba(232,0,45,0.40)" stroke-width="1.5"/>
-              {/* Goal crease — D toward center ice */}
-              <path d={`M 192 ${smY(-3)} A 14 9 0 0 0 192 ${smY(3)}`}
-                fill="rgba(20,100,220,0.08)" stroke="rgba(20,100,220,0.25)" stroke-width="0.8"/>
-              {/* Goal mouth */}
-              <rect x="190" y={smY(-3)} width="4"
-                height={(parseFloat(smY(3)) - parseFloat(smY(-3))).toFixed(1)}
-                fill="rgba(13,13,20,0.30)" rx="0.5"/>
-              {/* Face-off dots only (no large circles — too distracting) */}
-              <circle cx={smX(69)} cy={smY(-22)} r="2" fill="rgba(232,0,45,0.30)"/>
-              <circle cx={smX(69)} cy={smY(22)} r="2" fill="rgba(232,0,45,0.30)"/>
-              {/* Subtle face-off rings — small radius */}
-              <circle cx={smX(69)} cy={smY(-22)} r="9"
-                fill="none" stroke="rgba(232,0,45,0.12)" stroke-width="0.8"/>
-              <circle cx={smX(69)} cy={smY(22)} r="9"
-                fill="none" stroke="rgba(232,0,45,0.12)" stroke-width="0.8"/>
-              {/* Direction label */}
-              <text x="100" y="168" font-family="JetBrains Mono,monospace" font-size="5.5"
-                font-weight="500" fill="rgba(13,13,20,0.25)" text-anchor="middle" letter-spacing="0.06em">
-                ← BLUE LINE · GOAL →
-              </text>
-              {/* Shot dots — shots first, goals on top */}
-              {playerShots.filter(s => !s[2]).map(s => (
-                <circle cx={smX(s[0])} cy={smY(s[1])} r="2.8"
-                  fill={`${teamColor}18`} stroke={teamColor}
-                  stroke-width="0.7" opacity="0.70"/>
-              ))}
-              {playerShots.filter(s => s[2]).map(s => (
-                <circle cx={smX(s[0])} cy={smY(s[1])} r="4"
-                  fill={teamColor} stroke="white"
-                  stroke-width="0.8" opacity="0.92"/>
-              ))}
-            </svg>
+            <Fragment set:html={shotMapSVG} />
             <div class="shot-map-legend">
               <span class="sm-legend-dot" style={`background:${teamColor};opacity:0.9`}></span> Goals
               <span class="sm-legend-dot sm-legend-shot" style={`border-color:${teamColor}`}></span> Shots
