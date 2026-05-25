@@ -167,6 +167,12 @@ const tableRows = eligible.map(p => {
     .slider-wrap { display: inline-flex; align-items: center; gap: 8px;
       font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
     .slider-wrap input[type=range] { width: 100px; accent-color: var(--red); }
+    #name-search { background: var(--surface); border: 1px solid var(--ink-14); padding: 6px 10px;
+      font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
+      color: var(--ink); outline: none; width: 160px; }
+    #name-search::placeholder { color: var(--ink-32); font-weight: 400; }
+    .lb-dl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .dl-limit-note { font-family: var(--mono); font-size: 10px; color: var(--ink-48); white-space: nowrap; }
 
     /* ── Table ── */
     .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14);
@@ -315,6 +321,7 @@ const tableRows = eligible.map(p => {
       <span class="lb-title">Skater Stats</span>
       <div style="display:flex;align-items:center;gap:12px">
         <span class="lb-meta" id="lb-count">{eligible.length} players · 2025–26</span>
+        <span class="dl-limit-note" id="dl-limit-note" style="display:none">Use Top 10/20/50 to export</span>
         <button class="lb-dl-btn" id="dl-btn">↓ PNG</button>
       </div>
     </div>
@@ -340,6 +347,13 @@ const tableRows = eligible.map(p => {
         Min TOI: <span id="toi-label">—</span>
         <input type="range" id="toi-slider" min="0" max="28" value="0" step="1">
       </div>
+      <div class="btn-group" id="topn-filter">
+        <button class="active" data-topn="">All</button>
+        <button data-topn="10">Top 10</button>
+        <button data-topn="20">Top 20</button>
+        <button data-topn="50">Top 50</button>
+      </div>
+      <input type="search" id="name-search" placeholder="Search players…" autocomplete="off">
     </div>
 
     <div class="lb-wrap" id="lb-reg-wrap">
@@ -389,14 +403,16 @@ const PAGE = 50;
 const sgn2 = v => v >= 0 ? '+' : '';
 
 // ── State ────────────────────────────────────────────────────────────────────
-let gameType   = 2;
-let viewTab    = 'counting';
-let posFilter  = 'all';
-let teamFilter = 'all';
-let minToi     = 0;
-let sortKey    = 'points';
-let sortAsc    = false;
-let showAll    = false;
+let gameType    = 2;
+let viewTab     = 'counting';
+let posFilter   = 'all';
+let teamFilter  = 'all';
+let minToi      = 0;
+let sortKey     = 'points';
+let sortAsc     = false;
+let showAll     = false;
+let topN        = null;   // null = no limit; number = slice after sort
+let searchQuery = '';
 
 // ── Tab column definitions ────────────────────────────────────────────────────
 // Fixed columns in every tab: #, Player, Pos, GP
@@ -500,11 +516,16 @@ function getRows() {
     const toiKey = (isPlayoff && viewTab === 'counting') ? 'po_toi_pg' : 'toi_pg';
     rows = rows.filter(r => (r[toiKey] ?? 0) >= minToi);
   }
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    rows = rows.filter(r => r.name.toLowerCase().includes(q));
+  }
   rows.sort((a, b) => {
     const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
     const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
     return sortAsc ? av - bv : bv - av;
   });
+  if (topN != null) rows = rows.slice(0, topN);
   return rows;
 }
 
@@ -612,7 +633,8 @@ function render() {
   const countEl = document.getElementById('lb-count');
   if (countEl) {
     const season = gameType === 3 ? '2025–26 playoffs' : '2025–26';
-    countEl.textContent = `${total} players · ${season}`;
+    const label  = topN != null ? `Top ${total} · ${season}` : `${total} players · ${season}`;
+    countEl.textContent = label;
   }
 
   const moreDiv = document.getElementById('lb-more');
@@ -625,6 +647,13 @@ function render() {
       moreDiv.style.display = 'none';
     }
   }
+
+  // Export guard: disable when too many rows and no Top N limit
+  const dlBtn   = document.getElementById('dl-btn');
+  const dlNote  = document.getElementById('dl-limit-note');
+  const tooMany = topN == null && total > 20;
+  if (dlBtn)  { dlBtn.disabled = tooMany; }
+  if (dlNote) { dlNote.style.display = tooMany ? '' : 'none'; }
 }
 
 // ── Event handlers ────────────────────────────────────────────────────────────
@@ -718,6 +747,25 @@ document.getElementById('toi-slider')?.addEventListener('input', function() {
   render();
 });
 
+// ── Top N filter ──────────────────────────────────────────────────────────────
+document.querySelectorAll('#topn-filter button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const v = btn.dataset.topn;
+    topN = v ? parseInt(v) : null;
+    showAll = false;
+    document.querySelectorAll('#topn-filter button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    render();
+  });
+});
+
+// ── Name search ───────────────────────────────────────────────────────────────
+document.getElementById('name-search')?.addEventListener('input', function() {
+  searchQuery = this.value.trim();
+  showAll = false;
+  render();
+});
+
 readUrl();
 syncUi();
 syncToiLabel();
@@ -775,6 +823,7 @@ function getExportChips() {
   const isPlayoff = gameType === 3;
   const tabLabel = { counting: 'Counting', rates: 'Rates', advanced: 'Advanced' }[viewTab];
   const chips = [isPlayoff ? 'Playoffs' : 'Regular Season', tabLabel];
+  if (topN != null) chips.push(`Top ${topN}`);
   if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
   if (teamFilter !== 'all') chips.push(teamFilter);
   if (minToi > 0) chips.push(`${minToi}+ min TOI`);
