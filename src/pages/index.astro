@@ -775,6 +775,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 .bracket-cell { background: var(--ink-06); border: 1px solid var(--ink-10); padding: 8px 4px; text-align: center; font-family: var(--display); font-weight: 700; letter-spacing: 0.04em; }
 .bracket-cell .gno { display: block; font-family: var(--mono); font-size: 8.5px; color: var(--ink-32); letter-spacing: 0.1em; margin-bottom: 2px; text-transform: uppercase; }
 .bracket-cell .winner { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bracket-cell .bscore { display: block; font-family: var(--mono); font-size: 8.5px; opacity: 0.7; letter-spacing: 0; margin-top: 1px; }
 .bracket-cell.live-cell { background: var(--ink); color: #fff; }
 .bracket-cell.live-cell .gno { color: rgba(255,255,255,0.5); }
 .bracket-cell.live-cell .winner { color: #fff; }
@@ -1541,6 +1542,32 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 
   let _seriesData = null;
   let _narrativesCache = null;
+  let _seriesStatsCache = null;
+
+  async function fetchSeriesGames(g) {
+    if (!g) return null;
+    const a = g.away_team?.abbrev, h = g.home_team?.abbrev;
+    try {
+      if (!_seriesStatsCache) {
+        const r = await fetch('https://api.hockeygamebot.com/v1/stats/series-stats', { signal: AbortSignal.timeout(5000) });
+        _seriesStatsCache = r.ok ? await r.json() : {};
+      }
+      for (const s of (_seriesStatsCache?.series ?? [])) {
+        const teams = Object.keys(s.teams ?? {});
+        if (teams.includes(a) && teams.includes(h)) return s.games ?? [];
+      }
+      return null;
+    } catch { return null; }
+  }
+
+  function _getCachedSeriesGames(g) {
+    const a = g.away_team?.abbrev, h = g.home_team?.abbrev;
+    for (const s of (_seriesStatsCache?.series ?? [])) {
+      const teams = Object.keys(s.teams ?? {});
+      if (teams.includes(a) && teams.includes(h)) return s.games ?? [];
+    }
+    return null;
+  }
 
   async function fetchSeriesNarrative(g) {
     if (!g) return null;
@@ -1610,7 +1637,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     return null;
   }
 
-  function buildStateDHtml(g, series, narrative) {
+  function buildStateDHtml(g, series, narrative, seriesGames) {
     const a = g.away_team.abbrev, h = g.home_team.abbrev;
     const ac = clr(a), hc = clr(h);
     const state = gs(g);
@@ -1731,17 +1758,30 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
         <div class="gh-series-sub">${srt || 'Playoffs'} · Best of 7 · Game ${sgn}</div>
       </div>`;
 
-      // Bracket cells — G1-G7 grid. Color past-game cells by winner (away team fills first aW cells, home fills next hW cells).
-      // We know total wins per team but not per-game order — show wins in sequence as best approximation.
+      // Bracket cells — G1-G7 grid. Use per-game data from series_stats.json when available,
+      // fall back to approximation from win counts (away fills first, then home).
       const cells = [];
+      const gamesByNum = {};
+      if (seriesGames) seriesGames.forEach(g => { gamesByNum[g.game_number] = g; });
       let awayFill = aW, homeFill = hW;
       for (let i = 1; i <= 7; i++) {
         if (i < sgn) {
-          // Past game: assign to away first, then home (approximation — order unknown without per-game fetch)
-          let winnerAbbrev, winnerColor;
-          if (awayFill > 0) { winnerAbbrev = a; winnerColor = ac; awayFill--; }
-          else { winnerAbbrev = h; winnerColor = hc; homeFill--; }
-          cells.push(`<div class="bracket-cell" style="background:${winnerColor}18;border-color:${winnerColor}55;color:${winnerColor}"><span class="gno">G${i}</span><span class="winner">${winnerAbbrev}</span></div>`);
+          const gd = gamesByNum[i];
+          let winnerAbbrev, winnerColor, scoreLabel;
+          if (gd) {
+            winnerAbbrev = gd.winner;
+            winnerColor = gd.winner === a ? ac : hc;
+            // Show score from winner's perspective: winner score first
+            const ws = gd.winner === gd.home ? gd.home_score : gd.away_score;
+            const ls = gd.winner === gd.home ? gd.away_score : gd.home_score;
+            scoreLabel = `${ws}-${ls}${gd.ot ? ' OT' : ''}`;
+          } else {
+            // Fallback approximation
+            if (awayFill > 0) { winnerAbbrev = a; winnerColor = ac; awayFill--; }
+            else { winnerAbbrev = h; winnerColor = hc; homeFill--; }
+            scoreLabel = null;
+          }
+          cells.push(`<div class="bracket-cell" style="background:${winnerColor}18;border-color:${winnerColor}55;color:${winnerColor}"><span class="gno">G${i}</span><span class="winner">${winnerAbbrev}</span>${scoreLabel ? `<span class="bscore">${scoreLabel}</span>` : ''}</div>`);
         } else if (i === sgn) {
           const label = isFinal ? (aW > hW ? a : h) : (isLive ? 'LIVE' : 'TONIGHT');
           const cellStyle = isFinal ? `style="background:${aW>hW?ac:hc}18;border-color:${aW>hW?ac:hc}55;color:${aW>hW?ac:hc}"` : '';
@@ -1870,18 +1910,19 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     if (!sdSec || !sdWrap) return;
     sdSec.style.display = '';
 
-    // Render immediately with whatever we have (narrative=null = fallback template text)
-    sdWrap.innerHTML = buildStateDHtml(g, _seriesData, _narrativesCache ? _getCachedNarrative(g) : null);
+    // Render immediately with whatever we have
+    sdWrap.innerHTML = buildStateDHtml(g, _seriesData, _narrativesCache ? _getCachedNarrative(g) : null, _seriesStatsCache ? _getCachedSeriesGames(g) : null);
     startGhCountdown();
 
-    // Fetch series data + narrative in parallel if not yet loaded
-    if (!_seriesData || !_narrativesCache) {
-      const [series, narrative] = await Promise.all([
+    // Fetch series data + narrative + per-game scores in parallel if not yet loaded
+    if (!_seriesData || !_narrativesCache || !_seriesStatsCache) {
+      const [series, narrative, seriesGames] = await Promise.all([
         _seriesData ? Promise.resolve(_seriesData) : fetchSeriesInfo(g),
         fetchSeriesNarrative(g),
+        _seriesStatsCache ? Promise.resolve(_getCachedSeriesGames(g)) : fetchSeriesGames(g),
       ]);
       if (series) _seriesData = series;
-      sdWrap.innerHTML = buildStateDHtml(g, _seriesData, narrative);
+      sdWrap.innerHTML = buildStateDHtml(g, _seriesData, narrative, seriesGames);
       startGhCountdown();
     }
 
