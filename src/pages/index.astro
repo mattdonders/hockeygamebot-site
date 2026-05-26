@@ -1521,20 +1521,27 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       });
       if (!r.ok) return null;
       const d = await r.json();
-      const allGames = (d?.gameWeek ?? []).flatMap(w => w.games ?? []);
-      const found = allGames.find(sg =>
+      // Filter to TODAY's games only — avoid matching prior series games in the same week window
+      const todayEntry = (d?.gameWeek ?? []).find(w => w.date === today);
+      const todayGames = todayEntry?.games ?? (d?.gameWeek ?? []).flatMap(w => w.games ?? []);
+      const found = todayGames.find(sg =>
         String(sg.id) === String(g.game_id) ||
-        (sg.awayTeam?.abbrev === g.away_team.abbrev && sg.homeTeam?.abbrev === g.home_team.abbrev)
+        Number(sg.id) === Number(g.game_id) ||
+        (sg.awayTeam?.abbrev === g.away_team?.abbrev && sg.homeTeam?.abbrev === g.home_team?.abbrev)
       );
       if (!found?.seriesStatus) return null;
       const ss = found.seriesStatus;
-      // Map: top seed may be home or away
-      const topIsAway = ss.topSeedTeamAbbrev === g.away_team.abbrev;
+      const topIsAway = ss.topSeedTeamAbbrev === g.away_team?.abbrev;
+      // seriesStatus may store wins under topSeedWins/bottomSeedWins or topSeedRecord/bottomSeedRecord
+      const topW = ss.topSeedWins ?? ss.topSeedRecord?.wins ?? 0;
+      const botW = ss.bottomSeedWins ?? ss.bottomSeedRecord?.wins ?? 0;
       return {
-        awayWins: topIsAway ? ss.topSeedWins : ss.bottomSeedWins,
-        homeWins: topIsAway ? ss.bottomSeedWins : ss.topSeedWins,
+        awayWins: topIsAway ? topW : botW,
+        homeWins: topIsAway ? botW : topW,
         gameNumber: ss.gameNumberOfSeries,
-        roundText: ss.seriesTitle || ss.roundText || '',
+        roundText: ss.seriesTitle || ss.round?.desc || '',
+        // Pass per-game results for bracket cells if available
+        gameResults: ss.wins ?? null,
       };
     } catch { return null; }
   }
@@ -1655,14 +1662,21 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
         <div class="gh-series-sub">${srt || 'Playoffs'} · Best of 7 · Game ${sgn}</div>
       </div>`;
 
-      // Bracket cells — simple G1-G7 grid with current game as LIVE/TONIGHT
+      // Bracket cells — G1-G7 grid. Color past-game cells by winner (away team fills first aW cells, home fills next hW cells).
+      // We know total wins per team but not per-game order — show wins in sequence as best approximation.
       const cells = [];
+      let awayFill = aW, homeFill = hW;
       for (let i = 1; i <= 7; i++) {
         if (i < sgn) {
-          cells.push(`<div class="bracket-cell"><span class="gno">G${i}</span><span class="winner">—</span></div>`);
+          // Past game: assign to away first, then home (approximation — order unknown without per-game fetch)
+          let winnerAbbrev, winnerColor;
+          if (awayFill > 0) { winnerAbbrev = a; winnerColor = ac; awayFill--; }
+          else { winnerAbbrev = h; winnerColor = hc; homeFill--; }
+          cells.push(`<div class="bracket-cell" style="background:${winnerColor}18;border-color:${winnerColor}55;color:${winnerColor}"><span class="gno">G${i}</span><span class="winner">${winnerAbbrev}</span></div>`);
         } else if (i === sgn) {
-          const label = isFinal ? 'DONE' : (isLive ? 'LIVE' : 'TONIGHT');
-          cells.push(`<div class="bracket-cell live-cell"><span class="gno">G${i}</span><span class="winner">${label}</span></div>`);
+          const label = isFinal ? (aW > hW ? a : h) : (isLive ? 'LIVE' : 'TONIGHT');
+          const cellStyle = isFinal ? `style="background:${aW>hW?ac:hc}18;border-color:${aW>hW?ac:hc}55;color:${aW>hW?ac:hc}"` : '';
+          cells.push(`<div class="bracket-cell ${isFinal ? '' : 'live-cell'}" ${cellStyle}><span class="gno">G${i}</span><span class="winner">${label}</span></div>`);
         } else {
           cells.push(`<div class="bracket-cell" style="opacity:0.2"><span class="gno">G${i}</span><span class="winner">—</span></div>`);
         }
@@ -1700,12 +1714,28 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     // ── Stat strip ──
     const xgTot = (xgA ?? 0) + (xgH ?? 0);
     const xgfPct = xgTot > 0 ? Math.round((xgA ?? 0) / xgTot * 100) : null;
-    const statStrip = `<div class="gh-stats">
-      <div class="gh-stat"><div class="lbl">xG · 5v5</div><div class="val">${xgA != null ? xgA.toFixed(2) : '—'} · ${xgH != null ? xgH.toFixed(2) : '—'}</div><div class="sub">${a} · ${h}</div></div>
-      <div class="gh-stat"><div class="lbl">xGF%</div><div class="val">${xgfPct != null ? xgfPct + '%' : '—'}</div><div class="sub">${a}</div></div>
-      <div class="gh-stat"><div class="lbl">Win Prob.</div><div class="val">${aWPp != null ? aWPp + '%' : '—'}</div><div class="sub">${a}</div></div>
-      <div class="gh-stat"><div class="lbl">Status</div><div class="val">${isFinal ? 'FINAL' : isPre ? 'PRE' : pLabel(g.clock?.period) || '—'}</div><div class="sub">${isLive && g.clock?.time_remaining ? g.clock.time_remaining : isInt ? 'Break' : ''}</div></div>
-    </div>`;
+    let statStrip;
+    if (isPre) {
+      // Pregame: show context info, not live stats (no data yet)
+      const timeStr = g.start_time_utc ? fmtET(g.start_time_utc) + ' ET' : 'TBD';
+      const venueStr = g.venue || '—';
+      const tvStr = g.broadcasts?.find(b => b.market === 'national')?.network ?? g.broadcasts?.[0]?.network ?? '—';
+      const gnStr = series?.gameNumber ? `Game ${series.gameNumber}` : 'Playoff';
+      const rtStr = series?.roundText || 'Playoffs';
+      statStrip = `<div class="gh-stats">
+        <div class="gh-stat"><div class="lbl">Puck Drop</div><div class="val" style="font-size:18px">${timeStr}</div><div class="sub">Local time</div></div>
+        <div class="gh-stat"><div class="lbl">Venue</div><div class="val" style="font-size:14px;line-height:1.2">${venueStr}</div><div class="sub">${h} home</div></div>
+        <div class="gh-stat"><div class="lbl">Broadcast</div><div class="val" style="font-size:18px">${tvStr}</div><div class="sub">National TV</div></div>
+        <div class="gh-stat"><div class="lbl">Round</div><div class="val" style="font-size:14px;line-height:1.2">${rtStr}</div><div class="sub">${gnStr}</div></div>
+      </div>`;
+    } else {
+      statStrip = `<div class="gh-stats">
+        <div class="gh-stat"><div class="lbl">xG · 5v5</div><div class="val">${xgA != null ? xgA.toFixed(2) : '—'} · ${xgH != null ? xgH.toFixed(2) : '—'}</div><div class="sub">${a} · ${h}</div></div>
+        <div class="gh-stat"><div class="lbl">xGF%</div><div class="val">${xgfPct != null ? xgfPct + '%' : '—'}</div><div class="sub">${a}</div></div>
+        <div class="gh-stat"><div class="lbl">Win Prob.</div><div class="val">${aWPp != null ? aWPp + '%' : '—'}</div><div class="sub">${a}</div></div>
+        <div class="gh-stat"><div class="lbl">${isFinal ? 'Result' : 'Period'}</div><div class="val">${isFinal ? (isOT ? 'OT' : 'F') : pLabel(g.clock?.period) || '—'}</div><div class="sub">${isLive && g.clock?.time_remaining ? g.clock.time_remaining : isInt ? 'Break' : isFinal ? 'Final' : ''}</div></div>
+      </div>`;
+    }
 
     return `<div class="sd-head">
       <div>
@@ -2176,9 +2206,9 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       } catch {}
     }
 
-    // Save prefs and re-render YG section with personalized data
+    // Save prefs and re-render YG section — only for multi-game nights (single-game uses State D)
     _prefs = prefs ?? {};
-    if (_lastData) renderYourGameSection(_lastData, _prefs);
+    if (_lastData && (_lastData.games ?? []).length !== 1) renderYourGameSection(_lastData, _prefs);
 
     if (!token) return;
 
