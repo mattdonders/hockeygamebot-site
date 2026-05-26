@@ -2,6 +2,7 @@
 import Nav from '../components/Nav.astro';
 import ThemeScript from '../components/ThemeScript.astro';
 import Fonts from '../components/Fonts.astro';
+import { loadAllTeamGames } from '../lib/stats-loader';
 // HockeyGameBot — /teams page — static bot directory
 
 // Standings fallback: if the live fetch fails at build time, we load the last-known-good
@@ -97,6 +98,8 @@ interface TeamRow {
   isPlayoff: boolean; isEliminated: boolean;
   paletteA: string; paletteB: string;
   abbrColor: string;
+  xgfPct: number | null;
+  last5: string[];
 }
 interface Division { name: string; conf: string; rows: TeamRow[]; }
 
@@ -123,6 +126,19 @@ function pickAbbrColor(abbr: string): string {
   return lum < 0.15 ? palette[1] : palette[0];
 }
 
+const allTeamGames = loadAllTeamGames();
+function computeAnalytics(abbr: string): { xgfPct: number | null; last5: string[] } {
+  const games = allTeamGames[abbr] ?? [];
+  const sorted = [...games].sort((a, b) => a.game_date.localeCompare(b.game_date));
+  const totalXgf = games.reduce((s, g) => s + (g.xgf_5v5 ?? 0), 0);
+  const totalXga = games.reduce((s, g) => s + (g.xga_5v5 ?? 0), 0);
+  const xgfPct = (totalXgf + totalXga) > 0
+    ? Math.round((totalXgf / (totalXgf + totalXga)) * 1000) / 10
+    : null;
+  const last5 = sorted.slice(-5).map(g => g.result ?? 'L');
+  return { xgfPct, last5 };
+}
+
 const teamsByAbbr = new Map(teams.map(t => [t.abbr, t]));
 function buildRow(abbr: string): TeamRow | null {
   const team = teamsByAbbr.get(abbr);
@@ -131,6 +147,7 @@ function buildRow(abbr: string): TeamRow | null {
   const stats = teamStats.get(team.abbr);
   const clinch = stats?.clinch ?? null;
   const palette = TC[team.abbr] ?? ['#E8002D','#0d0d14'];
+  const { xgfPct, last5 } = computeAnalytics(team.abbr);
   return {
     abbr: team.abbr,
     name: team.name,
@@ -138,13 +155,15 @@ function buildRow(abbr: string): TeamRow | null {
     xUrl: `https://x.com/${xHandle}`,
     bskyHandle: `${team.abbr.toLowerCase()}.hockeygamebot.com`,
     bskyUrl: `https://bsky.app/profile/${team.abbr.toLowerCase()}.hockeygamebot.com`,
-    logoUrl: `https://assets.nhle.com/logos/nhl/svg/${team.abbr}_light.svg`,
+    logoUrl: `https://assets.nhle.com/logos/nhl/svg/${team.abbr}_dark.svg`,
     record: stats?.record ?? null,
     isPlayoff: clinch === 'x' || clinch === 'y' || clinch === 'z',
     isEliminated: clinch === 'e',
     paletteA: palette[0],
     paletteB: palette[1],
     abbrColor: pickAbbrColor(team.abbr),
+    xgfPct,
+    last5,
   };
 }
 
@@ -419,54 +438,46 @@ img { display: block; max-width: 100%; }
 }
 
 /* Status row */
-.team-status {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 14px;
-  border-top: 1px solid var(--ink-06);
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
-  color: var(--ink-48);
+/* Analytics stats block */
+.team-analytics {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0; border-top: 1px solid var(--ink-06);
+  padding: 10px 14px; flex: 1;
 }
-.team-status-lbl { letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.6; }
-.team-status-val { font-weight: 600; color: var(--ink-72); font-variant-numeric: tabular-nums; }
-.team-status-val.playoffs { color: var(--ink); display: inline-flex; align-items: center; gap: 5px; }
-.team-status-val.playoffs::before { content: ""; width: 6px; height: 6px; background: var(--ink); }
-.team-status-val.eliminated { color: var(--red); }
+.ta-stat { display: flex; flex-direction: column; gap: 4px; }
+.ta-stat:last-child { padding-left: 12px; border-left: 1px solid var(--ink-06); }
+.ta-lbl { font-family: var(--mono); font-weight: 500; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); }
+.ta-val { font-family: var(--body); font-weight: 700; font-size: 20px; line-height: 1; font-variant-numeric: tabular-nums; }
+.ta-green { color: #0A7A3E; }
+.ta-amber { color: #B05A00; }
+.ta-red   { color: #E8002D; }
+.ta-bar-track { height: 3px; background: var(--ink-10); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+.ta-bar-fill  { height: 100%; border-radius: 2px; }
+.ta-pills { display: flex; gap: 3px; flex-wrap: nowrap; }
+.ta-pill {
+  font-family: var(--mono); font-weight: 500; font-size: 9px;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  width: 20px; height: 18px; display: flex; align-items: center; justify-content: center;
+  border-radius: 2px;
+}
+.tp-w  { background: #DCFCE7; color: #14532D; }
+.tp-l  { background: #FEE2E2; color: #7F1D1D; }
+.tp-ot { background: #FEF3C7; color: #78350F; }
 
-/* Handles */
-.team-handles {
-  display: flex; flex-direction: column;
+/* Card footer */
+.team-foot {
+  display: flex; align-items: center; gap: 0;
   border-top: 1px solid var(--ink-06);
+  padding: 8px 14px;
 }
-.team-handle {
-  display: grid;
-  grid-template-columns: 18px 36px 1fr 12px;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  font-family: var(--mono); font-size: 11px;
-  color: var(--ink-72);
-  border-top: 1px solid var(--ink-06);
-  transition: background .15s, color .15s;
-  letter-spacing: 0.01em;
-}
-.team-handle:first-child { border-top: 0; }
-.team-handle:hover { background: var(--bg-2); color: var(--ink); }
-.team-handle svg { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.56; }
-.team-handle:hover svg { opacity: 1; }
-.team-handle .platform {
+.tf-link {
   font-family: var(--mono); font-weight: 500; font-size: 10px;
-  letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-32); text-decoration: none;
+  transition: color 0.15s; padding-right: 12px;
 }
-.team-handle .h-name {
-  font-weight: 500;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.team-handle .arrow {
-  font-family: var(--mono); font-size: 12px; color: var(--ink-32);
-  transition: transform .15s, color .15s;
-  text-align: right;
-}
-.team-handle:hover .arrow { color: var(--ink); transform: translateX(2px); }
+.tf-link:hover { color: var(--ink); }
+.tf-link.tf-primary { color: var(--ink); margin-right: 4px; padding-right: 12px; border-right: 1px solid var(--ink-10); }
 
 /* ── FOOTER ──────────────────────────────────────────────────────────────────── */
 footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); padding: 48px 0 24px; }
@@ -695,29 +706,35 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
                   <div class="team-name">{row.name}</div>
                 </div>
               </a>
-              {row.record && (
-                <div class="team-status">
-                  <span class="team-status-lbl">{playoffMode ? 'Status' : 'Record'}</span>
-                  <span class={`team-status-val${row.isPlayoff ? ' playoffs' : ''}${row.isEliminated ? ' eliminated' : ''}`}>
-                    {playoffMode
-                      ? (row.isPlayoff ? 'Playoffs' : row.isEliminated ? 'Eliminated' : row.record)
-                      : row.record}
-                  </span>
-                </div>
-              )}
-              <div class="team-handles">
-                <a href={row.xUrl} class="team-handle" target="_blank" rel="noopener" aria-label={`${row.name} on X`}>
-                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                  <span class="platform">X</span>
-                  <span class="h-name">@{row.xHandle}</span>
-                  <span class="arrow">→</span>
-                </a>
-                <a href={row.bskyUrl} class="team-handle" target="_blank" rel="noopener" aria-label={`${row.name} on Bluesky`}>
-                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
-                  <span class="platform">BSKY</span>
-                  <span class="h-name">{row.bskyHandle}</span>
-                  <span class="arrow">→</span>
-                </a>
+              <!-- Analytics stats row -->
+              <div class="team-analytics">
+                {row.xgfPct != null && (
+                  <div class="ta-stat">
+                    <div class="ta-lbl">xGF%</div>
+                    <div class={`ta-val ${row.xgfPct >= 52 ? 'ta-green' : row.xgfPct <= 48 ? 'ta-red' : 'ta-amber'}`}>
+                      {row.xgfPct.toFixed(1)}%
+                    </div>
+                    <div class="ta-bar-track">
+                      <div class="ta-bar-fill" style={`width:${Math.min(100,(row.xgfPct/60)*100).toFixed(1)}%;background:${row.xgfPct >= 52 ? '#0A7A3E' : row.xgfPct <= 48 ? '#E8002D' : '#B05A00'}`}></div>
+                    </div>
+                  </div>
+                )}
+                {row.last5.length > 0 && (
+                  <div class="ta-stat">
+                    <div class="ta-lbl">Last 5</div>
+                    <div class="ta-pills">
+                      {row.last5.map(r => (
+                        <span class={`ta-pill ${r === 'W' ? 'tp-w' : r === 'OT' ? 'tp-ot' : 'tp-l'}`}>{r}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <!-- Footer: analytics link + bot links -->
+              <div class="team-foot">
+                <a href={`/teams/${row.abbr.toLowerCase()}`} class="tf-link tf-primary">Analytics →</a>
+                <a href={row.xUrl} class="tf-link" target="_blank" rel="noopener">X →</a>
+                <a href={row.bskyUrl} class="tf-link" target="_blank" rel="noopener">Bsky →</a>
               </div>
             </article>
           ))}
