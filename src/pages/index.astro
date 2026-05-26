@@ -1511,6 +1511,32 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
   // ── STATE D: SINGLE GAME ─────────────────────────────────────────────────────
 
   let _seriesData = null;
+  let _narrativesCache = null;
+
+  async function fetchSeriesNarrative(g) {
+    if (!g) return null;
+    const a = g.away_team?.abbrev, h = g.home_team?.abbrev;
+    try {
+      if (!_narrativesCache) {
+        const r = await fetch('https://api.hockeygamebot.com/v1/stats/series-narratives', { signal: AbortSignal.timeout(5000) });
+        _narrativesCache = r.ok ? await r.json() : {};
+      }
+      const narratives = _narrativesCache?.narratives ?? {};
+      for (const n of Object.values(narratives)) {
+        if (n.teams?.includes(a) && n.teams?.includes(h) && n.narrative) return n.narrative;
+      }
+      return null;
+    } catch { return null; }
+  }
+
+  function _getCachedNarrative(g) {
+    const a = g.away_team?.abbrev, h = g.home_team?.abbrev;
+    const narratives = _narrativesCache?.narratives ?? {};
+    for (const n of Object.values(narratives)) {
+      if (n.teams?.includes(a) && n.teams?.includes(h) && n.narrative) return n.narrative;
+    }
+    return null;
+  }
 
   async function fetchSeriesInfo(g) {
     if (g.series) return g.series;
@@ -1555,7 +1581,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     return null;
   }
 
-  function buildStateDHtml(g, series) {
+  function buildStateDHtml(g, series, narrative) {
     const a = g.away_team.abbrev, h = g.home_team.abbrev;
     const ac = clr(a), hc = clr(h);
     const state = gs(g);
@@ -1692,9 +1718,11 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       }
       sideSeries += `<div class="bracket">${cells.join('')}</div>`;
 
-      // Stakes
+      // Stakes — use Haiku narrative if available, fall back to template text
       let stakesText;
-      if (sgn === 7) {
+      if (narrative) {
+        stakesText = narrative;
+      } else if (sgn === 7) {
         stakesText = `The series ends tonight. One team advances to the next round, the other goes home for the summer.`;
       } else if (maxW === 3) {
         const trailTeam = aW < hW ? a : h;
@@ -1804,16 +1832,17 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     if (!sdSec || !sdWrap) return;
     sdSec.style.display = '';
 
-    // Render immediately with whatever we have
-    sdWrap.innerHTML = buildStateDHtml(g, _seriesData);
+    // Render immediately with whatever we have (narrative=null = fallback template text)
+    sdWrap.innerHTML = buildStateDHtml(g, _seriesData, _narrativesCache ? _getCachedNarrative(g) : null);
 
-    // Fetch series data if not yet loaded
-    if (!_seriesData) {
-      const series = await fetchSeriesInfo(g);
-      if (series) {
-        _seriesData = series;
-        sdWrap.innerHTML = buildStateDHtml(g, series);
-      }
+    // Fetch series data + narrative in parallel if not yet loaded
+    if (!_seriesData || !_narrativesCache) {
+      const [series, narrative] = await Promise.all([
+        _seriesData ? Promise.resolve(_seriesData) : fetchSeriesInfo(g),
+        fetchSeriesNarrative(g),
+      ]);
+      if (series) _seriesData = series;
+      sdWrap.innerHTML = buildStateDHtml(g, _seriesData, narrative);
     }
 
     const state = gs(g);
