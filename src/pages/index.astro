@@ -771,6 +771,9 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 .gh-series-score { font-family: var(--display); font-weight: 800; font-size: 22px; line-height: 1; letter-spacing: -0.005em; text-transform: uppercase; }
 .gh-series-score .vs { color: var(--ink-32); margin: 0 8px; }
 .gh-series-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-72); letter-spacing: 0.04em; margin-top: 4px; }
+.gh-series-wp { margin: 10px 0 8px; }
+.gh-series-wp-lbl { display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em; margin-bottom: 5px; }
+.gh-series-wp-bar { height: 4px; }
 .bracket { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .bracket-cell { background: var(--ink-06); border: 1px solid var(--ink-10); padding: 8px 4px; text-align: center; font-family: var(--display); font-weight: 700; letter-spacing: 0.04em; }
 .bracket-cell .gno { display: block; font-family: var(--mono); font-size: 8.5px; color: var(--ink-32); letter-spacing: 0.1em; margin-bottom: 2px; text-transform: uppercase; }
@@ -1132,6 +1135,13 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     const c = TC[abbrev] ?? ['#E8002D','#555'];
     const p = c[0], r=parseInt(p.slice(1,3),16)/255, g=parseInt(p.slice(3,5),16)/255, b=parseInt(p.slice(5,7),16)/255;
     return ((Math.max(r,g,b)+Math.min(r,g,b))/2) < 0.15 ? c[1] : c[0];
+  }
+
+  // Probability team A wins the series from state (aW wins, bW wins), assuming 50/50 per game.
+  function calcSeriesWinProb(aW, bW) {
+    if (aW >= 4) return 1.0;
+    if (bW >= 4) return 0.0;
+    return 0.5 * calcSeriesWinProb(aW + 1, bW) + 0.5 * calcSeriesWinProb(aW, bW + 1);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1756,6 +1766,19 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
           <span class="vs">${hW}</span><span style="color:${hW > aW ? hc : 'var(--ink)'}">${h}</span>
         </div>
         <div class="gh-series-sub">${srt || 'Playoffs'} · Best of 7 · Game ${sgn}</div>
+      </div>`;
+
+      // Series win probability bar — assumes 50/50 per game from current state
+      const aSerWP = calcSeriesWinProb(aW, hW);
+      const aSerWPpct = Math.round(aSerWP * 100);
+      const hSerWPpct = 100 - aSerWPpct;
+      sideSeries += `<div class="gh-series-wp">
+        <div class="gh-series-wp-lbl">
+          <b style="color:${aSerWPpct >= 50 ? ac : 'var(--ink-48)'}">${a} ${aSerWPpct}%</b>
+          <span style="color:var(--ink-32)">Series odds</span>
+          <b style="color:${hSerWPpct >= 50 ? hc : 'var(--ink-48)'}">${h} ${hSerWPpct}%</b>
+        </div>
+        <div class="gh-series-wp-bar" style="background:linear-gradient(to right,${ac} ${aSerWPpct}%,${hc} ${aSerWPpct}%)"></div>
       </div>`;
 
       // Bracket cells — G1-G7 grid. Use per-game data from series_stats.json when available,
