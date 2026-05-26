@@ -742,7 +742,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 .gh-eye b { color: var(--ink); }
 .gh-matchup { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 18px; padding: 18px 0 8px; }
 .gh-team { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.gh-logo { width: 84px; height: 84px; display: grid; place-items: center; color: #fff; font-family: var(--display); font-weight: 800; font-size: 28px; letter-spacing: 0.02em; box-shadow: 0 2px 10px rgba(13,13,20,0.18); flex-shrink: 0; }
+.gh-logo { width: 84px; height: 84px; object-fit: contain; }
 .gh-name { font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); }
 .gh-rec { font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
 .gh-scoreblock { text-align: center; }
@@ -793,7 +793,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 @media (max-width: 600px) {
   .gh-score { font-size: 64px; }
   .gh-score .dash { font-size: 32px; }
-  .gh-logo { width: 64px; height: 64px; font-size: 22px; }
+  .gh-logo { width: 64px; height: 64px; }
   .gh-stats { grid-template-columns: 1fr 1fr; }
   .bracket { grid-template-columns: repeat(4, 1fr); }
   .sd-head { flex-direction: column; }
@@ -1516,44 +1516,43 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     if (g.series) return g.series;
     const HGB_API = 'https://api.hockeygamebot.com';
 
-    function parseSeriesStatus(ss, awayAbbrev) {
-      if (!ss) return null;
+    function parseSS(ss, awayAbbrev) {
+      if (!ss?.gameNumberOfSeries) return null;
       const topIsAway = ss.topSeedTeamAbbrev === awayAbbrev;
-      const topW = ss.topSeedWins ?? ss.topSeedRecord?.wins ?? 0;
-      const botW = ss.bottomSeedWins ?? ss.bottomSeedRecord?.wins ?? 0;
       return {
-        awayWins: topIsAway ? topW : botW,
-        homeWins: topIsAway ? botW : topW,
+        awayWins:   topIsAway ? (ss.topSeedWins ?? 0) : (ss.bottomSeedWins ?? 0),
+        homeWins:   topIsAway ? (ss.bottomSeedWins ?? 0) : (ss.topSeedWins ?? 0),
         gameNumber: ss.gameNumberOfSeries,
-        roundText: ss.seriesTitle || ss.seriesAbbrev || ss.round?.desc || '',
+        roundText:  ss.seriesTitle || ss.seriesAbbrev || '',
       };
     }
 
-    // Try 1: our HGB API boxscore proxy (server-side, no CORS issues)
+    // Primary: HGB API series proxy (server-side fetch, no CORS)
     try {
-      const r = await fetch(`${HGB_API}/v1/games/${g.game_id}/boxscore`, { signal: AbortSignal.timeout(5000) });
+      const r = await fetch(`${HGB_API}/v1/games/${g.game_id}/series`, { signal: AbortSignal.timeout(5000) });
       if (r.ok) {
         const d = await r.json();
-        const ss = d?.seriesStatus ?? d?.series ?? null;
-        const result = parseSeriesStatus(ss, g.away_team?.abbrev);
-        if (result?.gameNumber) return result;
+        const result = parseSS(d?.seriesStatus, g.away_team?.abbrev);
+        if (result) return result;
       }
     } catch {}
 
-    // Try 2: NHL schedule endpoint directly (blocked by some browsers/extensions, graceful fallback)
+    // Fallback: direct NHL schedule (may be blocked in some browsers)
     try {
       const today = new Date().toISOString().slice(0, 10);
       const r = await fetch(`https://api-web.nhle.com/v1/schedule/${today}`, { signal: AbortSignal.timeout(5000) });
-      if (!r.ok) return null;
-      const d = await r.json();
-      const todayEntry = (d?.gameWeek ?? []).find(w => w.date === today);
-      const todayGames = todayEntry?.games ?? (d?.gameWeek ?? []).flatMap(w => w.games ?? []);
-      const found = todayGames.find(sg =>
-        String(sg.id) === String(g.game_id) || Number(sg.id) === Number(g.game_id) ||
-        (sg.awayTeam?.abbrev === g.away_team?.abbrev && sg.homeTeam?.abbrev === g.home_team?.abbrev)
-      );
-      return parseSeriesStatus(found?.seriesStatus, g.away_team?.abbrev);
-    } catch { return null; }
+      if (r.ok) {
+        const d = await r.json();
+        const todayEntry = (d?.gameWeek ?? []).find(w => w.date === today);
+        const games = todayEntry?.games ?? (d?.gameWeek ?? []).flatMap(w => w.games ?? []);
+        const found = games.find(sg =>
+          String(sg.id) === String(g.game_id) || Number(sg.id) === Number(g.game_id) ||
+          (sg.awayTeam?.abbrev === g.away_team?.abbrev && sg.homeTeam?.abbrev === g.home_team?.abbrev)
+        );
+        return parseSS(found?.seriesStatus, g.away_team?.abbrev);
+      }
+    } catch {}
+    return null;
   }
 
   function buildStateDHtml(g, series) {
@@ -1589,7 +1588,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
         titleHtml = `WINNER<br><span class="accent">TAKE ALL</span>`;
       } else if (maxW === 3) {
         eyeText = `// Tonight · ${round} · ${leader} leads ${maxW}–${minW}`;
-        titleHtml = `WIN IT OR<br><span class="accent">GO HOME FOR GAME ${gn + 1}</span>`;
+        titleHtml = `WIN OR<br><span class="accent">IT'S OVER</span>`;
       } else if (isTied) {
         eyeText = `// Tonight · ${round} · Series tied ${aW}–${hW}`;
         titleHtml = `GAME ${gn} —<br><span class="accent">SERIES ALL SQUARE</span>`;
@@ -1740,9 +1739,9 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       </div>`;
     }
 
-    // Logo: CSS colored box matching mockup (no <img> — avoids broken-image flash + nested-link DOM issues)
-    const logoA = `<div class="gh-logo" style="background:${ac};${aFade}">${a}</div>`;
-    const logoH = `<div class="gh-logo" style="background:${hc};${hFade}">${h}</div>`;
+    // Logo: actual NHL team logos (gamehero is a <div>, no nested-anchor issue)
+    const logoA = `<img class="gh-logo" src="https://assets.nhle.com/logos/nhl/svg/${a}_light.svg" alt="${a}" onerror="this.style.display='none'" style="${aFade}">`;
+    const logoH = `<img class="gh-logo" src="https://assets.nhle.com/logos/nhl/svg/${h}_light.svg" alt="${h}" onerror="this.style.display='none'" style="${hFade}">`;
 
     return `<div class="sd-head">
       <div>
@@ -2149,10 +2148,11 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     _lastData = data;
     const games = data?.games ?? [];
     syncGameCards(data);
-    renderTicker(data);
 
-    // ── State D: single game tonight — no hero, no slate ──
+    // ── State D: single game tonight — no hero, no ticker, no slate ──
     if (games.length === 1) {
+      const ticker = document.querySelector('.ticker');
+      if (ticker) ticker.style.display = 'none';
       const key = heroKey(data);
       if (key !== _lastHeroKey) {
         _lastHeroKey = key;
@@ -2162,6 +2162,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     }
 
     // ── State A: multiple games ──
+    renderTicker(data);
     const sdSec = document.getElementById('state-d-section');
     if (sdSec) sdSec.style.display = 'none';
     const heroSec = document.getElementById('hero-section');
