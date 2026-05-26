@@ -742,7 +742,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 .gh-eye b { color: var(--ink); }
 .gh-matchup { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 18px; padding: 18px 0 8px; }
 .gh-team { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.gh-logo { width: 84px; height: 84px; object-fit: contain; }
+.gh-logo { width: 84px; height: 84px; display: grid; place-items: center; color: #fff; font-family: var(--display); font-weight: 800; font-size: 28px; letter-spacing: 0.02em; box-shadow: 0 2px 10px rgba(13,13,20,0.18); flex-shrink: 0; }
 .gh-name { font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); }
 .gh-rec { font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
 .gh-scoreblock { text-align: center; }
@@ -793,7 +793,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 @media (max-width: 600px) {
   .gh-score { font-size: 64px; }
   .gh-score .dash { font-size: 32px; }
-  .gh-logo { width: 64px; height: 64px; }
+  .gh-logo { width: 64px; height: 64px; font-size: 22px; }
   .gh-stats { grid-template-columns: 1fr 1fr; }
   .bracket { grid-template-columns: repeat(4, 1fr); }
   .sd-head { flex-direction: column; }
@@ -1514,35 +1514,45 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 
   async function fetchSeriesInfo(g) {
     if (g.series) return g.series;
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const r = await fetch(`https://api-web.nhle.com/v1/schedule/${today}`, {
-        signal: AbortSignal.timeout(5000)
-      });
-      if (!r.ok) return null;
-      const d = await r.json();
-      // Filter to TODAY's games only — avoid matching prior series games in the same week window
-      const todayEntry = (d?.gameWeek ?? []).find(w => w.date === today);
-      const todayGames = todayEntry?.games ?? (d?.gameWeek ?? []).flatMap(w => w.games ?? []);
-      const found = todayGames.find(sg =>
-        String(sg.id) === String(g.game_id) ||
-        Number(sg.id) === Number(g.game_id) ||
-        (sg.awayTeam?.abbrev === g.away_team?.abbrev && sg.homeTeam?.abbrev === g.home_team?.abbrev)
-      );
-      if (!found?.seriesStatus) return null;
-      const ss = found.seriesStatus;
-      const topIsAway = ss.topSeedTeamAbbrev === g.away_team?.abbrev;
-      // seriesStatus may store wins under topSeedWins/bottomSeedWins or topSeedRecord/bottomSeedRecord
+    const HGB_API = 'https://api.hockeygamebot.com';
+
+    function parseSeriesStatus(ss, awayAbbrev) {
+      if (!ss) return null;
+      const topIsAway = ss.topSeedTeamAbbrev === awayAbbrev;
       const topW = ss.topSeedWins ?? ss.topSeedRecord?.wins ?? 0;
       const botW = ss.bottomSeedWins ?? ss.bottomSeedRecord?.wins ?? 0;
       return {
         awayWins: topIsAway ? topW : botW,
         homeWins: topIsAway ? botW : topW,
         gameNumber: ss.gameNumberOfSeries,
-        roundText: ss.seriesTitle || ss.round?.desc || '',
-        // Pass per-game results for bracket cells if available
-        gameResults: ss.wins ?? null,
+        roundText: ss.seriesTitle || ss.seriesAbbrev || ss.round?.desc || '',
       };
+    }
+
+    // Try 1: our HGB API boxscore proxy (server-side, no CORS issues)
+    try {
+      const r = await fetch(`${HGB_API}/v1/games/${g.game_id}/boxscore`, { signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        const d = await r.json();
+        const ss = d?.seriesStatus ?? d?.series ?? null;
+        const result = parseSeriesStatus(ss, g.away_team?.abbrev);
+        if (result?.gameNumber) return result;
+      }
+    } catch {}
+
+    // Try 2: NHL schedule endpoint directly (blocked by some browsers/extensions, graceful fallback)
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const r = await fetch(`https://api-web.nhle.com/v1/schedule/${today}`, { signal: AbortSignal.timeout(5000) });
+      if (!r.ok) return null;
+      const d = await r.json();
+      const todayEntry = (d?.gameWeek ?? []).find(w => w.date === today);
+      const todayGames = todayEntry?.games ?? (d?.gameWeek ?? []).flatMap(w => w.games ?? []);
+      const found = todayGames.find(sg =>
+        String(sg.id) === String(g.game_id) || Number(sg.id) === Number(g.game_id) ||
+        (sg.awayTeam?.abbrev === g.away_team?.abbrev && sg.homeTeam?.abbrev === g.home_team?.abbrev)
+      );
+      return parseSeriesStatus(found?.seriesStatus, g.away_team?.abbrev);
     } catch { return null; }
   }
 
@@ -1701,15 +1711,8 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
         <div class="gh-stakes"><b>// Tonight</b>Follow @${a}GameBot and @${h}GameBot for live WP, xG, and goal-by-goal coverage.</div>`;
     }
 
-    // ── Bot strip ──
+    // ── Bot strip — inlined directly in return HTML (avoids nested-<a> when gamehero was <a>) ──
     const withPips = isLive || isInt;
-    const botStrip = `<div class="gh-bots">
-      <div class="gh-bots-handles">
-        <span class="ch">${withPips ? '<span class="pip"></span>' : ''}@${a}GameBot</span>
-        <span class="ch">${withPips ? '<span class="pip"></span>' : ''}@${h}GameBot</span>
-      </div>
-      <a href="/teams" class="cta">Follow both →</a>
-    </div>`;
 
     // ── Stat strip ──
     const xgTot = (xgA ?? 0) + (xgH ?? 0);
@@ -1737,6 +1740,10 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       </div>`;
     }
 
+    // Logo: CSS colored box matching mockup (no <img> — avoids broken-image flash + nested-link DOM issues)
+    const logoA = `<div class="gh-logo" style="background:${ac};${aFade}">${a}</div>`;
+    const logoH = `<div class="gh-logo" style="background:${hc};${hFade}">${h}</div>`;
+
     return `<div class="sd-head">
       <div>
         <div class="sd-eye">${eyeText}</div>
@@ -1744,16 +1751,16 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       </div>
       <div class="sd-meta">${metaHtml}</div>
     </div>
-    <a class="gamehero" href="/games/${g.game_id}">
-      <div class="gh-bar"><div class="a" style="background:${ac}"></div><div class="h" style="background:${hc}"></div></div>
+    <div class="gamehero">
+      <div class="gh-bar"><span class="a" style="background:${ac}"></span><span class="h" style="background:${hc}"></span></div>
       ${flagHtml}
       <div class="gh-main">
         <div class="gh-eye"><b>${g.away_team.name || a}</b> vs <b>${g.home_team.name || h}</b></div>
         <div class="gh-matchup">
           <div class="gh-team">
-            <img class="gh-logo" src="https://assets.nhle.com/logos/nhl/svg/${a}_light.svg" alt="${a}" onerror="this.style.display='none'" style="${aFade}">
+            ${logoA}
             <div class="gh-name">${g.away_team.short_name || a}</div>
-            ${series ? `<div class="gh-rec">${series.awayWins}W this series</div>` : ''}
+            <div class="gh-rec">${series ? `${series.awayWins}W this series` : ''}</div>
           </div>
           <div class="gh-scoreblock">
             ${clockHtml}
@@ -1761,9 +1768,9 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
             ${periodHtml}
           </div>
           <div class="gh-team">
-            <img class="gh-logo" src="https://assets.nhle.com/logos/nhl/svg/${h}_light.svg" alt="${h}" onerror="this.style.display='none'" style="${hFade}">
+            ${logoH}
             <div class="gh-name">${g.home_team.short_name || h}</div>
-            ${series ? `<div class="gh-rec">${series.homeWins}W this series</div>` : ''}
+            <div class="gh-rec">${series ? `${series.homeWins}W this series` : ''}</div>
           </div>
         </div>
         ${wpHtml}
@@ -1772,9 +1779,15 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
         <div class="gh-side-head">// SERIES — BEST OF 7</div>
         ${sideSeries}
       </div>
-      ${botStrip}
+      <div class="gh-bots" style="grid-column:1 / -1">
+        <div class="gh-bots-handles">
+          <span class="ch">${withPips ? '<span class="pip"></span>' : ''}@${a}GameBot</span>
+          <span class="ch">${withPips ? '<span class="pip"></span>' : ''}@${h}GameBot</span>
+        </div>
+        <a href="/teams" class="cta">Follow both →</a>
+      </div>
       ${statStrip}
-    </a>`;
+    </div>`;
   }
 
   async function renderStateD(data) {
