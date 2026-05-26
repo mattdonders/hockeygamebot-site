@@ -1139,6 +1139,30 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
   const fmtDate = iso => new Date(iso+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',timeZone:'UTC'});
 
   // ── Countdown ─────────────────────────────────────────────────────────────────
+  // ── Gamehero pregame countdown (.gh-cd elements) ─────────────────────────────
+  let ghCdTimer = null;
+  function startGhCountdown() {
+    if (ghCdTimer) return;
+    function tick() {
+      document.querySelectorAll('.gh-cd[data-puckdrop]').forEach(el => {
+        const t = new Date(el.dataset.puckdrop).getTime();
+        if (!t) return;
+        const diff = t - Date.now();
+        if (diff <= 0) { el.textContent = 'PUCK DROP'; return; }
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const s = Math.floor((diff % 60000) / 1000);
+        el.textContent = h > 0
+          ? `In ${h}h ${String(m).padStart(2,'0')}m`
+          : m > 0
+            ? `In ${m}m ${String(s).padStart(2,'0')}s`
+            : `In ${s}s`;
+      });
+    }
+    tick();
+    ghCdTimer = setInterval(tick, 1000);
+  }
+
   let countdownTimer = null;
   function startCountdown(firstUtc) {
     if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
@@ -1656,12 +1680,17 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     } else if (isFinal) {
       clockHtml = `<div class="gh-clock">FINAL${isOT ? ' · OT' : ''}</div>`;
     } else {
-      clockHtml = `<div class="gh-clock">Puck drop · ${fmtET(g.start_time_utc) || 'TBD'} ET</div>`;
+      clockHtml = '';  // replaced by time + countdown inside scoreHtml for pregame
     }
 
     let scoreHtml;
     if (isPre) {
-      scoreHtml = `<div class="gh-score" style="gap:8px"><span style="font-size:40px;color:var(--ink-20);font-weight:700">VS</span></div>`;
+      const localTime = fmtLocalTime(g.start_time_utc) || 'TBD';
+      scoreHtml = `<div class="gh-score" style="flex-direction:column;gap:5px">
+        <span style="font-size:44px;color:var(--ink-20);font-weight:700;line-height:1">VS</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--ink-48);letter-spacing:0.08em;white-space:nowrap">${localTime} ${localTZ}</span>
+        <span class="gh-cd" data-puckdrop="${g.start_time_utc || ''}" style="font-family:var(--mono);font-size:11px;color:var(--ink-32);letter-spacing:0.04em"></span>
+      </div>`;
     } else {
       scoreHtml = `<div class="gh-score"><span class="${awayWins ? 'lead' : 'trail'}">${g.away_team.score}</span><span class="dash">·</span><span class="${awayWins ? 'trail' : 'lead'}">${g.home_team.score}</span></div>`;
     }
@@ -1771,8 +1800,9 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     }
 
     // Logo: actual NHL team logos (gamehero is a <div>, no nested-anchor issue)
-    const logoA = `<img class="gh-logo" src="https://assets.nhle.com/logos/nhl/svg/${a}_light.svg" alt="${a}" onerror="this.style.display='none'" style="${aFade}">`;
-    const logoH = `<img class="gh-logo" src="https://assets.nhle.com/logos/nhl/svg/${h}_light.svg" alt="${h}" onerror="this.style.display='none'" style="${hFade}">`;
+    const logoSz = isPre ? 'width:108px;height:108px' : '';
+    const logoA = `<img class="gh-logo" src="https://assets.nhle.com/logos/nhl/svg/${a}_light.svg" alt="${a}" onerror="this.style.display='none'" style="${[logoSz,aFade].filter(Boolean).join(';')}">`;
+    const logoH = `<img class="gh-logo" src="https://assets.nhle.com/logos/nhl/svg/${h}_light.svg" alt="${h}" onerror="this.style.display='none'" style="${[logoSz,hFade].filter(Boolean).join(';')}">`;
 
     return `<div class="sd-head">
       <div>
@@ -1785,7 +1815,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       <div class="gh-bar"><span class="a" style="background:${ac}"></span><span class="h" style="background:${hc}"></span></div>
       ${flagHtml}
       <div class="gh-main"${isPre ? ' style="justify-content:center;gap:0"' : ''}>
-        <div class="gh-eye"><b>${g.away_team.name || a}</b> vs <b>${g.home_team.name || h}</b></div>
+        ${isPre ? '' : `<div class="gh-eye"><b>${g.away_team.name || a}</b> vs <b>${g.home_team.name || h}</b></div>`}
         <div class="gh-matchup">
           <div class="gh-team">
             ${logoA}
@@ -1837,6 +1867,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 
     // Render immediately with whatever we have (narrative=null = fallback template text)
     sdWrap.innerHTML = buildStateDHtml(g, _seriesData, _narrativesCache ? _getCachedNarrative(g) : null);
+    startGhCountdown();
 
     // Fetch series data + narrative in parallel if not yet loaded
     if (!_seriesData || !_narrativesCache) {
@@ -1846,6 +1877,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       ]);
       if (series) _seriesData = series;
       sdWrap.innerHTML = buildStateDHtml(g, _seriesData, narrative);
+      startGhCountdown();
     }
 
     const state = gs(g);
