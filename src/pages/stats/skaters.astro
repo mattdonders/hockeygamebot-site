@@ -2,6 +2,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
 import { loadPlayers } from '../../lib/stats-loader';
 
 const allPlayers = loadPlayers();
@@ -110,6 +111,26 @@ const tableRows = eligible.map(p => {
   };
 });
 
+// SSR initial: counting tab, sorted by points desc, top 50.
+const ssrRows = tableRows
+  .slice()
+  .sort((a, b) => (b.points ?? 0) - (a.points ?? 0))
+  .slice(0, 50)
+  .map((r, i) => ({ ...r, _rank: i + 1 }));
+
+// SSR column set: counting tab (gets swapped by JS on tab change).
+const initialColumns = [
+  { key: '_rank',  label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'name',   label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team} · ${r.pos} · ${r.gp} GP` },
+  { key: 'pos',    label: 'Pos',    type: 'position' as const, sortable: true },
+  { key: 'gp',     label: 'GP',     type: 'number' as const },
+  { key: 'goals',  label: 'G',      type: 'number' as const },
+  { key: 'assists',label: 'A',      type: 'number' as const },
+  { key: 'points', label: 'P',      type: 'number' as const, bold: true },
+  { key: 'sog',    label: 'SOG',    type: 'number' as const },
+  { key: 'ixg',    label: 'ixG',    type: 'number' as const, format: (v: any) => v != null ? Number(v).toFixed(2) : '—' },
+  { key: 'toi_pg', label: 'TOI',    type: 'number' as const, format: (v: any) => v != null ? Number(v).toFixed(1) : '—' },
+];
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -179,8 +200,7 @@ const tableRows = eligible.map(p => {
       text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
     .lb-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32);
       letter-spacing: 0.12em; text-transform: uppercase; }
-    .lb-dl-btn { background: none; border: 1px solid var(--ink-20); padding: 5px 12px; cursor: pointer; font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; border-radius: 2px; white-space: nowrap; }
-    .lb-dl-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .dl-limit-note { font-family: var(--mono); font-size: 10px; color: var(--ink-48); white-space: nowrap; }
 
     /* ── Filter controls bar ── */
     .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -202,75 +222,8 @@ const tableRows = eligible.map(p => {
       font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
       color: var(--ink); outline: none; width: 160px; }
     #name-search::placeholder { color: var(--ink-32); font-weight: 400; }
-    .lb-dl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-    .dl-limit-note { font-family: var(--mono); font-size: 10px; color: var(--ink-48); white-space: nowrap; }
 
-    /* ── Table ── */
-    .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14);
-      overflow-x: auto; overflow-y: auto; max-height: 700px; }
-    table { width: 100%; border-collapse: collapse; font-family: var(--body); font-size: 13px; }
-
-    thead { position: sticky; top: 0; z-index: 20; background: var(--surface);
-      box-shadow: 0 2px 0 var(--ink); }
-    thead th {
-      padding: 9px 12px; font-family: var(--mono); font-weight: 500; font-size: 10px;
-      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
-      border-bottom: 2px solid var(--ink); text-align: right;
-      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
-    }
-    thead th:first-child  { text-align: left; padding-left: 16px; cursor: default; }
-    thead th.th-player    { text-align: left; cursor: default; }
-    thead th:hover        { color: var(--ink); }
-    thead th.sorted       { color: var(--ink); }
-    .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.4; font-size: 9px; }
-    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
-
-    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: var(--ink-04); }
-
-    td { padding: 8px 12px; vertical-align: middle; }
-    td:first-child { padding-left: 16px; }
-
-    /* Rank */
-    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
-      text-align: left; font-variant-numeric: tabular-nums; min-width: 24px; }
-    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
-
-    /* Player */
-    .td-player { display: flex; align-items: center; gap: 10px; min-width: 150px; }
-    .td-logo   { width: 22px; height: 22px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
-    .td-info   { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .td-name   { font-family: var(--body); font-size: 15px; font-weight: 600; color: var(--ink);
-      text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .td-name:hover { color: var(--red); }
-    .td-sub    { font-family: var(--mono); font-size: 10px; color: var(--ink-32);
-      letter-spacing: 0.04em; white-space: nowrap; }
-
-    /* Pos + GP */
-    .td-pos { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32);
-      text-align: center; letter-spacing: 0.04em; }
-    .td-gp  { font-family: var(--mono); font-size: 11px; color: var(--ink-32); text-align: right; }
-
-    /* Stat cells: value + percentile on two lines */
-    .td-stat { text-align: right; white-space: nowrap; }
-    .sv {
-      display: block; font-family: var(--mono); font-size: 13px; font-weight: 700;
-      font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.25;
-    }
-    .sv.pos { color: var(--stats-pos); }
-    .sv.neg { color: var(--stats-neg); }
-    .sv.nil { color: var(--ink-32); font-weight: 400; font-size: 12px; }
-    .sp {
-      display: block; font-family: var(--mono); font-size: 10px;
-      font-variant-numeric: tabular-nums; line-height: 1.2;
-    }
-    .pe { color: #00c078; }   /* 90th+ */
-    .pg { color: #60a5fa; }   /* 70th+ */
-    .pa { color: var(--ink-32); } /* 40th+ */
-    .pl { color: var(--red); opacity: 0.65; } /* <40th */
-
-    /* Show-all row */
+    /* ── Show-all row ── */
     .lb-more { padding: 14px 18px; border-top: 1px solid var(--ink-06); text-align: center; }
     .lb-more-btn {
       font-family: var(--mono); font-weight: 500; font-size: 10.5px;
@@ -279,6 +232,21 @@ const tableRows = eligible.map(p => {
       cursor: pointer; transition: all 0.1s;
     }
     .lb-more-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* ── Stat cell percentile sub-line (Round 3) ─────────────────────────
+       The skaters page renders "Advanced" cells as a two-line stack: the
+       value (Impact, WAR, etc.) over the percentile rank ("90th"). Lives
+       inside the .tbl-td so cells stay aligned with everything else. */
+    .stat-stack { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.2; }
+    .stat-stack .sp {
+      display: block; font-family: var(--mono); font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-stack .pe { color: #00c078; }   /* 90th+ */
+    .stat-stack .pg { color: #60a5fa; }   /* 70th+ */
+    .stat-stack .pa { color: var(--ink-32); } /* 40th+ */
+    .stat-stack .pl { color: var(--red); opacity: 0.65; } /* <40th */
+    .stat-stack .nil { color: var(--ink-32); }
 
     /* ── Methodology ── */
     .lb-method { background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; margin-top: 40px; }
@@ -302,14 +270,6 @@ const tableRows = eligible.map(p => {
     .lb-footer { text-align: center; margin-top: 48px; color: var(--ink-32);
       font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
 
-    /* ── Responsive ── */
-    @media (max-width: 900px) {
-      .c-a60, .c-imp { display: none; }
-    }
-    @media (max-width: 640px) {
-      .c-fin, .c-pos { display: none; }
-      .td-sub { display: none; }
-    }
     @media (max-width: 768px) {
       .mast-inner { padding: 28px 20px; }
       .mast-card  { padding: 24px 20px 20px; }
@@ -353,7 +313,6 @@ const tableRows = eligible.map(p => {
       <div style="display:flex;align-items:center;gap:12px">
         <span class="lb-meta" id="lb-count">{eligible.length} players · 2025–26</span>
         <span class="dl-limit-note" id="dl-limit-note" style="display:none">Use Top 10/20/50 to export</span>
-        <button class="lb-dl-btn" id="dl-btn">↓ PNG</button>
       </div>
     </div>
     <div class="controls">
@@ -398,14 +357,19 @@ const tableRows = eligible.map(p => {
       <input type="search" id="name-search" placeholder="Search players…" autocomplete="off">
     </div>
 
-    <div class="lb-wrap" id="lb-reg-wrap">
-      <table>
-        <thead><tr id="lb-thead-row"></tr></thead>
-        <tbody id="lb-tbody"></tbody>
-      </table>
-      <div class="lb-more" id="lb-more" style="display:none">
-        <button class="lb-more-btn" id="lb-more-btn">Show all players →</button>
-      </div>
+    <Table
+      columns={initialColumns}
+      rows={ssrRows}
+      rowHref={(r) => `/stats/player/${r.slug}`}
+      defaultSort={{ column: 'points', direction: 'desc' }}
+      scrollable
+      maxHeight={700}
+      exportFilename="hgb-skaters.png"
+      exportTitle="Skater Stats"
+      ariaLabel="NHL skater leaderboard"
+    />
+    <div class="lb-more" id="lb-more" style="display:none">
+      <button class="lb-more-btn" id="lb-more-btn">Show all players →</button>
     </div>
   </section>
 
@@ -435,644 +399,522 @@ const tableRows = eligible.map(p => {
 
 <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · SKATERS V1</footer>
 
-</body>
-</html>
+<!-- Client dataset -->
+<script type="application/json" id="skaters-data" set:html={JSON.stringify(tableRows)}></script>
 
 <script is:inline src="/js/table-export.js"></script>
-<script define:vars={{ rows: tableRows }}>
-const DATA = rows;
-const PAGE = 50;
-const sgn2 = v => v >= 0 ? '+' : '';
 
-// ── State ────────────────────────────────────────────────────────────────────
-let gameType    = 2;
-let viewTab     = 'counting';
-let posFilter   = 'all';
-let teamFilter  = 'all';
-let minToi      = 0;
-let sortKey     = 'points';
-let sortAsc     = false;
-let showAll     = false;
-let topN        = null;   // null = no limit; number = slice after sort
-let searchQuery = '';
-let displayMode   = 'totals'; // 'totals' | 'per60'
-let strengthMode  = 'all';   // 'all' | '5v5' | 'pp' | 'pk'
+<script define:vars={{ }}>
+// ── Skaters page interactivity ───────────────────────────────────────────────
+// View tab + filter changes drive a full tbody re-render + (optional) column
+// schema swap via HGB_Table.replaceColumns. Sort is handled by Table.astro.
+(function() {
+  const PAGE = 50;
+  const sgn2 = v => v >= 0 ? '+' : '';
 
-// ── Tab column definitions ────────────────────────────────────────────────────
-// Fixed columns in every tab: #, Player, Pos, GP
-// Each tab defines its own stat columns after those fixed columns.
-// In playoff/counting mode, poKey is used instead of key for data access + sorting.
-const TABS = {
-  counting: {
-    defaultSort: 'points',
-    poDefaultSort: 'po_points',
-    regOnly: false,
-    cols: [
-      { label: 'G',    key: 'goals',   poKey: 'po_goals' },
-      { label: 'A',    key: 'assists', poKey: 'po_assists' },
-      { label: 'P',    key: 'points',  poKey: 'po_points' },
-      { label: 'SOG',  key: 'sog',     poKey: 'po_sog' },
-      { label: 'ixG',  key: 'ixg',     poKey: 'po_ixg',    fmt: v => v.toFixed(2) },
-      { label: 'TOI',  key: 'toi_pg',  poKey: 'po_toi_pg', fmt: v => v.toFixed(1) },
-    ],
-  },
-  rates: {
-    defaultSort: 'p60',
-    regOnly: true,
-    cols: [
-      { label: 'G/60',  key: 'g60',  fmt: v => v.toFixed(2) },
-      { label: 'A/60',  key: 'a60',  fmt: v => v.toFixed(2) },
-      { label: 'P/60',  key: 'p60',  fmt: v => v.toFixed(2) },
-      { label: 'xG/60', key: 'x60',  fmt: v => v.toFixed(2) },
-      { label: 'TOI/G', key: 'toi_pg', fmt: v => v.toFixed(1) },
-    ],
-  },
-  advanced: {
-    defaultSort: 'imp',
-    regOnly: true,
-    cols: [
-      { label: 'Impact', key: 'imp',  fmt: v => v != null ? sgn2(v) + v.toFixed(2) : '—', signed: true },
-      { label: 'WAR',    key: 'war',  fmt: v => v != null ? sgn2(v) + v.toFixed(2) : '—', signed: true },
-      { label: 'Finishing', key: 'fin',  fmt: v => v != null ? sgn2(v) + v.toFixed(2) : '—', signed: true },
-      { label: 'RAPM/60',   key: 'rapm', fmt: v => v != null ? sgn2(v) + v.toFixed(3) : '—', signed: true },
-    ],
-  },
-  onice: {
-    defaultSort: 'xgf_pct',
-    regOnly: true,
-    cols: [
-      { label: 'xGF%',   key: 'xgf_pct', fmt: v => v.toFixed(1) + '%' },
-      { label: 'xGF/60', key: 'xgf60',   fmt: v => v.toFixed(2) },
-      { label: 'xGA/60', key: 'xga60',   fmt: v => v.toFixed(2) },
-      { label: 'SC/60',  key: 'sc60',    fmt: v => v.toFixed(2) },
-      { label: 'HDC/60', key: 'hdc60',   fmt: v => v.toFixed(2) },
-    ],
-  },
-};
+  const dataEl = document.getElementById('skaters-data');
+  if (!dataEl) return;
+  const DATA = JSON.parse(dataEl.textContent || '[]');
 
-// Per-60 column override for counting tab (disabled in playoff mode)
-const COUNTING_PER60_COLS = [
-  { label: 'G/60',   key: 'g60',    fmt: v => v.toFixed(2) },
-  { label: 'A/60',   key: 'a60',    fmt: v => v.toFixed(2) },
-  { label: 'P/60',   key: 'p60',    fmt: v => v.toFixed(2) },
-  { label: 'SOG/60', key: 'sog60',  fmt: v => v.toFixed(2) },
-  { label: 'ixG/60', key: 'x60',    fmt: v => v.toFixed(2) },
-  { label: 'TOI/G',  key: 'toi_pg', fmt: v => v.toFixed(1) },
-];
-const TOTALS_TO_P60 = { points: 'p60', goals: 'g60', assists: 'a60', sog: 'sog60', ixg: 'x60' };
-const P60_TO_TOTALS = { p60: 'points', g60: 'goals', a60: 'assists', sog60: 'sog', x60: 'ixg' };
+  // ── State ──────────────────────────────────────────────────────────────
+  let gameType    = 2;
+  let viewTab     = 'counting';
+  let posFilter   = 'all';
+  let teamFilter  = 'all';
+  let minToi      = 0;
+  let sortKey     = 'points';
+  let showAll     = false;
+  let topN        = null;
+  let searchQuery = '';
+  let displayMode   = 'totals';
+  let strengthMode  = 'all';
 
-// ── Strength-state helpers ────────────────────────────────────────────────────
+  // ── Tab definitions ────────────────────────────────────────────────────
+  // Each tab specifies its non-fixed (stat) columns. Fixed columns (#, Player,
+  // Pos, GP) prepend automatically. `poKey` is used for playoff data access
+  // + sorting. `signed` enables ±value formatting + threshold color.
+  // `pctKey` enables the stat-stack percentile sub-line.
+  const TABS = {
+    counting: {
+      defaultSort: 'points',
+      poDefaultSort: 'po_points',
+      regOnly: false,
+      cols: [
+        { label: 'G',    key: 'goals',   poKey: 'po_goals' },
+        { label: 'A',    key: 'assists', poKey: 'po_assists' },
+        { label: 'P',    key: 'points',  poKey: 'po_points',  bold: true },
+        { label: 'SOG',  key: 'sog',     poKey: 'po_sog' },
+        { label: 'ixG',  key: 'ixg',     poKey: 'po_ixg',     fmt: v => Number(v).toFixed(2) },
+        { label: 'TOI',  key: 'toi_pg',  poKey: 'po_toi_pg',  fmt: v => Number(v).toFixed(1) },
+      ],
+    },
+    rates: {
+      defaultSort: 'p60', regOnly: true,
+      cols: [
+        { label: 'G/60',  key: 'g60',  fmt: v => Number(v).toFixed(2) },
+        { label: 'A/60',  key: 'a60',  fmt: v => Number(v).toFixed(2) },
+        { label: 'P/60',  key: 'p60',  bold: true, fmt: v => Number(v).toFixed(2) },
+        { label: 'xG/60', key: 'x60',  fmt: v => Number(v).toFixed(2) },
+        { label: 'TOI/G', key: 'toi_pg', fmt: v => Number(v).toFixed(1) },
+      ],
+    },
+    advanced: {
+      defaultSort: 'imp', regOnly: true,
+      cols: [
+        { label: 'Impact', key: 'imp',  signed: true, bold: true, pctKey: 'imp_p',
+          fmt: v => v != null ? sgn2(v) + Number(v).toFixed(2) : '—' },
+        { label: 'WAR',    key: 'war',  signed: true, pctKey: 'war_p',
+          fmt: v => v != null ? sgn2(v) + Number(v).toFixed(2) : '—' },
+        { label: 'Finishing', key: 'fin', signed: true, pctKey: 'fin_p',
+          fmt: v => v != null ? sgn2(v) + Number(v).toFixed(2) : '—' },
+        { label: 'RAPM/60',   key: 'rapm', signed: true,
+          fmt: v => v != null ? sgn2(v) + Number(v).toFixed(3) : '—' },
+      ],
+    },
+    onice: {
+      defaultSort: 'xgf_pct', regOnly: true,
+      cols: [
+        { label: 'xGF%',   key: 'xgf_pct', bold: true,
+          fmt: v => Number(v).toFixed(1) + '%',
+          color: v => v >= 55 ? 'var(--stats-pos)' : v <= 45 ? 'var(--stats-neg)' : null },
+        { label: 'xGF/60', key: 'xgf60', fmt: v => Number(v).toFixed(2) },
+        { label: 'xGA/60', key: 'xga60', fmt: v => Number(v).toFixed(2) },
+        { label: 'SC/60',  key: 'sc60',  fmt: v => Number(v).toFixed(2) },
+        { label: 'HDC/60', key: 'hdc60', fmt: v => Number(v).toFixed(2) },
+      ],
+    },
+  };
 
-function getStrengthStats(r, mode) {
-  if (mode === 'all') return { goals: r.goals, assists: r.assists, points: r.points, sog: r.sog, ixg: r.ixg, toi_sec: null, toi_pg: r.toi_pg };
-  let goals, assists, sog, ixg, toiSec;
-  if (mode === '5v5') {
-    goals = r.goals_ev ?? 0; assists = r.a_ev ?? 0; sog = r.shots_ev ?? 0; ixg = r.ixg_ev ?? 0; toiSec = r.toi_ev_sec ?? 0;
-  } else if (mode === 'pp') {
-    goals = r.goals_pp ?? 0; assists = r.a_pp ?? 0; sog = r.shots_pp ?? 0; ixg = r.ixg_pp ?? 0; toiSec = r.toi_pp_sec ?? 0;
-  } else {
-    goals = r.goals_sh ?? 0; assists = r.a_pk ?? 0; sog = r.shots_pk ?? 0; ixg = r.ixg_pk ?? 0; toiSec = r.toi_pk_sec ?? 0;
-  }
-  return { goals, assists, points: goals + assists, sog, ixg, toi_sec: toiSec, toi_pg: toiSec > 0 ? toiSec / r.gp / 60 : 0 };
-}
-
-function getStatValue(r, key, st, hr) {
-  switch (key) {
-    case 'goals':   return st.goals;
-    case 'assists': return st.assists;
-    case 'points':  return st.points;
-    case 'sog':     return st.sog;
-    case 'ixg':     return st.ixg;
-    case 'toi_pg':  return st.toi_pg;
-    case 'g60':     return st.goals   / hr;
-    case 'a60':     return st.assists / hr;
-    case 'p60':     return st.points  / hr;
-    case 'sog60':   return st.sog     / hr;
-    case 'x60':     return st.ixg     / hr;
-    default:        return r[key];
-  }
-}
-
-function getActiveCols() {
-  let cols;
-  if (viewTab === 'counting' && displayMode === 'per60' && gameType !== 3) {
-    cols = COUNTING_PER60_COLS;
-  } else {
-    cols = TABS[viewTab].cols;
-  }
-  if (strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates')) {
-    const prefix = { '5v5': 'EV ', pp: 'PP ', pk: 'SH ' }[strengthMode];
-    const strengthKeys = new Set(['goals','assists','points','sog','ixg','toi_pg','g60','a60','p60','sog60','x60']);
-    return cols.map(c => strengthKeys.has(c.key) ? { ...c, label: prefix + c.label } : c);
-  }
-  return cols;
-}
-
-function resolveDefaultSort(tab, gt) {
-  const isPlayoff = (gt ?? gameType) === 3;
-  return (isPlayoff && TABS[tab].poDefaultSort) ? TABS[tab].poDefaultSort : TABS[tab].defaultSort;
-}
-
-function readUrl() {
-  const p = new URLSearchParams(window.location.search);
-  if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
-  const tab = p.get('tab');
-  if (tab && TABS[tab]) { viewTab = tab; }
-  sortKey = resolveDefaultSort(viewTab, gameType);
-  const team = p.get('team');
-  if (team) teamFilter = team;
-  const toi = parseInt(p.get('toi') || '0');
-  if (!isNaN(toi)) minToi = toi;
-  if (p.get('display') === 'per60') {
-    displayMode = 'per60';
-    if (viewTab === 'counting' && TOTALS_TO_P60[sortKey]) sortKey = TOTALS_TO_P60[sortKey];
-  }
-  const strength = p.get('strength');
-  if (strength && ['5v5', 'pp', 'pk'].includes(strength)) strengthMode = strength;
-}
-
-function updateUrl() {
-  const p = new URLSearchParams();
-  if (gameType === 3) p.set('game_type', '3');
-  if (viewTab !== 'counting') p.set('tab', viewTab);
-  if (teamFilter !== 'all') p.set('team', teamFilter);
-  if (minToi > 0) p.set('toi', String(minToi));
-  if (displayMode === 'per60') p.set('display', 'per60');
-  if (strengthMode !== 'all') p.set('strength', strengthMode);
-  history.replaceState(null, '', p.toString() ? `?${p}` : window.location.pathname);
-}
-
-// ── syncUi ────────────────────────────────────────────────────────────────────
-function syncUi() {
-  const isPlayoff = gameType === 3;
-
-  document.querySelectorAll('#gametype-filter button').forEach(btn => {
-    btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
-  });
-
-  // Fall back to counting if current tab is reg-only and we're switching to playoff
-  if (isPlayoff && TABS[viewTab]?.regOnly) {
-    viewTab = 'counting';
-    sortKey = resolveDefaultSort('counting');
-    sortAsc = false;
-  }
-
-  document.querySelectorAll('#view-filter button').forEach(btn => {
-    const v = btn.dataset.view;
-    const regOnly = TABS[v]?.regOnly;
-    btn.classList.toggle('active', v === viewTab);
-    btn.style.opacity = (isPlayoff && regOnly) ? '0.35' : '';
-    btn.style.pointerEvents = (isPlayoff && regOnly) ? 'none' : '';
-  });
-
-  document.querySelectorAll('#display-filter button').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.display === displayMode);
-    const isPer60 = btn.dataset.display === 'per60';
-    // Per-60 disabled in playoff mode (no per-60 playoff stats)
-    if (isPer60) {
-      btn.style.opacity      = isPlayoff ? '0.35' : '';
-      btn.style.pointerEvents = isPlayoff ? 'none' : '';
-    }
-  });
-
-  // Strength filter: only applies to counting/rates tabs in regular season
-  const strengthOk = !isPlayoff && (viewTab === 'counting' || viewTab === 'rates');
-  document.querySelectorAll('#strength-filter button').forEach(btn => {
-    const sm = btn.dataset.strength;
-    btn.classList.toggle('active', sm === strengthMode);
-    if (sm !== 'all') {
-      btn.style.opacity       = strengthOk ? '' : '0.35';
-      btn.style.pointerEvents = strengthOk ? '' : 'none';
-    }
-  });
-}
-
-// ── getRows ───────────────────────────────────────────────────────────────────
-function getRows() {
-  const isPlayoff = gameType === 3;
-  let rows = DATA.slice();
-  if (isPlayoff) rows = rows.filter(r => r.po_gp != null && r.po_gp > 0);
-  if (posFilter !== 'all') rows = rows.filter(r => r.group === posFilter);
-  if (teamFilter !== 'all') rows = rows.filter(r => r.team === teamFilter);
-  if (minToi > 0) {
-    const toiKey = (isPlayoff && viewTab === 'counting') ? 'po_toi_pg' : 'toi_pg';
-    rows = rows.filter(r => (r[toiKey] ?? 0) >= minToi);
-  }
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    rows = rows.filter(r => r.name.toLowerCase().includes(q));
-  }
-  rows.sort((a, b) => {
-    let av, bv;
-    if (strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates') && gameType !== 3) {
-      const sta = getStrengthStats(a, strengthMode);
-      const stb = getStrengthStats(b, strengthMode);
-      const hra = (sta.toi_sec / 3600) || 0.001;
-      const hrb = (stb.toi_sec / 3600) || 0.001;
-      av = getStatValue(a, sortKey, sta, hra) ?? (sortAsc ? Infinity : -Infinity);
-      bv = getStatValue(b, sortKey, stb, hrb) ?? (sortAsc ? Infinity : -Infinity);
-    } else {
-      av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-      bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    }
-    return sortAsc ? av - bv : bv - av;
-  });
-  if (topN != null) rows = rows.slice(0, topN);
-  return rows;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function pctCls(p) {
-  if (p == null) return 'pa';
-  return p >= 90 ? 'pe' : p >= 70 ? 'pg' : p >= 40 ? 'pa' : 'pl';
-}
-function ordinal(p) {
-  if (p == null) return '—';
-  const s = (p % 100 >= 11 && p % 100 <= 13) ? 'th' :
-    p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
-  return `${p}${s}`;
-}
-
-// ── renderHeader ──────────────────────────────────────────────────────────────
-function renderHeader() {
-  const thead = document.getElementById('lb-thead-row');
-  if (!thead) return;
-  const isPlayoff = gameType === 3;
-  const tab = TABS[viewTab];
-
-  const gpKey = (isPlayoff && viewTab === 'counting') ? 'po_gp' : 'gp';
-  const sortGp = sortKey === gpKey;
-  const fixed = [
-    `<th>#</th>`,
-    `<th class="th-player">Player</th>`,
-    `<th class="c-pos" style="text-align:center">Pos</th>`,
-    `<th data-sort="${gpKey}" style="cursor:pointer;text-align:right">GP<span class="sort-arrow">${sortGp?(sortAsc?'↑':'↓'):''}</span></th>`,
+  const COUNTING_PER60_COLS = [
+    { label: 'G/60',   key: 'g60',    fmt: v => Number(v).toFixed(2) },
+    { label: 'A/60',   key: 'a60',    fmt: v => Number(v).toFixed(2) },
+    { label: 'P/60',   key: 'p60',    bold: true, fmt: v => Number(v).toFixed(2) },
+    { label: 'SOG/60', key: 'sog60',  fmt: v => Number(v).toFixed(2) },
+    { label: 'ixG/60', key: 'x60',    fmt: v => Number(v).toFixed(2) },
+    { label: 'TOI/G',  key: 'toi_pg', fmt: v => Number(v).toFixed(1) },
   ];
+  const TOTALS_TO_P60 = { points: 'p60', goals: 'g60', assists: 'a60', sog: 'sog60', ixg: 'x60' };
+  const P60_TO_TOTALS = { p60: 'points', g60: 'goals', a60: 'assists', sog60: 'sog', x60: 'ixg' };
 
-  const statCols = getActiveCols().map(c => {
-    const activeKey = (isPlayoff && c.poKey) ? c.poKey : c.key;
-    const active = sortKey === c.key || (c.poKey && sortKey === c.poKey);
-    const arrow  = active ? (sortAsc ? '↑' : '↓') : '';
-    return `<th class="${active ? 'sorted' : ''}" data-sort="${activeKey}" style="cursor:pointer;text-align:right">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
-  });
-
-  thead.innerHTML = [...fixed, ...statCols].join('');
-}
-
-// ── renderBody ────────────────────────────────────────────────────────────────
-const PCT_MAP = { imp: 'imp_p', war: 'war_p', fin: 'fin_p' };
-
-function renderBody(visibleRows) {
-  const isPlayoff = gameType === 3;
-  const tbody = document.getElementById('lb-tbody');
-  if (!tbody) return;
-  const activeCols = getActiveCols();
-
-  if (visibleRows.length === 0) {
-    const colspan = 4 + activeCols.length;
-    tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;padding:60px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">${isPlayoff ? 'Playoff data available once postseason begins' : 'No data'}</td></tr>`;
-    return;
+  // ── Strength-state helpers ─────────────────────────────────────────────
+  function getStrengthStats(r, mode) {
+    if (mode === 'all') return { goals: r.goals, assists: r.assists, points: r.points, sog: r.sog, ixg: r.ixg, toi_sec: null, toi_pg: r.toi_pg };
+    let goals, assists, sog, ixg, toiSec;
+    if (mode === '5v5') {
+      goals = r.goals_ev ?? 0; assists = r.a_ev ?? 0; sog = r.shots_ev ?? 0; ixg = r.ixg_ev ?? 0; toiSec = r.toi_ev_sec ?? 0;
+    } else if (mode === 'pp') {
+      goals = r.goals_pp ?? 0; assists = r.a_pp ?? 0; sog = r.shots_pp ?? 0; ixg = r.ixg_pp ?? 0; toiSec = r.toi_pp_sec ?? 0;
+    } else {
+      goals = r.goals_sh ?? 0; assists = r.a_pk ?? 0; sog = r.shots_pk ?? 0; ixg = r.ixg_pk ?? 0; toiSec = r.toi_pk_sec ?? 0;
+    }
+    return { goals, assists, points: goals + assists, sog, ixg, toi_sec: toiSec, toi_pg: toiSec > 0 ? toiSec / r.gp / 60 : 0 };
   }
 
-  const useStrength = strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates') && !isPlayoff;
-  tbody.innerHTML = visibleRows.map((r, i) => {
+  function getStatValue(r, key, st, hr) {
+    switch (key) {
+      case 'goals':   return st.goals;
+      case 'assists': return st.assists;
+      case 'points':  return st.points;
+      case 'sog':     return st.sog;
+      case 'ixg':     return st.ixg;
+      case 'toi_pg':  return st.toi_pg;
+      case 'g60':     return st.goals   / hr;
+      case 'a60':     return st.assists / hr;
+      case 'p60':     return st.points  / hr;
+      case 'sog60':   return st.sog     / hr;
+      case 'x60':     return st.ixg     / hr;
+      default:        return r[key];
+    }
+  }
+
+  function getActiveCols() {
+    let cols;
+    if (viewTab === 'counting' && displayMode === 'per60' && gameType !== 3) {
+      cols = COUNTING_PER60_COLS;
+    } else {
+      cols = TABS[viewTab].cols;
+    }
+    if (strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates')) {
+      const prefix = { '5v5': 'EV ', pp: 'PP ', pk: 'SH ' }[strengthMode];
+      const strengthKeys = new Set(['goals','assists','points','sog','ixg','toi_pg','g60','a60','p60','sog60','x60']);
+      return cols.map(c => strengthKeys.has(c.key) ? { ...c, label: prefix + c.label } : c);
+    }
+    return cols;
+  }
+
+  function resolveDefaultSort(tab, gt) {
+    const isPlayoff = (gt ?? gameType) === 3;
+    return (isPlayoff && TABS[tab].poDefaultSort) ? TABS[tab].poDefaultSort : TABS[tab].defaultSort;
+  }
+
+  function readUrl() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
+    const tab = p.get('tab');
+    if (tab && TABS[tab]) { viewTab = tab; }
+    sortKey = resolveDefaultSort(viewTab, gameType);
+    const team = p.get('team');
+    if (team) teamFilter = team;
+    const toi = parseInt(p.get('toi') || '0');
+    if (!isNaN(toi)) minToi = toi;
+    if (p.get('display') === 'per60') {
+      displayMode = 'per60';
+      if (viewTab === 'counting' && TOTALS_TO_P60[sortKey]) sortKey = TOTALS_TO_P60[sortKey];
+    }
+    const strength = p.get('strength');
+    if (strength && ['5v5', 'pp', 'pk'].includes(strength)) strengthMode = strength;
+  }
+
+  function updateUrl() {
+    const p = new URLSearchParams();
+    if (gameType === 3) p.set('game_type', '3');
+    if (viewTab !== 'counting') p.set('tab', viewTab);
+    if (teamFilter !== 'all') p.set('team', teamFilter);
+    if (minToi > 0) p.set('toi', String(minToi));
+    if (displayMode === 'per60') p.set('display', 'per60');
+    if (strengthMode !== 'all') p.set('strength', strengthMode);
+    history.replaceState(null, '', p.toString() ? `?${p}` : window.location.pathname);
+  }
+
+  function syncUi() {
+    const isPlayoff = gameType === 3;
+
+    document.querySelectorAll('#gametype-filter button').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
+    });
+    if (isPlayoff && TABS[viewTab]?.regOnly) {
+      viewTab = 'counting';
+      sortKey = resolveDefaultSort('counting');
+    }
+    document.querySelectorAll('#view-filter button').forEach(btn => {
+      const v = btn.dataset.view;
+      const regOnly = TABS[v]?.regOnly;
+      btn.classList.toggle('active', v === viewTab);
+      btn.style.opacity = (isPlayoff && regOnly) ? '0.35' : '';
+      btn.style.pointerEvents = (isPlayoff && regOnly) ? 'none' : '';
+    });
+    document.querySelectorAll('#display-filter button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.display === displayMode);
+      const isPer60 = btn.dataset.display === 'per60';
+      if (isPer60) {
+        btn.style.opacity      = isPlayoff ? '0.35' : '';
+        btn.style.pointerEvents = isPlayoff ? 'none' : '';
+      }
+    });
+    const strengthOk = !isPlayoff && (viewTab === 'counting' || viewTab === 'rates');
+    document.querySelectorAll('#strength-filter button').forEach(btn => {
+      const sm = btn.dataset.strength;
+      btn.classList.toggle('active', sm === strengthMode);
+      if (sm !== 'all') {
+        btn.style.opacity       = strengthOk ? '' : '0.35';
+        btn.style.pointerEvents = strengthOk ? '' : 'none';
+      }
+    });
+  }
+
+  // ── Filter + sort the row set ──────────────────────────────────────────
+  function getRows() {
+    const isPlayoff = gameType === 3;
+    let rows = DATA.slice();
+    if (isPlayoff) rows = rows.filter(r => r.po_gp != null && r.po_gp > 0);
+    if (posFilter !== 'all') rows = rows.filter(r => r.group === posFilter);
+    if (teamFilter !== 'all') rows = rows.filter(r => r.team === teamFilter);
+    if (minToi > 0) {
+      const toiKey = (isPlayoff && viewTab === 'counting') ? 'po_toi_pg' : 'toi_pg';
+      rows = rows.filter(r => (r[toiKey] ?? 0) >= minToi);
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      rows = rows.filter(r => r.name.toLowerCase().includes(q));
+    }
+    rows.sort((a, b) => {
+      let av, bv;
+      if (strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates') && gameType !== 3) {
+        const sta = getStrengthStats(a, strengthMode);
+        const stb = getStrengthStats(b, strengthMode);
+        const hra = (sta.toi_sec / 3600) || 0.001;
+        const hrb = (stb.toi_sec / 3600) || 0.001;
+        av = getStatValue(a, sortKey, sta, hra) ?? -Infinity;
+        bv = getStatValue(b, sortKey, stb, hrb) ?? -Infinity;
+      } else {
+        av = a[sortKey] ?? -Infinity;
+        bv = b[sortKey] ?? -Infinity;
+      }
+      return bv - av;
+    });
+    if (topN != null) rows = rows.slice(0, topN);
+    return rows;
+  }
+
+  function pctCls(p) {
+    if (p == null) return 'pa';
+    return p >= 90 ? 'pe' : p >= 70 ? 'pg' : p >= 40 ? 'pa' : 'pl';
+  }
+  function ordinal(p) {
+    if (p == null) return '—';
+    const s = (p % 100 >= 11 && p % 100 <= 13) ? 'th' :
+      p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
+    return `${p}${s}`;
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ── Build a single <tr> matching Table.astro's output ────────────────
+  function rowHtml(r, rank, activeCols) {
+    const isPlayoff = gameType === 3;
     const gp = (isPlayoff && viewTab === 'counting') ? r.po_gp : r.gp;
+    const useStrength = strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates') && !isPlayoff;
     const st = useStrength ? getStrengthStats(r, strengthMode) : null;
     const hr = st ? ((st.toi_sec / 3600) || 0.001) : 1;
+    const href = `/stats/player/${r.slug}`;
+    const teamAbbr = esc(r.team || '');
+    const nameEsc = esc(r.name);
+    const subText = `${r.team} · ${r.pos} · ${gp} GP`;
 
-    const statTds = activeCols.map(c => {
+    const cells = [];
+    // Rank
+    cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
+    // Player
+    cells.push(
+      `<td class="tbl-td td-player align-left">` +
+      `<div class="td-player-inner">` +
+      (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
+      `<div class="td-player-meta">` +
+      `<span class="td-name">${nameEsc}</span>` +
+      `<span class="td-sub">${esc(subText)}</span>` +
+      `</div></div></td>`
+    );
+    // Pos
+    cells.push(`<td class="tbl-td align-center"><span class="pos-badge">${esc(r.pos)}</span></td>`);
+    // GP
+    cells.push(`<td class="tbl-td align-center type-number">${gp == null ? '—' : String(gp)}</td>`);
+
+    // Stat cells
+    for (const c of activeCols) {
       const dataKey = (isPlayoff && c.poKey) ? c.poKey : c.key;
       const val = st ? getStatValue(r, c.key, st, hr) : r[dataKey];
-      let html;
-      if (c.signed) {
-        const pctKey = PCT_MAP[c.key];
-        const pct = pctKey ? r[pctKey] : null;
-        if (val == null) {
-          html = `<span class="sv nil">—</span><span class="sp pa">—</span>`;
-        } else {
-          const cls = val >= 0 ? 'pos' : 'neg';
-          html = `<span class="sv ${cls}">${c.fmt(val)}</span><span class="sp ${pctCls(pct)}">${ordinal(pct)}</span>`;
-        }
+      const cls = ['tbl-td', 'align-center', 'type-number', c.bold ? 'bold' : ''].filter(Boolean).join(' ');
+      let color;
+      if (c.signed && val != null) color = val >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
+      else if (c.color && val != null) color = c.color(val);
+      const style = color ? ` style="color:${color}"` : '';
+
+      let content;
+      if (val == null) {
+        content = '—';
       } else if (c.fmt) {
-        html = val != null ? `<span class="sv">${c.fmt(val)}</span>` : `<span class="sv nil">—</span>`;
+        content = c.fmt(val);
       } else {
-        html = val != null ? `<span class="sv">${val}</span>` : `<span class="sv nil">—</span>`;
+        content = String(val);
       }
-      return `<td class="td-stat">${html}</td>`;
-    }).join('');
 
-    return `<tr>
-      <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
-      <td><div class="td-player">
-        <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" width="22" height="22" loading="lazy">
-        <div class="td-info">
-          <a href="/stats/player/${r.slug}" class="td-name">${r.name}</a>
-          <span class="td-sub">${r.team} · ${r.pos} · ${gp} GP</span>
-        </div>
-      </div></td>
-      <td class="td-pos c-pos">${r.pos}</td>
-      <td class="td-gp">${gp}</td>
-      ${statTds}
-    </tr>`;
-  }).join('');
-}
-
-// ── render ────────────────────────────────────────────────────────────────────
-function render() {
-  renderHeader();
-  const allRows = getRows();
-  const total = allRows.length;
-  const visible = showAll ? allRows : allRows.slice(0, PAGE);
-  renderBody(visible);
-
-  const countEl = document.getElementById('lb-count');
-  if (countEl) {
-    const season = gameType === 3 ? '2025–26 playoffs' : '2025–26';
-    const label  = topN != null ? `Top ${total} · ${season}` : `${total} players · ${season}`;
-    countEl.textContent = label;
-  }
-
-  const moreDiv = document.getElementById('lb-more');
-  const moreBtn = document.getElementById('lb-more-btn');
-  if (moreDiv && moreBtn) {
-    if (!showAll && total > PAGE) {
-      moreDiv.style.display = '';
-      moreBtn.textContent = `Show all ${total} players →`;
-    } else {
-      moreDiv.style.display = 'none';
+      // If a percentile sub-line is configured (Advanced view), stack it under
+      // the value. Otherwise plain text.
+      if (c.pctKey) {
+        const pct = r[c.pctKey];
+        const pctLabel = ordinal(pct);
+        const pctCol = pctCls(pct);
+        content = `<div class="stat-stack"><span>${content}</span><span class="sp ${pctCol}">${pctLabel}</span></div>`;
+      }
+      cells.push(`<td class="${cls}"${style}>${content}</td>`);
     }
+
+    return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">${cells.join('')}</tr>`;
   }
 
-  // Export guard: disable when too many rows and no Top N limit
-  const dlBtn   = document.getElementById('dl-btn');
-  const dlNote  = document.getElementById('dl-limit-note');
-  const tooMany = topN == null && total > 20;
-  if (dlBtn)  { dlBtn.disabled = tooMany; }
-  if (dlNote) { dlNote.style.display = tooMany ? '' : 'none'; }
-}
+  // ── Map active stat columns to Table.astro schema entries ──────────────
+  function buildSchema(activeCols) {
+    const schema = [
+      { key: '_rank',  label: '#',      type: 'rank', sortable: false },
+      { key: 'name',   label: 'Player', type: 'player', sortable: true },
+      { key: 'pos',    label: 'Pos',    type: 'position', sortable: true },
+      { key: 'gp',     label: 'GP',     type: 'number', sortable: true },
+    ];
+    for (const c of activeCols) {
+      const dataKey = (gameType === 3 && c.poKey) ? c.poKey : c.key;
+      schema.push({
+        key: dataKey,
+        label: c.label,
+        type: 'number',
+        sortable: true,
+        bold: !!c.bold,
+      });
+    }
+    return schema;
+  }
 
-// ── Event handlers ────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────
+  const wrap = document.querySelector('.tbl-wrap[data-tbl-id]');
+  if (!wrap) return;
+  const tblId = wrap.dataset.tblId;
+  const tbody = wrap.querySelector('tbody');
 
-document.querySelectorAll('#gametype-filter button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const gt = parseInt(btn.dataset.gametype);
-    if (gt === gameType) return;
-    gameType = gt;
-    if (gt === 3) strengthMode = 'all'; // no split data for playoffs
-    sortKey  = resolveDefaultSort(viewTab, gt);
-    sortAsc  = false;
-    showAll  = false;
-    updateUrl();
-    syncUi();
+  function render() {
+    const activeCols = getActiveCols();
+    const allRows = getRows();
+    const total = allRows.length;
+    const visible = showAll ? allRows : allRows.slice(0, PAGE);
+
+    // Replace column schema (header + colgroup) — must run BEFORE tbody swap
+    // so the schema index lines up with the cells.
+    const newSchema = buildSchema(activeCols);
+    const replacer = window.HGB_Table && window.HGB_Table.replaceColumns;
+    if (typeof replacer === 'function') replacer(tblId, newSchema);
+
+    if (visible.length === 0) {
+      const colspan = newSchema.length;
+      tbody.innerHTML = `<tr class="tbl-empty"><td colspan="${colspan}">${gameType === 3 ? 'Playoff data available once postseason begins' : 'No data'}</td></tr>`;
+    } else {
+      tbody.innerHTML = visible.map((r, i) => rowHtml(r, i + 1, activeCols)).join('');
+    }
+    wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
+
+    // Count + "show all" pagination chrome
+    const countEl = document.getElementById('lb-count');
+    if (countEl) {
+      const season = gameType === 3 ? '2025–26 playoffs' : '2025–26';
+      const label  = topN != null ? `Top ${total} · ${season}` : `${total} players · ${season}`;
+      countEl.textContent = label;
+    }
+    const moreDiv = document.getElementById('lb-more');
+    const moreBtn = document.getElementById('lb-more-btn');
+    if (moreDiv && moreBtn) {
+      if (!showAll && total > PAGE) {
+        moreDiv.style.display = '';
+        moreBtn.textContent = `Show all ${total} players →`;
+      } else {
+        moreDiv.style.display = 'none';
+      }
+    }
+
+    // Export guard: disable when too many rows and no Top N limit
+    const exportBtn = wrap.querySelector('button.tbl-export-btn');
+    const dlNote  = document.getElementById('dl-limit-note');
+    const tooMany = topN == null && total > 20;
+    if (exportBtn) { exportBtn.disabled = tooMany; exportBtn.style.opacity = tooMany ? '0.35' : ''; }
+    if (dlNote) { dlNote.style.display = tooMany ? '' : 'none'; }
+  }
+
+  // ── Event handlers ─────────────────────────────────────────────────────
+  document.querySelectorAll('#gametype-filter button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gt = parseInt(btn.dataset.gametype);
+      if (gt === gameType) return;
+      gameType = gt;
+      if (gt === 3) strengthMode = 'all';
+      sortKey  = resolveDefaultSort(viewTab, gt);
+      showAll  = false;
+      updateUrl();
+      syncUi();
+      render();
+    });
+  });
+  document.querySelectorAll('#view-filter button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.view;
+      if (v === viewTab || (gameType === 3 && TABS[v]?.regOnly)) return;
+      viewTab = v;
+      if (v !== 'counting' && v !== 'rates') strengthMode = 'all';
+      sortKey = resolveDefaultSort(v);
+      showAll = false;
+      updateUrl();
+      syncUi();
+      render();
+    });
+  });
+  document.querySelectorAll('[data-pos]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      posFilter = btn.dataset.pos;
+      showAll   = false;
+      document.querySelectorAll('[data-pos]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      render();
+    });
+  });
+  document.querySelectorAll('#display-filter button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.display;
+      if (mode === displayMode || gameType === 3) return;
+      if (mode === 'per60'   && TOTALS_TO_P60[sortKey]) sortKey = TOTALS_TO_P60[sortKey];
+      if (mode === 'totals'  && P60_TO_TOTALS[sortKey]) sortKey = P60_TO_TOTALS[sortKey];
+      displayMode = mode;
+      showAll = false;
+      updateUrl();
+      syncUi();
+      render();
+    });
+  });
+  document.querySelectorAll('#strength-filter button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sm = btn.dataset.strength;
+      if (sm === strengthMode || gameType === 3) return;
+      if (sm !== 'all' && viewTab !== 'counting' && viewTab !== 'rates') return;
+      strengthMode = sm;
+      showAll = false;
+      updateUrl();
+      syncUi();
+      render();
+    });
+  });
+
+  document.getElementById('lb-more-btn')?.addEventListener('click', () => {
+    showAll = true;
     render();
   });
-});
 
-document.querySelectorAll('#view-filter button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const v = btn.dataset.view;
-    if (v === viewTab || (gameType === 3 && TABS[v]?.regOnly)) return;
-    viewTab = v;
-    if (v !== 'counting' && v !== 'rates') strengthMode = 'all';
-    sortKey = resolveDefaultSort(v);
-    sortAsc = false;
+  // Team + TOI + topN + search
+  (function() {
+    const teams = [...new Set(DATA.map(r => r.team))].sort();
+    const sel = document.getElementById('team-filter');
+    teams.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t; opt.textContent = t;
+      sel.appendChild(opt);
+    });
+    if (teamFilter !== 'all') sel.value = teamFilter;
+  })();
+  function syncToiLabel() {
+    const el = document.getElementById('toi-label');
+    if (el) el.textContent = minToi > 0 ? `${minToi}m` : '—';
+    const slider = document.getElementById('toi-slider');
+    if (slider) slider.value = String(minToi);
+  }
+  document.getElementById('team-filter')?.addEventListener('change', function() {
+    teamFilter = this.value;
     showAll = false;
     updateUrl();
-    syncUi();
     render();
   });
-});
-
-document.querySelectorAll('[data-pos]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    posFilter = btn.dataset.pos;
-    showAll   = false;
-    document.querySelectorAll('[data-pos]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    render();
-  });
-});
-
-document.querySelectorAll('#display-filter button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const mode = btn.dataset.display;
-    if (mode === displayMode || gameType === 3) return;
-    // Translate sort key when switching modes on the counting tab
-    if (mode === 'per60'   && TOTALS_TO_P60[sortKey]) sortKey = TOTALS_TO_P60[sortKey];
-    if (mode === 'totals'  && P60_TO_TOTALS[sortKey]) sortKey = P60_TO_TOTALS[sortKey];
-    displayMode = mode;
+  document.getElementById('toi-slider')?.addEventListener('input', function() {
+    minToi = parseInt(this.value);
+    syncToiLabel();
     showAll = false;
     updateUrl();
-    syncUi();
     render();
   });
-});
-
-document.querySelectorAll('#strength-filter button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const sm = btn.dataset.strength;
-    if (sm === strengthMode || gameType === 3) return;
-    if (sm !== 'all' && viewTab !== 'counting' && viewTab !== 'rates') return;
-    strengthMode = sm;
+  document.querySelectorAll('#topn-filter button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.topn;
+      topN = v ? parseInt(v) : null;
+      showAll = false;
+      document.querySelectorAll('#topn-filter button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      render();
+    });
+  });
+  document.getElementById('name-search')?.addEventListener('input', function() {
+    searchQuery = this.value.trim();
     showAll = false;
-    updateUrl();
-    syncUi();
     render();
   });
-});
 
-document.querySelector('thead')?.addEventListener('click', e => {
-  const th = e.target?.closest('th[data-sort]');
-  if (!th) return;
-  const key = th.dataset.sort;
-  if (sortKey === key) { sortAsc = !sortAsc; }
-  else { sortKey = key; sortAsc = false; }
-  showAll = false;
-  render();
-});
-
-document.getElementById('lb-more-btn')?.addEventListener('click', () => {
-  showAll = true;
-  render();
-});
-
-// ── Team + TOI filter init + events ──────────────────────────────────────────
-
-// Populate team dropdown from data
-(function() {
-  const teams = [...new Set(DATA.map(r => r.team))].sort();
-  const sel = document.getElementById('team-filter');
-  teams.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t; opt.textContent = t;
-    sel.appendChild(opt);
-  });
-  if (teamFilter !== 'all') sel.value = teamFilter;
-})();
-
-function syncToiLabel() {
-  const el = document.getElementById('toi-label');
-  if (el) el.textContent = minToi > 0 ? `${minToi}m` : '—';
-  const slider = document.getElementById('toi-slider');
-  if (slider) slider.value = String(minToi);
-}
-
-document.getElementById('team-filter')?.addEventListener('change', function() {
-  teamFilter = this.value;
-  showAll = false;
-  updateUrl();
-  render();
-});
-
-document.getElementById('toi-slider')?.addEventListener('input', function() {
-  minToi = parseInt(this.value);
+  readUrl();
+  syncUi();
   syncToiLabel();
-  showAll = false;
-  updateUrl();
   render();
-});
-
-// ── Top N filter ──────────────────────────────────────────────────────────────
-document.querySelectorAll('#topn-filter button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const v = btn.dataset.topn;
-    topN = v ? parseInt(v) : null;
-    showAll = false;
-    document.querySelectorAll('#topn-filter button').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    render();
-  });
-});
-
-// ── Name search ───────────────────────────────────────────────────────────────
-document.getElementById('name-search')?.addEventListener('input', function() {
-  searchQuery = this.value.trim();
-  showAll = false;
-  render();
-});
-
-readUrl();
-syncUi();
-syncToiLabel();
-render();
-
-// ── PNG Export ────────────────────────────────────────────────────────────────
-const EXPORT_COLS = {
-  counting: [
-    { label: '#',      key: '_rank', width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',  width: 240, align: 'left', fontFamily: 'body', bold: true },
-    { label: 'Team',   key: 'team',  width: 58,  align: 'center' },
-    { label: 'Pos',    key: 'pos',   width: 48,  align: 'center' },
-    { label: 'GP',     key: '_gp',   width: 52,  align: 'center' },
-    { label: 'G',      key: '_g',    width: 60,  align: 'center' },
-    { label: 'A',      key: '_a',    width: 60,  align: 'center' },
-    { label: 'P',      key: '_p',    width: 60,  align: 'center', bold: true },
-    { label: 'SOG',    key: '_sog',  width: 66,  align: 'center' },
-    { label: 'ixG',    key: '_ixg',  width: 70,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'TOI',    key: '_toi',  width: 64,  align: 'center', format: v => v != null ? v.toFixed(1) : '—' },
-  ],
-  counting_per60: [
-    { label: '#',      key: '_rank',  width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',   width: 240, align: 'left', fontFamily: 'body', bold: true },
-    { label: 'Team',   key: 'team',   width: 58,  align: 'center' },
-    { label: 'Pos',    key: 'pos',    width: 48,  align: 'center' },
-    { label: 'GP',     key: '_gp',    width: 52,  align: 'center' },
-    { label: 'G/60',   key: 'g60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'A/60',   key: 'a60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'P/60',   key: 'p60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—', bold: true },
-    { label: 'SOG/60', key: 'sog60',  width: 82,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'ixG/60', key: 'x60',    width: 82,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'TOI/G',  key: '_toi',   width: 76,  align: 'center', format: v => v != null ? v.toFixed(1) : '—' },
-  ],
-  rates: [
-    { label: '#',      key: '_rank',  width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',   width: 240, align: 'left', fontFamily: 'body', bold: true },
-    { label: 'Team',   key: 'team',   width: 58,  align: 'center' },
-    { label: 'Pos',    key: 'pos',    width: 48,  align: 'center' },
-    { label: 'GP',     key: 'gp',     width: 52,  align: 'center' },
-    { label: 'G/60',   key: 'g60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'A/60',   key: 'a60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'P/60',   key: 'p60',    width: 76,  align: 'center', format: v => v != null ? v.toFixed(2) : '—', bold: true },
-    { label: 'xG/60',  key: 'x60',    width: 82,  align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'TOI/G',  key: 'toi_pg', width: 76,  align: 'center', format: v => v != null ? v.toFixed(1) : '—' },
-  ],
-  advanced: [
-    { label: '#',      key: '_rank', width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',  width: 240, align: 'left', fontFamily: 'body', bold: true },
-    { label: 'Team',   key: 'team',  width: 58,  align: 'center' },
-    { label: 'Pos',    key: 'pos',   width: 48,  align: 'center' },
-    { label: 'GP',     key: 'gp',    width: 52,  align: 'center' },
-    { label: 'Impact', key: 'imp',   width: 90,  align: 'center', bold: true,
-      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-    { label: 'WAR',    key: 'war',   width: 86,  align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-    { label: 'Fin',    key: 'fin',   width: 76,  align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-    { label: 'RAPM',   key: 'rapm',  width: 82,  align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(3) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-  ],
-  onice: [
-    { label: '#',      key: '_rank',   width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',    width: 240, align: 'left', fontFamily: 'body', bold: true },
-    { label: 'Team',   key: 'team',    width: 58,  align: 'center' },
-    { label: 'Pos',    key: 'pos',     width: 48,  align: 'center' },
-    { label: 'GP',     key: 'gp',      width: 52,  align: 'center' },
-    { label: 'xGF%',   key: 'xgf_pct', width: 82, align: 'center', bold: true,
-      format: v => v != null ? v.toFixed(1) + '%' : '—',
-      color: (v, _r, tok) => v != null ? (v >= 52 ? tok.pos : v <= 48 ? tok.neg : null) : null },
-    { label: 'xGF/60', key: 'xgf60',   width: 84, align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'xGA/60', key: 'xga60',   width: 84, align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'SC/60',  key: 'sc60',    width: 76, align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'HDC/60', key: 'hdc60',   width: 76, align: 'center', format: v => v != null ? v.toFixed(2) : '—' },
-  ],
-};
-
-function getExportChips() {
-  const isPlayoff = gameType === 3;
-  const tabLabel = { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[viewTab];
-  const chips = [isPlayoff ? 'Playoffs' : 'Regular Season', tabLabel];
-  if (displayMode === 'per60' && viewTab === 'counting' && !isPlayoff) chips.push('Per 60');
-  if (strengthMode !== 'all' && !isPlayoff) chips.push({ '5v5': 'Even Strength', pp: 'Power Play', pk: 'Penalty Kill' }[strengthMode]);
-  if (topN != null) chips.push(`Top ${topN}`);
-  if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
-  if (teamFilter !== 'all') chips.push(teamFilter);
-  if (minToi > 0) chips.push(`${minToi}+ min TOI`);
-  return chips;
-}
-
-document.getElementById('dl-btn').addEventListener('click', function() {
-  const isPlayoff = gameType === 3;
-  const allRows = getRows();
-
-  const exportRows = allRows.map((r, i) => ({
-    ...r,
-    _rank: i + 1,
-    _gp:   (isPlayoff && viewTab === 'counting') ? r.po_gp      : r.gp,
-    _g:    (isPlayoff && viewTab === 'counting') ? r.po_goals    : r.goals,
-    _a:    (isPlayoff && viewTab === 'counting') ? r.po_assists  : r.assists,
-    _p:    (isPlayoff && viewTab === 'counting') ? r.po_points   : r.points,
-    _sog:  (isPlayoff && viewTab === 'counting') ? r.po_sog      : r.sog,
-    _ixg:  (isPlayoff && viewTab === 'counting') ? r.po_ixg      : r.ixg,
-    _toi:  (isPlayoff && viewTab === 'counting') ? r.po_toi_pg   : r.toi_pg,
-  }));
-
-  const tabLabel = { counting: 'Counting', rates: 'Rates', advanced: 'Advanced' }[viewTab];
-  const season   = isPlayoff ? 'Playoff' : 'Season';
-
-  const isPer60Export = displayMode === 'per60' && viewTab === 'counting' && !isPlayoff;
-  const exportCols    = isPer60Export ? EXPORT_COLS.counting_per60 : EXPORT_COLS[viewTab];
-  window.HGB_Export.downloadTablePng({
-    title: `${season} ${tabLabel} Stats${isPer60Export ? ' · Per 60' : ''}`,
-    filterChips: getExportChips(),
-    sortLabel: sortKey,
-    rows: exportRows,
-    columns: exportCols,
-    filename: `hgb-skaters-${viewTab}${isPlayoff ? '-playoff' : ''}${isPer60Export ? '-per60' : ''}.png`,
-  });
-});
+})();
 </script>
+
+</body>
+</html>

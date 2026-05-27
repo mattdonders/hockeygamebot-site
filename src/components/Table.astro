@@ -1119,6 +1119,99 @@ if (className) wrapClasses.push(className);
       });
     };
 
+    // ── Reactive column REPLACEMENT (added 2026-05-27 for skaters migration) ─
+    // Pages with multi-tab table views (counting / rates / advanced / on-ice)
+    // need to fully swap the column set, not just labels. This rebuilds the
+    // <colgroup> + <thead> in place and replaces the closed-over schema so
+    // subsequent sort + PNG export read from the new shape. The consumer is
+    // responsible for re-rendering tbody to match (and dispatching
+    // tbl:rows-changed afterwards so navigation handlers re-bind).
+    //
+    // Each entry in newSchema MUST include {key, label, type} at minimum.
+    // Optional: align, width, fontFamily, sortable, bold. Anything missing
+    // falls back to type-driven defaults consistent with SSR rendering.
+    HGB_Table.replaceColumns = function (tblIdArg: string, newSchema: Array<{
+      key: string;
+      label: string;
+      type?: string;
+      align?: 'left' | 'right' | 'center';
+      width?: number;
+      fontFamily?: string;
+      sortable?: boolean;
+      bold?: boolean;
+    }>) {
+      if (tblIdArg !== tblId) return;
+      // Normalize entries with type-driven defaults.
+      const normalized: ColumnSchema[] = newSchema.map(c => {
+        const type = c.type || 'label';
+        let align: 'left' | 'right' | 'center' = c.align || 'left';
+        if (!c.align) {
+          if (type === 'rank') align = 'right';
+          else if (type === 'number' || type === 'position') align = 'center';
+          else align = 'left';
+        }
+        const sortable = c.sortable === false ? false : (type !== 'rank');
+        return {
+          key: c.key,
+          label: c.label,
+          type,
+          align,
+          width: c.width,
+          fontFamily: c.fontFamily,
+          sortable,
+          bold: c.bold === true,
+        };
+      });
+      // Replace the closed-over schema reference (mutate in place).
+      schema.length = 0;
+      schema.push(...normalized);
+
+      // Rebuild <colgroup>
+      const colgroup = table!.querySelector('colgroup');
+      if (colgroup) {
+        colgroup.innerHTML = normalized.map(c =>
+          c.width ? `<col style="width:${c.width}px" />` : '<col />'
+        ).join('');
+      }
+
+      // Rebuild <thead><tr>
+      const theadRow = table!.querySelector<HTMLTableRowElement>('thead tr');
+      if (theadRow) {
+        theadRow.innerHTML = normalized.map(c => {
+          const cls = [
+            'tbl-th',
+            `align-${c.align}`,
+            `type-${c.type}`,
+            c.sortable ? 'sortable' : 'not-sortable',
+          ].join(' ');
+          const sortableAttr = c.sortable ? '1' : '0';
+          const interactive = c.sortable ? 'role="button" tabindex="0" aria-sort="none"' : '';
+          const arrow = c.sortable
+            ? '<span class="sort-arrow" aria-hidden="true">↕</span>'
+            : '';
+          return `<th class="${cls}" data-key="${c.key}" data-sortable="${sortableAttr}" data-type="${c.type}" data-align="${c.align}" scope="col" ${interactive}><span class="tbl-th-label">${c.label}</span>${arrow}</th>`;
+        }).join('');
+        // Re-bind click handlers on the new <th>s.
+        theadRow.querySelectorAll<HTMLTableCellElement>('th.tbl-th').forEach(th => {
+          if (th.dataset.sortable !== '1') return;
+          th.addEventListener('click', () => handleHeaderActivate(th));
+          th.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleHeaderActivate(th);
+            }
+          });
+        });
+      }
+
+      // Reset sort tracking — the active key may not exist in the new schema.
+      const stillHasKey = activeSortKey && normalized.some(c => c.key === activeSortKey);
+      if (!stillHasKey) {
+        activeSortKey = defaultSortKey && normalized.some(c => c.key === defaultSortKey) ? defaultSortKey : '';
+        activeSortDir = activeSortKey ? defaultSortDir : null;
+      }
+    };
+
     // Wire PNG export — defers to global HGB_Export from /js/table-export.js.
     // The consuming page is responsible for including that script.
     const exportBtn = wrap.querySelector<HTMLButtonElement>('button.tbl-export-btn');
