@@ -368,6 +368,23 @@ const teamCount = rows.length;
 const totalCount = baseTeams.length;
 const timestamp = new Date().toISOString().slice(0, 10);
 
+// ── Client-side data payload (Issue 7 fix) ──────────────────────────────────
+// Ship BOTH datasets (regular + playoffs) and BOTH display modes (totals +
+// per60) to the client as a single JSON blob. The client script swaps the
+// visible row set in place when the user changes any toggle — no page reload.
+// This is what makes Per60 / game type chips actually change data instead of
+// just decorating a URL.
+const clientPayload = {
+  regular: {
+    totals: mockTeamsReg.map(t => toRow(t, 'totals')),
+    per60:  mockTeamsReg.map(t => toRow(t, 'per60')),
+  },
+  playoffs: {
+    totals: mockTeamsPlayoff.map(t => toRow(t, 'totals')),
+    per60:  mockTeamsPlayoff.map(t => toRow(t, 'per60')),
+  },
+};
+
 // ── Column definitions (consumed by <Table>) ────────────────────────────────
 // Threshold callback: ≥0.55 green, ≤0.45 red. PP%/PK% have higher midpoints
 // so they don't use the universal threshold — they're informational only.
@@ -669,32 +686,72 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
 
 <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · TEAMS V1</footer>
 
+<!-- Client-side data: both datasets × both display modes; the script below
+     swaps in-place when toggles change so no page reload is needed. -->
+<script type="application/json" id="teams-data" set:html={JSON.stringify(clientPayload)}></script>
+
 <script is:inline src="/js/table-export.js"></script>
 
 <script>
-  // ── /stats/teams — client-side filter + URL state ─────────────────────────
-  // Game-type toggle swaps the visible row set (mock has 2 datasets); the
-  // Per-60 toggle re-renders cell text in place using the row's TOI; the
-  // conference / division dropdowns hide/show rows by data-attribute; the
-  // search input does live name matching. All state is mirrored to URL.
-
+  // ── /stats/teams — fully client-side filter/toggle pipeline ──────────────
+  // Every toggle (game type, per-60, strength, conf, div, search) now swaps
+  // the tbody contents IN PLACE. Zero page reloads — see issue #7. URL params
+  // mirror state via `history.replaceState` so the page is still shareable.
+  //
+  // Data flow on any toggle change:
+  //   1. update `state`
+  //   2. mirror state → URL
+  //   3. pick the right dataset from `payload[gameType][display]`
+  //   4. apply conf/div/search filters
+  //   5. re-render tbody HTML
+  //   6. dispatch `tbl:rows-changed` on the wrap so Table.astro re-snapshots
+  //      its sort state and re-applies the active sort
   (function() {
     'use strict';
+
     type GameType = 'regular' | 'playoffs';
     type Display  = 'totals' | 'per60';
     type Strength = 'all' | '5v5';
+    interface PayloadRow {
+      team_abbrev: string; team_name_full: string; team_name_city: string; team_name_nickname: string;
+      division: string; conference: string;
+      gp: number; wins: number; losses: number; ot_losses: number; points: number;
+      gf: number; ga: number; toi_5v5_sec: number;
+      gf_5v5: number; ga_5v5: number; gf_pct_5v5: number;
+      xgf_5v5: number; xga_5v5: number; xgf_pct_5v5: number;
+      sf_5v5: number; sa_5v5: number; sf_pct_5v5: number;
+      sh_pct_5v5: number; sv_pct_5v5: number; pdo_5v5: number;
+      pp_pct: number; pk_pct: number; pp_xgf_60: number; pk_xga_60: number;
+      rank: number; record: string;
+      gf_display: number; ga_display: number; xgf_display: number; xga_display: number;
+    }
+    interface Payload {
+      regular:  { totals: PayloadRow[]; per60: PayloadRow[] };
+      playoffs: { totals: PayloadRow[]; per60: PayloadRow[] };
+    }
 
     const wrap = document.querySelector<HTMLElement>('.tbl-wrap[data-tbl-id]');
     if (!wrap) return;
     const tbody = wrap.querySelector<HTMLTableSectionElement>('tbody');
     if (!tbody) return;
 
+    const dataEl = document.getElementById('teams-data') as HTMLScriptElement | null;
+    if (!dataEl) return;
+    let payload: Payload;
+    try {
+      payload = JSON.parse(dataEl.textContent || '{}');
+    } catch (e) {
+      console.error('[teams] failed to parse payload', e);
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
     const state = {
-      gameType: (new URLSearchParams(window.location.search).get('game_type') === 'playoffs' ? 'playoffs' : 'regular') as GameType,
-      display:  (new URLSearchParams(window.location.search).get('display')  === 'per60'    ? 'per60'    : 'totals')   as Display,
-      strength: (new URLSearchParams(window.location.search).get('strength') === '5v5'      ? '5v5'      : 'all')      as Strength,
-      conf:     (new URLSearchParams(window.location.search).get('conf')     ?? 'all'),
-      div:      (new URLSearchParams(window.location.search).get('div')      ?? 'all'),
+      gameType: (params.get('game_type') === 'playoffs' ? 'playoffs' : 'regular') as GameType,
+      display:  (params.get('display')  === 'per60'    ? 'per60'    : 'totals')   as Display,
+      strength: (params.get('strength') === '5v5'      ? '5v5'      : 'all')      as Strength,
+      conf:     params.get('conf') ?? 'all',
+      div:      params.get('div')  ?? 'all',
       search:   '',
     };
 
@@ -709,86 +766,223 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
       history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
     }
 
-    // Reload the page on game-type or display change. Per the v1 scope, we
-    // hard-reload for these toggles because the dataset (regular vs playoff)
-    // is split between two mock arrays in the frontmatter; per-60 transforms
-    // also happen at build time. A future enhancement (when teams.json ships)
-    // is to fetch both datasets client-side and swap without a reload.
-    function reloadWithState(): void {
-      writeUrl();
-      window.location.reload();
+    // ── Formatters (mirror the build-time helpers in the frontmatter) ─────
+    const fmtPct = (v: number | null | undefined) =>
+      v == null ? '—' : (v * 100).toFixed(1) + '%';
+    const fmtFloat1 = (v: number | null | undefined) =>
+      v == null ? '—' : Number(v).toFixed(1);
+    const fmtCount = (v: number | null | undefined) => {
+      if (v == null) return '—';
+      return Number.isInteger(v) ? String(v) : Number(v).toFixed(2);
+    };
+    const formatRank = (n: number) => String(n).padStart(2, '0');
+    function pctColor(v: number | null | undefined): string | undefined {
+      if (v == null) return undefined;
+      if (v >= 0.55) return 'var(--stats-pos)';
+      if (v <= 0.45) return 'var(--stats-neg)';
+      return undefined;
+    }
+    function esc(s: string): string {
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'} as Record<string, string>)[c]);
     }
 
-    // Game-type toggle — swap dataset (full reload, see comment above)
+    // ── Row HTML builder — must match Table.astro's server-side output ─────
+    function rowHtml(r: PayloadRow): string {
+      const href = `/teams/${r.team_abbrev.toLowerCase()}`;
+      const abbr = esc(r.team_abbrev);
+      const cells: string[] = [];
+
+      // Rank
+      cells.push(`<td class="tbl-td td-rk align-right">${formatRank(r.rank)}</td>`);
+
+      // Team cell — mirrors Table.astro's stacked city/nickname lockup so
+      // SSR rows and JS-rendered rows are visually identical.
+      const city = esc(r.team_name_city);
+      const nick = esc(r.team_name_nickname);
+      const hasStack = !!(city && nick);
+      const teamInner = hasStack
+        ? `<div class="td-team-meta"><span class="td-team-city">${city}</span><span class="td-team-nick">${nick}</span></div>`
+        : `<span class="td-abbr">${abbr}</span>`;
+      cells.push(
+        `<td class="tbl-td td-team align-left" data-team-abbr="${abbr}" data-team-city="${city}" data-team-nick="${nick}">` +
+        `<div class="td-team-inner">` +
+        `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg" ` +
+        `width="26" height="26" alt="${abbr}" loading="lazy" onerror="this.style.display='none'" />` +
+        teamInner +
+        `</div></td>`
+      );
+
+      // Numeric cells — keep order in sync with the columns array in the frontmatter
+      const numericCells: Array<{ text: string; bold?: boolean; color?: string }> = [
+        { text: String(r.gp) },
+        { text: r.record },
+        { text: fmtCount(r.gf_display) },
+        { text: fmtCount(r.ga_display) },
+        { text: fmtPct(r.gf_pct_5v5), color: pctColor(r.gf_pct_5v5) },
+        { text: fmtFloat1(r.xgf_display) },
+        { text: fmtFloat1(r.xga_display) },
+        { text: fmtPct(r.xgf_pct_5v5), bold: true, color: pctColor(r.xgf_pct_5v5) },
+        { text: fmtPct(r.sf_pct_5v5),  color: pctColor(r.sf_pct_5v5) },
+        { text: fmtPct(r.pp_pct) },
+        { text: fmtPct(r.pk_pct) },
+      ];
+      // Number cells are center-aligned per the 2026-05-27 design call —
+      // mirrors `defaultAlign()` in Table.astro.
+      for (const c of numericCells) {
+        const cls = ['tbl-td', 'align-center', 'type-number', c.bold ? 'bold' : ''].filter(Boolean).join(' ');
+        const style = c.color ? ` style="color:${c.color}"` : '';
+        cells.push(`<td class="${cls}"${style}>${esc(c.text)}</td>`);
+      }
+
+      // TR — clickable, with data attributes used by client-side filters
+      const trAttrs = [
+        `class="tbl-tr clickable"`,
+        `tabindex="0"`,
+        `data-href="${href}"`,
+        `role="link"`,
+        // Search/filter metadata (Issue 6) — match against any of these
+        `data-team-abbrev="${esc(r.team_abbrev.toLowerCase())}"`,
+        `data-team-full="${esc(r.team_name_full.toLowerCase())}"`,
+        `data-team-city="${esc(r.team_name_city.toLowerCase())}"`,
+        `data-team-nickname="${esc(r.team_name_nickname.toLowerCase())}"`,
+        `data-conference="${esc(r.conference.toLowerCase())}"`,
+        `data-division="${esc(r.division.toLowerCase())}"`,
+      ].join(' ');
+
+      return `<tr ${trAttrs}>${cells.join('')}</tr>`;
+    }
+
+    // ── Render the active view ────────────────────────────────────────────
+    function render(): void {
+      const dataset = payload[state.gameType][state.display];
+      // Apply conf + div filters
+      let filtered = dataset.filter(r => {
+        if (state.conf !== 'all') {
+          // matches if conference starts with the filter letter (e/w)
+          const confLetter = state.conf.charAt(0).toLowerCase();
+          if (!r.conference.toLowerCase().startsWith(confLetter)) return false;
+        }
+        if (state.div !== 'all') {
+          if (r.division.toLowerCase() !== state.div.toLowerCase()) return false;
+        }
+        return true;
+      });
+      // Re-sort by xGF% desc + reassign ranks so the # column is contiguous
+      filtered = filtered
+        .slice()
+        .sort((a, b) => b.xgf_pct_5v5 - a.xgf_pct_5v5)
+        .map((r, i) => ({ ...r, rank: i + 1 }));
+
+      tbody!.innerHTML = filtered.map(rowHtml).join('');
+      // Tell Table.astro to re-snapshot rows + re-apply its sort
+      wrap!.dispatchEvent(new CustomEvent('tbl:rows-changed'));
+      applySearch(); // re-apply search filter on the new row set
+      updateCount(filtered.length, dataset.length);
+    }
+
+    function updateCount(visible: number, total: number): void {
+      const countEl = document.getElementById('lb-count');
+      if (!countEl) return;
+      if (state.search) {
+        countEl.textContent = `${visible} of ${total} teams · search: "${state.search}"`;
+      } else if (visible < total) {
+        countEl.textContent = `${visible} of ${total} teams · default sort: xGF% desc`;
+      } else {
+        countEl.textContent = `${total} teams · default sort: xGF% desc`;
+      }
+    }
+
+    // ── Search (Issue 6) — match across abbrev + full + city + nickname ───
+    function applySearch(): void {
+      const q = state.search;
+      const trs = tbody!.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr');
+      let visible = 0;
+      trs.forEach(tr => {
+        if (!q) {
+          tr.style.display = '';
+          visible++;
+          return;
+        }
+        const haystack = [
+          tr.dataset.teamAbbrev ?? '',
+          tr.dataset.teamFull ?? '',
+          tr.dataset.teamCity ?? '',
+          tr.dataset.teamNickname ?? '',
+        ].join(' ');
+        const matches = haystack.includes(q);
+        tr.style.display = matches ? '' : 'none';
+        if (matches) visible++;
+      });
+      updateCount(visible, trs.length);
+    }
+
+    // ── Toggle wiring (all client-side, no reloads) ───────────────────────
+    function setActiveButton(groupSel: string, attr: string, value: string) {
+      document.querySelectorAll<HTMLButtonElement>(`${groupSel} button`).forEach(b => {
+        b.classList.toggle('active', b.dataset[attr] === value);
+      });
+    }
+
     document.querySelectorAll<HTMLButtonElement>('#gametype-filter button').forEach(btn => {
       btn.addEventListener('click', () => {
         const gt = btn.dataset.gametype as GameType;
         if (gt === state.gameType) return;
         state.gameType = gt;
-        reloadWithState();
+        setActiveButton('#gametype-filter', 'gametype', gt);
+        writeUrl();
+        render();
       });
     });
 
-    // Display toggle — swap totals vs per-60 (full reload, see comment above)
     document.querySelectorAll<HTMLButtonElement>('#display-filter button').forEach(btn => {
       btn.addEventListener('click', () => {
         const d = btn.dataset.display as Display;
         if (d === state.display) return;
         state.display = d;
-        reloadWithState();
+        setActiveButton('#display-filter', 'display', d);
+        writeUrl();
+        render();
       });
     });
 
-    // Strength toggle — informational for v1 (mock data is 5v5-derived). When
-    // pipeline supports PP/PK, this becomes a real toggle. For now it just
-    // updates active state + URL without filtering.
+    // Strength toggle — still informational for v1 (mock data is 5v5-derived).
     document.querySelectorAll<HTMLButtonElement>('#strength-filter button').forEach(btn => {
       btn.addEventListener('click', () => {
         const s = btn.dataset.strength as Strength;
         if (s === state.strength) return;
         state.strength = s;
-        document.querySelectorAll<HTMLButtonElement>('#strength-filter button').forEach(b => {
-          b.classList.toggle('active', b.dataset.strength === s);
-        });
+        setActiveButton('#strength-filter', 'strength', s);
         writeUrl();
       });
     });
 
-    // Conference + division dropdowns — full reload so rank renumbers via SSR
     const confSel = document.getElementById('conf-filter') as HTMLSelectElement | null;
     if (confSel) confSel.addEventListener('change', () => {
       state.conf = confSel.value;
-      reloadWithState();
+      writeUrl();
+      render();
     });
     const divSel = document.getElementById('div-filter') as HTMLSelectElement | null;
     if (divSel) divSel.addEventListener('change', () => {
       state.div = divSel.value;
-      reloadWithState();
+      writeUrl();
+      render();
     });
 
-    // Search — pure DOM filter, no reload (state isn't URL-persisted)
+    // Search — pure DOM filter, no reload
     const searchInput = document.getElementById('team-search') as HTMLInputElement | null;
     if (searchInput) {
       searchInput.addEventListener('input', () => {
-        const q = searchInput.value.trim().toLowerCase();
-        state.search = q;
-        const trs = tbody.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr');
-        let visible = 0;
-        trs.forEach(tr => {
-          if (!q) { tr.style.display = ''; visible++; return; }
-          const abbr = (tr.querySelector('.td-abbr')?.textContent || '').toLowerCase();
-          const matches = abbr.includes(q);
-          tr.style.display = matches ? '' : 'none';
-          if (matches) visible++;
-        });
-        const countEl = document.getElementById('lb-count');
-        if (countEl) {
-          countEl.textContent = q
-            ? `${visible} of ${trs.length} teams · search: "${q}"`
-            : `${trs.length} teams · default sort: xGF% desc`;
-        }
+        state.search = searchInput.value.trim().toLowerCase();
+        applySearch();
       });
     }
+
+    // Initial paint: if URL params don't match the SSR-rendered initial state
+    // (e.g., user lands on `?display=per60` but the static build is `totals`),
+    // re-render to honor the URL. Always-render approach is simpler than
+    // computing diffs and is fast (<5ms for 32 rows).
+    render();
   })();
 </script>
 

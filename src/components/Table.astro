@@ -114,9 +114,14 @@ const {
 function defaultAlign(col: ColumnDef): 'left' | 'right' | 'center' {
   if (col.align) return col.align;
   switch (col.type) {
-    case 'number':
+    // Per design call (2026-05-27 desktop validation): ALL number columns
+    // are center-aligned, NOT right. Tabular-nums keeps digits column-aligned
+    // even without right alignment. Rank stays right because it's a single
+    // narrow column where right reads as "edge marker" not "value".
     case 'rank':
       return 'right';
+    case 'number':
+      return 'center';
     case 'team':
     case 'player':
     case 'label':
@@ -168,9 +173,11 @@ const columnsSchema = columns.map((c) => ({
 const instanceId = `tbl-${Math.random().toString(36).slice(2, 10)}`;
 
 const colCount = columns.length;
+const hasRank = columns[0]?.type === 'rank';
 const wrapClasses = ['tbl-wrap'];
 if (scrollable) wrapClasses.push('scrollable');
 if (sticky) wrapClasses.push('sticky-head');
+if (hasRank) wrapClasses.push('has-rank');
 if (className) wrapClasses.push(className);
 ---
 
@@ -181,7 +188,6 @@ if (className) wrapClasses.push(className);
   data-default-sort-dir={defaultSort?.direction ?? 'desc'}
   data-export-filename={exportFilename ?? ''}
   data-export-title={exportTitle ?? ariaLabel ?? ''}
-  style={scrollable ? `max-height:${maxHeight}px` : undefined}
 >
   {exportFilename && (
     <div class="tbl-actions">
@@ -191,6 +197,7 @@ if (className) wrapClasses.push(className);
     </div>
   )}
 
+  <div class="tbl-scroll" style={scrollable ? `max-height:${maxHeight}px` : undefined}>
   <table aria-label={ariaLabel} class="tbl">
     <colgroup>
       {columns.map((c) => (
@@ -213,6 +220,9 @@ if (className) wrapClasses.push(className);
             isActiveSort && dir === 'asc' ? 'asc' : '',
             isActiveSort && dir === 'desc' ? 'desc' : '',
           ].filter(Boolean).join(' ');
+          const interactiveAttrs = sortable
+            ? { role: 'button', tabindex: '0', 'aria-sort': isActiveSort ? (dir === 'asc' ? 'ascending' : 'descending') : 'none' }
+            : {};
           return (
             <th
               class={cls}
@@ -221,6 +231,7 @@ if (className) wrapClasses.push(className);
               data-type={c.type ?? 'label'}
               data-align={align}
               scope="col"
+              {...interactiveAttrs}
             >
               <span class="tbl-th-label">{c.label}</span>
               {sortable && <span class="sort-arrow" aria-hidden="true">
@@ -280,22 +291,35 @@ if (className) wrapClasses.push(className);
                 );
               }
               if (type === 'team') {
+                // Team column lockup: bigger logo (26×26 desktop, 22×22 mobile)
+                // + stacked city/nickname text. Falls back to abbreviation-only
+                // if city/nickname not provided on the row.
                 const abbr = row[c.key] ?? '';
+                const city = row.team_name_city ?? '';
+                const nick = row.team_name_nickname ?? '';
+                const hasStack = !!(city && nick);
                 return (
-                  <td class={`tbl-td td-team align-${align}`} style={tdStyle}>
+                  <td class={`tbl-td td-team align-${align}`} style={tdStyle} data-team-abbr={abbr} data-team-city={city} data-team-nick={nick}>
                     <div class="td-team-inner">
                       {abbr && (
                         <img
                           class="td-logo"
                           src={`https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg`}
-                          width="22"
-                          height="22"
+                          width="26"
+                          height="26"
                           alt={abbr}
                           loading="lazy"
                           onerror="this.style.display='none'"
                         />
                       )}
-                      <span class="td-abbr">{abbr}</span>
+                      {hasStack ? (
+                        <div class="td-team-meta">
+                          <span class="td-team-city">{city}</span>
+                          <span class="td-team-nick">{nick}</span>
+                        </div>
+                      ) : (
+                        <span class="td-abbr">{abbr}</span>
+                      )}
                     </div>
                   </td>
                 );
@@ -347,33 +371,53 @@ if (className) wrapClasses.push(className);
       })}
     </tbody>
   </table>
+  </div>
 </div>
 
 <script type="application/json" class="tbl-schema" data-tbl-id={instanceId} set:html={JSON.stringify(columnsSchema)}></script>
 
-<style>
+<style is:global>
+  /* GLOBAL (not scoped) — consumer pages like /stats/teams render new rows
+     via JS innerHTML and those elements don't carry Astro's scoped data-cid
+     attr. Scoped styles would silently fail on swapped rows. Class names
+     are namespaced (`tbl-`, `td-`) so the global blast radius is bounded.
+     See MEMORY → "Astro CSS Scoping". */
+
   /* ── Container ─────────────────────────────────────────────────────────── */
+  /* `.tbl-wrap` is the outer chrome: holds the actions row + the scroll area.
+     The scroll container is now the inner `.tbl-scroll` so the export button
+     stays visually anchored to the visible right edge even when the user
+     horizontally scrolls the table on mobile. */
   .tbl-wrap {
     position: relative;
     background: var(--surface);
     border: 1px solid var(--ink-14);
     border-radius: 0;
     box-shadow: none;
+  }
+
+  .tbl-scroll {
+    position: relative;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-x: contain;
+    /* Stronger than `contain` — disables iOS rubber-band bounce that
+       revealed white space past the table edge. */
+    overscroll-behavior-x: none;
   }
-  .tbl-wrap.scrollable {
+  .tbl-wrap.scrollable .tbl-scroll {
     overflow-y: auto;
   }
 
+  /* Export button bar — lives ABOVE the scrolling area inside the wrap so it
+     remains visible at every viewport width and doesn't scroll horizontally
+     with the table. */
   .tbl-actions {
-    position: absolute;
-    top: -44px;
-    right: 0;
     display: flex;
+    justify-content: flex-end;
     gap: 8px;
-    z-index: 1;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--ink-06);
+    background: var(--surface);
   }
 
   .dl-btn {
@@ -398,8 +442,15 @@ if (className) wrapClasses.push(className);
   /* ── Table base ────────────────────────────────────────────────────────── */
   .tbl {
     width: 100%;
+    min-width: 100%;
     border-collapse: collapse;
     table-layout: auto;
+  }
+  /* On narrow viewports the table is wider than its container — let it size
+     to its natural content width inside the horizontal scroller so the wrap
+     never reveals trailing whitespace past the last column. */
+  @media (max-width: 640px) {
+    .tbl { width: max-content; min-width: 100%; }
   }
 
   /* ── Header row ────────────────────────────────────────────────────────── */
@@ -478,13 +529,22 @@ if (className) wrapClasses.push(className);
   }
 
   /* ── Cells ─────────────────────────────────────────────────────────────── */
+  /* Explicit `background-color` (not the shorthand) so sticky cells never
+     bleed through on hover/active states — the row hover paints the TR but
+     each sticky cell needs its OWN opaque paint when scrolled under. */
   .tbl tbody td.tbl-td {
     padding: 8px 12px;
     vertical-align: middle;
     color: var(--ink);
-    background: var(--surface);
+    background-color: var(--surface);
   }
-  .tbl tbody tr.tbl-tr:hover td.tbl-td { background: transparent; }
+  /* Hover paints the row; sticky cells need to mirror that color rather than
+     go transparent (which would reveal scrolled-under content). */
+  .tbl tbody tr.tbl-tr:hover td.tbl-td { background-color: var(--ink-04); }
+  /* Pinned rows: the tr bg has a red tint; sticky cells must repaint with the
+     same tint so the row reads correctly when columns are stuck on the left. */
+  .tbl tbody tr.tbl-tr.pinned td.tbl-td       { background-color: rgba(232, 0, 45, 0.04); }
+  .tbl tbody tr.tbl-tr.pinned:hover td.tbl-td { background-color: rgba(232, 0, 45, 0.06); }
   .tbl tbody td.tbl-td:first-child { padding-left: 16px; }
   .tbl tbody td.tbl-td:last-child  { padding-right: 16px; }
 
@@ -492,9 +552,12 @@ if (className) wrapClasses.push(className);
   .tbl tbody td.align-right  { text-align: right; }
   .tbl tbody td.align-center { text-align: center; }
 
-  /* Number type: right-aligned, mono, tabular */
+  /* Number type: CENTER-aligned per 2026-05-27 design call (was right).
+     `tabular-nums` keeps digits column-aligned without needing right-align —
+     decimals + integers still read as a clean grid because each glyph occupies
+     the same advance width. */
   .tbl tbody td.type-number {
-    text-align: right;
+    text-align: center;
     font-family: var(--mono);
     font-size: 12px;
     font-variant-numeric: tabular-nums;
@@ -510,6 +573,8 @@ if (className) wrapClasses.push(className);
   }
 
   /* ── Rank cell ─────────────────────────────────────────────────────────── */
+  /* `background-color` is inherited from `.tbl-td` so the rank cell paints
+     opaquely when sticky. Do NOT override to transparent here. */
   .tbl tbody td.td-rk {
     font-family: var(--mono);
     font-size: 11px;
@@ -524,11 +589,20 @@ if (className) wrapClasses.push(className);
     font-weight: 700;
   }
 
-  /* ── Team logo + abbreviation lockup ───────────────────────────────────── */
+  /* ── Team logo + name lockup ───────────────────────────────────────────── */
+  /* Team column: 26×26 logo + stacked city/nickname text (similar to the
+     player headshot+name lockup). The city reads in Barlow 15px 600, the
+     nickname in mono 9.5px ink-32 — same hierarchy as `.td-name` / `.td-sub`
+     so the visual rhythm matches across team rows and player rows. Mobile
+     drops back to 22×22 to keep the row compact on the horizontal scroller. */
   .tbl tbody td.td-team .td-team-inner {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+  }
+  .tbl tbody td.td-team .td-logo {
+    width: 26px;
+    height: 26px;
   }
   .td-logo {
     width: 22px;
@@ -537,6 +611,31 @@ if (className) wrapClasses.push(className);
     object-fit: contain;
     flex-shrink: 0;
   }
+  .td-team-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.1;
+  }
+  .td-team-city {
+    font-family: var(--body);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .td-team-nick {
+    display: block;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 500;
+    color: var(--ink-32);
+    margin-top: 2px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  /* Fallback abbreviation-only treatment (when city/nickname absent). */
   .td-abbr {
     font-family: var(--display);
     font-weight: 700;
@@ -626,7 +725,7 @@ if (className) wrapClasses.push(className);
     vertical-align: middle;
   }
 
-  /* ── Mobile: tighten padding + sticky first column ─────────────────────── */
+  /* ── Mobile: tighten padding + sticky pinned columns ───────────────────── */
   @media (max-width: 640px) {
     .tbl thead th.tbl-th,
     .tbl tbody td.tbl-td {
@@ -636,26 +735,81 @@ if (className) wrapClasses.push(className);
     .tbl tbody td.tbl-td:last-child  { padding-right: 10px; }
     .td-name { font-size: 14px; }
     .td-sub  { font-size: 9px; }
+    /* Team column: drop the 26×26 logo back to 22×22 on mobile so the row
+       stays compact on the horizontal scroller. */
+    .tbl tbody td.td-team .td-logo { width: 22px; height: 22px; }
+    .tbl tbody td.td-team .td-team-inner { gap: 8px; }
+    .td-team-city { font-size: 14px; }
+    .td-team-nick { font-size: 9px; }
 
-    /* Sticky first column — pins rank+name lockup during horizontal scroll */
-    .tbl thead th:first-child,
-    .tbl tbody td:first-child {
+    /* === Default sticky behavior: first column only ====================== */
+    /* When the first column is NOT a rank (e.g., team-first layout) we pin
+       only that column on horizontal scroll. */
+    .tbl-wrap:not(.has-rank) .tbl thead th:first-child,
+    .tbl-wrap:not(.has-rank) .tbl tbody td:first-child {
       position: sticky;
       left: 0;
-      background: var(--surface);
+      background-color: var(--surface);
       z-index: 5;
     }
-    /* The header's first-child must outrank the sticky thead so the corner
-       cell stays fully covered. */
-    .tbl-wrap.sticky-head .tbl thead th:first-child {
+    .tbl-wrap:not(.has-rank).sticky-head .tbl thead th:first-child {
       z-index: 25;
     }
-    /* Preserve hover on first column when row is hovered */
-    .tbl tbody tr.tbl-tr:hover td:first-child { background: var(--ink-04); }
+
+    /* === Rank + team layout: pin BOTH columns ============================ */
+    /* Lock the rank column to a fixed width so the second column's `left`
+       offset is deterministic. */
+    .tbl-wrap.has-rank .tbl thead th:first-child,
+    .tbl-wrap.has-rank .tbl tbody td:first-child {
+      position: sticky;
+      left: 0;
+      min-width: 48px;
+      max-width: 56px;
+      width: 56px;
+      background-color: var(--surface);
+      z-index: 5;
+    }
+    .tbl-wrap.has-rank .tbl thead th:nth-child(2),
+    .tbl-wrap.has-rank .tbl tbody td:nth-child(2) {
+      position: sticky;
+      left: 56px;
+      background-color: var(--surface);
+      z-index: 5;
+      /* Subtle right edge marks the boundary of the sticky group so users
+         can see what's pinned vs what's scrolling. */
+      box-shadow: 1px 0 0 var(--ink-06);
+    }
+    /* Header cells need to outrank the sticky thead corner. */
+    .tbl-wrap.has-rank.sticky-head .tbl thead th:first-child,
+    .tbl-wrap.has-rank.sticky-head .tbl thead th:nth-child(2) {
+      z-index: 25;
+    }
+
+    /* === Hover preservation: sticky cells repaint with row hover bg ====== */
+    .tbl tbody tr.tbl-tr:hover td:first-child,
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr:hover td:nth-child(2) {
+      background-color: var(--ink-04);
+    }
+    /* Pinned rows */
+    .tbl tbody tr.tbl-tr.pinned td:first-child,
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr.pinned td:nth-child(2) {
+      background-color: rgba(232, 0, 45, 0.04);
+    }
+    .tbl tbody tr.tbl-tr.pinned:hover td:first-child,
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr.pinned:hover td:nth-child(2) {
+      background-color: rgba(232, 0, 45, 0.06);
+    }
   }
 </style>
 
-<script lang="ts">
+<script>
+  // ROOT CAUSE FIX (2026-05-27 desktop validation): this script used to have
+  // `lang="ts"` which is NOT a valid Astro hint — the script was shipped to
+  // the browser AS RAW TYPESCRIPT (with type annotations like `wrap: HTMLElement`
+  // still in place). The browser threw a syntax error on first parse and
+  // `initTable` never defined, so sort + row navigation never worked. Switching
+  // to plain `<script>` lets Astro process this through esbuild and strip the
+  // types — sort fires correctly on both desktop and mobile.
   // ── Client-side behaviors: sort cycle, row navigation, PNG export ─────────
   // Vanilla JS, no framework dependencies. Self-contained per Table instance.
 
@@ -698,8 +852,10 @@ if (className) wrapClasses.push(className);
     if (!tbody) return;
 
     // Snapshot of the ORIGINAL row order so the third sort-click can
-    // restore the default sort by re-sorting from the snapshot.
-    const originalRows: HTMLTableRowElement[] = Array.from(
+    // restore the default sort by re-sorting from the snapshot. Held in a
+    // mutable container so a `tbl:rows-changed` refresh can rebuild it after
+    // the page swaps the tbody contents.
+    let originalRows: HTMLTableRowElement[] = Array.from(
       tbody.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr')
     );
 
@@ -783,51 +939,84 @@ if (className) wrapClasses.push(className);
     // expected to pre-sort rows by defaultSort before passing them in.
 
     // Wire header clicks: 3-state cycle (desc → asc → unsorted)
+    // iOS Safari fires `click` reliably only on natively-interactive elements
+    // OR elements with `cursor: pointer` + `role="button"` + `tabindex`. The
+    // `<th>` has all three (cursor is on `.sortable`, role/tabindex come from
+    // the Astro template), so a single `click` listener is enough. We also
+    // bind `keydown` so the keyboard can drive the sort cycle.
+    function handleHeaderActivate(th: HTMLTableCellElement) {
+      if (th.dataset.sortable !== '1') return;
+      const key = th.dataset.key || '';
+      if (!key) return;
+      let nextDir: SortDir;
+      if (activeSortKey !== key) {
+        // New column → start descending
+        nextDir = 'desc';
+      } else if (activeSortDir === 'desc') {
+        nextDir = 'asc';
+      } else if (activeSortDir === 'asc') {
+        // Third click: unsort and revert to default
+        if (defaultSortKey && defaultSortKey !== key) {
+          activeSortKey = defaultSortKey;
+          activeSortDir = defaultSortDir;
+          sortBy(activeSortKey, activeSortDir);
+          return;
+        }
+        nextDir = null;
+      } else {
+        nextDir = 'desc';
+      }
+      activeSortKey = nextDir ? key : (defaultSortKey || key);
+      activeSortDir = nextDir ?? (defaultSortKey ? defaultSortDir : null);
+      sortBy(activeSortKey, activeSortDir);
+    }
+
     table.querySelectorAll<HTMLTableCellElement>('thead th.tbl-th').forEach(th => {
       if (th.dataset.sortable !== '1') return;
-      th.addEventListener('click', () => {
-        const key = th.dataset.key || '';
-        if (!key) return;
-        let nextDir: SortDir;
-        if (activeSortKey !== key) {
-          // New column → start descending
-          nextDir = 'desc';
-        } else if (activeSortDir === 'desc') {
-          nextDir = 'asc';
-        } else if (activeSortDir === 'asc') {
-          // Third click: unsort and revert to default
-          if (defaultSortKey && defaultSortKey !== key) {
-            activeSortKey = defaultSortKey;
-            activeSortDir = defaultSortDir;
-            sortBy(activeSortKey, activeSortDir);
-            return;
-          }
-          nextDir = null;
-        } else {
-          nextDir = 'desc';
+      th.addEventListener('click', () => handleHeaderActivate(th));
+      th.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleHeaderActivate(th);
         }
-        activeSortKey = nextDir ? key : (defaultSortKey || key);
-        activeSortDir = nextDir ?? (defaultSortKey ? defaultSortDir : null);
-        sortBy(activeSortKey, activeSortDir);
       });
     });
 
-    // Wire row navigation: whole-row click + keyboard Enter
-    wrap.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr.clickable').forEach(tr => {
-      const href = tr.dataset.href;
-      if (!href) return;
-      tr.addEventListener('click', (e) => {
-        // Don't navigate if the user clicked on an inner anchor/button
-        const target = e.target as HTMLElement;
-        if (target.closest('a, button')) return;
-        window.location.href = href;
-      });
-      tr.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
+    // Wire row navigation: whole-row click + keyboard Enter. Idempotent —
+    // calling this again after a tbody swap re-binds new rows. We guard with
+    // a dataset flag so a re-init won't double-bind existing rows.
+    function wireRowNavigation() {
+      wrap.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr.clickable').forEach(tr => {
+        if (tr.dataset.tblNavBound === '1') return;
+        const href = tr.dataset.href;
+        if (!href) return;
+        tr.dataset.tblNavBound = '1';
+        tr.addEventListener('click', (e) => {
+          // Don't navigate if the user clicked on an inner anchor/button
+          const target = e.target as HTMLElement;
+          if (target.closest('a, button')) return;
           window.location.href = href;
-        }
+        });
+        tr.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            window.location.href = href;
+          }
+        });
       });
+    }
+    wireRowNavigation();
+
+    // Refresh hook — a consuming page that re-renders the tbody emits a
+    // `tbl:rows-changed` event on the wrap. We re-snapshot the row order,
+    // wire navigation on any newly-added rows, and (if a sort is active)
+    // re-apply it so the new data lands in the user's chosen order.
+    wrap.addEventListener('tbl:rows-changed', () => {
+      originalRows = Array.from(tbody!.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr'));
+      wireRowNavigation();
+      if (activeSortKey && activeSortDir) {
+        sortBy(activeSortKey, activeSortDir);
+      }
     });
 
     // Wire PNG export — defers to global HGB_Export from /js/table-export.js.
