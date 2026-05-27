@@ -6,6 +6,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
 import { loadPlayers, loadAllTeamGames, loadTeamPlayerGames, loadGoalies } from '../../lib/stats-loader';
 import { pickTeamColor } from '../../lib/team-colors';
 
@@ -113,6 +114,54 @@ const seasonRecord = (() => {
   const ot = teamGames.filter(g => g.result === 'OT').length;
   return teamGames.length ? `${w}-${l}-${ot}` : recordLabel;
 })();
+
+// ── Column schemas for the three tables on this page ────────────────────────
+// Per TABLES.md §13 — Table.astro is the canonical wrapper for all three.
+
+const playerColumns = [
+  { key: '_rank', label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'name',  label: 'Player', type: 'player' as const, sub: (r: any) => `${r.pos} · ${r.gp} GP` },
+  { key: 'pos',   label: 'Pos',    type: 'position' as const, sortable: true },
+  { key: 'gp',    label: 'GP',     type: 'number' as const },
+  { key: 'war',   label: 'WAR',    type: 'number' as const },
+  { key: 'g60',   label: 'G/60',   type: 'number' as const },
+  { key: 'a60',   label: 'A1/60',  type: 'number' as const },
+  { key: 'x60',   label: 'xG/60',  type: 'number' as const },
+  { key: 'fin',   label: 'Fin',    type: 'number' as const },
+  { key: 'imp',   label: 'Impact', type: 'number' as const, bold: true },
+];
+
+const goalieColumns = [
+  { key: 'name', label: 'Name', type: 'label' as const },
+  { key: 'gp',   label: 'GP',   type: 'number' as const },
+  { key: 'gsax', label: 'GSAx', type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+    color: (v: any, _r: any, tok?: { pos: string; neg: string }) => v == null ? undefined : (v >= 0 ? tok?.pos : tok?.neg),
+  },
+  { key: 'sv_pct', label: 'SV%', type: 'number' as const,
+    format: (v: any) => v == null ? '—' : (v * 100).toFixed(2) + '%' },
+  { key: 'sa',   label: 'SA',   type: 'number' as const },
+];
+
+const goalieRows = teamGoalies.map(g => ({
+  goalie_id: g.goalie_id,
+  name:    g.name,
+  gp:      g.gp ?? null,
+  gsax:    g.gsax,
+  sv_pct:  g.sv_pct,
+  sa:      g.sa,
+}));
+
+const gameLogColumns = [
+  { key: 'date',    label: 'Date',   type: 'label' as const },
+  { key: 'opp',     label: 'Opp',    type: 'label' as const },
+  { key: 'result',  label: 'Result', type: 'label' as const },
+  { key: 'gf',      label: 'GF',     type: 'number' as const },
+  { key: 'ga',      label: 'GA',     type: 'number' as const },
+  { key: 'xgf_pct', label: 'xGF%',   type: 'number' as const, bold: true },
+  { key: 'xgf',     label: 'xGF',    type: 'number' as const },
+  { key: 'xga',     label: 'xGA',    type: 'number' as const },
+];
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -263,45 +312,21 @@ const seasonRecord = (() => {
       text-transform: uppercase; color: var(--ink-32); margin-top: 4px; }
 
     /* ── Player table ── */
-    .table-card { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+    .table-card { background: var(--surface); border: 1px solid var(--ink-14); }
     .table-head { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
       display: flex; align-items: baseline; justify-content: space-between; }
     .table-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px;
       letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); }
     .table-eyebrow .accent { color: var(--red); }
-    table { width: 100%; border-collapse: collapse; }
-    thead th { padding: 9px 10px 7px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
-      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
-      border-bottom: 2px solid var(--ink-14); text-align: right;
-      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s; }
-    thead th:first-child  { text-align: left; padding-left: 16px; cursor: default; }
-    thead th.th-player    { text-align: left; cursor: default; min-width: 140px; }
-    thead th:hover        { color: var(--ink); }
-    thead th.sorted       { color: var(--ink); }
-    .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.4; font-size: 8px; }
-    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
-    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
-    tbody tr:last-child   { border-bottom: none; }
-    tbody tr:hover        { background: var(--ink-04); }
-    td { padding: 8px 10px; vertical-align: middle; }
-    td:first-child        { padding-left: 16px; }
-    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
-      text-align: left; font-variant-numeric: tabular-nums; }
-    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
-    .td-player { display: flex; align-items: center; gap: 10px; min-width: 140px; }
-    .td-logo   { width: 22px; height: 22px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
-    .td-info   { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .td-name   { font-family: var(--body); font-size: 15px; font-weight: 600; color: var(--ink);
-      text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .td-name:hover { color: var(--red); }
-    .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); white-space: nowrap; }
-    .td-pos    { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); text-align: center; }
-    .td-stat   { text-align: right; white-space: nowrap; }
-    .sv { display: block; font-family: var(--mono); font-size: 13px; font-weight: 700;
-      font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.25; }
-    .sv.pos { color: #14803c; }
-    .sv.neg { color: var(--red); }
-    .sv.nil { color: var(--ink-32); font-weight: 400; font-size: 12px; }
+
+    /* When Table.astro lives inside .table-card / .gl-card we drop the
+       wrapper's own border since the card already provides one. */
+    .table-card .tbl-wrap,
+    .gl-card .tbl-wrap { border: none; }
+
+    /* Game log title row + percentile sub-line for player rows. The .sp/.pe/
+       .pg/.pa/.pl helpers are page-specific affordances (percentile rank in
+       Impact column). */
     .sp { display: block; font-family: var(--mono); font-size: 9px;
       font-variant-numeric: tabular-nums; line-height: 1.2; }
     .pe { color: #00c078; }
@@ -309,24 +334,11 @@ const seasonRecord = (() => {
     .pa { color: var(--ink-32); }
     .pl { color: var(--red); opacity: 0.65; }
 
-    /* ── Game log ── */
-    .gl-card { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+    /* Game log card chrome */
+    .gl-card { background: var(--surface); border: 1px solid var(--ink-14); }
     .gl-head { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
       display: flex; align-items: baseline; justify-content: space-between; }
-    .gl-table { width: 100%; border-collapse: collapse; }
-    .gl-table th { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--ink-32); padding: 9px 14px; border-bottom: 1px solid var(--ink-10); text-align: right; }
-    .gl-table th:first-child { text-align: left; }
-    .gl-table td { padding: 8px 14px; border-bottom: 1px solid var(--ink-06);
-      font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
-    .gl-table td:first-child { text-align: left; }
-    .gl-table tr:last-child td { border-bottom: none; }
-    .gl-table tr:hover td { background: var(--bg); }
-    .gl-w  { color: #14803c; font-weight: 700; }
-    .gl-l  { color: var(--red); font-weight: 700; }
-    .gl-ot { color: var(--ink-48); font-weight: 700; }
-    .gl-link { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-14); transition: border-color 0.15s; }
-    .gl-link:hover { border-color: var(--red); }
+
     .tbl-more { border-top: 1px solid var(--ink-14); padding: 12px 18px; text-align: center; }
     .tbl-more button { background: none; border: 1px solid var(--ink-20); padding: 5px 20px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; }
     .tbl-more button:hover { border-color: var(--ink); color: var(--ink); }
@@ -363,21 +375,7 @@ const seasonRecord = (() => {
     }
     .export-btn:hover { border-color: var(--ink); color: var(--ink); }
 
-    /* ── Goalie table ── */
-    .gt-table { width: 100%; border-collapse: collapse; }
-    .gt-table thead th { padding: 9px 14px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
-      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
-      border-bottom: 2px solid var(--ink-14); text-align: right; }
-    .gt-table thead th:first-child { text-align: left; padding-left: 16px; }
-    .gt-table tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
-    .gt-table tbody tr:last-child { border-bottom: none; }
-    .gt-table tbody tr:hover { background: var(--ink-04); }
-    .gt-table td { padding: 9px 14px; font-family: var(--mono); font-size: 12.5px;
-      color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; vertical-align: middle; }
-    .gt-table td:first-child { text-align: left; padding-left: 16px;
-      font-family: var(--body); font-size: 15px; font-weight: 600; }
-    .gt-table .gsax-pos { color: var(--stats-pos); font-weight: 700; }
-    .gt-table .gsax-neg { color: var(--stats-neg); font-weight: 700; }
+    /* Goalie empty-state (Table.astro handles non-empty rendering) */
     .gt-empty { padding: 32px 18px; text-align: center; font-family: var(--mono);
       font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
 
@@ -403,13 +401,10 @@ const seasonRecord = (() => {
       .tonight-widget { min-width: 0; width: 100%; }
       .wrap { padding: 0 20px; }
       .content { padding: 24px 0 60px; }
-      .c-a60, .c-imp { display: none; }
     }
     @media (max-width: 480px) {
       .mast-card { padding: 16px; }
       .wrap { padding: 0 16px; }
-      .c-fin, .c-pos { display: none; }
-      .td-sub { display: none; }
     }
   </style>
 </head>
@@ -516,35 +511,13 @@ const seasonRecord = (() => {
         <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;Skaters</span>
         <span class="filter-meta" id="table-meta">season stats</span>
       </div>
-      <table>
-        <colgroup>
-          <col style="width:40px"><!-- rank -->
-          <col><!-- player -->
-          <col class="c-pos" style="width:36px"><!-- pos -->
-          <col style="width:42px"><!-- gp -->
-          <col style="width:82px"><!-- war/col1 -->
-          <col style="width:72px"><!-- g/60 or G -->
-          <col class="c-a60" style="width:72px"><!-- a1/60 or A -->
-          <col style="width:72px"><!-- xg/60 -->
-          <col class="c-fin" style="width:72px"><!-- fin or pts -->
-          <col class="c-imp" style="width:72px"><!-- impact -->
-        </colgroup>
-        <thead id="player-thead">
-          <tr>
-            <th>#</th>
-            <th class="th-player">Player</th>
-            <th class="c-pos">Pos</th>
-            <th data-sort="gp">GP<span class="sort-arrow"></span></th>
-            <th data-sort="war">WAR<span class="sort-arrow"></span></th>
-            <th data-sort="g60">G/60<span class="sort-arrow"></span></th>
-            <th class="c-a60" data-sort="a60">A1/60<span class="sort-arrow"></span></th>
-            <th data-sort="x60">xG/60<span class="sort-arrow"></span></th>
-            <th class="c-fin" data-sort="fin">Fin<span class="sort-arrow"></span></th>
-            <th class="c-imp" data-sort="imp">Impact<span class="sort-arrow">↓</span></th>
-          </tr>
-        </thead>
-        <tbody id="player-tbody"></tbody>
-      </table>
+      <Table
+        columns={playerColumns}
+        rows={[]}
+        defaultSort={{ column: 'imp', direction: 'desc' }}
+        sticky={false}
+        ariaLabel={`${abbr} skater stats`}
+      />
       <div id="player-more-row" class="tbl-more" style="display:none">
         <button id="player-show-all-btn">Show all players</button>
       </div>
@@ -559,33 +532,14 @@ const seasonRecord = (() => {
       {teamGoalies.length === 0 ? (
         <div class="gt-empty">No goalie data available.</div>
       ) : (
-        <table class="gt-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>GP</th>
-              <th>GSAx</th>
-              <th>SV%</th>
-              <th>SA</th>
-            </tr>
-          </thead>
-          <tbody>
-            {teamGoalies.map(g => {
-              const gsaxFmt = (g.gsax >= 0 ? '+' : '') + g.gsax.toFixed(2);
-              const gsaxCls = g.gsax >= 0 ? 'gsax-pos' : 'gsax-neg';
-              const svPctFmt = g.sv_pct != null ? (g.sv_pct * 100).toFixed(2) + '%' : '—';
-              return (
-                <tr>
-                  <td>{g.name}</td>
-                  <td>{g.gp ?? '—'}</td>
-                  <td class={gsaxCls}>{gsaxFmt}</td>
-                  <td>{svPctFmt}</td>
-                  <td>{g.sa}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <Table
+          columns={goalieColumns}
+          rows={goalieRows}
+          rowHref={(r) => `/stats/goalies/${r.goalie_id}`}
+          defaultSort={{ column: 'sa', direction: 'desc' }}
+          sticky={false}
+          ariaLabel={`${abbr} goalie stats`}
+        />
       )}
     </div>
 
@@ -604,23 +558,14 @@ const seasonRecord = (() => {
         <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;<span id="gl-title">Last 10 Games</span></span>
         <span class="filter-meta" id="gl-meta"></span>
       </div>
-      <table class="gl-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Opp</th>
-            <th>Result</th>
-            <th>GF</th>
-            <th>GA</th>
-            <th>xGF%</th>
-            <th>xGF</th>
-            <th>xGA</th>
-          </tr>
-        </thead>
-        <tbody id="gl-tbody">
-          <tr><td colspan="8" class="gl-empty">Loading…</td></tr>
-        </tbody>
-      </table>
+      <Table
+        columns={gameLogColumns}
+        rows={[]}
+        sticky={false}
+        ariaLabel={`${abbr} game log`}
+        loadingMessage="Loading game log…"
+        isLoading
+      />
     </div>
 
   </div>
@@ -812,25 +757,34 @@ function buildPlayerRows() {
   }).filter(Boolean);
 }
 
+// Locate the player + game-log table wraps by their containing card.
+// The component renders multiple .tbl-wrap on the page; we pick by parent.
+const playerWrap  = document.querySelector('.table-card .tbl-wrap');
+const playerTbody = playerWrap?.querySelector('tbody');
+const glWrap      = document.querySelector('.gl-card .tbl-wrap');
+const glTbody     = glWrap?.querySelector('tbody');
+
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 function renderPlayerTable() {
+  if (!playerWrap || !playerTbody) return;
   const rows = buildPlayerRows();
   rows.sort((a, b) => {
-    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    return sortAsc ? av - bv : bv - av;
+    const av = a[sortKey] ?? -Infinity;
+    const bv = b[sortKey] ?? -Infinity;
+    return bv - av;
   });
-
-  const tbody   = document.getElementById('player-tbody');
   const moreRow = document.getElementById('player-more-row');
   const isOpp   = activeOpp !== '';
-
-  // Season view: cap at 10 by HGB Impact; opponent view: show all
   const PLAYER_LIMIT = 10;
   const shown = (!isOpp && !playerShowAll) ? rows.slice(0, PLAYER_LIMIT) : rows;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="10" class="gl-empty">No qualifying players vs this opponent.</td></tr>`;
+    playerTbody.innerHTML = `<tr class="tbl-empty"><td colspan="10">No qualifying players vs this opponent.</td></tr>`;
     if (moreRow) moreRow.style.display = 'none';
+    playerWrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
     return;
   }
 
@@ -841,67 +795,51 @@ function renderPlayerTable() {
     if (btn) btn.textContent = `Show all ${rows.length} players`;
   }
 
-  tbody.innerHTML = shown.map((r, i) => `<tr>
-    <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
-    <td><div class="td-player">
-      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" width="22" height="22" loading="lazy">
-      <div class="td-info">
-        <a href="/stats/player/${r.slug}" class="td-name">${r.name}</a>
-        <span class="td-sub">${r.pos} · ${r.gp} GP${isOpp ? ' vs ' + activeOpp : ''}</span>
-      </div>
-    </div></td>
-    <td class="td-pos c-pos">${r.pos}</td>
-    <td class="td-stat">${countCell(r.gp)}</td>
-    <td class="td-stat">${r.war != null
-      ? `<span class="sv ${r.war >= 0 ? 'pos' : 'neg'}">${sgn(r.war)}${r.war.toFixed(2)}</span>${isOpp ? '<span class="sv nil" style="font-size:9px">season</span>' : '<span class="sp pa">&nbsp;</span>'}`
-      : '<span class="sv nil">—</span>'
-    }</td>
-    <td class="td-stat">${isOpp && r.rawG != null
-      ? countCell(r.rawG)
-      : statCell(r.g60, r.g60_p, false)
-    }</td>
-    <td class="td-stat c-a60">${isOpp && r.rawA != null
-      ? countCell(r.rawA)
-      : statCell(r.a60, r.a60_p, false)
-    }</td>
-    <td class="td-stat">${statCell(r.x60, r.x60_p, false)}</td>
-    <td class="td-stat c-fin">${isOpp
-      ? (r.x60 != null ? `<span class="sv">${r.x60.toFixed(2)}</span><span class="sp pa">xG/60</span>` : '<span class="sv nil">—</span>')
-      : statCell(r.fin, r.fin_p, true)
-    }</td>
-    <td class="td-stat c-imp"><span class="sv">${r.imp != null ? r.imp.toFixed(2) : '—'}</span>${r.imp_p != null ? `<span class="sp ${pctCls(r.imp_p)}">${ordinal(r.imp_p)}</span>` : '<span class="sp pa">avg</span>'}</td>
-  </tr>`).join('');
+  playerTbody.innerHTML = shown.map((r, i) => {
+    const teamAbbr = escHtml(r.team || '');
+    const nameEsc = escHtml(r.name);
+    const subText = `${r.pos} · ${r.gp} GP${isOpp ? ' vs ' + activeOpp : ''}`;
+    const href = `/stats/player/${r.slug}`;
+    const warVal = r.war != null
+      ? `<span style="color:${r.war >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)'};font-weight:700">${sgn(r.war)}${r.war.toFixed(2)}</span>${isOpp ? '<div style="font-family:var(--mono);font-size:9px;color:var(--ink-32)">season</div>' : ''}`
+      : '<span style="color:var(--ink-32)">—</span>';
+    const g60Cell = isOpp && r.rawG != null ? String(r.rawG) : (r.g60 != null ? r.g60.toFixed(2) : '—');
+    const a60Cell = isOpp && r.rawA != null ? String(r.rawA) : (r.a60 != null ? r.a60.toFixed(2) : '—');
+    const x60Cell = r.x60 != null ? r.x60.toFixed(2) : '—';
+    const finCell = isOpp
+      ? (r.x60 != null ? r.x60.toFixed(2) : '—')
+      : (r.fin != null ? `<span style="color:${r.fin >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)'};font-weight:700">${sgn(r.fin)}${r.fin.toFixed(2)}</span>` : '—');
+    const impCell = r.imp != null
+      ? `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.2"><span>${r.imp.toFixed(2)}</span>${r.imp_p != null ? `<span class="sp ${pctCls(r.imp_p)}" style="font-family:var(--mono);font-size:9px">${ordinal(r.imp_p)}</span>` : ''}</div>`
+      : '—';
+    return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">
+      <td class="tbl-td td-rk align-right">${String(i + 1).padStart(2, '0')}</td>
+      <td class="tbl-td td-player align-left">
+        <div class="td-player-inner">
+          ${teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : ''}
+          <div class="td-player-meta">
+            <span class="td-name">${nameEsc}</span>
+            <span class="td-sub">${escHtml(subText)}</span>
+          </div>
+        </div>
+      </td>
+      <td class="tbl-td align-center"><span class="pos-badge">${escHtml(r.pos)}</span></td>
+      <td class="tbl-td align-center type-number">${r.gp ?? '—'}</td>
+      <td class="tbl-td align-center type-number">${warVal}</td>
+      <td class="tbl-td align-center type-number">${g60Cell}</td>
+      <td class="tbl-td align-center type-number">${a60Cell}</td>
+      <td class="tbl-td align-center type-number">${x60Cell}</td>
+      <td class="tbl-td align-center type-number">${finCell}</td>
+      <td class="tbl-td align-center type-number bold">${impCell}</td>
+    </tr>`;
+  }).join('');
 
-  // Update headers for opp mode
-  const headers = document.querySelectorAll('#player-thead th[data-sort]');
-  const labels = isOpp
-    ? { gp: 'GP', war: 'WAR', g60: 'G', a60: 'A', x60: 'xG/60', fin: 'xG/60', imp: 'Imp' }
-    : { gp: 'GP', war: 'WAR', g60: 'G/60', a60: 'A1/60', x60: 'xG/60', fin: 'Fin', imp: 'Impact' };
-  headers.forEach(th => {
-    const k = th.dataset.sort;
-    const arrow = th.querySelector('.sort-arrow');
-    const base = labels[k] ?? k;
-    th.childNodes[0].textContent = base + ' ';
-    if (arrow) {
-      th.classList.toggle('sorted', k === sortKey);
-      arrow.textContent = k === sortKey ? (sortAsc ? '↑' : '↓') : '';
-    }
-  });
+  playerWrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
 
   document.getElementById('table-meta').textContent = isOpp
     ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp} · ${rows.length} players`
     : `season · ${rows.length} players`;
 }
-
-// Sort click — reset show-all when user re-sorts
-document.querySelectorAll('#player-thead th[data-sort]').forEach(th => {
-  th.addEventListener('click', () => {
-    const k = th.dataset.sort;
-    if (sortKey === k) sortAsc = !sortAsc;
-    else { sortKey = k; sortAsc = false; playerShowAll = false; }
-    renderPlayerTable();
-  });
-});
 
 // Show all button
 document.getElementById('player-show-all-btn')?.addEventListener('click', () => {
@@ -912,37 +850,42 @@ document.getElementById('player-show-all-btn')?.addEventListener('click', () => 
 // ── Game log ──────────────────────────────────────────────────────────────────
 
 function renderGameLog() {
+  if (!glWrap || !glTbody) return;
   const all   = activeOpp ? teamGames.filter(g => g.opp_abbrev === activeOpp) : [...teamGames].reverse().slice(0, 10);
-  const tbody = document.getElementById('gl-tbody');
   const title = document.getElementById('gl-title');
   title.textContent = activeOpp
     ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp}`
     : `Last ${all.length} Games`;
 
   if (!all.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="gl-empty">No games found.</td></tr>`;
+    glTbody.innerHTML = `<tr class="tbl-empty"><td colspan="8">No games found.</td></tr>`;
+    glWrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
     return;
   }
 
-  tbody.innerHTML = all.map(g => {
+  glTbody.innerHTML = all.map(g => {
     const xgfPct = g.xgf_5v5 + g.xga_5v5 > 0
       ? ((g.xgf_5v5 / (g.xgf_5v5 + g.xga_5v5)) * 100).toFixed(1) + '%' : '—';
-    const resCls = g.result === 'W' ? 'gl-w' : g.result === 'OT' ? 'gl-ot' : 'gl-l';
+    const resColor = g.result === 'W' ? 'var(--stats-pos)' : g.result === 'OT' ? 'var(--ink-48)' : 'var(--stats-neg)';
     const ha = g.is_home ? 'vs' : '@';
-    const gameLink = (text) => g.game_id
-      ? `<a href="/games/${g.game_id}" class="gl-link">${text}</a>`
-      : text;
-    return `<tr>
-      <td>${gameLink(fmtDate(g.game_date))}</td>
-      <td>${gameLink(ha + ' ' + g.opp_abbrev)}</td>
-      <td class="${resCls}">${g.result} ${g.gf}–${g.ga}</td>
-      <td>${g.gf}</td>
-      <td>${g.ga}</td>
-      <td>${xgfPct}</td>
-      <td>${g.xgf_5v5.toFixed(2)}</td>
-      <td>${g.xga_5v5.toFixed(2)}</td>
+    const dateText = fmtDate(g.game_date);
+    const opp = `${ha} ${g.opp_abbrev}`;
+    const result = `${g.result} ${g.gf}–${g.ga}`;
+    const href = g.game_id ? `/games/${g.game_id}` : '';
+    const trAttrs = href ? `class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link"` : 'class="tbl-tr"';
+    return `<tr ${trAttrs}>
+      <td class="tbl-td type-label align-left">${escHtml(dateText)}</td>
+      <td class="tbl-td type-label align-left">${escHtml(opp)}</td>
+      <td class="tbl-td type-label align-left" style="color:${resColor};font-weight:700">${escHtml(result)}</td>
+      <td class="tbl-td align-center type-number">${g.gf}</td>
+      <td class="tbl-td align-center type-number">${g.ga}</td>
+      <td class="tbl-td align-center type-number bold">${xgfPct}</td>
+      <td class="tbl-td align-center type-number">${g.xgf_5v5.toFixed(2)}</td>
+      <td class="tbl-td align-center type-number">${g.xga_5v5.toFixed(2)}</td>
     </tr>`;
   }).join('');
+
+  glWrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
 
   document.getElementById('gl-meta').textContent = activeOpp
     ? `${all.length} games` : '';
