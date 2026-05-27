@@ -2,6 +2,7 @@
 import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
+import Table from '../../../components/Table.astro';
 import { loadPlayers, loadPlayerGames, loadPlayerShots, type GameLogEntry, type PlayerSummary, type PlayerShot } from '../../../lib/stats-loader';
 import { buildPlayerShotMapSVG } from '../../../lib/rink-svg';
 import { pickTeamColor } from '../../../lib/team-colors';
@@ -149,6 +150,106 @@ const pctBars = [
   ...(player.qoc != null ? [{ label: 'Opp. Quality', key: 'qoc', val: player.qoc, grad: 'linear-gradient(90deg,#f8d7da,#842029)' }] : []),
   ...(player.qot != null ? [{ label: 'Mate Quality', key: 'qot', val: player.qot, grad: 'linear-gradient(90deg,#e8f0fe,#4285f4)' }] : []),
 ];
+
+// ── Table.astro column schemas for the two tables on this page ──────────────
+// Defined in the frontmatter (real TypeScript) because inline {...} template
+// expressions don't accept TS type annotations (Astro gotcha — see
+// Table.astro JSDoc).
+
+const CURRENT_SEASON = '20252026';
+const fmtSeason = (s: string) => s.length === 8 ? `${s.slice(0,4)}–${s.slice(6,8)}` : s;
+const fmtToi5v5 = (sec: number, gp: number) => {
+  const avg = gp > 0 ? sec / gp : 0;
+  const m = Math.floor(avg / 60);
+  const s = Math.round(avg % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+const careerSorted = [...(player.career_seasons ?? [])].sort((a, b) => b.season.localeCompare(a.season));
+const careerRows = careerSorted.map(row => ({
+  season:     row.season,
+  season_fmt: fmtSeason(row.season),
+  team:       row.team,
+  gp:         row.gp,
+  toi_gp:     fmtToi5v5(row.toi_5v5_sec, row.gp),
+  gf_pct:     row.gf_pct,
+  xgf_pct:    row.xgf_pct,
+  is_current: row.season === CURRENT_SEASON,
+}));
+
+const pctColorCb = (v: number | null, _r: any, tok?: { pos: string; neg: string }) => {
+  if (v == null) return undefined;
+  if (v >= 55) return tok?.pos;
+  if (v <= 45) return tok?.neg;
+  return undefined;
+};
+
+const careerColumns = [
+  { key: 'season_fmt', label: 'Season', type: 'label' as const, bold: true },
+  { key: 'team',       label: 'Team',   type: 'team' as const },
+  { key: 'gp',         label: 'GP',     type: 'number' as const },
+  { key: 'toi_gp',     label: 'TOI/GP', type: 'number' as const },
+  { key: 'gf_pct',     label: 'GF%',    type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(1) + '%',
+    color: pctColorCb },
+  { key: 'xgf_pct',    label: 'xGF%',   type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(1) + '%',
+    color: pctColorCb },
+];
+
+const _hasToi = recentGames.some(x => x.toi_sec != null);
+const _hasIxg = recentGames.some(x => x.ixg != null);
+const fmtToiCb = (v: any) => {
+  if (v == null) return '—';
+  const sec = Number(v);
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
+const signedColor = (v: any, _r: any, tok?: { pos: string; neg: string }) => {
+  if (v == null) return undefined;
+  return v >= 0 ? tok?.pos : tok?.neg;
+};
+const resultColor = (_v: any, row: any): string | undefined => {
+  if (row.result_w) return 'var(--stats-pos)';
+  if (row.result_ot) return 'var(--ink-48)';
+  return 'var(--stats-neg)';
+};
+
+const gameLogRows = recentGames.map(g => {
+  const win    = g.team_score > g.opp_score;
+  const result = win ? 'W' : (g.team_score < g.opp_score ? 'L' : 'OT');
+  const vs     = g.is_home ? 'vs' : '@';
+  return {
+    game_id:    g.game_id,
+    date:       fmtDate(g.game_date),
+    opp:        `${vs} ${g.opp_abbrev}`,
+    result:     `${result} ${g.team_score}–${g.opp_score}`,
+    result_w:   win,
+    result_ot:  result === 'OT',
+    goals:      g.goals,
+    assists:    g.assists,
+    points:     g.goals + g.assists,
+    toi_sec:    g.toi_sec,
+    ixg:        g.ixg,
+    gs_display: g.gs_display,
+  };
+});
+
+// Per-60 transform on counting stats REMOVED — game log stays as totals always.
+const gameLogColumns = [
+  { key: 'date',    label: 'Date',   type: 'label' as const },
+  { key: 'opp',     label: 'Opp',    type: 'label' as const },
+  { key: 'result',  label: 'Result', type: 'label' as const, color: resultColor, bold: true },
+  { key: 'goals',   label: 'G',      type: 'number' as const },
+  { key: 'assists', label: 'A',      type: 'number' as const },
+  { key: 'points',  label: 'PTS',    type: 'number' as const, bold: true },
+  ...(_hasToi ? [{ key: 'toi_sec', label: 'TOI', type: 'number' as const, format: fmtToiCb }] : []),
+  ...(_hasIxg ? [{ key: 'ixg',     label: 'xG',  type: 'number' as const, format: (v: any) => v == null ? '—' : Number(v).toFixed(2) }] : []),
+  { key: 'gs_display', label: 'Impact', type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+    color: signedColor },
+];
 ---
 <!doctype html>
 <html lang="en">
@@ -243,20 +344,9 @@ const pctBars = [
     .war-total-val.neg { color: var(--red); }
     .war-rank-note { font-family: var(--mono); font-size: 10px; color: var(--ink-32); text-align: center; padding: 0 18px 14px; letter-spacing: 0.03em; }
 
-    /* Career stats table */
-    .career-table-wrap { overflow-x: auto; }
-    .career-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .career-table thead th { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-48); padding: 10px 12px 8px; border-bottom: 1px solid var(--ink-14); text-align: left; }
-    .career-table thead th.ct-num { text-align: right; }
-    .career-table tbody td { padding: 10px 12px; border-bottom: 1px solid var(--ink-06); font-family: var(--body); }
-    .career-table tbody tr:last-child td { border-bottom: 0; }
-    .career-table tbody tr.ct-current td { background: rgba(13,13,20,0.03); }
-    .career-table tbody tr.ct-current .ct-season { font-weight: 700; color: var(--ink); }
-    .ct-season { font-family: var(--mono); font-size: 12px; color: var(--ink-48); white-space: nowrap; }
-    .ct-team { display: flex; align-items: center; gap: 6px; }
-    .ct-team-logo { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
-    .ct-team-abbr { font-family: var(--mono); font-size: 11px; color: var(--ink-64); letter-spacing: 0.04em; }
-    .ct-num { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+    /* Career stats table — chrome lives in Table.astro now; only the card wrap
+       is page-specific. */
+    .career-card .tbl-wrap { border: none; }
 
     /* Percentile bars */
     .pct-row { display: grid; grid-template-columns: 100px 72px 1fr 44px; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--ink-06); }
@@ -373,21 +463,7 @@ const pctBars = [
     .pct-rows { display: flex; flex-direction: column; gap: 0; }
 
     /* Game log */
-    .gl-table { width: 100%; border-collapse: collapse; }
-    .gl-table th { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-32); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--ink-10); }
-    .gl-table th:not(:first-child) { text-align: right; }
-    .gl-table td { padding: 9px 14px; border-bottom: 1px solid var(--ink-06); font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
-    .gl-table td:not(:first-child) { text-align: right; }
-    .gl-table tr:last-child td { border-bottom: none; }
-    .gl-table tr:hover td { background: var(--bg); }
-    .gl-win  { color: #14803c; font-weight: 700; }
-    .gl-loss { color: var(--red); font-weight: 700; }
-    .gl-muted { color: var(--ink-32); }
-    .gl-imp { font-weight: 700; }
-    .gl-imp.pos { color: #14803c; }
-    .gl-imp.neg { color: var(--red); }
-    .gl-table th.th-impact { text-align: center; }
-    .gl-table td.td-impact { text-align: center; }
+    /* Game log — chrome lives in Table.astro now. */
 
     /* ── Impact trend chart ── */
     .impact-chart-wrap { padding: 0 2px 4px; }
@@ -399,9 +475,6 @@ const pctBars = [
       border: 1px solid var(--ink-14); box-shadow: 0 2px 8px rgba(13,13,20,0.12); }
     #imp-tip .tip-ctx  { color: var(--ink-48); margin-right: 6px; }
     #imp-tip .tip-val  { font-weight: 700; }
-    .gl-table-wrap { max-height: 420px; overflow-y: auto; }
-    .gl-game-link { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-14); transition: border-color 0.15s; }
-    .gl-game-link:hover { border-color: var(--red); color: var(--ink); }
 
     /* CTA sidebar card */
     .cta-card { background: var(--ink); padding: 22px 18px; }
@@ -445,8 +518,6 @@ const pctBars = [
       .wrap { padding: 0 20px; }
       .rapm-val.net-val { font-size: 44px; }
       .rapm-val { font-size: 36px; }
-      .gl-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-      .ct-hide-mobile { display: none; }
 
       /* ── Masthead: stack left (headshot+name) above right (tiles) ── */
       .mast-card {
@@ -499,8 +570,6 @@ const pctBars = [
       .war-row { grid-template-columns: 90px 1fr 44px; gap: 8px; padding: 9px 12px; }
       .war-row-label { font-size: 11px; }
       .war-row-val { font-size: 16px; }
-      /* Game log: tighten padding */
-      .gl-table th, .gl-table td { padding: 7px 10px; font-size: 11.5px; }
       /* Card heads: allow meta to wrap below eyebrow */
       .card-head { flex-wrap: wrap; gap: 2px 8px; padding: 12px 14px 10px; }
       .card-meta { font-size: 9px; }
@@ -691,72 +760,21 @@ const pctBars = [
       })()}
 
       <!-- CAREER STATS TABLE -->
-      {(player.career_seasons && player.career_seasons.length > 0) && (() => {
-        const CURRENT_SEASON = '20252026';
-        const fmtSeason = (s: string) => s.length === 8
-          ? `${s.slice(0,4)}–${s.slice(6,8)}`
-          : s;
-        const fmtToi5v5 = (sec: number, gp: number) => {
-          const avg = gp > 0 ? sec / gp : 0;
-          const m = Math.floor(avg / 60);
-          const s = Math.round(avg % 60);
-          return `${m}:${s.toString().padStart(2, '0')}`;
-        };
-        // gf_pct / xgf_pct arrive as percentage values (e.g. 52.4)
-        const fmtPct = (v: number | null) => v != null ? `${v.toFixed(1)}%` : '—';
-        const pctColor = (v: number | null) => {
-          if (v == null) return 'var(--ink-32)';
-          if (v >= 55) return '#137333';
-          if (v <= 45) return 'var(--red)';
-          return 'var(--ink)';
-        };
-        const sorted = [...player.career_seasons].sort((a, b) => b.season.localeCompare(a.season));
-        return (
-          <div class="card career-card">
-            <div class="card-head">
-              <span class="card-eyebrow">Career Stats &nbsp;<span class="accent">Season by Season</span></span>
-              <span class="card-meta">5v5 · min 600 TOI</span>
-            </div>
-            <div class="career-table-wrap">
-              <table class="career-table">
-                <thead>
-                  <tr>
-                    <th class="ct-season">Season</th>
-                    <th class="ct-team">Team</th>
-                    <th class="ct-num">GP</th>
-                    <th class="ct-num ct-hide-mobile">TOI/GP</th>
-                    <th class="ct-num">GF%</th>
-                    <th class="ct-num">xGF%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map(row => {
-                    const isCurrent = row.season === CURRENT_SEASON;
-                    return (
-                      <tr class={isCurrent ? 'ct-current' : ''}>
-                        <td class="ct-season">{fmtSeason(row.season)}</td>
-                        <td class="ct-team">
-                          <img
-                            src={`https://assets.nhle.com/logos/nhl/svg/${row.team}_dark.svg`}
-                            alt={row.team}
-                            class="ct-team-logo"
-                            width="20" height="20"
-                          />
-                          <span class="ct-team-abbr">{row.team}</span>
-                        </td>
-                        <td class="ct-num">{row.gp}</td>
-                        <td class="ct-num ct-hide-mobile">{fmtToi5v5(row.toi_5v5_sec, row.gp)}</td>
-                        <td class="ct-num" style={`color:${pctColor(row.gf_pct)};font-weight:600`}>{fmtPct(row.gf_pct)}</td>
-                        <td class="ct-num" style={`color:${pctColor(row.xgf_pct)};font-weight:600`}>{fmtPct(row.xgf_pct)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+      {player.career_seasons && player.career_seasons.length > 0 && (
+        <div class="card career-card">
+          <div class="card-head">
+            <span class="card-eyebrow">Career Stats &nbsp;<span class="accent">Season by Season</span></span>
+            <span class="card-meta">5v5 · min 600 TOI</span>
           </div>
-        );
-      })()}
+          <Table
+            columns={careerColumns}
+            rows={careerRows}
+            defaultSort={{ column: 'season_fmt', direction: 'desc' }}
+            sticky={false}
+            ariaLabel="Career season-by-season stats"
+          />
+        </div>
+      )}
 
       <!-- PERCENTILE PROFILE -->
       <div class="card">
@@ -946,57 +964,13 @@ const pctBars = [
           <span class="card-eyebrow">Game log &nbsp;<span class="accent">2025–26</span></span>
           <span class="card-meta">{recentGames.length} games · newest first</span>
         </div>
-        <div class="gl-table-wrap">
-          <table class="gl-table">
-            <thead>
-              <tr>
-                <th>Date</th><th>Opp</th><th>Result</th>
-                <th id="gl-th-g">G</th>
-                <th id="gl-th-a">A</th>
-                <th id="gl-th-p">PTS</th>
-                {recentGames.some(g => g.toi_sec != null) && <th>TOI</th>}
-                {recentGames.some(g => g.ixg != null) && <th>xG</th>}
-                <th class="th-impact">Impact</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentGames.map(g => {
-                const win    = g.team_score > g.opp_score;
-                const result = win ? 'W' : (g.team_score < g.opp_score ? 'L' : 'OT');
-                const vs     = g.is_home ? 'vs' : '@';
-                const href   = g.game_id ? `/games/${g.game_id}` : null;
-                const impCls = g.gs_display >= 0 ? 'pos' : 'neg';
-                const impSign = g.gs_display >= 0 ? '+' : '';
-                const hasToi  = recentGames.some(x => x.toi_sec != null);
-                const hasIxg  = recentGames.some(x => x.ixg != null);
-                return (
-                  <tr>
-                    <td class="gl-muted">
-                      {href ? <a href={href} class="gl-game-link">{fmtDate(g.game_date)}</a> : fmtDate(g.game_date)}
-                    </td>
-                    <td>{href ? <a href={href} class="gl-game-link">{vs} {g.opp_abbrev}</a> : `${vs} ${g.opp_abbrev}`}</td>
-                    <td class={win ? 'gl-win' : 'gl-loss'}>{result} {g.team_score}–{g.opp_score}</td>
-                    <td class="gl-g"
-                      data-totals={String(g.goals)}
-                      data-per60={g.toi_sec ? (g.goals * 3600 / g.toi_sec).toFixed(2) : '—'}
-                    >{g.goals}</td>
-                    <td class="gl-a"
-                      data-totals={String(g.assists)}
-                      data-per60={g.toi_sec ? (g.assists * 3600 / g.toi_sec).toFixed(2) : '—'}
-                    >{g.assists}</td>
-                    <td class="gl-p"
-                      data-totals={String(g.goals + g.assists)}
-                      data-per60={g.toi_sec ? ((g.goals + g.assists) * 3600 / g.toi_sec).toFixed(2) : '—'}
-                    >{g.goals + g.assists}</td>
-                    {hasToi && <td>{g.toi_sec != null ? fmtToi(g.toi_sec) : '—'}</td>}
-                    {hasIxg && <td>{g.ixg != null ? g.ixg.toFixed(2) : '—'}</td>}
-                    <td class="td-impact"><span class={`gl-imp ${impCls}`}>{impSign}{g.gs_display.toFixed(2)}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Table
+          columns={gameLogColumns}
+          rows={gameLogRows}
+          rowHref={(r) => r.game_id ? `/games/${r.game_id}` : undefined}
+          sticky={false}
+          ariaLabel="Game log"
+        />
       </div>
 
     </div>
@@ -2158,18 +2132,19 @@ const pctBars = [
 </script>
 
 <script>
-  // ── Per-60 display toggle ────────────────────────────────────────────────
+  // ── Per-60 display toggle (masthead ONLY) ────────────────────────────────
+  // Game log no longer responds to the /60 toggle — per-60 on a game-by-game
+  // log is meaningless (a player with 8 minutes TOI scoring once = 7.5 G/60).
+  // Only the season-aggregate masthead tile flips between totals and per-60.
   (function() {
     const TOTALS_LABEL = { g: 'G', a: 'A', p: 'PTS' };
     const PER60_LABEL  = { g: 'G/60', a: 'A/60', p: 'P/60' };
-
-    const GL_HEADERS = { g: ['G', 'G/60'], a: ['A', 'A/60'], p: ['PTS', 'P/60'] };
 
     function applyDisplay(mode) {
       const isP60 = mode === 'per60';
       const lbls  = isP60 ? PER60_LABEL : TOTALS_LABEL;
 
-      // ── Masthead season tile ──
+      // Masthead season tile
       ['g', 'a', 'p'].forEach(k => {
         const val = document.getElementById(`gap-${k}-val`);
         const lbl = document.getElementById(`gap-${k}-lbl`);
@@ -2177,28 +2152,18 @@ const pctBars = [
         if (lbl) lbl.textContent = lbls[k];
       });
 
-      // ── Game log G / A / PTS columns ──
-      Object.entries(GL_HEADERS).forEach(([k, [tot, p60]]) => {
-        const th = document.getElementById(`gl-th-${k}`);
-        if (th) th.textContent = isP60 ? p60 : tot;
-        document.querySelectorAll(`.gl-${k}`).forEach(td => {
-          td.textContent = td.dataset[isP60 ? 'per60' : 'totals'] ?? td.textContent;
-        });
-      });
-
       document.querySelectorAll('#player-display-filter button').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.display === mode);
       });
       const meta = document.getElementById('player-display-meta');
       if (meta) meta.textContent = isP60
-        ? 'Per-60-min rates · season totals + game log · 2025–26'
+        ? 'Per-60-min rates · 2025–26'
         : 'Season counting stats · 2025–26';
       const p = new URLSearchParams(window.location.search);
       if (isP60) p.set('display', 'per60'); else p.delete('display');
       history.replaceState(null, '', p.toString() ? `?${p}` : window.location.pathname);
     }
 
-    // Read initial state from URL
     const initMode = new URLSearchParams(window.location.search).get('display') === 'per60' ? 'per60' : 'totals';
     if (initMode === 'per60') applyDisplay('per60');
 
