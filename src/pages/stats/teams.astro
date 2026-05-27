@@ -1,0 +1,798 @@
+---
+// HockeyGameBot — /stats/teams — League-wide NHL Team Leaderboard
+// =============================================================================
+// FIRST CONSUMER of Table.astro (the new shared table component shipped on
+// 2026-05-27). Mirrors the pattern used in /stats/skaters for the page shell
+// (masthead + filter toolbar + table) but delegates ALL row rendering, sort
+// behavior, sticky-header, mobile scroll, and PNG export to <Table>.
+//
+// Mock data is embedded inline below — the Phase 1 pipeline ticket
+// (`teams.json` to R2) is the engineer's next task. Once it ships, the only
+// swap needed is replacing the `const teams = mockTeamsReg;` line with a
+// single fetch (see TODO marker).
+//
+// CANONICAL SPEC: hgb-docs/TABLES.md
+// TICKET:         prompts/2026-05-27-teams-stats-page.md
+// =============================================================================
+
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import StatsSEO from '../../components/StatsSEO.astro';
+import Table from '../../components/Table.astro';
+
+// ── Mock data ────────────────────────────────────────────────────────────────
+// TODO: replace with R2 fetch when teams.json ships
+//   const teamsReg = await fetch('https://api.hockeygamebot.com/v1/stats/teams?game_type=regular').then(r => r.json());
+//   const teamsPlf = await fetch('https://api.hockeygamebot.com/v1/stats/teams?game_type=playoffs').then(r => r.json());
+// Shape matches the schema in prompts/2026-05-27-teams-stats-page.md.
+
+interface TeamRow {
+  team_abbrev: string;
+  team_name_full: string;
+  team_name_city: string;
+  team_name_nickname: string;
+  division: string;
+  conference: string;
+  gp: number;
+  wins: number;
+  losses: number;
+  ot_losses: number;
+  points: number;
+  gf: number;
+  ga: number;
+  toi_5v5_sec: number;
+  gf_5v5: number;
+  ga_5v5: number;
+  gf_pct_5v5: number;
+  xgf_5v5: number;
+  xga_5v5: number;
+  xgf_pct_5v5: number;
+  sf_5v5: number;
+  sa_5v5: number;
+  sf_pct_5v5: number;
+  sh_pct_5v5: number;
+  sv_pct_5v5: number;
+  pdo_5v5: number;
+  pp_pct: number;
+  pk_pct: number;
+  pp_xgf_60: number;
+  pk_xga_60: number;
+}
+
+const mockTeamsReg: TeamRow[] = [
+  // EASTERN — METROPOLITAN
+  { team_abbrev: 'CAR', team_name_full: 'Carolina Hurricanes', team_name_city: 'Carolina', team_name_nickname: 'Hurricanes', division: 'Metropolitan', conference: 'Eastern',
+    gp: 82, wins: 47, losses: 25, ot_losses: 10, points: 104, gf: 268, ga: 215, toi_5v5_sec: 198000,
+    gf_5v5: 192, ga_5v5: 154, gf_pct_5v5: 0.555, xgf_5v5: 197.2, xga_5v5: 161.8, xgf_pct_5v5: 0.549,
+    sf_5v5: 1924, sa_5v5: 1701, sf_pct_5v5: 0.531, sh_pct_5v5: 0.0998, sv_pct_5v5: 0.9095, pdo_5v5: 1.009,
+    pp_pct: 0.245, pk_pct: 0.812, pp_xgf_60: 7.4, pk_xga_60: 7.1 },
+  { team_abbrev: 'NJD', team_name_full: 'New Jersey Devils', team_name_city: 'New Jersey', team_name_nickname: 'Devils', division: 'Metropolitan', conference: 'Eastern',
+    gp: 82, wins: 44, losses: 28, ot_losses: 10, points: 98, gf: 263, ga: 232, toi_5v5_sec: 197200,
+    gf_5v5: 178, ga_5v5: 161, gf_pct_5v5: 0.525, xgf_5v5: 188.4, xga_5v5: 170.1, xgf_pct_5v5: 0.526,
+    sf_5v5: 1854, sa_5v5: 1742, sf_pct_5v5: 0.516, sh_pct_5v5: 0.0960, sv_pct_5v5: 0.9076, pdo_5v5: 1.004,
+    pp_pct: 0.232, pk_pct: 0.792, pp_xgf_60: 7.1, pk_xga_60: 7.6 },
+  { team_abbrev: 'NYR', team_name_full: 'New York Rangers', team_name_city: 'New York', team_name_nickname: 'Rangers', division: 'Metropolitan', conference: 'Eastern',
+    gp: 82, wins: 45, losses: 27, ot_losses: 10, points: 100, gf: 251, ga: 218, toi_5v5_sec: 197600,
+    gf_5v5: 167, ga_5v5: 158, gf_pct_5v5: 0.514, xgf_5v5: 172.4, xga_5v5: 173.9, xgf_pct_5v5: 0.498,
+    sf_5v5: 1780, sa_5v5: 1814, sf_pct_5v5: 0.495, sh_pct_5v5: 0.0938, sv_pct_5v5: 0.9129, pdo_5v5: 1.007,
+    pp_pct: 0.241, pk_pct: 0.808, pp_xgf_60: 7.2, pk_xga_60: 7.3 },
+  { team_abbrev: 'WSH', team_name_full: 'Washington Capitals', team_name_city: 'Washington', team_name_nickname: 'Capitals', division: 'Metropolitan', conference: 'Eastern',
+    gp: 82, wins: 43, losses: 29, ot_losses: 10, points: 96, gf: 256, ga: 224, toi_5v5_sec: 197900,
+    gf_5v5: 174, ga_5v5: 162, gf_pct_5v5: 0.518, xgf_5v5: 172.1, xga_5v5: 170.6, xgf_pct_5v5: 0.502,
+    sf_5v5: 1796, sa_5v5: 1790, sf_pct_5v5: 0.501, sh_pct_5v5: 0.0969, sv_pct_5v5: 0.9095, pdo_5v5: 1.006,
+    pp_pct: 0.252, pk_pct: 0.781, pp_xgf_60: 7.6, pk_xga_60: 7.8 },
+  { team_abbrev: 'PHI', team_name_full: 'Philadelphia Flyers', team_name_city: 'Philadelphia', team_name_nickname: 'Flyers', division: 'Metropolitan', conference: 'Eastern',
+    gp: 82, wins: 38, losses: 34, ot_losses: 10, points: 86, gf: 232, ga: 248, toi_5v5_sec: 198400,
+    gf_5v5: 158, ga_5v5: 174, gf_pct_5v5: 0.476, xgf_5v5: 165.0, xga_5v5: 178.2, xgf_pct_5v5: 0.481,
+    sf_5v5: 1720, sa_5v5: 1840, sf_pct_5v5: 0.483, sh_pct_5v5: 0.0919, sv_pct_5v5: 0.9054, pdo_5v5: 0.997,
+    pp_pct: 0.198, pk_pct: 0.768, pp_xgf_60: 6.5, pk_xga_60: 8.1 },
+  { team_abbrev: 'NYI', team_name_full: 'New York Islanders', team_name_city: 'New York', team_name_nickname: 'Islanders', division: 'Metropolitan', conference: 'Eastern',
+    gp: 82, wins: 36, losses: 35, ot_losses: 11, points: 83, gf: 224, ga: 246, toi_5v5_sec: 198100,
+    gf_5v5: 154, ga_5v5: 173, gf_pct_5v5: 0.471, xgf_5v5: 162.3, xga_5v5: 180.6, xgf_pct_5v5: 0.473,
+    sf_5v5: 1708, sa_5v5: 1864, sf_pct_5v5: 0.478, sh_pct_5v5: 0.0902, sv_pct_5v5: 0.9072, pdo_5v5: 0.997,
+    pp_pct: 0.205, pk_pct: 0.774, pp_xgf_60: 6.8, pk_xga_60: 7.9 },
+  { team_abbrev: 'PIT', team_name_full: 'Pittsburgh Penguins', team_name_city: 'Pittsburgh', team_name_nickname: 'Penguins', division: 'Metropolitan', conference: 'Eastern',
+    gp: 82, wins: 34, losses: 38, ot_losses: 10, points: 78, gf: 226, ga: 264, toi_5v5_sec: 198800,
+    gf_5v5: 148, ga_5v5: 184, gf_pct_5v5: 0.446, xgf_5v5: 159.6, xga_5v5: 192.7, xgf_pct_5v5: 0.453,
+    sf_5v5: 1684, sa_5v5: 1936, sf_pct_5v5: 0.465, sh_pct_5v5: 0.0879, sv_pct_5v5: 0.9050, pdo_5v5: 0.993,
+    pp_pct: 0.221, pk_pct: 0.751, pp_xgf_60: 7.0, pk_xga_60: 8.5 },
+  { team_abbrev: 'CBJ', team_name_full: 'Columbus Blue Jackets', team_name_city: 'Columbus', team_name_nickname: 'Blue Jackets', division: 'Metropolitan', conference: 'Eastern',
+    gp: 82, wins: 31, losses: 41, ot_losses: 10, points: 72, gf: 215, ga: 268, toi_5v5_sec: 198000,
+    gf_5v5: 142, ga_5v5: 188, gf_pct_5v5: 0.430, xgf_5v5: 152.8, xga_5v5: 198.9, xgf_pct_5v5: 0.434,
+    sf_5v5: 1664, sa_5v5: 1972, sf_pct_5v5: 0.458, sh_pct_5v5: 0.0853, sv_pct_5v5: 0.9047, pdo_5v5: 0.990,
+    pp_pct: 0.183, pk_pct: 0.741, pp_xgf_60: 6.2, pk_xga_60: 8.7 },
+
+  // EASTERN — ATLANTIC
+  { team_abbrev: 'FLA', team_name_full: 'Florida Panthers', team_name_city: 'Florida', team_name_nickname: 'Panthers', division: 'Atlantic', conference: 'Eastern',
+    gp: 82, wins: 48, losses: 24, ot_losses: 10, points: 106, gf: 274, ga: 209, toi_5v5_sec: 198200,
+    gf_5v5: 198, ga_5v5: 152, gf_pct_5v5: 0.566, xgf_5v5: 204.6, xga_5v5: 158.4, xgf_pct_5v5: 0.564,
+    sf_5v5: 1956, sa_5v5: 1672, sf_pct_5v5: 0.539, sh_pct_5v5: 0.1012, sv_pct_5v5: 0.9091, pdo_5v5: 1.010,
+    pp_pct: 0.258, pk_pct: 0.824, pp_xgf_60: 7.9, pk_xga_60: 6.8 },
+  { team_abbrev: 'BOS', team_name_full: 'Boston Bruins', team_name_city: 'Boston', team_name_nickname: 'Bruins', division: 'Atlantic', conference: 'Eastern',
+    gp: 82, wins: 43, losses: 28, ot_losses: 11, points: 97, gf: 247, ga: 222, toi_5v5_sec: 197800,
+    gf_5v5: 170, ga_5v5: 162, gf_pct_5v5: 0.512, xgf_5v5: 178.8, xga_5v5: 169.0, xgf_pct_5v5: 0.514,
+    sf_5v5: 1832, sa_5v5: 1754, sf_pct_5v5: 0.511, sh_pct_5v5: 0.0928, sv_pct_5v5: 0.9077, pdo_5v5: 1.001,
+    pp_pct: 0.224, pk_pct: 0.802, pp_xgf_60: 7.0, pk_xga_60: 7.4 },
+  { team_abbrev: 'TBL', team_name_full: 'Tampa Bay Lightning', team_name_city: 'Tampa Bay', team_name_nickname: 'Lightning', division: 'Atlantic', conference: 'Eastern',
+    gp: 82, wins: 45, losses: 28, ot_losses: 9, points: 99, gf: 269, ga: 230, toi_5v5_sec: 197500,
+    gf_5v5: 184, ga_5v5: 166, gf_pct_5v5: 0.526, xgf_5v5: 189.2, xga_5v5: 170.5, xgf_pct_5v5: 0.526,
+    sf_5v5: 1872, sa_5v5: 1748, sf_pct_5v5: 0.517, sh_pct_5v5: 0.0983, sv_pct_5v5: 0.9050, pdo_5v5: 1.003,
+    pp_pct: 0.268, pk_pct: 0.796, pp_xgf_60: 8.1, pk_xga_60: 7.4 },
+  { team_abbrev: 'TOR', team_name_full: 'Toronto Maple Leafs', team_name_city: 'Toronto', team_name_nickname: 'Maple Leafs', division: 'Atlantic', conference: 'Eastern',
+    gp: 82, wins: 46, losses: 27, ot_losses: 9, points: 101, gf: 272, ga: 232, toi_5v5_sec: 197900,
+    gf_5v5: 182, ga_5v5: 168, gf_pct_5v5: 0.520, xgf_5v5: 183.5, xga_5v5: 174.2, xgf_pct_5v5: 0.513,
+    sf_5v5: 1848, sa_5v5: 1798, sf_pct_5v5: 0.507, sh_pct_5v5: 0.0985, sv_pct_5v5: 0.9066, pdo_5v5: 1.005,
+    pp_pct: 0.273, pk_pct: 0.788, pp_xgf_60: 8.2, pk_xga_60: 7.5 },
+  { team_abbrev: 'OTT', team_name_full: 'Ottawa Senators', team_name_city: 'Ottawa', team_name_nickname: 'Senators', division: 'Atlantic', conference: 'Eastern',
+    gp: 82, wins: 40, losses: 32, ot_losses: 10, points: 90, gf: 244, ga: 240, toi_5v5_sec: 198000,
+    gf_5v5: 168, ga_5v5: 170, gf_pct_5v5: 0.497, xgf_5v5: 174.6, xga_5v5: 178.0, xgf_pct_5v5: 0.495,
+    sf_5v5: 1798, sa_5v5: 1820, sf_pct_5v5: 0.497, sh_pct_5v5: 0.0934, sv_pct_5v5: 0.9066, pdo_5v5: 1.000,
+    pp_pct: 0.234, pk_pct: 0.784, pp_xgf_60: 7.1, pk_xga_60: 7.7 },
+  { team_abbrev: 'DET', team_name_full: 'Detroit Red Wings', team_name_city: 'Detroit', team_name_nickname: 'Red Wings', division: 'Atlantic', conference: 'Eastern',
+    gp: 82, wins: 37, losses: 35, ot_losses: 10, points: 84, gf: 236, ga: 254, toi_5v5_sec: 198300,
+    gf_5v5: 158, ga_5v5: 178, gf_pct_5v5: 0.470, xgf_5v5: 168.4, xga_5v5: 183.6, xgf_pct_5v5: 0.478,
+    sf_5v5: 1748, sa_5v5: 1856, sf_pct_5v5: 0.485, sh_pct_5v5: 0.0904, sv_pct_5v5: 0.9041, pdo_5v5: 0.994,
+    pp_pct: 0.219, pk_pct: 0.762, pp_xgf_60: 6.9, pk_xga_60: 7.9 },
+  { team_abbrev: 'BUF', team_name_full: 'Buffalo Sabres', team_name_city: 'Buffalo', team_name_nickname: 'Sabres', division: 'Atlantic', conference: 'Eastern',
+    gp: 82, wins: 33, losses: 38, ot_losses: 11, points: 77, gf: 228, ga: 262, toi_5v5_sec: 198600,
+    gf_5v5: 152, ga_5v5: 184, gf_pct_5v5: 0.452, xgf_5v5: 161.4, xga_5v5: 191.7, xgf_pct_5v5: 0.457,
+    sf_5v5: 1716, sa_5v5: 1908, sf_pct_5v5: 0.473, sh_pct_5v5: 0.0886, sv_pct_5v5: 0.9036, pdo_5v5: 0.992,
+    pp_pct: 0.197, pk_pct: 0.748, pp_xgf_60: 6.4, pk_xga_60: 8.4 },
+  { team_abbrev: 'MTL', team_name_full: 'Montreal Canadiens', team_name_city: 'Montreal', team_name_nickname: 'Canadiens', division: 'Atlantic', conference: 'Eastern',
+    gp: 82, wins: 35, losses: 36, ot_losses: 11, points: 81, gf: 224, ga: 252, toi_5v5_sec: 198000,
+    gf_5v5: 150, ga_5v5: 178, gf_pct_5v5: 0.457, xgf_5v5: 158.8, xga_5v5: 187.2, xgf_pct_5v5: 0.459,
+    sf_5v5: 1696, sa_5v5: 1872, sf_pct_5v5: 0.475, sh_pct_5v5: 0.0884, sv_pct_5v5: 0.9049, pdo_5v5: 0.993,
+    pp_pct: 0.208, pk_pct: 0.756, pp_xgf_60: 6.6, pk_xga_60: 8.2 },
+
+  // WESTERN — CENTRAL
+  { team_abbrev: 'DAL', team_name_full: 'Dallas Stars', team_name_city: 'Dallas', team_name_nickname: 'Stars', division: 'Central', conference: 'Western',
+    gp: 82, wins: 49, losses: 23, ot_losses: 10, points: 108, gf: 278, ga: 211, toi_5v5_sec: 197800,
+    gf_5v5: 196, ga_5v5: 154, gf_pct_5v5: 0.560, xgf_5v5: 202.4, xga_5v5: 160.6, xgf_pct_5v5: 0.558,
+    sf_5v5: 1944, sa_5v5: 1690, sf_pct_5v5: 0.535, sh_pct_5v5: 0.1008, sv_pct_5v5: 0.9089, pdo_5v5: 1.010,
+    pp_pct: 0.261, pk_pct: 0.819, pp_xgf_60: 7.8, pk_xga_60: 6.9 },
+  { team_abbrev: 'COL', team_name_full: 'Colorado Avalanche', team_name_city: 'Colorado', team_name_nickname: 'Avalanche', division: 'Central', conference: 'Western',
+    gp: 82, wins: 50, losses: 24, ot_losses: 8, points: 108, gf: 286, ga: 222, toi_5v5_sec: 197600,
+    gf_5v5: 202, ga_5v5: 160, gf_pct_5v5: 0.558, xgf_5v5: 205.8, xga_5v5: 167.4, xgf_pct_5v5: 0.551,
+    sf_5v5: 1968, sa_5v5: 1734, sf_pct_5v5: 0.532, sh_pct_5v5: 0.1027, sv_pct_5v5: 0.9078, pdo_5v5: 1.010,
+    pp_pct: 0.272, pk_pct: 0.808, pp_xgf_60: 8.4, pk_xga_60: 7.2 },
+  { team_abbrev: 'WPG', team_name_full: 'Winnipeg Jets', team_name_city: 'Winnipeg', team_name_nickname: 'Jets', division: 'Central', conference: 'Western',
+    gp: 82, wins: 46, losses: 26, ot_losses: 10, points: 102, gf: 254, ga: 214, toi_5v5_sec: 197900,
+    gf_5v5: 172, ga_5v5: 156, gf_pct_5v5: 0.524, xgf_5v5: 178.4, xga_5v5: 164.6, xgf_pct_5v5: 0.520,
+    sf_5v5: 1812, sa_5v5: 1706, sf_pct_5v5: 0.515, sh_pct_5v5: 0.0949, sv_pct_5v5: 0.9086, pdo_5v5: 1.003,
+    pp_pct: 0.236, pk_pct: 0.821, pp_xgf_60: 7.2, pk_xga_60: 6.9 },
+  { team_abbrev: 'NSH', team_name_full: 'Nashville Predators', team_name_city: 'Nashville', team_name_nickname: 'Predators', division: 'Central', conference: 'Western',
+    gp: 82, wins: 41, losses: 31, ot_losses: 10, points: 92, gf: 246, ga: 232, toi_5v5_sec: 198100,
+    gf_5v5: 166, ga_5v5: 170, gf_pct_5v5: 0.494, xgf_5v5: 173.4, xga_5v5: 175.1, xgf_pct_5v5: 0.498,
+    sf_5v5: 1792, sa_5v5: 1822, sf_pct_5v5: 0.496, sh_pct_5v5: 0.0926, sv_pct_5v5: 0.9067, pdo_5v5: 0.999,
+    pp_pct: 0.227, pk_pct: 0.797, pp_xgf_60: 7.1, pk_xga_60: 7.6 },
+  { team_abbrev: 'MIN', team_name_full: 'Minnesota Wild', team_name_city: 'Minnesota', team_name_nickname: 'Wild', division: 'Central', conference: 'Western',
+    gp: 82, wins: 39, losses: 33, ot_losses: 10, points: 88, gf: 234, ga: 236, toi_5v5_sec: 198200,
+    gf_5v5: 160, ga_5v5: 168, gf_pct_5v5: 0.488, xgf_5v5: 167.2, xga_5v5: 173.8, xgf_pct_5v5: 0.490,
+    sf_5v5: 1762, sa_5v5: 1820, sf_pct_5v5: 0.492, sh_pct_5v5: 0.0908, sv_pct_5v5: 0.9077, pdo_5v5: 0.999,
+    pp_pct: 0.214, pk_pct: 0.782, pp_xgf_60: 6.8, pk_xga_60: 7.7 },
+  { team_abbrev: 'STL', team_name_full: 'St. Louis Blues', team_name_city: 'St. Louis', team_name_nickname: 'Blues', division: 'Central', conference: 'Western',
+    gp: 82, wins: 38, losses: 34, ot_losses: 10, points: 86, gf: 232, ga: 242, toi_5v5_sec: 198400,
+    gf_5v5: 158, ga_5v5: 170, gf_pct_5v5: 0.482, xgf_5v5: 165.6, xga_5v5: 177.5, xgf_pct_5v5: 0.483,
+    sf_5v5: 1742, sa_5v5: 1832, sf_pct_5v5: 0.487, sh_pct_5v5: 0.0907, sv_pct_5v5: 0.9072, pdo_5v5: 0.998,
+    pp_pct: 0.218, pk_pct: 0.776, pp_xgf_60: 6.9, pk_xga_60: 7.8 },
+  { team_abbrev: 'UTA', team_name_full: 'Utah Hockey Club', team_name_city: 'Utah', team_name_nickname: 'Hockey Club', division: 'Central', conference: 'Western',
+    gp: 82, wins: 36, losses: 36, ot_losses: 10, points: 82, gf: 226, ga: 244, toi_5v5_sec: 198500,
+    gf_5v5: 154, ga_5v5: 174, gf_pct_5v5: 0.470, xgf_5v5: 162.4, xga_5v5: 181.6, xgf_pct_5v5: 0.472,
+    sf_5v5: 1722, sa_5v5: 1854, sf_pct_5v5: 0.481, sh_pct_5v5: 0.0894, sv_pct_5v5: 0.9061, pdo_5v5: 0.996,
+    pp_pct: 0.211, pk_pct: 0.768, pp_xgf_60: 6.7, pk_xga_60: 7.9 },
+  { team_abbrev: 'CHI', team_name_full: 'Chicago Blackhawks', team_name_city: 'Chicago', team_name_nickname: 'Blackhawks', division: 'Central', conference: 'Western',
+    gp: 82, wins: 28, losses: 44, ot_losses: 10, points: 66, gf: 198, ga: 282, toi_5v5_sec: 198800,
+    gf_5v5: 130, ga_5v5: 196, gf_pct_5v5: 0.399, xgf_5v5: 144.8, xga_5v5: 208.6, xgf_pct_5v5: 0.410,
+    sf_5v5: 1632, sa_5v5: 2008, sf_pct_5v5: 0.448, sh_pct_5v5: 0.0797, sv_pct_5v5: 0.9024, pdo_5v5: 0.982,
+    pp_pct: 0.168, pk_pct: 0.722, pp_xgf_60: 5.8, pk_xga_60: 8.9 },
+
+  // WESTERN — PACIFIC
+  { team_abbrev: 'EDM', team_name_full: 'Edmonton Oilers', team_name_city: 'Edmonton', team_name_nickname: 'Oilers', division: 'Pacific', conference: 'Western',
+    gp: 82, wins: 47, losses: 25, ot_losses: 10, points: 104, gf: 282, ga: 226, toi_5v5_sec: 197600,
+    gf_5v5: 188, ga_5v5: 162, gf_pct_5v5: 0.537, xgf_5v5: 190.2, xga_5v5: 169.0, xgf_pct_5v5: 0.530,
+    sf_5v5: 1864, sa_5v5: 1748, sf_pct_5v5: 0.516, sh_pct_5v5: 0.1008, sv_pct_5v5: 0.9073, pdo_5v5: 1.008,
+    pp_pct: 0.286, pk_pct: 0.806, pp_xgf_60: 8.6, pk_xga_60: 7.3 },
+  { team_abbrev: 'VGK', team_name_full: 'Vegas Golden Knights', team_name_city: 'Vegas', team_name_nickname: 'Golden Knights', division: 'Pacific', conference: 'Western',
+    gp: 82, wins: 46, losses: 26, ot_losses: 10, points: 102, gf: 262, ga: 220, toi_5v5_sec: 197800,
+    gf_5v5: 178, ga_5v5: 162, gf_pct_5v5: 0.524, xgf_5v5: 183.6, xga_5v5: 168.2, xgf_pct_5v5: 0.522,
+    sf_5v5: 1828, sa_5v5: 1716, sf_pct_5v5: 0.516, sh_pct_5v5: 0.0974, sv_pct_5v5: 0.9056, pdo_5v5: 1.003,
+    pp_pct: 0.246, pk_pct: 0.813, pp_xgf_60: 7.5, pk_xga_60: 7.0 },
+  { team_abbrev: 'LAK', team_name_full: 'Los Angeles Kings', team_name_city: 'Los Angeles', team_name_nickname: 'Kings', division: 'Pacific', conference: 'Western',
+    gp: 82, wins: 44, losses: 28, ot_losses: 10, points: 98, gf: 248, ga: 220, toi_5v5_sec: 198100,
+    gf_5v5: 170, ga_5v5: 158, gf_pct_5v5: 0.518, xgf_5v5: 176.8, xga_5v5: 166.4, xgf_pct_5v5: 0.515,
+    sf_5v5: 1810, sa_5v5: 1738, sf_pct_5v5: 0.510, sh_pct_5v5: 0.0939, sv_pct_5v5: 0.9091, pdo_5v5: 1.003,
+    pp_pct: 0.229, pk_pct: 0.807, pp_xgf_60: 7.0, pk_xga_60: 7.1 },
+  { team_abbrev: 'VAN', team_name_full: 'Vancouver Canucks', team_name_city: 'Vancouver', team_name_nickname: 'Canucks', division: 'Pacific', conference: 'Western',
+    gp: 82, wins: 42, losses: 30, ot_losses: 10, points: 94, gf: 244, ga: 226, toi_5v5_sec: 198000,
+    gf_5v5: 164, ga_5v5: 162, gf_pct_5v5: 0.503, xgf_5v5: 171.2, xga_5v5: 173.0, xgf_pct_5v5: 0.497,
+    sf_5v5: 1782, sa_5v5: 1790, sf_pct_5v5: 0.499, sh_pct_5v5: 0.0920, sv_pct_5v5: 0.9095, pdo_5v5: 1.002,
+    pp_pct: 0.225, pk_pct: 0.794, pp_xgf_60: 7.0, pk_xga_60: 7.4 },
+  { team_abbrev: 'SEA', team_name_full: 'Seattle Kraken', team_name_city: 'Seattle', team_name_nickname: 'Kraken', division: 'Pacific', conference: 'Western',
+    gp: 82, wins: 38, losses: 34, ot_losses: 10, points: 86, gf: 226, ga: 234, toi_5v5_sec: 198200,
+    gf_5v5: 156, ga_5v5: 164, gf_pct_5v5: 0.488, xgf_5v5: 168.4, xga_5v5: 174.8, xgf_pct_5v5: 0.491,
+    sf_5v5: 1772, sa_5v5: 1818, sf_pct_5v5: 0.494, sh_pct_5v5: 0.0881, sv_pct_5v5: 0.9098, pdo_5v5: 0.998,
+    pp_pct: 0.212, pk_pct: 0.789, pp_xgf_60: 6.7, pk_xga_60: 7.5 },
+  { team_abbrev: 'CGY', team_name_full: 'Calgary Flames', team_name_city: 'Calgary', team_name_nickname: 'Flames', division: 'Pacific', conference: 'Western',
+    gp: 82, wins: 36, losses: 36, ot_losses: 10, points: 82, gf: 220, ga: 240, toi_5v5_sec: 198300,
+    gf_5v5: 150, ga_5v5: 170, gf_pct_5v5: 0.469, xgf_5v5: 161.6, xga_5v5: 180.2, xgf_pct_5v5: 0.473,
+    sf_5v5: 1726, sa_5v5: 1854, sf_pct_5v5: 0.482, sh_pct_5v5: 0.0869, sv_pct_5v5: 0.9083, pdo_5v5: 0.995,
+    pp_pct: 0.204, pk_pct: 0.772, pp_xgf_60: 6.6, pk_xga_60: 7.7 },
+  { team_abbrev: 'ANA', team_name_full: 'Anaheim Ducks', team_name_city: 'Anaheim', team_name_nickname: 'Ducks', division: 'Pacific', conference: 'Western',
+    gp: 82, wins: 30, losses: 42, ot_losses: 10, points: 70, gf: 208, ga: 272, toi_5v5_sec: 198700,
+    gf_5v5: 138, ga_5v5: 188, gf_pct_5v5: 0.423, xgf_5v5: 151.2, xga_5v5: 202.4, xgf_pct_5v5: 0.428,
+    sf_5v5: 1664, sa_5v5: 1976, sf_pct_5v5: 0.457, sh_pct_5v5: 0.0829, sv_pct_5v5: 0.9048, pdo_5v5: 0.988,
+    pp_pct: 0.181, pk_pct: 0.738, pp_xgf_60: 6.1, pk_xga_60: 8.5 },
+  { team_abbrev: 'SJS', team_name_full: 'San Jose Sharks', team_name_city: 'San Jose', team_name_nickname: 'Sharks', division: 'Pacific', conference: 'Western',
+    gp: 82, wins: 25, losses: 47, ot_losses: 10, points: 60, gf: 186, ga: 294, toi_5v5_sec: 199000,
+    gf_5v5: 122, ga_5v5: 204, gf_pct_5v5: 0.374, xgf_5v5: 138.4, xga_5v5: 218.2, xgf_pct_5v5: 0.388,
+    sf_5v5: 1580, sa_5v5: 2056, sf_pct_5v5: 0.434, sh_pct_5v5: 0.0772, sv_pct_5v5: 0.9008, pdo_5v5: 0.978,
+    pp_pct: 0.152, pk_pct: 0.708, pp_xgf_60: 5.4, pk_xga_60: 9.2 },
+];
+
+// Smaller playoff dataset — only the 16 teams that made the postseason.
+// All numbers scaled down for ~10-20 playoff games each.
+const mockTeamsPlayoff: TeamRow[] = [
+  { team_abbrev: 'FLA', team_name_full: 'Florida Panthers', team_name_city: 'Florida', team_name_nickname: 'Panthers', division: 'Atlantic', conference: 'Eastern',
+    gp: 19, wins: 14, losses: 5, ot_losses: 0, points: 28, gf: 64, ga: 48, toi_5v5_sec: 47200,
+    gf_5v5: 46, ga_5v5: 34, gf_pct_5v5: 0.575, xgf_5v5: 47.8, xga_5v5: 36.6, xgf_pct_5v5: 0.566,
+    sf_5v5: 472, sa_5v5: 398, sf_pct_5v5: 0.543, sh_pct_5v5: 0.0975, sv_pct_5v5: 0.9146, pdo_5v5: 1.012,
+    pp_pct: 0.268, pk_pct: 0.844, pp_xgf_60: 8.2, pk_xga_60: 6.4 },
+  { team_abbrev: 'EDM', team_name_full: 'Edmonton Oilers', team_name_city: 'Edmonton', team_name_nickname: 'Oilers', division: 'Pacific', conference: 'Western',
+    gp: 18, wins: 12, losses: 6, ot_losses: 0, points: 24, gf: 62, ga: 51, toi_5v5_sec: 44800,
+    gf_5v5: 44, ga_5v5: 38, gf_pct_5v5: 0.537, xgf_5v5: 44.4, xga_5v5: 39.4, xgf_pct_5v5: 0.530,
+    sf_5v5: 442, sa_5v5: 410, sf_pct_5v5: 0.519, sh_pct_5v5: 0.0995, sv_pct_5v5: 0.9073, pdo_5v5: 1.007,
+    pp_pct: 0.292, pk_pct: 0.821, pp_xgf_60: 8.8, pk_xga_60: 6.9 },
+  { team_abbrev: 'DAL', team_name_full: 'Dallas Stars', team_name_city: 'Dallas', team_name_nickname: 'Stars', division: 'Central', conference: 'Western',
+    gp: 16, wins: 10, losses: 6, ot_losses: 0, points: 20, gf: 51, ga: 44, toi_5v5_sec: 39400,
+    gf_5v5: 36, ga_5v5: 31, gf_pct_5v5: 0.537, xgf_5v5: 38.2, xga_5v5: 32.8, xgf_pct_5v5: 0.538,
+    sf_5v5: 392, sa_5v5: 348, sf_pct_5v5: 0.530, sh_pct_5v5: 0.0918, sv_pct_5v5: 0.9109, pdo_5v5: 1.003,
+    pp_pct: 0.252, pk_pct: 0.812, pp_xgf_60: 7.7, pk_xga_60: 7.0 },
+  { team_abbrev: 'CAR', team_name_full: 'Carolina Hurricanes', team_name_city: 'Carolina', team_name_nickname: 'Hurricanes', division: 'Metropolitan', conference: 'Eastern',
+    gp: 15, wins: 9, losses: 6, ot_losses: 0, points: 18, gf: 46, ga: 39, toi_5v5_sec: 36800,
+    gf_5v5: 32, ga_5v5: 26, gf_pct_5v5: 0.552, xgf_5v5: 34.6, xga_5v5: 28.4, xgf_pct_5v5: 0.549,
+    sf_5v5: 360, sa_5v5: 314, sf_pct_5v5: 0.534, sh_pct_5v5: 0.0889, sv_pct_5v5: 0.9172, pdo_5v5: 1.006,
+    pp_pct: 0.234, pk_pct: 0.828, pp_xgf_60: 7.3, pk_xga_60: 6.7 },
+  { team_abbrev: 'COL', team_name_full: 'Colorado Avalanche', team_name_city: 'Colorado', team_name_nickname: 'Avalanche', division: 'Central', conference: 'Western',
+    gp: 13, wins: 7, losses: 6, ot_losses: 0, points: 14, gf: 41, ga: 38, toi_5v5_sec: 32200,
+    gf_5v5: 28, ga_5v5: 26, gf_pct_5v5: 0.519, xgf_5v5: 29.4, xga_5v5: 27.0, xgf_pct_5v5: 0.521,
+    sf_5v5: 312, sa_5v5: 284, sf_pct_5v5: 0.523, sh_pct_5v5: 0.0897, sv_pct_5v5: 0.9085, pdo_5v5: 0.998,
+    pp_pct: 0.264, pk_pct: 0.798, pp_xgf_60: 8.1, pk_xga_60: 7.4 },
+  { team_abbrev: 'TOR', team_name_full: 'Toronto Maple Leafs', team_name_city: 'Toronto', team_name_nickname: 'Maple Leafs', division: 'Atlantic', conference: 'Eastern',
+    gp: 13, wins: 7, losses: 6, ot_losses: 0, points: 14, gf: 40, ga: 39, toi_5v5_sec: 32400,
+    gf_5v5: 27, ga_5v5: 26, gf_pct_5v5: 0.509, xgf_5v5: 28.6, xga_5v5: 28.0, xgf_pct_5v5: 0.505,
+    sf_5v5: 304, sa_5v5: 296, sf_pct_5v5: 0.507, sh_pct_5v5: 0.0888, sv_pct_5v5: 0.9122, pdo_5v5: 1.001,
+    pp_pct: 0.255, pk_pct: 0.781, pp_xgf_60: 7.9, pk_xga_60: 7.6 },
+  { team_abbrev: 'TBL', team_name_full: 'Tampa Bay Lightning', team_name_city: 'Tampa Bay', team_name_nickname: 'Lightning', division: 'Atlantic', conference: 'Eastern',
+    gp: 12, wins: 6, losses: 6, ot_losses: 0, points: 12, gf: 36, ga: 37, toi_5v5_sec: 29400,
+    gf_5v5: 24, ga_5v5: 24, gf_pct_5v5: 0.500, xgf_5v5: 25.8, xga_5v5: 25.4, xgf_pct_5v5: 0.504,
+    sf_5v5: 282, sa_5v5: 278, sf_pct_5v5: 0.504, sh_pct_5v5: 0.0851, sv_pct_5v5: 0.9137, pdo_5v5: 0.999,
+    pp_pct: 0.245, pk_pct: 0.785, pp_xgf_60: 7.7, pk_xga_60: 7.6 },
+  { team_abbrev: 'VGK', team_name_full: 'Vegas Golden Knights', team_name_city: 'Vegas', team_name_nickname: 'Golden Knights', division: 'Pacific', conference: 'Western',
+    gp: 12, wins: 6, losses: 6, ot_losses: 0, points: 12, gf: 34, ga: 36, toi_5v5_sec: 29800,
+    gf_5v5: 23, ga_5v5: 24, gf_pct_5v5: 0.489, xgf_5v5: 24.8, xga_5v5: 24.6, xgf_pct_5v5: 0.502,
+    sf_5v5: 276, sa_5v5: 280, sf_pct_5v5: 0.496, sh_pct_5v5: 0.0833, sv_pct_5v5: 0.9143, pdo_5v5: 0.998,
+    pp_pct: 0.238, pk_pct: 0.794, pp_xgf_60: 7.4, pk_xga_60: 7.2 },
+  { team_abbrev: 'NYR', team_name_full: 'New York Rangers', team_name_city: 'New York', team_name_nickname: 'Rangers', division: 'Metropolitan', conference: 'Eastern',
+    gp: 11, wins: 5, losses: 6, ot_losses: 0, points: 10, gf: 31, ga: 35, toi_5v5_sec: 27200,
+    gf_5v5: 20, ga_5v5: 23, gf_pct_5v5: 0.465, xgf_5v5: 22.0, xga_5v5: 24.6, xgf_pct_5v5: 0.472,
+    sf_5v5: 244, sa_5v5: 268, sf_pct_5v5: 0.477, sh_pct_5v5: 0.0820, sv_pct_5v5: 0.9142, pdo_5v5: 0.996,
+    pp_pct: 0.228, pk_pct: 0.778, pp_xgf_60: 7.0, pk_xga_60: 7.6 },
+  { team_abbrev: 'WPG', team_name_full: 'Winnipeg Jets', team_name_city: 'Winnipeg', team_name_nickname: 'Jets', division: 'Central', conference: 'Western',
+    gp: 11, wins: 5, losses: 6, ot_losses: 0, points: 10, gf: 30, ga: 33, toi_5v5_sec: 27000,
+    gf_5v5: 19, ga_5v5: 22, gf_pct_5v5: 0.463, xgf_5v5: 21.4, xga_5v5: 23.2, xgf_pct_5v5: 0.480,
+    sf_5v5: 246, sa_5v5: 262, sf_pct_5v5: 0.484, sh_pct_5v5: 0.0772, sv_pct_5v5: 0.9160, pdo_5v5: 0.993,
+    pp_pct: 0.222, pk_pct: 0.808, pp_xgf_60: 7.0, pk_xga_60: 6.8 },
+  { team_abbrev: 'BOS', team_name_full: 'Boston Bruins', team_name_city: 'Boston', team_name_nickname: 'Bruins', division: 'Atlantic', conference: 'Eastern',
+    gp: 10, wins: 4, losses: 6, ot_losses: 0, points: 8, gf: 26, ga: 30, toi_5v5_sec: 24800,
+    gf_5v5: 18, ga_5v5: 21, gf_pct_5v5: 0.462, xgf_5v5: 20.0, xga_5v5: 22.4, xgf_pct_5v5: 0.472,
+    sf_5v5: 232, sa_5v5: 248, sf_pct_5v5: 0.483, sh_pct_5v5: 0.0776, sv_pct_5v5: 0.9153, pdo_5v5: 0.993,
+    pp_pct: 0.214, pk_pct: 0.792, pp_xgf_60: 6.8, pk_xga_60: 7.4 },
+  { team_abbrev: 'LAK', team_name_full: 'Los Angeles Kings', team_name_city: 'Los Angeles', team_name_nickname: 'Kings', division: 'Pacific', conference: 'Western',
+    gp: 10, wins: 4, losses: 6, ot_losses: 0, points: 8, gf: 24, ga: 30, toi_5v5_sec: 25000,
+    gf_5v5: 17, ga_5v5: 20, gf_pct_5v5: 0.459, xgf_5v5: 19.2, xga_5v5: 21.6, xgf_pct_5v5: 0.471,
+    sf_5v5: 224, sa_5v5: 244, sf_pct_5v5: 0.479, sh_pct_5v5: 0.0759, sv_pct_5v5: 0.9180, pdo_5v5: 0.994,
+    pp_pct: 0.218, pk_pct: 0.796, pp_xgf_60: 6.9, pk_xga_60: 7.1 },
+  { team_abbrev: 'NJD', team_name_full: 'New Jersey Devils', team_name_city: 'New Jersey', team_name_nickname: 'Devils', division: 'Metropolitan', conference: 'Eastern',
+    gp: 9, wins: 3, losses: 6, ot_losses: 0, points: 6, gf: 21, ga: 28, toi_5v5_sec: 22400,
+    gf_5v5: 14, ga_5v5: 19, gf_pct_5v5: 0.424, xgf_5v5: 16.4, xga_5v5: 21.0, xgf_pct_5v5: 0.438,
+    sf_5v5: 202, sa_5v5: 232, sf_pct_5v5: 0.466, sh_pct_5v5: 0.0693, sv_pct_5v5: 0.9181, pdo_5v5: 0.987,
+    pp_pct: 0.205, pk_pct: 0.770, pp_xgf_60: 6.5, pk_xga_60: 7.8 },
+  { team_abbrev: 'VAN', team_name_full: 'Vancouver Canucks', team_name_city: 'Vancouver', team_name_nickname: 'Canucks', division: 'Pacific', conference: 'Western',
+    gp: 9, wins: 3, losses: 6, ot_losses: 0, points: 6, gf: 22, ga: 27, toi_5v5_sec: 22600,
+    gf_5v5: 14, ga_5v5: 19, gf_pct_5v5: 0.424, xgf_5v5: 16.6, xga_5v5: 20.6, xgf_pct_5v5: 0.446,
+    sf_5v5: 200, sa_5v5: 228, sf_pct_5v5: 0.467, sh_pct_5v5: 0.0700, sv_pct_5v5: 0.9167, pdo_5v5: 0.987,
+    pp_pct: 0.208, pk_pct: 0.782, pp_xgf_60: 6.6, pk_xga_60: 7.5 },
+  { team_abbrev: 'WSH', team_name_full: 'Washington Capitals', team_name_city: 'Washington', team_name_nickname: 'Capitals', division: 'Metropolitan', conference: 'Eastern',
+    gp: 8, wins: 2, losses: 6, ot_losses: 0, points: 4, gf: 18, ga: 26, toi_5v5_sec: 20200,
+    gf_5v5: 12, ga_5v5: 18, gf_pct_5v5: 0.400, xgf_5v5: 14.0, xga_5v5: 19.2, xgf_pct_5v5: 0.422,
+    sf_5v5: 180, sa_5v5: 216, sf_pct_5v5: 0.455, sh_pct_5v5: 0.0667, sv_pct_5v5: 0.9167, pdo_5v5: 0.983,
+    pp_pct: 0.182, pk_pct: 0.736, pp_xgf_60: 6.0, pk_xga_60: 8.2 },
+  { team_abbrev: 'NSH', team_name_full: 'Nashville Predators', team_name_city: 'Nashville', team_name_nickname: 'Predators', division: 'Central', conference: 'Western',
+    gp: 7, wins: 1, losses: 6, ot_losses: 0, points: 2, gf: 14, ga: 24, toi_5v5_sec: 17600,
+    gf_5v5: 10, ga_5v5: 16, gf_pct_5v5: 0.385, xgf_5v5: 11.6, xga_5v5: 17.8, xgf_pct_5v5: 0.395,
+    sf_5v5: 156, sa_5v5: 198, sf_pct_5v5: 0.441, sh_pct_5v5: 0.0641, sv_pct_5v5: 0.9192, pdo_5v5: 0.983,
+    pp_pct: 0.176, pk_pct: 0.720, pp_xgf_60: 5.9, pk_xga_60: 8.4 },
+];
+
+// ── Resolve initial filter state from URL (build-time safe defaults) ────────
+// We can read URL params here too so SSR-default lookups don't blink; the
+// inline <script> below still owns runtime re-renders for chip clicks.
+const url = new URL(Astro.url.href);
+const initialGameType = url.searchParams.get('game_type') === 'playoffs' ? 'playoffs' : 'regular';
+const initialDisplay  = url.searchParams.get('display')  === 'per60'    ? 'per60'    : 'totals';
+const initialStrength = url.searchParams.get('strength') === '5v5'      ? '5v5'      : 'all';
+const initialConf     = url.searchParams.get('conf')     ?? 'all';
+const initialDiv      = url.searchParams.get('div')      ?? 'all';
+
+const baseTeams = initialGameType === 'playoffs' ? mockTeamsPlayoff : mockTeamsReg;
+
+// ── Per-60 transform ────────────────────────────────────────────────────────
+function toRow(t: TeamRow, display: 'totals' | 'per60'): TeamRow & {
+  rank: number;
+  record: string;
+  gf_display: number;
+  ga_display: number;
+  xgf_display: number;
+  xga_display: number;
+} {
+  const hours = t.toi_5v5_sec / 3600;
+  const isPer60 = display === 'per60';
+  return {
+    ...t,
+    rank: 0, // assigned after sort
+    record: `${t.wins}-${t.losses}-${t.ot_losses}`,
+    // Per-60 versions of counting stats (xGF / xGA driven by 5v5 TOI; GF/GA
+    // are all-situations so we approximate using same hours as a proxy — this
+    // is a known simplification that the engineer can refine when teams.json
+    // ships with all-situations TOI alongside 5v5).
+    gf_display:  isPer60 ? +(t.gf       / hours).toFixed(2) : t.gf,
+    ga_display:  isPer60 ? +(t.ga       / hours).toFixed(2) : t.ga,
+    xgf_display: isPer60 ? +(t.xgf_5v5  / hours).toFixed(2) : +t.xgf_5v5.toFixed(1),
+    xga_display: isPer60 ? +(t.xga_5v5  / hours).toFixed(2) : +t.xga_5v5.toFixed(1),
+  };
+}
+
+// ── Apply non-toggle filters at build time ──────────────────────────────────
+let filtered = baseTeams;
+if (initialConf !== 'all') filtered = filtered.filter(t => t.conference.toLowerCase().startsWith(initialConf.toLowerCase().charAt(0)));
+if (initialDiv  !== 'all') filtered = filtered.filter(t => t.division.toLowerCase() === initialDiv.toLowerCase());
+
+// ── Pre-sort by xGF% desc + rank-assign ─────────────────────────────────────
+const rows = filtered
+  .map(t => toRow(t, initialDisplay))
+  .sort((a, b) => b.xgf_pct_5v5 - a.xgf_pct_5v5)
+  .map((r, i) => ({ ...r, rank: i + 1 }));
+
+const teamCount = rows.length;
+const totalCount = baseTeams.length;
+const timestamp = new Date().toISOString().slice(0, 10);
+
+// ── Column definitions (consumed by <Table>) ────────────────────────────────
+// Threshold callback: ≥0.55 green, ≤0.45 red. PP%/PK% have higher midpoints
+// so they don't use the universal threshold — they're informational only.
+const pctColor = (v: number | null | undefined, _row: any, tok?: { pos: string; neg: string }): string | undefined => {
+  if (v == null) return undefined;
+  if (v >= 0.55) return tok?.pos;
+  if (v <= 0.45) return tok?.neg;
+  return undefined;
+};
+
+const fmtPct = (v: number | null | undefined): string =>
+  v == null ? '—' : (v * 100).toFixed(1) + '%';
+
+const fmtFloat1 = (v: number | null | undefined): string =>
+  v == null ? '—' : Number(v).toFixed(1);
+
+const fmtInt = (v: number | null | undefined): string =>
+  v == null ? '—' : String(Math.round(Number(v)));
+
+// Render number (count vs rate) based on display mode at build.
+const fmtCount = (v: number | null | undefined): string => {
+  if (v == null) return '—';
+  // If it's already a small decimal (per-60 transformed), show one decimal;
+  // otherwise show as integer.
+  return Number.isInteger(v) ? String(v) : Number(v).toFixed(2);
+};
+
+const columns = [
+  {
+    key: 'rank',
+    label: '#',
+    type: 'rank' as const,
+    sortable: false,
+  },
+  {
+    key: 'team_abbrev',
+    label: 'Team',
+    type: 'team' as const,
+  },
+  {
+    key: 'gp',
+    label: 'GP',
+    type: 'number' as const,
+  },
+  {
+    key: 'record',
+    label: 'Record',
+    type: 'label' as const,
+    align: 'right' as const,
+    fontFamily: 'mono' as const,
+  },
+  {
+    key: 'gf_display',
+    label: 'GF',
+    type: 'number' as const,
+    format: fmtCount,
+  },
+  {
+    key: 'ga_display',
+    label: 'GA',
+    type: 'number' as const,
+    format: fmtCount,
+  },
+  {
+    key: 'gf_pct_5v5',
+    label: 'GF%',
+    type: 'number' as const,
+    format: fmtPct,
+    color: pctColor,
+  },
+  {
+    key: 'xgf_display',
+    label: 'xGF',
+    type: 'number' as const,
+    format: fmtFloat1,
+  },
+  {
+    key: 'xga_display',
+    label: 'xGA',
+    type: 'number' as const,
+    format: fmtFloat1,
+  },
+  {
+    key: 'xgf_pct_5v5',
+    label: 'xGF%',
+    type: 'number' as const,
+    format: fmtPct,
+    color: pctColor,
+    bold: true,
+  },
+  {
+    key: 'sf_pct_5v5',
+    label: 'SF%',
+    type: 'number' as const,
+    format: fmtPct,
+    color: pctColor,
+  },
+  {
+    key: 'pp_pct',
+    label: 'PP%',
+    type: 'number' as const,
+    format: fmtPct,
+  },
+  {
+    key: 'pk_pct',
+    label: 'PK%',
+    type: 'number' as const,
+    format: fmtPct,
+  },
+];
+
+const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams by xGF%, GF%, SF%, and special-teams stats. 5v5 + all-situations aggregates for the 2025-26 season.';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <StatsSEO
+    title="NHL Team Stats — HockeyGameBot"
+    description={pageDescription}
+  />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/favicon-180x180.png" />
+
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:        #EFEEE8;
+      --ink:       #0d0d14;
+      --red:       #E8002D;
+      --surface:   #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:    rgba(13,13,20,0.04);
+      --ink-06:    rgba(13,13,20,0.06);
+      --ink-10:    rgba(13,13,20,0.10);
+      --ink-14:    rgba(13,13,20,0.14);
+      --ink-20:    rgba(13,13,20,0.20);
+      --ink-32:    rgba(13,13,20,0.32);
+      --ink-48:    rgba(13,13,20,0.48);
+      --ink-56:    rgba(13,13,20,0.56);
+      --ink-72:    rgba(13,13,20,0.72);
+      --display:   'Barlow Condensed', sans-serif;
+      --body:      'Barlow', sans-serif;
+      --mono:      'JetBrains Mono', monospace;
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Masthead ───────────────────────────────────────────────────────── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1280px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.12em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-56); max-width: 720px; }
+
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px 80px; }
+
+    /* ── Section header + toolbar ───────────────────────────────────────── */
+    .lb-section { padding: 40px 0 0; position: relative; }
+    .lb-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+      margin-bottom: 14px; flex-wrap: wrap; }
+    .lb-title { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.5vw, 28px);
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32);
+      letter-spacing: 0.12em; text-transform: uppercase; }
+
+    /* ── Filter chip toolbar ─────────────────────────────────────────────── */
+    .lb-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .btn-group { display: inline-flex; border: 1px solid var(--ink-14); }
+    .btn-group button { background: var(--surface); border: none; border-right: 1px solid var(--ink-14);
+      padding: 6px 14px; cursor: pointer; font-family: var(--body); font-weight: 600;
+      font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ink-48); transition: background 0.1s, color 0.1s; }
+    .btn-group button:last-child { border-right: none; }
+    .btn-group button.active { background: var(--ink); color: var(--bg); }
+    .btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
+    select.lb-select { background: var(--surface); border: 1px solid var(--ink-14); padding: 6px 10px;
+      font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
+      color: var(--ink); cursor: pointer; outline: none; }
+    .lb-spacer { flex: 1 1 auto; }
+    #team-search { background: var(--surface); border: 1px solid var(--ink-14); padding: 6px 10px;
+      font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
+      color: var(--ink); outline: none; width: 180px; }
+    #team-search::placeholder { color: var(--ink-32); font-weight: 400; }
+
+    /* ── Footer ─────────────────────────────────────────────────────────── */
+    .lb-footer { text-align: center; margin-top: 56px; color: var(--ink-32);
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+    /* ── Responsive masthead ────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .mast-inner { padding: 28px 20px; }
+      .mast-card  { padding: 24px 20px 20px; }
+      .wrap { padding: 0 20px 60px; }
+      #team-search { width: 140px; }
+    }
+    @media (max-width: 480px) {
+      .mast-inner { padding: 20px 16px; }
+      .mast-card  { padding: 18px 14px 16px; }
+      .wrap { padding: 0 16px 48px; }
+    }
+  </style>
+</head>
+<body>
+
+<Nav currentPath={Astro.url.pathname} />
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats / Teams</div>
+      <div>{totalCount} teams · 2025–26 · {timestamp}</div>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">NHL Team Stats</h1>
+      <p class="mast-lede">Forward lines, defensive pairs, and team-level 5v5 + all-situations aggregates. Sort by any column.</p>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+
+  <section class="lb-section">
+    <div class="lb-head">
+      <span class="lb-title">Team Leaderboard</span>
+      <span class="lb-meta" id="lb-count">{teamCount} teams · default sort: xGF% desc</span>
+    </div>
+
+    <!-- FILTER TOOLBAR -->
+    <div class="lb-controls">
+      <div class="btn-group" id="gametype-filter">
+        <button class={initialGameType === 'regular'  ? 'active' : ''} data-gametype="regular">Regular Season</button>
+        <button class={initialGameType === 'playoffs' ? 'active' : ''} data-gametype="playoffs">Playoffs</button>
+      </div>
+      <div class="btn-group" id="strength-filter">
+        <button class={initialStrength === 'all' ? 'active' : ''} data-strength="all">All</button>
+        <button class={initialStrength === '5v5' ? 'active' : ''} data-strength="5v5">5v5</button>
+      </div>
+      <div class="btn-group" id="display-filter">
+        <button class={initialDisplay === 'totals' ? 'active' : ''} data-display="totals">Totals</button>
+        <button class={initialDisplay === 'per60'  ? 'active' : ''} data-display="per60">Per 60</button>
+      </div>
+      <select class="lb-select" id="conf-filter">
+        <option value="all"  selected={initialConf === 'all'}>All Conferences</option>
+        <option value="east" selected={initialConf === 'east'}>East</option>
+        <option value="west" selected={initialConf === 'west'}>West</option>
+      </select>
+      <select class="lb-select" id="div-filter">
+        <option value="all"          selected={initialDiv === 'all'}>All Divisions</option>
+        <option value="metropolitan" selected={initialDiv === 'metropolitan'}>Metro</option>
+        <option value="atlantic"     selected={initialDiv === 'atlantic'}>Atlantic</option>
+        <option value="central"      selected={initialDiv === 'central'}>Central</option>
+        <option value="pacific"      selected={initialDiv === 'pacific'}>Pacific</option>
+      </select>
+      <div class="lb-spacer"></div>
+      <input type="search" id="team-search" placeholder="Search team…" autocomplete="off" />
+    </div>
+
+    <Table
+      columns={columns}
+      rows={rows}
+      rowHref={(r) => `/teams/${r.team_abbrev.toLowerCase()}`}
+      defaultSort={{ column: 'xgf_pct_5v5', direction: 'desc' }}
+      scrollable
+      maxHeight={760}
+      exportFilename="hgb-team-stats.png"
+      exportTitle="NHL Team Stats"
+      ariaLabel="NHL teams leaderboard for 2025-26"
+    />
+  </section>
+
+</main>
+
+<footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · TEAMS V1</footer>
+
+<script is:inline src="/js/table-export.js"></script>
+
+<script>
+  // ── /stats/teams — client-side filter + URL state ─────────────────────────
+  // Game-type toggle swaps the visible row set (mock has 2 datasets); the
+  // Per-60 toggle re-renders cell text in place using the row's TOI; the
+  // conference / division dropdowns hide/show rows by data-attribute; the
+  // search input does live name matching. All state is mirrored to URL.
+
+  (function() {
+    'use strict';
+    type GameType = 'regular' | 'playoffs';
+    type Display  = 'totals' | 'per60';
+    type Strength = 'all' | '5v5';
+
+    const wrap = document.querySelector<HTMLElement>('.tbl-wrap[data-tbl-id]');
+    if (!wrap) return;
+    const tbody = wrap.querySelector<HTMLTableSectionElement>('tbody');
+    if (!tbody) return;
+
+    const state = {
+      gameType: (new URLSearchParams(window.location.search).get('game_type') === 'playoffs' ? 'playoffs' : 'regular') as GameType,
+      display:  (new URLSearchParams(window.location.search).get('display')  === 'per60'    ? 'per60'    : 'totals')   as Display,
+      strength: (new URLSearchParams(window.location.search).get('strength') === '5v5'      ? '5v5'      : 'all')      as Strength,
+      conf:     (new URLSearchParams(window.location.search).get('conf')     ?? 'all'),
+      div:      (new URLSearchParams(window.location.search).get('div')      ?? 'all'),
+      search:   '',
+    };
+
+    function writeUrl(): void {
+      const p = new URLSearchParams();
+      if (state.gameType !== 'regular') p.set('game_type', state.gameType);
+      if (state.display  !== 'totals')  p.set('display',  state.display);
+      if (state.strength !== 'all')     p.set('strength', state.strength);
+      if (state.conf     !== 'all')     p.set('conf',     state.conf);
+      if (state.div      !== 'all')     p.set('div',      state.div);
+      const qs = p.toString();
+      history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+    }
+
+    // Reload the page on game-type or display change. Per the v1 scope, we
+    // hard-reload for these toggles because the dataset (regular vs playoff)
+    // is split between two mock arrays in the frontmatter; per-60 transforms
+    // also happen at build time. A future enhancement (when teams.json ships)
+    // is to fetch both datasets client-side and swap without a reload.
+    function reloadWithState(): void {
+      writeUrl();
+      window.location.reload();
+    }
+
+    // Game-type toggle — swap dataset (full reload, see comment above)
+    document.querySelectorAll<HTMLButtonElement>('#gametype-filter button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const gt = btn.dataset.gametype as GameType;
+        if (gt === state.gameType) return;
+        state.gameType = gt;
+        reloadWithState();
+      });
+    });
+
+    // Display toggle — swap totals vs per-60 (full reload, see comment above)
+    document.querySelectorAll<HTMLButtonElement>('#display-filter button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const d = btn.dataset.display as Display;
+        if (d === state.display) return;
+        state.display = d;
+        reloadWithState();
+      });
+    });
+
+    // Strength toggle — informational for v1 (mock data is 5v5-derived). When
+    // pipeline supports PP/PK, this becomes a real toggle. For now it just
+    // updates active state + URL without filtering.
+    document.querySelectorAll<HTMLButtonElement>('#strength-filter button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const s = btn.dataset.strength as Strength;
+        if (s === state.strength) return;
+        state.strength = s;
+        document.querySelectorAll<HTMLButtonElement>('#strength-filter button').forEach(b => {
+          b.classList.toggle('active', b.dataset.strength === s);
+        });
+        writeUrl();
+      });
+    });
+
+    // Conference + division dropdowns — full reload so rank renumbers via SSR
+    const confSel = document.getElementById('conf-filter') as HTMLSelectElement | null;
+    if (confSel) confSel.addEventListener('change', () => {
+      state.conf = confSel.value;
+      reloadWithState();
+    });
+    const divSel = document.getElementById('div-filter') as HTMLSelectElement | null;
+    if (divSel) divSel.addEventListener('change', () => {
+      state.div = divSel.value;
+      reloadWithState();
+    });
+
+    // Search — pure DOM filter, no reload (state isn't URL-persisted)
+    const searchInput = document.getElementById('team-search') as HTMLInputElement | null;
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.trim().toLowerCase();
+        state.search = q;
+        const trs = tbody.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr');
+        let visible = 0;
+        trs.forEach(tr => {
+          if (!q) { tr.style.display = ''; visible++; return; }
+          const abbr = (tr.querySelector('.td-abbr')?.textContent || '').toLowerCase();
+          const matches = abbr.includes(q);
+          tr.style.display = matches ? '' : 'none';
+          if (matches) visible++;
+        });
+        const countEl = document.getElementById('lb-count');
+        if (countEl) {
+          countEl.textContent = q
+            ? `${visible} of ${trs.length} teams · search: "${q}"`
+            : `${trs.length} teams · default sort: xGF% desc`;
+        }
+      });
+    }
+  })();
+</script>
+
+</body>
+</html>

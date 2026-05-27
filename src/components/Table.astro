@@ -1,0 +1,902 @@
+---
+/**
+ * Table.astro — Canonical Shared Table Component
+ * ============================================================
+ * One Astro component that ALL HGB stats tables consume. Replaces the
+ * 13+ hand-rolled <table> declarations identified in the 2026-05-27
+ * table design audit.
+ *
+ * CANONICAL SPEC: hgb-docs/TABLES.md (sections 1-13)
+ * COLOR/TYPOGRAPHY: hgb-docs/BRAND.md (§1, §2) and BRAND_LIGHT.md
+ *
+ * The component uses ONLY the existing CSS custom properties from the
+ * site's :root (--bg, --ink, --ink-04..72, --surface, --red, --display,
+ * --body, --mono, --stats-pos, --stats-neg). Dark/light mode flip is
+ * handled automatically by those tokens — the component itself never
+ * hardcodes a hex value.
+ *
+ * The on-page table and the PNG export read from the SAME ColumnDef[]
+ * schema (see public/js/table-export.js). Adding/removing a column
+ * updates both surfaces in lockstep.
+ *
+ * MINIMAL USAGE
+ * --------------------------------------------------------------
+ *   ---
+ *   import Table from '../../components/Table.astro';
+ *
+ *   const columns = [
+ *     { key: '_rank', label: '#',     type: 'rank',  sortable: false },
+ *     { key: 'team',  label: 'Team',  type: 'team' },
+ *     { key: 'gp',    label: 'GP',    type: 'number' },
+ *     { key: 'pts',   label: 'PTS',   type: 'number', bold: true,
+ *       color: (v, _r, tok) => v >= 100 ? tok?.pos : undefined },
+ *   ];
+ *
+ *   const rows = [
+ *     { _rank: 1, team: 'EDM', gp: 70, pts: 105 },
+ *     { _rank: 2, team: 'DAL', gp: 71, pts: 102 },
+ *     // …
+ *   ];
+ *   ---
+ *
+ *   <Table
+ *     columns={columns}
+ *     rows={rows}
+ *     rowHref={(r) => `/stats/teams/${r.team}`}
+ *     defaultSort={{ column: 'pts', direction: 'desc' }}
+ *     scrollable
+ *     ariaLabel="NHL team leaderboard"
+ *     exportFilename="hgb-teams.png"
+ *   />
+ *
+ * PNG EXPORT
+ * --------------------------------------------------------------
+ * When `exportFilename` is provided the component renders a "↓ PNG"
+ * button and wires it to window.HGB_Export.downloadTablePng() — the
+ * SAME ColumnDef[] is passed through. The consuming page must include
+ * <script is:inline src="/js/table-export.js"></script> somewhere on
+ * the page (typically the layout). The export config props can be
+ * customised via data-attributes if a consuming page wants to override
+ * title/filter chips for the PNG.
+ */
+
+interface ColumnDef {
+  key: string;
+  label: string;
+  width?: number;
+  align?: 'left' | 'right' | 'center';
+  fontFamily?: 'display' | 'body' | 'mono';
+  format?: (value: any, row: any) => string;
+  color?: (value: any, row: any, tok?: { pos: string; neg: string }) => string | undefined;
+  bold?: boolean | ((value: any, row: any) => boolean);
+  sortable?: boolean;
+  type?: 'label' | 'number' | 'rank' | 'team' | 'player' | 'position';
+  /** Optional sub-line accessor for `type: "player"` (e.g., "#88 · C · 24"). */
+  sub?: (row: any) => string;
+}
+
+interface Props {
+  columns: ColumnDef[];
+  rows: Record<string, any>[];
+  rowHref?: (row: any) => string;
+  defaultSort?: { column: string; direction: 'asc' | 'desc' };
+  sticky?: boolean;
+  scrollable?: boolean;
+  maxHeight?: number;
+  emptyMessage?: string;
+  loadingMessage?: string;
+  isLoading?: boolean;
+  exportFilename?: string;
+  exportTitle?: string;
+  ariaLabel?: string;
+  className?: string;
+}
+
+const {
+  columns,
+  rows,
+  rowHref,
+  defaultSort,
+  sticky = true,
+  scrollable = false,
+  maxHeight = 700,
+  emptyMessage = 'No data available',
+  loadingMessage = 'Loading…',
+  isLoading = false,
+  exportFilename,
+  exportTitle,
+  ariaLabel,
+  className,
+} = Astro.props;
+
+// ── Helpers (build-time only) ────────────────────────────────────────────────
+
+function defaultAlign(col: ColumnDef): 'left' | 'right' | 'center' {
+  if (col.align) return col.align;
+  switch (col.type) {
+    case 'number':
+    case 'rank':
+      return 'right';
+    case 'team':
+    case 'player':
+    case 'label':
+      return 'left';
+    case 'position':
+      return 'center';
+    default:
+      return 'left';
+  }
+}
+
+function isSortable(col: ColumnDef): boolean {
+  if (col.sortable === false) return false;
+  if (col.type === 'rank') return false; // rank column never user-sortable
+  return col.sortable !== false;
+}
+
+function formatRank(v: any): string {
+  if (v == null) return '';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return String(n).padStart(2, '0');
+}
+
+function formatCell(col: ColumnDef, row: any): string {
+  const value = row[col.key];
+  if (col.format) return col.format(value, row);
+  if (col.type === 'rank') return formatRank(value);
+  if (value == null || value === '') return '—';
+  return String(value);
+}
+
+// Cache serialized columns so the inline script can read the column schema
+// without losing closures (`format`, `color`, `bold` functions). The script
+// re-evaluates these at click-time on the live row data, so we don't need
+// to serialize functions — only the metadata needed for sort + export hand-off.
+const columnsSchema = columns.map((c) => ({
+  key: c.key,
+  label: c.label,
+  type: c.type ?? 'label',
+  align: defaultAlign(c),
+  width: c.width,
+  fontFamily: c.fontFamily,
+  sortable: isSortable(c),
+  bold: typeof c.bold === 'boolean' ? c.bold : false,
+}));
+
+// Stable instance id so multiple Tables on one page don't collide.
+const instanceId = `tbl-${Math.random().toString(36).slice(2, 10)}`;
+
+const colCount = columns.length;
+const wrapClasses = ['tbl-wrap'];
+if (scrollable) wrapClasses.push('scrollable');
+if (sticky) wrapClasses.push('sticky-head');
+if (className) wrapClasses.push(className);
+---
+
+<div
+  class={wrapClasses.join(' ')}
+  data-tbl-id={instanceId}
+  data-default-sort-key={defaultSort?.column ?? ''}
+  data-default-sort-dir={defaultSort?.direction ?? 'desc'}
+  data-export-filename={exportFilename ?? ''}
+  data-export-title={exportTitle ?? ariaLabel ?? ''}
+  style={scrollable ? `max-height:${maxHeight}px` : undefined}
+>
+  {exportFilename && (
+    <div class="tbl-actions">
+      <button type="button" class="dl-btn tbl-export-btn" aria-label="Download table as PNG">
+        ↓ PNG
+      </button>
+    </div>
+  )}
+
+  <table aria-label={ariaLabel} class="tbl">
+    <colgroup>
+      {columns.map((c) => (
+        <col style={c.width ? `width:${c.width}px` : undefined} />
+      ))}
+    </colgroup>
+    <thead>
+      <tr>
+        {columns.map((c) => {
+          const align = defaultAlign(c);
+          const sortable = isSortable(c);
+          const isActiveSort = defaultSort?.column === c.key;
+          const dir = isActiveSort ? defaultSort?.direction : null;
+          const cls = [
+            'tbl-th',
+            `align-${align}`,
+            `type-${c.type ?? 'label'}`,
+            sortable ? 'sortable' : 'not-sortable',
+            isActiveSort ? 'sorted' : '',
+            isActiveSort && dir === 'asc' ? 'asc' : '',
+            isActiveSort && dir === 'desc' ? 'desc' : '',
+          ].filter(Boolean).join(' ');
+          return (
+            <th
+              class={cls}
+              data-key={c.key}
+              data-sortable={sortable ? '1' : '0'}
+              data-type={c.type ?? 'label'}
+              data-align={align}
+              scope="col"
+            >
+              <span class="tbl-th-label">{c.label}</span>
+              {sortable && <span class="sort-arrow" aria-hidden="true">
+                {isActiveSort ? (dir === 'asc' ? '↑' : '↓') : '↕'}
+              </span>}
+            </th>
+          );
+        })}
+      </tr>
+    </thead>
+    <tbody>
+      {isLoading && (
+        <tr class="tbl-loading">
+          <td colspan={colCount}>
+            <div class="spinner" aria-hidden="true"></div>
+            <span>{loadingMessage}</span>
+          </td>
+        </tr>
+      )}
+      {!isLoading && rows.length === 0 && (
+        <tr class="tbl-empty">
+          <td colspan={colCount}>{emptyMessage}</td>
+        </tr>
+      )}
+      {!isLoading && rows.map((row) => {
+        const href = rowHref ? rowHref(row) : undefined;
+        const rowAttrs = href
+          ? { tabindex: '0', 'data-href': href, role: 'link' }
+          : {};
+        return (
+          <tr class={href ? 'tbl-tr clickable' : 'tbl-tr'} {...rowAttrs}>
+            {columns.map((c) => {
+              const align = defaultAlign(c);
+              const type = c.type ?? 'label';
+              const text = formatCell(c, row);
+              const value = row[c.key];
+
+              // Resolve color callback at render time (build for static pages,
+              // runtime for client-fetched). The callback receives the same tok
+              // shape as the PNG export so threshold colors come from CSS vars.
+              const colorRaw = c.color ? c.color(value, row, { pos: 'var(--stats-pos)', neg: 'var(--stats-neg)' }) : undefined;
+              const bold = typeof c.bold === 'function' ? c.bold(value, row) : c.bold;
+
+              const tdCls = [
+                'tbl-td',
+                `align-${align}`,
+                `type-${type}`,
+                bold ? 'bold' : '',
+              ].filter(Boolean).join(' ');
+
+              const tdStyle = colorRaw ? `color:${colorRaw}` : undefined;
+
+              // Special-cell rendering by type
+              if (type === 'rank') {
+                return (
+                  <td class={`tbl-td td-rk align-${align}`} style={tdStyle}>{text}</td>
+                );
+              }
+              if (type === 'team') {
+                const abbr = row[c.key] ?? '';
+                return (
+                  <td class={`tbl-td td-team align-${align}`} style={tdStyle}>
+                    <div class="td-team-inner">
+                      {abbr && (
+                        <img
+                          class="td-logo"
+                          src={`https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg`}
+                          width="22"
+                          height="22"
+                          alt={abbr}
+                          loading="lazy"
+                          onerror="this.style.display='none'"
+                        />
+                      )}
+                      <span class="td-abbr">{abbr}</span>
+                    </div>
+                  </td>
+                );
+              }
+              if (type === 'player') {
+                const teamAbbr = row.team ?? row.team_abbrev ?? '';
+                const subText = c.sub ? c.sub(row) : (teamAbbr || '');
+                return (
+                  <td class={`tbl-td td-player align-${align}`} style={tdStyle}>
+                    <div class="td-player-inner">
+                      {teamAbbr && (
+                        <img
+                          class="td-logo"
+                          src={`https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg`}
+                          width="22"
+                          height="22"
+                          alt={teamAbbr}
+                          loading="lazy"
+                          onerror="this.style.display='none'"
+                        />
+                      )}
+                      <div class="td-player-meta">
+                        <span class="td-name">{text}</span>
+                        {subText && <span class="td-sub">{subText}</span>}
+                      </div>
+                    </div>
+                  </td>
+                );
+              }
+              if (type === 'position') {
+                return (
+                  <td class={`tbl-td align-${align}`}>
+                    <span class="pos-badge">{text}</span>
+                  </td>
+                );
+              }
+              if (type === 'number') {
+                return (
+                  <td class={tdCls} style={tdStyle}>{text}</td>
+                );
+              }
+              // default: label
+              return (
+                <td class={tdCls} style={tdStyle}>{text}</td>
+              );
+            })}
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+</div>
+
+<script type="application/json" class="tbl-schema" data-tbl-id={instanceId} set:html={JSON.stringify(columnsSchema)}></script>
+
+<style>
+  /* ── Container ─────────────────────────────────────────────────────────── */
+  .tbl-wrap {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--ink-14);
+    border-radius: 0;
+    box-shadow: none;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tbl-wrap.scrollable {
+    overflow-y: auto;
+  }
+
+  .tbl-actions {
+    position: absolute;
+    top: -44px;
+    right: 0;
+    display: flex;
+    gap: 8px;
+    z-index: 1;
+  }
+
+  .dl-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--ink-48);
+    border: 1px solid var(--ink-20);
+    padding: 6px 10px;
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+    border-radius: 0;
+  }
+  .dl-btn:hover {
+    color: var(--bg);
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+
+  /* ── Table base ────────────────────────────────────────────────────────── */
+  .tbl {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+  }
+
+  /* ── Header row ────────────────────────────────────────────────────────── */
+  .tbl thead th.tbl-th {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-48);
+    background: var(--surface);
+    padding: 10px 12px 8px;
+    border-bottom: 2px solid var(--ink);
+    white-space: nowrap;
+    vertical-align: bottom;
+    user-select: none;
+    transition: color 0.1s;
+  }
+  .tbl thead th.align-left   { text-align: left; }
+  .tbl thead th.align-right  { text-align: right; }
+  .tbl thead th.align-center { text-align: center; }
+  .tbl thead th:first-child  { padding-left: 16px; }
+  .tbl thead th:last-child   { padding-right: 16px; }
+
+  /* Sticky thead — on by default; opt-out via sticky={false} */
+  .tbl-wrap.sticky-head .tbl thead th.tbl-th {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    box-shadow: 0 2px 0 var(--ink);
+  }
+
+  /* Sortable header affordance */
+  .tbl thead th.sortable        { cursor: pointer; }
+  .tbl thead th.not-sortable    { cursor: default; }
+  .tbl thead th.sortable:hover  { color: var(--ink); }
+  .tbl thead th.sorted          { color: var(--ink); }
+
+  .sort-arrow {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 8px;
+    opacity: 0.4;
+    margin-left: 3px;
+    vertical-align: middle;
+    transition: opacity 0.1s, color 0.1s;
+  }
+  .tbl thead th.sorted .sort-arrow {
+    opacity: 1;
+    color: var(--red);
+  }
+
+  /* ── Data rows ─────────────────────────────────────────────────────────── */
+  .tbl tbody tr.tbl-tr {
+    border-bottom: 1px solid var(--ink-06);
+    transition: background 0.08s;
+  }
+  .tbl tbody tr.tbl-tr:last-child { border-bottom: none; }
+  .tbl tbody tr.tbl-tr:hover      { background: var(--ink-04); }
+  .tbl tbody tr.tbl-tr.clickable  { cursor: pointer; }
+
+  .tbl tbody tr.tbl-tr.clickable:focus-visible {
+    outline: 2px solid var(--red);
+    outline-offset: -2px;
+    background: var(--ink-04);
+  }
+
+  /* Pinned row state (reserved for explicit user-action selection) */
+  .tbl tbody tr.tbl-tr.pinned {
+    background: rgba(232, 0, 45, 0.04);
+    border-left: 2px solid var(--red);
+    border-bottom-color: rgba(232, 0, 45, 0.20);
+  }
+  .tbl tbody tr.tbl-tr.pinned:hover {
+    background: rgba(232, 0, 45, 0.06);
+  }
+
+  /* ── Cells ─────────────────────────────────────────────────────────────── */
+  .tbl tbody td.tbl-td {
+    padding: 8px 12px;
+    vertical-align: middle;
+    color: var(--ink);
+    background: var(--surface);
+  }
+  .tbl tbody tr.tbl-tr:hover td.tbl-td { background: transparent; }
+  .tbl tbody td.tbl-td:first-child { padding-left: 16px; }
+  .tbl tbody td.tbl-td:last-child  { padding-right: 16px; }
+
+  .tbl tbody td.align-left   { text-align: left; }
+  .tbl tbody td.align-right  { text-align: right; }
+  .tbl tbody td.align-center { text-align: center; }
+
+  /* Number type: right-aligned, mono, tabular */
+  .tbl tbody td.type-number {
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tbl tbody td.type-number.bold { font-weight: 700; }
+
+  /* Label type: Barlow 15px 600 */
+  .tbl tbody td.type-label {
+    text-align: left;
+    font-family: var(--body);
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /* ── Rank cell ─────────────────────────────────────────────────────────── */
+  .tbl tbody td.td-rk {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-32);
+    font-weight: 500;
+    padding-right: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Top-3 red — applies to the rank cell of the first three rendered rows */
+  .tbl tbody tr.tbl-tr:nth-child(-n+3) td.td-rk {
+    color: var(--red);
+    font-weight: 700;
+  }
+
+  /* ── Team logo + abbreviation lockup ───────────────────────────────────── */
+  .tbl tbody td.td-team .td-team-inner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .td-logo {
+    width: 22px;
+    height: 22px;
+    opacity: 0.85;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .td-abbr {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Player headshot + name lockup ─────────────────────────────────────── */
+  .tbl tbody td.td-player .td-player-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .td-player-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .td-name {
+    font-family: var(--body);
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .td-sub {
+    display: block;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 500;
+    color: var(--ink-32);
+    margin-top: 2px;
+    letter-spacing: 0.02em;
+  }
+
+  /* ── Position pill ─────────────────────────────────────────────────────── */
+  .pos-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--ink);
+    border: 1px solid var(--ink-20);
+    padding: 2px 6px;
+    border-radius: 0;
+    min-width: 24px;
+    text-align: center;
+  }
+
+  /* ── Threshold color helpers (consumers can pass class via color callback
+        if they prefer; or use color: callback returning var(--stats-pos)) ─── */
+  .tbl tbody td .sv-pos { color: var(--stats-pos); font-weight: 700; }
+  .tbl tbody td .sv-neg { color: var(--stats-neg); font-weight: 700; }
+
+  /* ── Empty state ───────────────────────────────────────────────────────── */
+  .tbl-empty td {
+    padding: 60px 20px !important;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-48);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Loading state ─────────────────────────────────────────────────────── */
+  .tbl-loading td {
+    padding: 80px 20px !important;
+    text-align: center;
+  }
+  .spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--ink-14);
+    border-top-color: var(--red);
+    border-radius: 50%;
+    animation: tbl-spin 0.7s linear infinite;
+    margin-right: 12px;
+    vertical-align: middle;
+  }
+  @keyframes tbl-spin { to { transform: rotate(360deg); } }
+  .tbl-loading span {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-48);
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+  }
+
+  /* ── Mobile: tighten padding + sticky first column ─────────────────────── */
+  @media (max-width: 640px) {
+    .tbl thead th.tbl-th,
+    .tbl tbody td.tbl-td {
+      padding: 7px 8px;
+    }
+    .tbl tbody td.tbl-td:first-child { padding-left: 10px; }
+    .tbl tbody td.tbl-td:last-child  { padding-right: 10px; }
+    .td-name { font-size: 14px; }
+    .td-sub  { font-size: 9px; }
+
+    /* Sticky first column — pins rank+name lockup during horizontal scroll */
+    .tbl thead th:first-child,
+    .tbl tbody td:first-child {
+      position: sticky;
+      left: 0;
+      background: var(--surface);
+      z-index: 5;
+    }
+    /* The header's first-child must outrank the sticky thead so the corner
+       cell stays fully covered. */
+    .tbl-wrap.sticky-head .tbl thead th:first-child {
+      z-index: 25;
+    }
+    /* Preserve hover on first column when row is hovered */
+    .tbl tbody tr.tbl-tr:hover td:first-child { background: var(--ink-04); }
+  }
+</style>
+
+<script lang="ts">
+  // ── Client-side behaviors: sort cycle, row navigation, PNG export ─────────
+  // Vanilla JS, no framework dependencies. Self-contained per Table instance.
+
+  type SortDir = 'asc' | 'desc' | null;
+  interface ColumnSchema {
+    key: string;
+    label: string;
+    type: string;
+    align: 'left' | 'right' | 'center';
+    width?: number;
+    fontFamily?: string;
+    sortable: boolean;
+    bold: boolean;
+  }
+
+  function initTable(wrap: HTMLElement) {
+    const tblId = wrap.dataset.tblId;
+    if (!tblId) return;
+
+    const schemaEl = document.querySelector<HTMLScriptElement>(
+      `script.tbl-schema[data-tbl-id="${tblId}"]`
+    );
+    if (!schemaEl) return;
+    let schema: ColumnSchema[] = [];
+    try {
+      schema = JSON.parse(schemaEl.textContent || '[]');
+    } catch (e) {
+      console.warn('[Table] failed to parse schema', e);
+    }
+
+    const defaultSortKey = wrap.dataset.defaultSortKey || '';
+    const defaultSortDir = (wrap.dataset.defaultSortDir as 'asc' | 'desc') || 'desc';
+
+    let activeSortKey: string = defaultSortKey;
+    let activeSortDir: SortDir = defaultSortKey ? defaultSortDir : null;
+
+    const table = wrap.querySelector<HTMLTableElement>('table.tbl');
+    if (!table) return;
+    const tbody = table.querySelector<HTMLTableSectionElement>('tbody');
+    if (!tbody) return;
+
+    // Snapshot of the ORIGINAL row order so the third sort-click can
+    // restore the default sort by re-sorting from the snapshot.
+    const originalRows: HTMLTableRowElement[] = Array.from(
+      tbody.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr')
+    );
+
+    // If there's no data rows (empty / loading state), there's still value
+    // in wiring the export button. Otherwise skip sorting.
+    function parseValue(td: HTMLTableCellElement | undefined): number | string | null {
+      if (!td) return null;
+      const raw = td.textContent?.trim() ?? '';
+      if (raw === '' || raw === '—') return null;
+      // Strip percentage signs, commas, plus signs; try numeric parse.
+      const cleaned = raw.replace(/[,%+]/g, '').replace(/[^\d.\-]/g, '');
+      if (cleaned !== '' && !isNaN(Number(cleaned))) {
+        const n = parseFloat(cleaned);
+        // If the raw value contained non-numeric chars beyond punctuation,
+        // fall back to lexical sort. Heuristic: only digits/./-/+ → numeric.
+        if (/^[+\-]?[\d.,]+%?$/.test(raw)) return n;
+      }
+      // Lexical sort fallback (use lowercased text)
+      return raw.toLowerCase();
+    }
+
+    function getCellForKey(tr: HTMLTableRowElement, key: string): HTMLTableCellElement | undefined {
+      const idx = schema.findIndex(c => c.key === key);
+      if (idx < 0) return undefined;
+      const tds = tr.querySelectorAll<HTMLTableCellElement>('td');
+      return tds[idx];
+    }
+
+    function sortBy(key: string, dir: SortDir) {
+      if (!originalRows.length) return;
+      const headerCells = table!.querySelectorAll<HTMLTableCellElement>('thead th.tbl-th');
+      headerCells.forEach(th => {
+        const k = th.dataset.key;
+        th.classList.remove('sorted', 'asc', 'desc');
+        const arrow = th.querySelector<HTMLElement>('.sort-arrow');
+        if (arrow && th.dataset.sortable === '1') arrow.textContent = '↕';
+        if (k === key && dir) {
+          th.classList.add('sorted', dir);
+          if (arrow) arrow.textContent = dir === 'asc' ? '↑' : '↓';
+        }
+      });
+
+      // No active sort → restore original order
+      if (!dir) {
+        for (const row of originalRows) tbody!.appendChild(row);
+        return;
+      }
+
+      // Stable sort: tag each row with its original index as the tiebreaker
+      const decorated = originalRows.map((tr, idx) => ({
+        tr,
+        idx,
+        v: parseValue(getCellForKey(tr, key)),
+      }));
+
+      decorated.sort((a, b) => {
+        const av = a.v;
+        const bv = b.v;
+        // Nulls always sort to the bottom regardless of direction
+        if (av == null && bv == null) return a.idx - b.idx;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        let cmp = 0;
+        if (typeof av === 'number' && typeof bv === 'number') {
+          cmp = av - bv;
+        } else {
+          cmp = String(av).localeCompare(String(bv));
+        }
+        if (cmp === 0) return a.idx - b.idx; // stable tiebreaker
+        return dir === 'asc' ? cmp : -cmp;
+      });
+
+      // Re-append rows in sorted order
+      for (const d of decorated) tbody!.appendChild(d.tr);
+    }
+
+    // Initial paint matches defaultSort metadata (server already rendered
+    // the rows in the consumer-controlled order; we just sync the arrow
+    // state and let the consumer pre-sort if they want).
+    // We do NOT re-sort here on initial render — the consumer page is
+    // expected to pre-sort rows by defaultSort before passing them in.
+
+    // Wire header clicks: 3-state cycle (desc → asc → unsorted)
+    table.querySelectorAll<HTMLTableCellElement>('thead th.tbl-th').forEach(th => {
+      if (th.dataset.sortable !== '1') return;
+      th.addEventListener('click', () => {
+        const key = th.dataset.key || '';
+        if (!key) return;
+        let nextDir: SortDir;
+        if (activeSortKey !== key) {
+          // New column → start descending
+          nextDir = 'desc';
+        } else if (activeSortDir === 'desc') {
+          nextDir = 'asc';
+        } else if (activeSortDir === 'asc') {
+          // Third click: unsort and revert to default
+          if (defaultSortKey && defaultSortKey !== key) {
+            activeSortKey = defaultSortKey;
+            activeSortDir = defaultSortDir;
+            sortBy(activeSortKey, activeSortDir);
+            return;
+          }
+          nextDir = null;
+        } else {
+          nextDir = 'desc';
+        }
+        activeSortKey = nextDir ? key : (defaultSortKey || key);
+        activeSortDir = nextDir ?? (defaultSortKey ? defaultSortDir : null);
+        sortBy(activeSortKey, activeSortDir);
+      });
+    });
+
+    // Wire row navigation: whole-row click + keyboard Enter
+    wrap.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr.clickable').forEach(tr => {
+      const href = tr.dataset.href;
+      if (!href) return;
+      tr.addEventListener('click', (e) => {
+        // Don't navigate if the user clicked on an inner anchor/button
+        const target = e.target as HTMLElement;
+        if (target.closest('a, button')) return;
+        window.location.href = href;
+      });
+      tr.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          window.location.href = href;
+        }
+      });
+    });
+
+    // Wire PNG export — defers to global HGB_Export from /js/table-export.js.
+    // The consuming page is responsible for including that script.
+    const exportBtn = wrap.querySelector<HTMLButtonElement>('button.tbl-export-btn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        const filename = wrap.dataset.exportFilename || 'table.png';
+        const title = wrap.dataset.exportTitle || 'Stats';
+
+        // Read live row data back out of the DOM. The export module accepts
+        // any object[]; we reconstruct one object per visible row using the
+        // current cell text values, keyed by column.key. This stays in sync
+        // with the active sort because we read AFTER sortBy() has reordered.
+        const liveRows: Record<string, any>[] = [];
+        const currentTrs = tbody!.querySelectorAll<HTMLTableRowElement>(
+          'tr.tbl-tr'
+        );
+        currentTrs.forEach((tr, i) => {
+          const obj: Record<string, any> = { _rank: i + 1 };
+          const tds = tr.querySelectorAll<HTMLTableCellElement>('td');
+          schema.forEach((c, idx) => {
+            const td = tds[idx];
+            if (!td) return;
+            obj[c.key] = (td.textContent || '').trim();
+          });
+          liveRows.push(obj);
+        });
+
+        // Translate schema → ColumnDef[] expected by table-export.js.
+        // Field widths and align come from the schema; format/color/bold
+        // callbacks are intentionally lost on this hand-off — the cell text
+        // is already formatted in the DOM and the consumer page can pass
+        // richer columns directly if needed (see exportColumnsOverride).
+        const exportCols = schema.map(c => ({
+          key: c.key,
+          label: c.label,
+          width: c.width ?? defaultWidthForType(c.type, c.label),
+          align: c.align === 'left' ? 'left' : c.align === 'right' ? 'right' : 'center',
+          fontFamily: c.fontFamily === 'body' ? 'body'
+                    : c.type === 'player' || c.type === 'label' ? 'body'
+                    : 'mono',
+          bold: c.bold,
+        }));
+
+        const exporter = (window as any).HGB_Export;
+        if (!exporter || !exporter.downloadTablePng) {
+          console.warn('[Table] HGB_Export not available — include /js/table-export.js on the page');
+          return;
+        }
+        exporter.downloadTablePng({
+          title,
+          filterChips: [],
+          rows: liveRows,
+          columns: exportCols,
+          filename,
+        });
+      });
+    }
+  }
+
+  function defaultWidthForType(type: string, label: string): number {
+    if (type === 'rank')     return 44;
+    if (type === 'team')     return 100;
+    if (type === 'player')   return 260;
+    if (type === 'position') return 56;
+    if (type === 'number')   return Math.max(72, label.length * 12);
+    return Math.max(120, label.length * 12);
+  }
+
+  // Initialize all Table instances on the page
+  document.querySelectorAll<HTMLElement>('.tbl-wrap[data-tbl-id]').forEach(initTable);
+</script>
