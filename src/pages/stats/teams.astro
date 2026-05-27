@@ -327,29 +327,74 @@ const initialDiv      = url.searchParams.get('div')      ?? 'all';
 
 const baseTeams = initialGameType === 'playoffs' ? mockTeamsPlayoff : mockTeamsReg;
 
-// ── Per-60 transform ────────────────────────────────────────────────────────
-function toRow(t: TeamRow, display: 'totals' | 'per60'): TeamRow & {
+// ── Per-60 + strength transform ─────────────────────────────────────────────
+// Fix 3 (Round 3, 2026-05-27): the previous build only crossed (gameType × display)
+// = 4 variants. The strength toggle now actually swaps which stat-set is rendered,
+// so we cross (gameType × strength × display) = 8 variants. For the "all"
+// strength bucket the mock data exposes `gf`/`ga`/`xgf_5v5`/`xga_5v5`/`sf_5v5`
+// (xG and SF only have 5v5 fields in the mock — when teams.json ships those
+// will be backed by all-situations columns too; the placeholder behavior is to
+// fall back to the 5v5 number for now so the toggle visibly does something).
+function toRow(
+  t: TeamRow,
+  display: 'totals' | 'per60',
+  strength: 'all' | '5v5',
+): TeamRow & {
   rank: number;
   record: string;
+  season: string;
   gf_display: number;
   ga_display: number;
   xgf_display: number;
   xga_display: number;
+  gf_pct: number;
+  xgf_pct: number;
+  sf_pct: number;
 } {
   const hours = t.toi_5v5_sec / 3600;
   const isPer60 = display === 'per60';
+  const is5v5 = strength === '5v5';
+
+  // Pick the source values for each metric based on strength state.
+  // GF/GA: mock has both fields. xGF/xGA/SF%: mock has 5v5 only; we re-use the
+  // 5v5 value for "all" with a small upward bump (~8%) to fake the all-sit
+  // delta — purely so the toggle is visible during mock-data review. The
+  // pipeline will deliver real all-sit values for these columns.
+  const gfRaw  = is5v5 ? t.gf_5v5 : t.gf;
+  const gaRaw  = is5v5 ? t.ga_5v5 : t.ga;
+  const xgfRaw = is5v5 ? t.xgf_5v5 : +(t.xgf_5v5 * 1.08).toFixed(1);
+  const xgaRaw = is5v5 ? t.xga_5v5 : +(t.xga_5v5 * 1.08).toFixed(1);
+
+  // Derived rate stats (different baselines per strength state).
+  const gfPct  = is5v5 ? t.gf_pct_5v5 : +(gfRaw / (gfRaw + gaRaw)).toFixed(3);
+  const xgfPct = is5v5 ? t.xgf_pct_5v5 : +(xgfRaw / (xgfRaw + xgaRaw)).toFixed(3);
+  // SF%: only 5v5 available; for "all" we leave it at the 5v5 value (would
+  // be `(sf_all / (sf_all + sa_all))` once pipeline ships).
+  const sfPct  = t.sf_pct_5v5;
+
   return {
     ...t,
     rank: 0, // assigned after sort
     record: `${t.wins}-${t.losses}-${t.ot_losses}`,
-    // Per-60 versions of counting stats (xGF / xGA driven by 5v5 TOI; GF/GA
-    // are all-situations so we approximate using same hours as a proxy — this
-    // is a known simplification that the engineer can refine when teams.json
-    // ships with all-situations TOI alongside 5v5).
-    gf_display:  isPer60 ? +(t.gf       / hours).toFixed(2) : t.gf,
-    ga_display:  isPer60 ? +(t.ga       / hours).toFixed(2) : t.ga,
-    xgf_display: isPer60 ? +(t.xgf_5v5  / hours).toFixed(2) : +t.xgf_5v5.toFixed(1),
-    xga_display: isPer60 ? +(t.xga_5v5  / hours).toFixed(2) : +t.xga_5v5.toFixed(1),
+    season: '2025-26',
+    // Per-60 versions of counting stats. Both 5v5 and all-sit divide by the
+    // same `hours` for now — when teams.json ships an all-situations TOI it
+    // should be used as the denominator for the all-sit branch.
+    gf_display:  isPer60 ? +(gfRaw  / hours).toFixed(2) : gfRaw,
+    ga_display:  isPer60 ? +(gaRaw  / hours).toFixed(2) : gaRaw,
+    xgf_display: isPer60 ? +(xgfRaw / hours).toFixed(2) : +xgfRaw.toFixed(1),
+    xga_display: isPer60 ? +(xgaRaw / hours).toFixed(2) : +xgaRaw.toFixed(1),
+    // Strength-aware rate columns. The Table consumes these by key so we keep
+    // the original `*_5v5` keys (the columns array still reads from those)
+    // and ALSO expose new neutral keys for clients that want the bucketed
+    // value. We overwrite the *_5v5 fields with the strength-appropriate
+    // value so existing column lookups Just Work without renaming.
+    gf_pct_5v5:  gfPct,
+    xgf_pct_5v5: xgfPct,
+    sf_pct_5v5:  sfPct,
+    gf_pct:  gfPct,
+    xgf_pct: xgfPct,
+    sf_pct:  sfPct,
   };
 }
 
@@ -360,7 +405,7 @@ if (initialDiv  !== 'all') filtered = filtered.filter(t => t.division.toLowerCas
 
 // ── Pre-sort by xGF% desc + rank-assign ─────────────────────────────────────
 const rows = filtered
-  .map(t => toRow(t, initialDisplay))
+  .map(t => toRow(t, initialDisplay, initialStrength))
   .sort((a, b) => b.xgf_pct_5v5 - a.xgf_pct_5v5)
   .map((r, i) => ({ ...r, rank: i + 1 }));
 
@@ -368,20 +413,31 @@ const teamCount = rows.length;
 const totalCount = baseTeams.length;
 const timestamp = new Date().toISOString().slice(0, 10);
 
-// ── Client-side data payload (Issue 7 fix) ──────────────────────────────────
-// Ship BOTH datasets (regular + playoffs) and BOTH display modes (totals +
-// per60) to the client as a single JSON blob. The client script swaps the
-// visible row set in place when the user changes any toggle — no page reload.
-// This is what makes Per60 / game type chips actually change data instead of
-// just decorating a URL.
+// ── Client-side data payload (Issue 7 + Fix 3 / Round 3) ────────────────────
+// Ship every (gameType × strength × display) permutation = 8 variants. The
+// client script swaps the visible row set in place when the user changes any
+// toggle — no page reload. This is what makes Per60 / game type / strength
+// chips actually change data instead of just decorating a URL.
 const clientPayload = {
   regular: {
-    totals: mockTeamsReg.map(t => toRow(t, 'totals')),
-    per60:  mockTeamsReg.map(t => toRow(t, 'per60')),
+    all: {
+      totals: mockTeamsReg.map(t => toRow(t, 'totals', 'all')),
+      per60:  mockTeamsReg.map(t => toRow(t, 'per60',  'all')),
+    },
+    fivev5: {
+      totals: mockTeamsReg.map(t => toRow(t, 'totals', '5v5')),
+      per60:  mockTeamsReg.map(t => toRow(t, 'per60',  '5v5')),
+    },
   },
   playoffs: {
-    totals: mockTeamsPlayoff.map(t => toRow(t, 'totals')),
-    per60:  mockTeamsPlayoff.map(t => toRow(t, 'per60')),
+    all: {
+      totals: mockTeamsPlayoff.map(t => toRow(t, 'totals', 'all')),
+      per60:  mockTeamsPlayoff.map(t => toRow(t, 'per60',  'all')),
+    },
+    fivev5: {
+      totals: mockTeamsPlayoff.map(t => toRow(t, 'totals', '5v5')),
+      per60:  mockTeamsPlayoff.map(t => toRow(t, 'per60',  '5v5')),
+    },
   },
 };
 
@@ -412,6 +468,21 @@ const fmtCount = (v: number | null | undefined): string => {
   return Number.isInteger(v) ? String(v) : Number(v).toFixed(2);
 };
 
+// ── Per-60 label helper (Fix 2 / Round 3) ──────────────────────────────────
+// Counting-stat columns swap their label between e.g. "GF" and "GF/60" based
+// on the active display mode. Percentage columns (GF%, xGF%, SF%, PP%, PK%)
+// are already rates — they never change label. The label list lives in the
+// columns array (SSR initial paint) AND in the client-side `LABEL_MAPS`
+// constant below — keep both in sync.
+const labelFor = (base: string, display: 'totals' | 'per60'): string =>
+  display === 'per60' ? `${base}/60` : base;
+
+// ── Season formatter (Fix 6 / Round 3) ─────────────────────────────────────
+// Only 25-26 data exists today; future multi-season data will fill this column
+// via the pipeline. The column is sortable so users can re-order chronologically
+// once more seasons are available.
+const fmtSeason = (_v: any): string => '25-26';
+
 const columns = [
   {
     key: 'rank',
@@ -425,6 +496,15 @@ const columns = [
     type: 'team' as const,
   },
   {
+    // Fix 6 (Round 3, 2026-05-27): future-proof for multi-season data — the
+    // pipeline currently only ships 2025-26, so every row reads "25-26" but
+    // the column is sortable for when older seasons ship.
+    key: 'season',
+    label: 'Season',
+    type: 'number' as const,
+    format: fmtSeason,
+  },
+  {
     key: 'gp',
     label: 'GP',
     type: 'number' as const,
@@ -436,13 +516,13 @@ const columns = [
   },
   {
     key: 'gf_display',
-    label: 'GF',
+    label: labelFor('GF', initialDisplay),
     type: 'number' as const,
     format: fmtCount,
   },
   {
     key: 'ga_display',
-    label: 'GA',
+    label: labelFor('GA', initialDisplay),
     type: 'number' as const,
     format: fmtCount,
   },
@@ -455,13 +535,13 @@ const columns = [
   },
   {
     key: 'xgf_display',
-    label: 'xGF',
+    label: labelFor('xGF', initialDisplay),
     type: 'number' as const,
     format: fmtFloat1,
   },
   {
     key: 'xga_display',
-    label: 'xGA',
+    label: labelFor('xGA', initialDisplay),
     type: 'number' as const,
     format: fmtFloat1,
   },
@@ -722,13 +802,41 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
       sf_5v5: number; sa_5v5: number; sf_pct_5v5: number;
       sh_pct_5v5: number; sv_pct_5v5: number; pdo_5v5: number;
       pp_pct: number; pk_pct: number; pp_xgf_60: number; pk_xga_60: number;
-      rank: number; record: string;
+      rank: number; record: string; season: string;
       gf_display: number; ga_display: number; xgf_display: number; xga_display: number;
     }
+    // Fix 3 (Round 3): payload is now 8 variants (gameType × strength × display)
+    // The strength key is `fivev5` (not `5v5`) because identifiers can't start
+    // with a digit — the toggle button still reads "5v5" to the user.
     interface Payload {
-      regular:  { totals: PayloadRow[]; per60: PayloadRow[] };
-      playoffs: { totals: PayloadRow[]; per60: PayloadRow[] };
+      regular: {
+        all:    { totals: PayloadRow[]; per60: PayloadRow[] };
+        fivev5: { totals: PayloadRow[]; per60: PayloadRow[] };
+      };
+      playoffs: {
+        all:    { totals: PayloadRow[]; per60: PayloadRow[] };
+        fivev5: { totals: PayloadRow[]; per60: PayloadRow[] };
+      };
     }
+
+    // ── Reactive label map (Fix 2 / Round 3) ────────────────────────────
+    // Counting-stat column labels swap based on display mode. Percentage
+    // columns stay the same — they're already rates. Keys MUST match the
+    // column `key`s in the frontmatter columns array.
+    const LABEL_MAPS: Record<Display, Record<string, string>> = {
+      totals: {
+        gf_display:  'GF',
+        ga_display:  'GA',
+        xgf_display: 'xGF',
+        xga_display: 'xGA',
+      },
+      per60: {
+        gf_display:  'GF/60',
+        ga_display:  'GA/60',
+        xgf_display: 'xGF/60',
+        xga_display: 'xGA/60',
+      },
+    };
 
     const wrap = document.querySelector<HTMLElement>('.tbl-wrap[data-tbl-id]');
     if (!wrap) return;
@@ -812,8 +920,10 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
         `</div></td>`
       );
 
-      // Numeric cells — keep order in sync with the columns array in the frontmatter
+      // Numeric cells — keep order in sync with the columns array in the
+      // frontmatter. Season column (Fix 6) sits between Team and GP.
       const numericCells: Array<{ text: string; bold?: boolean; color?: string }> = [
+        { text: '25-26' }, // Season — abbreviated to match JFresh display
         { text: String(r.gp) },
         { text: r.record },
         { text: fmtCount(r.gf_display) },
@@ -852,9 +962,22 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
       return `<tr ${trAttrs}>${cells.join('')}</tr>`;
     }
 
+    // Fix 2 (Round 3): apply the active per-60/totals label set to the table
+    // header. Reads from LABEL_MAPS and uses the Table.astro-exposed updater
+    // (`window.HGB_Table.updateColumnLabels`) so the change is in-place.
+    function applyLabels(): void {
+      const tblId = wrap!.dataset.tblId;
+      const updater = (window as any).HGB_Table?.updateColumnLabels;
+      if (!tblId || typeof updater !== 'function') return;
+      updater(tblId, LABEL_MAPS[state.display]);
+    }
+
     // ── Render the active view ────────────────────────────────────────────
     function render(): void {
-      const dataset = payload[state.gameType][state.display];
+      // Fix 3 (Round 3): pick (gameType × strength × display) — strength uses
+      // the `fivev5` key in the payload to keep identifiers valid.
+      const strengthKey = state.strength === '5v5' ? 'fivev5' : 'all';
+      const dataset = payload[state.gameType][strengthKey][state.display];
       // Apply conf + div filters
       let filtered = dataset.filter(r => {
         if (state.conf !== 'all') {
@@ -874,6 +997,8 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
         .map((r, i) => ({ ...r, rank: i + 1 }));
 
       tbody!.innerHTML = filtered.map(rowHtml).join('');
+      // Sync header labels with the active display mode (Fix 2 / Round 3).
+      applyLabels();
       // Tell Table.astro to re-snapshot rows + re-apply its sort
       wrap!.dispatchEvent(new CustomEvent('tbl:rows-changed'));
       applySearch(); // re-apply search filter on the new row set
@@ -945,7 +1070,8 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
       });
     });
 
-    // Strength toggle — still informational for v1 (mock data is 5v5-derived).
+    // Strength toggle — Fix 3 (Round 3): now actually swaps the underlying
+    // dataset (all-situations vs 5v5) instead of only decorating the URL.
     document.querySelectorAll<HTMLButtonElement>('#strength-filter button').forEach(btn => {
       btn.addEventListener('click', () => {
         const s = btn.dataset.strength as Strength;
@@ -953,6 +1079,7 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
         state.strength = s;
         setActiveButton('#strength-filter', 'strength', s);
         writeUrl();
+        render();
       });
     });
 

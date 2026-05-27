@@ -475,12 +475,19 @@ if (className) wrapClasses.push(className);
   .tbl thead th:first-child  { padding-left: 16px; }
   .tbl thead th:last-child   { padding-right: 16px; }
 
-  /* Sticky thead — on by default; opt-out via sticky={false} */
+  /* Sticky thead — on by default; opt-out via sticky={false}.
+     The bottom rule (2px solid ink) used to live on `box-shadow` here, but
+     box-shadow on a sticky <th> only paints across the VISIBLE viewport
+     width — so when the user scrolled horizontally on mobile, the shadow
+     ended at the original right edge of the screen and the team-column
+     header showed a half-empty underline. `border-bottom` is part of the
+     cell box; it follows the cell during horizontal scroll. The .tbl-th
+     border-bottom (line ~466) already paints across every column, so the
+     rule extends naturally with the table. */
   .tbl-wrap.sticky-head .tbl thead th.tbl-th {
     position: sticky;
     top: 0;
     z-index: 20;
-    box-shadow: 0 2px 0 var(--ink);
   }
 
   /* Sortable header affordance */
@@ -488,6 +495,21 @@ if (className) wrapClasses.push(className);
   .tbl thead th.not-sortable    { cursor: default; }
   .tbl thead th.sortable:hover  { color: var(--ink); }
   .tbl thead th.sorted          { color: var(--ink); }
+
+  /* Sorted-column data cells: bolder + full ink so the active sort column
+     reads as a unit (header AND its data). Applied dynamically at sort time
+     by the inline script (clears from previous column, adds to new column).
+     See `applySortedColumnClass()` below. */
+  .tbl tbody td.sorted-col {
+    font-weight: 700;
+    color: var(--ink);
+  }
+  /* Number type already uses var(--mono) at 12px — bumping weight to 700 on
+     the active sort column makes the column read as a vertical "stripe" of
+     emphasis without losing tabular alignment. */
+  .tbl tbody td.type-number.sorted-col {
+    font-weight: 700;
+  }
 
   .sort-arrow {
     display: inline-block;
@@ -744,13 +766,19 @@ if (className) wrapClasses.push(className);
 
     /* === Default sticky behavior: first column only ====================== */
     /* When the first column is NOT a rank (e.g., team-first layout) we pin
-       only that column on horizontal scroll. */
+       only that column on horizontal scroll.
+       background-color is set with !important because some consumer pages
+       inject td styles (e.g., inline `color:` for threshold colors) and we
+       must NEVER let the scrolling background show through.
+       background-clip: padding-box prevents the cell border area from
+       letting scrolled content peek through at the 1px border edge. */
     .tbl-wrap:not(.has-rank) .tbl thead th:first-child,
     .tbl-wrap:not(.has-rank) .tbl tbody td:first-child {
       position: sticky;
       left: 0;
-      background-color: var(--surface);
-      z-index: 5;
+      background-color: var(--surface) !important;
+      background-clip: padding-box;
+      z-index: 10;
     }
     .tbl-wrap:not(.has-rank).sticky-head .tbl thead th:first-child {
       z-index: 25;
@@ -758,23 +786,37 @@ if (className) wrapClasses.push(className);
 
     /* === Rank + team layout: pin BOTH columns ============================ */
     /* Lock the rank column to a fixed width so the second column's `left`
-       offset is deterministic. */
+       offset is deterministic.
+       ROOT-CAUSE FIX (Fix 4 / Round 3, 2026-05-27): the earlier `background-color`
+       declarations were being beaten by:
+         (a) the more-specific `.tbl tbody td.tbl-td { background-color: var(--surface); }`
+             paint (specificity 0,3,0 vs 0,2,1 here), and
+         (b) the row `:hover` override painting `--ink-04` on ALL tds in the row,
+             which on touch-and-drag horizontal scroll fires intermittently on
+             mobile and leaves the sticky cell's bg in a transient state.
+       `!important` is the cleanest way to guarantee opaque paint without
+       restructuring the cascade. `background-clip: padding-box` stops scrolled
+       content from leaking through the 1px border-area. z-index bumped 5→10
+       to put sticky cells unambiguously above scrolling siblings. */
     .tbl-wrap.has-rank .tbl thead th:first-child,
-    .tbl-wrap.has-rank .tbl tbody td:first-child {
+    .tbl-wrap.has-rank .tbl tbody td:first-child,
+    .tbl-wrap.has-rank .tbl tbody td.td-rk {
       position: sticky;
       left: 0;
       min-width: 48px;
       max-width: 56px;
       width: 56px;
-      background-color: var(--surface);
-      z-index: 5;
+      background-color: var(--surface) !important;
+      background-clip: padding-box;
+      z-index: 10;
     }
     .tbl-wrap.has-rank .tbl thead th:nth-child(2),
     .tbl-wrap.has-rank .tbl tbody td:nth-child(2) {
       position: sticky;
       left: 56px;
-      background-color: var(--surface);
-      z-index: 5;
+      background-color: var(--surface) !important;
+      background-clip: padding-box;
+      z-index: 10;
       /* Subtle right edge marks the boundary of the sticky group so users
          can see what's pinned vs what's scrolling. */
       box-shadow: 1px 0 0 var(--ink-06);
@@ -785,19 +827,24 @@ if (className) wrapClasses.push(className);
       z-index: 25;
     }
 
-    /* === Hover preservation: sticky cells repaint with row hover bg ====== */
+    /* === Hover preservation: sticky cells repaint with row hover bg ======
+       !important is required here too — the `.tbl tbody tr.tbl-tr:hover td.tbl-td`
+       rule (specificity 0,4,1) would otherwise win against this 0,3,1 rule. */
     .tbl tbody tr.tbl-tr:hover td:first-child,
-    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr:hover td:nth-child(2) {
-      background-color: var(--ink-04);
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr:hover td:nth-child(2),
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr:hover td.td-rk {
+      background-color: var(--ink-04) !important;
     }
     /* Pinned rows */
     .tbl tbody tr.tbl-tr.pinned td:first-child,
-    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr.pinned td:nth-child(2) {
-      background-color: rgba(232, 0, 45, 0.04);
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr.pinned td:nth-child(2),
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr.pinned td.td-rk {
+      background-color: rgba(232, 0, 45, 0.04) !important;
     }
     .tbl tbody tr.tbl-tr.pinned:hover td:first-child,
-    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr.pinned:hover td:nth-child(2) {
-      background-color: rgba(232, 0, 45, 0.06);
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr.pinned:hover td:nth-child(2),
+    .tbl-wrap.has-rank .tbl tbody tr.tbl-tr.pinned:hover td.td-rk {
+      background-color: rgba(232, 0, 45, 0.06) !important;
     }
   }
 </style>
@@ -884,10 +931,29 @@ if (className) wrapClasses.push(className);
       return tds[idx];
     }
 
+    // Apply (or clear) the `.sorted-col` class on every <td> in the column at
+    // `colIdx` (0-based). When colIdx is -1, clears the class from all cells
+    // (used when sort is fully cleared / restored to default).
+    // Fix 1 (Round 3, 2026-05-27): without this, only the header read as
+    // "active sort" — the data cells stayed regular weight, so the active
+    // column didn't read as a vertical stripe of emphasis.
+    function applySortedColumnClass(colIdx: number) {
+      // Clear from all data cells first — cheap on 32 rows, defensive on more.
+      tbody!.querySelectorAll<HTMLTableCellElement>('td.sorted-col').forEach(td => {
+        td.classList.remove('sorted-col');
+      });
+      if (colIdx < 0) return;
+      tbody!.querySelectorAll<HTMLTableRowElement>('tr.tbl-tr').forEach(tr => {
+        const td = tr.children[colIdx] as HTMLTableCellElement | undefined;
+        if (td) td.classList.add('sorted-col');
+      });
+    }
+
     function sortBy(key: string, dir: SortDir) {
       if (!originalRows.length) return;
       const headerCells = table!.querySelectorAll<HTMLTableCellElement>('thead th.tbl-th');
-      headerCells.forEach(th => {
+      let activeColIdx = -1;
+      headerCells.forEach((th, idx) => {
         const k = th.dataset.key;
         th.classList.remove('sorted', 'asc', 'desc');
         const arrow = th.querySelector<HTMLElement>('.sort-arrow');
@@ -895,8 +961,11 @@ if (className) wrapClasses.push(className);
         if (k === key && dir) {
           th.classList.add('sorted', dir);
           if (arrow) arrow.textContent = dir === 'asc' ? '↑' : '↓';
+          activeColIdx = idx;
         }
       });
+      // Mirror the active sort on the data cells of the column.
+      applySortedColumnClass(activeColIdx);
 
       // No active sort → restore original order
       if (!dir) {
@@ -937,6 +1006,12 @@ if (className) wrapClasses.push(className);
     // state and let the consumer pre-sort if they want).
     // We do NOT re-sort here on initial render — the consumer page is
     // expected to pre-sort rows by defaultSort before passing them in.
+    // But we DO apply `.sorted-col` to the data cells of the active column
+    // so the SSR rows match the "active sort = bold data" affordance.
+    if (activeSortKey) {
+      const initialIdx = schema.findIndex(c => c.key === activeSortKey);
+      if (initialIdx >= 0) applySortedColumnClass(initialIdx);
+    }
 
     // Wire header clicks: 3-state cycle (desc → asc → unsorted)
     // iOS Safari fires `click` reliably only on natively-interactive elements
@@ -1016,8 +1091,33 @@ if (className) wrapClasses.push(className);
       wireRowNavigation();
       if (activeSortKey && activeSortDir) {
         sortBy(activeSortKey, activeSortDir);
+      } else if (activeSortKey) {
+        // Sort wasn't active (e.g., default-sort-only initial paint), but we
+        // still want the active sort column to render with bold data cells.
+        const idx = schema.findIndex(c => c.key === activeSortKey);
+        if (idx >= 0) applySortedColumnClass(idx);
       }
     });
+
+    // ── Reactive column labels (Fix 2 / Round 3, 2026-05-27) ─────────────
+    // Some consuming pages need to swap header labels in response to a UI
+    // toggle (e.g., /stats/teams swaps "GF" → "GF/60" when display=per60).
+    // Exposed as a per-instance update via a window-scoped registry — the
+    // consuming page passes a `{ [colKey]: newLabel }` map.
+    const HGB_Table = ((window as any).HGB_Table = (window as any).HGB_Table || {});
+    HGB_Table.updateColumnLabels = function (tblIdArg: string, labelMap: Record<string, string>) {
+      if (tblIdArg !== tblId) return; // only the matching instance applies
+      table!.querySelectorAll<HTMLTableCellElement>('thead th.tbl-th').forEach(th => {
+        const k = th.dataset.key || '';
+        if (!(k in labelMap)) return;
+        const labelEl = th.querySelector<HTMLElement>('.tbl-th-label');
+        if (labelEl) labelEl.textContent = labelMap[k];
+        // Also update the schema-cached label so PNG export uses the new
+        // label after the toggle. The schema is closed-over in this scope.
+        const schemaEntry = schema.find(c => c.key === k);
+        if (schemaEntry) schemaEntry.label = labelMap[k];
+      });
+    };
 
     // Wire PNG export — defers to global HGB_Export from /js/table-export.js.
     // The consuming page is responsible for including that script.
