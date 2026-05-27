@@ -2383,20 +2383,45 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
   // ?mock=STATE loads /mock/scoreboard.STATE.json instead of the live API
   const mockState = new URLSearchParams(location.search).get('mock');
 
+  // ?date=YYYY-MM-DD replays a historical night — disables polling, shows banner
+  const _dateParam = new URLSearchParams(location.search).get('date');
+  let replayDate = null;
+  let replayDateInvalid = false;
+  if (_dateParam) {
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(_dateParam) && _dateParam >= '2020-10-01' && _dateParam <= todayUtc) {
+      replayDate = _dateParam;
+    } else {
+      replayDateInvalid = true;
+    }
+  }
+
+  // Inject sticky banner for replay / invalid-date modes
+  if (replayDate || replayDateInvalid) {
+    const b = document.createElement('div');
+    b.id = 'replay-banner';
+    b.style.cssText = `position:sticky;top:0;z-index:500;padding:9px 0;text-align:center;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;${replayDateInvalid ? 'background:var(--red);color:#fff' : 'background:var(--ink);color:var(--cream)'}`;
+    b.textContent = replayDateInvalid
+      ? 'Invalid date — showing today instead'
+      : `Viewing ${fmtDate(replayDate)} — Historical Replay · live updates paused`;
+    document.body.prepend(b);
+  }
+
   async function fetchAndRender() {
     try {
-      const url = mockState
-        ? `/mock/scoreboard.${mockState}.json`
-        : 'https://api.hockeygamebot.com/v1/scoreboard';
-      const r = await fetch(url, { cache: mockState ? 'no-store' : 'no-store' });
+      let url;
+      if (mockState) url = `/mock/scoreboard.${mockState}.json`;
+      else if (replayDate) url = `https://api.hockeygamebot.com/v1/scoreboard?date=${replayDate}`;
+      else url = 'https://api.hockeygamebot.com/v1/scoreboard';
+      const r = await fetch(url, { cache: 'no-store' });
       if (r.ok) { const d = await r.json(); render(d, tonight); return; }
     } catch {}
     if (initData) render(initData, tonight);
   }
 
   fetchAndRender();
-  // Don't auto-poll when in mock mode — manual refresh only
-  if (!mockState) setInterval(fetchAndRender, 30000);
+  // Disable polling for mock mode and historical replay — data is static
+  if (!mockState && !replayDate) setInterval(fetchAndRender, 30000);
 
   // ── Prefs + tracked teams (all users — prefs improve YG section; results for logged-in) ──
   (async function loadPrefsAndTrackedTeams() {
