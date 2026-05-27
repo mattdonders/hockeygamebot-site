@@ -2,12 +2,12 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
 import { loadPlayers, loadPlayoffLeaderboard } from '../../lib/stats-loader';
 
 const allPlayers = loadPlayers();
 const eligible   = allPlayers.filter(p => p.gp >= 20);
 
-// Pre-sort rapm arrays for O(n log n) percentile lookup at build time
 const fwdRapm = eligible.filter(p => p.pos_group === 'F').map(p => p.rapm ?? 0).sort((a,b) => a - b);
 const defRapm = eligible.filter(p => p.pos_group === 'D').map(p => p.rapm ?? 0).sort((a,b) => a - b);
 
@@ -30,7 +30,6 @@ const tableRows = eligible.map(p => {
     pos:      p.pos,
     group:    p.pos_group,
     gp:       p.gp,
-    // All Sit
     war:      p.rapm != null ? +(p.rapm * (p.toi_avg_sec * p.gp) / 3600 * 0.1).toFixed(2) : null,
     war_p:    warPct(p.rapm, p.pos_group),
     g60:      +p.rates_per_60.goals.toFixed(2),
@@ -43,25 +42,43 @@ const tableRows = eligible.map(p => {
     fin_p:    Math.round(p.percentiles_vs_pos.finishing),
     imp:      +p.avg_gs_display.toFixed(2),
     imp_p:    Math.round(p.gs_pct),
-    // 5v5
     xgf_pct:  xgfTotal > 0 ? +(evOff / xgfTotal * 100).toFixed(1) : 50.0,
     xgf60:    +evOff.toFixed(2),
     xga60:    +evDef.toFixed(2),
     sc60:     +(p.rates_per_60.sc_per60 ?? 0).toFixed(2),
     hdc60:    +(p.rates_per_60.hdc_per60 ?? 0).toFixed(2),
     hdc_pct:  +(p.hdc_pct ?? 50).toFixed(1),
-    // PP
     pp_toi:   p.toi_pp_sec_total != null ? +(p.toi_pp_sec_total / p.gp / 60).toFixed(1) : 0,
     pp_g:     p.goals_pp ?? 0,
     pp_xg60:  +(p.rates_per_60.xg_pp_per60 ?? 0).toFixed(2),
   };
 });
 
-// Playoff leaderboard rows — goals, assists, xG/60 only (≥5 GP)
 const playoffGoals   = loadPlayoffLeaderboard('goals');
 const playoffAssists = loadPlayoffLeaderboard('assists');
 const playoffXg      = loadPlayoffLeaderboard('xg');
 const hasPlayoffData = playoffGoals.length > 0;
+
+// SSR initial: situation=all (WAR), pre-sorted by WAR desc, top 50.
+const ssrRows = tableRows
+  .slice()
+  .sort((a, b) => (b.war ?? -Infinity) - (a.war ?? -Infinity))
+  .slice(0, 50)
+  .map((r, i) => ({ ...r, _rank: i + 1 }));
+
+// Initial column set (situation=all). JS swaps via replaceColumns when sit/gametype changes.
+const initialColumns = [
+  { key: '_rank', label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'name',  label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team} · ${r.pos} · ${r.gp} GP` },
+  { key: 'pos',   label: 'Pos',    type: 'position' as const, sortable: true },
+  { key: 'gp',    label: 'GP',     type: 'number' as const },
+  { key: 'war',   label: 'WAR',    type: 'number' as const, bold: true },
+  { key: 'g60',   label: 'G/60',   type: 'number' as const },
+  { key: 'a60',   label: 'A1/60',  type: 'number' as const },
+  { key: 'x60',   label: 'xG/60',  type: 'number' as const },
+  { key: 'fin',   label: 'Fin',    type: 'number' as const },
+  { key: 'imp',   label: 'Impact', type: 'number' as const },
+];
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -96,7 +113,6 @@ const hasPlayoffData = playoffGoals.length > 0;
     }
     html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
 
-    /* ── Masthead ── */
     .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
       background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
         linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
@@ -120,20 +136,15 @@ const hasPlayoffData = playoffGoals.length > 0;
     .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
     .mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
 
-    /* ── Layout ── */
     .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
 
-    /* ── Table section ── */
     .lb-section { padding: 40px 0 0; }
     .lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
       margin-bottom: 16px; flex-wrap: wrap; }
     .lb-title { font-family: var(--display); font-weight: 800; font-size: 22px;
       text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
     .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
-    .lb-dl-btn { background: none; border: 1px solid var(--ink-20); padding: 5px 12px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; border-radius: 2px; white-space: nowrap; }
-    .lb-dl-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
-    /* ── Filter tabs ── */
     .lb-filters { display: flex; align-items: center; gap: 6px; }
     .lb-tab {
       font-family: var(--display); font-weight: 700; font-size: 10.5px;
@@ -144,70 +155,17 @@ const hasPlayoffData = playoffGoals.length > 0;
     .lb-tab:hover { background: var(--ink-06); color: var(--ink); }
     .lb-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
-    /* ── Table ── */
-    .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; }
-    colgroup .c-rank   { width: 44px; }
-    colgroup .c-stat   { width: 84px; }
-    colgroup .c-sm     { width: 40px; }
-
-    thead th {
-      padding: 10px 12px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
-      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
-      border-bottom: 2px solid var(--ink-14); text-align: right;
-      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
-    }
-    thead th:first-child  { text-align: left; padding-left: 16px; cursor: default; }
-    thead th.th-player    { text-align: left; cursor: default; }
-    thead th:hover        { color: var(--ink); }
-    thead th.sorted       { color: var(--ink); }
-    .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.4; font-size: 8px; transition: opacity 0.1s; }
-    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
-
-    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: var(--ink-04); }
-
-    td { padding: 8px 12px; vertical-align: middle; }
-    td:first-child { padding-left: 16px; }
-
-    /* Rank */
-    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
-      text-align: left; font-variant-numeric: tabular-nums; min-width: 24px; }
-    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
-
-    /* Player */
-    .td-player { display: flex; align-items: center; gap: 10px; min-width: 150px; }
-    .td-logo   { width: 22px; height: 22px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
-    .td-info   { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .td-name   { font-family: var(--body); font-size: 15px; font-weight: 600; color: var(--ink);
-      text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .td-name:hover { color: var(--red); }
-    .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32);
-      letter-spacing: 0.04em; white-space: nowrap; }
-
-    /* Pos + GP */
-    .td-pos { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32);
-      text-align: center; letter-spacing: 0.04em; }
-    .td-gp  { font-family: var(--mono); font-size: 11px; color: var(--ink-32); text-align: right; }
-
-    /* Stat cells: value + percentile on two lines */
-    .td-stat { text-align: right; white-space: nowrap; }
-    .sv {
-      display: block; font-family: var(--mono); font-size: 13px; font-weight: 700;
-      font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.25;
-    }
-    .sv.pos { color: var(--stats-pos); }
-    .sv.neg { color: var(--stats-neg); }
-    .sv.nil { color: var(--ink-32); font-weight: 400; font-size: 12px; }
-    .sp {
+    /* Percentile sub-line stack (Advanced) */
+    .stat-stack { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.2; }
+    .stat-stack .sp {
       display: block; font-family: var(--mono); font-size: 9px;
-      font-variant-numeric: tabular-nums; line-height: 1.2;
+      font-variant-numeric: tabular-nums;
     }
-    .pe { color: #00c078; }   /* 90th+ */
-    .pg { color: #60a5fa; }   /* 70th+ */
-    .pa { color: var(--ink-32); } /* 40th+ */
-    .pl { color: var(--red); opacity: 0.65; } /* <40th */
+    .stat-stack .pe { color: #00c078; }
+    .stat-stack .pg { color: #60a5fa; }
+    .stat-stack .pa { color: var(--ink-32); }
+    .stat-stack .pl { color: var(--red); opacity: 0.65; }
+    .stat-stack .nil { color: var(--ink-32); }
 
     /* Show-all row */
     .lb-more { padding: 14px 18px; border-top: 1px solid var(--ink-06); text-align: center; }
@@ -219,7 +177,6 @@ const hasPlayoffData = playoffGoals.length > 0;
     }
     .lb-more-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
-    /* ── Methodology ── */
     .lb-method { background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; margin-top: 40px; }
     .lb-method-h { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
       display: flex; justify-content: space-between; align-items: center; }
@@ -237,18 +194,9 @@ const hasPlayoffData = playoffGoals.length > 0;
     .badge-core { color: var(--red); border: 1px solid rgba(232,0,45,0.4); }
     .lb-method-card .v { font-size: 12.5px; color: var(--ink-48); line-height: 1.55; }
 
-    /* ── Footer ── */
     .lb-footer { text-align: center; margin-top: 48px; color: var(--ink-32);
       font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
 
-    /* ── Responsive ── */
-    @media (max-width: 900px) {
-      .c-a60, .c-imp { display: none; }
-    }
-    @media (max-width: 640px) {
-      .c-fin, .c-pos { display: none; }
-      .td-sub { display: none; }
-    }
     @media (max-width: 768px) {
       .mast-inner { padding: 28px 20px; }
       .mast-card  { padding: 24px 20px 20px; }
@@ -265,7 +213,6 @@ const hasPlayoffData = playoffGoals.length > 0;
 
 <Nav currentPath={Astro.url.pathname} />
 
-<!-- MASTHEAD -->
 <section class="mast">
   <div class="mast-corners">
     <div class="corner tl"></div><div class="corner tr"></div>
@@ -285,13 +232,11 @@ const hasPlayoffData = playoffGoals.length > 0;
 
 <main class="wrap">
 
-  <!-- LEADERBOARD TABLE -->
   <section class="lb-section">
     <div class="lb-head">
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
         <span class="lb-title" id="lb-title">Season Leaderboards</span>
         <span class="lb-meta" id="lb-count">{eligible.length} players · 2025–26</span>
-        <button class="lb-dl-btn" id="dl-btn">↓ PNG</button>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
         <div class="lb-filters" id="gametype-filter">
@@ -303,7 +248,7 @@ const hasPlayoffData = playoffGoals.length > 0;
           <button class="lb-tab" data-sit="5v5">5v5</button>
           <button class="lb-tab" data-sit="pp">PP</button>
         </div>
-        <div class="lb-filters">
+        <div class="lb-filters" id="pos-filter">
           <button class="lb-tab active" data-pos="all">All</button>
           <button class="lb-tab" data-pos="F">Fwds</button>
           <button class="lb-tab" data-pos="D">Def</button>
@@ -311,60 +256,22 @@ const hasPlayoffData = playoffGoals.length > 0;
       </div>
     </div>
 
-    <!-- Regular season table -->
-    <div class="lb-wrap" id="lb-reg-wrap">
-      <table>
-        <colgroup>
-          <col class="c-rank">
-          <col>
-          <col class="c-pos c-sm">
-          <col class="c-sm">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-stat c-a60">
-          <col class="c-stat">
-          <col class="c-stat c-fin">
-          <col class="c-stat c-imp">
-        </colgroup>
-        <thead><tr id="lb-thead-row"></tr></thead>
-        <tbody id="lb-tbody"></tbody>
-      </table>
-      <div class="lb-more" id="lb-more" style="display:none">
-        <button class="lb-more-btn" id="lb-more-btn">Show all players →</button>
-      </div>
-    </div>
-
-    <!-- Playoff table (hidden by default) -->
-    <div class="lb-wrap" id="lb-po-wrap" style="display:none">
-      <table>
-        <colgroup>
-          <col class="c-rank">
-          <col>
-          <col class="c-pos c-sm">
-          <col class="c-sm">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-stat">
-        </colgroup>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th style="text-align:left">Player</th>
-            <th>Pos</th>
-            <th>GP</th>
-            <th id="po-sort-goals" style="cursor:pointer" class="sorted">Goals<span class="sort-arrow">↓</span></th>
-            <th id="po-sort-assists" style="cursor:pointer">Assists<span class="sort-arrow">↕</span></th>
-            <th id="po-sort-xg" style="cursor:pointer">xG/60<span class="sort-arrow">↕</span></th>
-            <th>Pctile</th>
-          </tr>
-        </thead>
-        <tbody id="po-tbody"></tbody>
-      </table>
+    <Table
+      columns={initialColumns}
+      rows={ssrRows}
+      rowHref={(r) => `/stats/player/${r.slug}`}
+      defaultSort={{ column: 'war', direction: 'desc' }}
+      scrollable
+      maxHeight={700}
+      exportFilename="hgb-leaderboards.png"
+      exportTitle="Season Leaderboards"
+      ariaLabel="NHL skater leaderboards"
+    />
+    <div class="lb-more" id="lb-more" style="display:none">
+      <button class="lb-more-btn" id="lb-more-btn">Show all players →</button>
     </div>
   </section>
 
-  <!-- METHODOLOGY -->
   <div class="lb-method">
     <div class="lb-method-h">
       <span class="title">How we measure</span>
@@ -390,278 +297,255 @@ const hasPlayoffData = playoffGoals.length > 0;
 
 <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · LEADERBOARD V3</footer>
 
-</body>
-</html>
+<script type="application/json" id="lb-data" set:html={JSON.stringify({
+  rows: tableRows,
+  poGoals: playoffGoals,
+  poAssists: playoffAssists,
+  poXg: playoffXg,
+  hasPlayoffData,
+})}></script>
 
 <script is:inline src="/js/table-export.js"></script>
-<script define:vars={{ rows: tableRows, poGoals: playoffGoals, poAssists: playoffAssists, poXg: playoffXg, hasPlayoffData }}>
-const DATA = rows;
-const PAGE = 50;
 
-// ── State ────────────────────────────────────────────────────────────────────
-let gameType  = 2; // 2=regular, 3=playoff
-let situation = 'all';
-let posFilter = 'all';
-let sortKey   = 'war';
-let sortAsc   = false;
-let showAll   = false;
+<script>
+(function() {
+  'use strict';
+  const PAGE = 50;
+  const sgn2 = (n) => n >= 0 ? '+' : '';
 
-// ── Playoff data lookup ───────────────────────────────────────────────────────
-const PO_DATA = {
-  goals:   poGoals,
-  assists: poAssists,
-  xg:      poXg,
-};
-let poSortKey = 'goals';
-let poSortAsc = false;
+  const dataEl = document.getElementById('lb-data');
+  if (!dataEl) return;
+  const payload = JSON.parse(dataEl.textContent || '{}');
+  const DATA = payload.rows || [];
+  const PO_DATA = {
+    goals:   payload.poGoals || [],
+    assists: payload.poAssists || [],
+    xg:      payload.poXg || [],
+  };
 
-function readUrl() {
-  const p = new URLSearchParams(window.location.search);
-  if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
-}
+  let gameType  = 2;
+  let situation = 'all';
+  let posFilter = 'all';
+  let sortKey   = 'war';
+  let showAll   = false;
+  let poSortKey = 'goals';
 
-function updateUrl() {
-  const p = new URLSearchParams();
-  if (gameType === 3) p.set('game_type', '3');
-  const qs = p.toString();
-  history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
-}
+  // ── Situation column definitions ───────────────────────────────────────
+  // Each situation tab has its own column set. Each col can be:
+  //   - `pctKey`: percentile sub-line key (Advanced view stat-stack)
+  //   - `signed`: ±value with threshold color
+  //   - `fmt`: value formatter
+  const SIT_COLS = {
+    all: {
+      defaultSort: 'war',
+      cols: [
+        { label: 'WAR', key: 'war', pctKey: 'war_p', signed: true, bold: true,
+          fmt: v => v != null ? sgn2(v) + Number(v).toFixed(2) : '—' },
+        { label: 'G/60', key: 'g60', pctKey: 'g60_p', fmt: v => Number(v).toFixed(2) },
+        { label: 'A1/60', key: 'a60', pctKey: 'a60_p', fmt: v => Number(v).toFixed(2) },
+        { label: 'xG/60', key: 'x60', pctKey: 'x60_p', fmt: v => Number(v).toFixed(2) },
+        { label: 'Fin', key: 'fin', pctKey: 'fin_p', signed: true,
+          fmt: v => v != null ? sgn2(v) + Number(v).toFixed(2) : '—' },
+        { label: 'Impact', key: 'imp', pctKey: 'imp_p', fmt: v => Number(v).toFixed(2) },
+      ],
+    },
+    '5v5': {
+      defaultSort: 'xgf_pct',
+      cols: [
+        { label: 'xGF%', key: 'xgf_pct', bold: true,
+          fmt: v => Number(v).toFixed(1) + '%',
+          color: v => v >= 55 ? 'var(--stats-pos)' : v <= 45 ? 'var(--stats-neg)' : null },
+        { label: 'xGF/60', key: 'xgf60', fmt: v => Number(v).toFixed(2) },
+        { label: 'xGA/60', key: 'xga60', fmt: v => Number(v).toFixed(2) },
+        { label: 'SC/60', key: 'sc60', fmt: v => Number(v).toFixed(2) },
+        { label: 'HDC/60', key: 'hdc60', fmt: v => Number(v).toFixed(2) },
+        { label: 'HDC%', key: 'hdc_pct', fmt: v => Number(v).toFixed(1) + '%' },
+      ],
+    },
+    pp: {
+      defaultSort: 'pp_xg60',
+      cols: [
+        { label: 'PP min/gm', key: 'pp_toi', fmt: v => Number(v).toFixed(1) },
+        { label: 'PP G', key: 'pp_g' },
+        { label: 'PP xG/60', key: 'pp_xg60', bold: true, fmt: v => Number(v).toFixed(2) },
+        { label: 'SC/60', key: 'sc60', fmt: v => Number(v).toFixed(2) },
+        { label: 'HDC/60', key: 'hdc60', fmt: v => Number(v).toFixed(2) },
+      ],
+    },
+  };
 
-function syncGameType() {
-  const isPlayoff = gameType === 3;
-  document.getElementById('lb-reg-wrap').style.display  = isPlayoff ? 'none' : '';
-  document.getElementById('lb-po-wrap').style.display   = isPlayoff ? '' : 'none';
-  document.getElementById('sit-filter').style.display   = isPlayoff ? 'none' : '';
-  document.getElementById('lb-more').style.display      = 'none';
-  document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
-    btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
-  });
-  const titleEl = document.getElementById('lb-title');
-  if (titleEl) titleEl.textContent = isPlayoff ? 'Playoff Leaderboards' : 'Season Leaderboards';
-  const countEl = document.getElementById('lb-count');
-  if (countEl) {
-    if (isPlayoff) {
-      const n = (PO_DATA.goals || []).length;
-      countEl.textContent = n > 0 ? `${n} players · 2025–26 playoffs` : 'No playoff data yet';
-    } else {
-      countEl.textContent = `${DATA.length} players · 2025–26`;
+  function readUrl() {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
+  }
+  function updateUrl() {
+    const p = new URLSearchParams();
+    if (gameType === 3) p.set('game_type', '3');
+    const qs = p.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+  }
+
+  function pctCls(p) {
+    if (p == null) return 'pa';
+    return p >= 90 ? 'pe' : p >= 70 ? 'pg' : p >= 40 ? 'pa' : 'pl';
+  }
+  function ordinal(p) {
+    if (p == null) return '—';
+    const s = (p % 100 >= 11 && p % 100 <= 13) ? 'th' :
+      p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
+    return `${p}${s}`;
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function buildPoUnified() {
+    const byId = {};
+    for (const r of (PO_DATA.goals || [])) { byId[r.player_id] = { ...r, goals: r.value, assists: null, xg60: null }; }
+    for (const r of (PO_DATA.assists || [])) {
+      if (byId[r.player_id]) byId[r.player_id].assists = r.value;
+      else byId[r.player_id] = { ...r, goals: null, assists: r.value, xg60: null };
     }
-  }
-  if (isPlayoff) renderPlayoffTable();
-}
-
-function buildPoUnified() {
-  // Merge the 3 top-10 lists into a single player map with all three stats
-  const byId = {};
-  for (const r of (poGoals   || [])) { byId[r.player_id] = { ...r, goals: r.value, assists: null, xg60: null }; }
-  for (const r of (poAssists || [])) {
-    if (byId[r.player_id]) byId[r.player_id].assists = r.value;
-    else byId[r.player_id] = { ...r, goals: null, assists: r.value, xg60: null };
-  }
-  for (const r of (poXg || [])) {
-    if (byId[r.player_id]) byId[r.player_id].xg60 = r.value;
-    else byId[r.player_id] = { ...r, goals: null, assists: null, xg60: r.value };
-  }
-  return Object.values(byId);
-}
-
-function renderPlayoffTable() {
-  ['goals', 'assists', 'xg'].forEach(key => {
-    const th = document.getElementById(`po-sort-${key}`);
-    if (!th) return;
-    const isActive = key === poSortKey;
-    th.classList.toggle('sorted', isActive);
-    const arrow = th.querySelector('.sort-arrow');
-    if (arrow) arrow.textContent = isActive ? (poSortAsc ? '↑' : '↓') : '↕';
-  });
-
-  const tbody = document.getElementById('po-tbody');
-  if (!tbody) return;
-
-  const unified = buildPoUnified();
-  if (unified.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:60px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">Playoff data available once postseason begins</td></tr>`;
-    return;
+    for (const r of (PO_DATA.xg || [])) {
+      if (byId[r.player_id]) byId[r.player_id].xg60 = r.value;
+      else byId[r.player_id] = { ...r, goals: null, assists: null, xg60: r.value };
+    }
+    return Object.values(byId);
   }
 
-  const sortField = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
-  unified.sort((a, b) => {
-    const av = a[sortField] ?? (poSortAsc ? Infinity : -Infinity);
-    const bv = b[sortField] ?? (poSortAsc ? Infinity : -Infinity);
-    return poSortAsc ? av - bv : bv - av;
-  });
+  function regRowHtml(r, rank, activeCols) {
+    const href = `/stats/player/${r.slug}`;
+    const teamAbbr = esc(r.team || '');
+    const nameEsc = esc(r.name);
+    const subText = `${r.team} · ${r.pos} · ${r.gp} GP`;
+    const cells = [];
+    cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
+    cells.push(
+      `<td class="tbl-td td-player align-left">` +
+      `<div class="td-player-inner">` +
+      (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
+      `<div class="td-player-meta">` +
+      `<span class="td-name">${nameEsc}</span>` +
+      `<span class="td-sub">${esc(subText)}</span>` +
+      `</div></div></td>`
+    );
+    cells.push(`<td class="tbl-td align-center"><span class="pos-badge">${esc(r.pos)}</span></td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${r.gp == null ? '—' : String(r.gp)}</td>`);
 
-  tbody.innerHTML = unified.map((r, i) => `<tr>
-    <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
-    <td><div class="td-player">
-      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="22" height="22" loading="lazy" onerror="this.style.display='none'">
-      <div class="td-info">
-        <a href="/stats/player/${r.slug}" class="td-name">${r.display_name}</a>
-        <span class="td-sub">${r.team_abbrev} · ${r.pos} · ${r.gp} GP</span>
-      </div>
-    </div></td>
-    <td class="td-pos c-pos">${r.pos}</td>
-    <td class="td-gp">${r.gp}</td>
-    <td class="td-stat"><span class="sv">${r.goals ?? '—'}</span></td>
-    <td class="td-stat"><span class="sv">${r.assists ?? '—'}</span></td>
-    <td class="td-stat"><span class="sv">${r.xg60 != null ? r.xg60.toFixed(2) : '—'}</span></td>
-    <td class="td-stat"><span class="sv nil">${r.pct != null ? r.pct.toFixed(0) + 'th' : '—'}</span></td>
-  </tr>`).join('');
-}
+    for (const c of activeCols) {
+      const val = r[c.key];
+      const cls = ['tbl-td', 'align-center', 'type-number', c.bold ? 'bold' : ''].filter(Boolean).join(' ');
+      let color;
+      if (c.signed && val != null) color = val >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
+      else if (c.color && val != null) color = c.color(val);
+      const style = color ? ` style="color:${color}"` : '';
 
-// ── Column definitions per situation ─────────────────────────────────────────
-const SIT_COLS = {
-  all: {
-    defaultSort: 'war',
-    cols: [
-      { label: 'WAR',    key: 'war',    dflt: true },
-      { label: 'G/60',   key: 'g60'   },
-      { label: 'A1/60',  key: 'a60',   cls: 'c-a60' },
-      { label: 'xG/60',  key: 'x60'   },
-      { label: 'Fin',    key: 'fin',   cls: 'c-fin' },
-      { label: 'Impact', key: 'imp',   cls: 'c-imp' },
-    ],
-  },
-  '5v5': {
-    defaultSort: 'xgf_pct',
-    cols: [
-      { label: 'xGF%',   key: 'xgf_pct', dflt: true },
-      { label: 'xGF/60', key: 'xgf60'  },
-      { label: 'xGA/60', key: 'xga60',  cls: 'c-a60' },
-      { label: 'SC/60',  key: 'sc60'   },
-      { label: 'HDC/60', key: 'hdc60',  cls: 'c-fin' },
-      { label: 'HDC%',   key: 'hdc_pct',cls: 'c-imp' },
-    ],
-  },
-  pp: {
-    defaultSort: 'pp_xg60',
-    cols: [
-      { label: 'PP min/gm', key: 'pp_toi',  dflt: true },
-      { label: 'PP G',      key: 'pp_g'    },
-      { label: 'PP xG/60',  key: 'pp_xg60', cls: 'c-a60' },
-      { label: 'SC/60',     key: 'sc60'    },
-      { label: 'HDC/60',    key: 'hdc60',   cls: 'c-fin' },
-    ],
-  },
-};
+      let content;
+      if (val == null) content = '—';
+      else if (c.fmt) content = c.fmt(val);
+      else content = String(val);
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function pctCls(p) {
-  if (p == null) return 'pa';
-  return p >= 90 ? 'pe' : p >= 70 ? 'pg' : p >= 40 ? 'pa' : 'pl';
-}
-function ordinal(p) {
-  if (p == null) return '—';
-  const s = (p % 100 >= 11 && p % 100 <= 13) ? 'th' :
-    p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
-  return `${p}${s}`;
-}
-function sgn(n) { return n >= 0 ? '+' : ''; }
+      if (c.pctKey) {
+        const pct = r[c.pctKey];
+        const pctLabel = ordinal(pct);
+        const pctCol = pctCls(pct);
+        content = `<div class="stat-stack"><span>${content}</span><span class="sp ${pctCol}">${pctLabel}</span></div>`;
+      }
+      cells.push(`<td class="${cls}"${style}>${content}</td>`);
+    }
 
-function statCell(val, pct, signed) {
-  const cls = signed ? (val >= 0 ? ' pos' : ' neg') : '';
-  const v   = signed ? `${sgn(val)}${val.toFixed(2)}` : val.toFixed(2);
-  return `<span class="sv${cls}">${v}</span><span class="sp ${pctCls(pct)}">${ordinal(pct)}</span>`;
-}
-
-function plainCell(val, fmt) {
-  if (val == null) return `<span class="sv nil">—</span>`;
-  return `<span class="sv">${fmt(val)}</span>`;
-}
-
-function sitCell(r, key) {
-  switch (key) {
-    case 'war':
-      return r.war != null
-        ? `<span class="sv ${r.war >= 0 ? 'pos' : 'neg'}">${sgn(r.war)}${r.war.toFixed(2)}</span><span class="sp ${pctCls(r.war_p)}">${ordinal(r.war_p)}</span>`
-        : `<span class="sv nil">—</span><span class="sp pa">—</span>`;
-    case 'g60':  return statCell(r.g60, r.g60_p, false);
-    case 'a60':  return statCell(r.a60, r.a60_p, false);
-    case 'x60':  return statCell(r.x60, r.x60_p, false);
-    case 'fin':  return statCell(r.fin, r.fin_p, true);
-    case 'imp':  return statCell(r.imp, r.imp_p, false);
-    case 'xgf_pct': return plainCell(r.xgf_pct, v => `${v.toFixed(1)}%`);
-    case 'xgf60':   return plainCell(r.xgf60,   v => v.toFixed(2));
-    case 'xga60':   return plainCell(r.xga60,   v => v.toFixed(2));
-    case 'sc60':    return plainCell(r.sc60,    v => v.toFixed(2));
-    case 'hdc60':   return plainCell(r.hdc60,   v => v.toFixed(2));
-    case 'hdc_pct': return plainCell(r.hdc_pct, v => `${v.toFixed(1)}%`);
-    case 'pp_toi':  return plainCell(r.pp_toi,  v => v.toFixed(1));
-    case 'pp_g':    return `<span class="sv">${r.pp_g}</span>`;
-    case 'pp_xg60': return plainCell(r.pp_xg60, v => v.toFixed(2));
-    default:        return `<span class="sv nil">—</span>`;
+    return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">${cells.join('')}</tr>`;
   }
-}
 
-// ── Render header ─────────────────────────────────────────────────────────────
-function renderHeader() {
-  const cfg  = SIT_COLS[situation];
-  const thead = document.getElementById('lb-thead-row');
-  if (!thead) return;
+  function poRowHtml(r, rank) {
+    const href = `/stats/player/${r.slug}`;
+    const teamAbbr = esc(r.team_abbrev || '');
+    const nameEsc = esc(r.display_name);
+    const subText = `${r.team_abbrev} · ${r.pos} · ${r.gp} GP`;
+    const cells = [];
+    cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
+    cells.push(
+      `<td class="tbl-td td-player align-left">` +
+      `<div class="td-player-inner">` +
+      (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
+      `<div class="td-player-meta">` +
+      `<span class="td-name">${nameEsc}</span>` +
+      `<span class="td-sub">${esc(subText)}</span>` +
+      `</div></div></td>`
+    );
+    cells.push(`<td class="tbl-td align-center"><span class="pos-badge">${esc(r.pos)}</span></td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${r.gp ?? '—'}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${r.goals == null ? '—' : String(r.goals)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${r.assists == null ? '—' : String(r.assists)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${r.xg60 == null ? '—' : Number(r.xg60).toFixed(2)}</td>`);
+    return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">${cells.join('')}</tr>`;
+  }
 
-  const fixed = [
-    `<th>#</th>`,
-    `<th class="th-player">Player</th>`,
-    `<th class="c-pos" style="text-align:center">Pos</th>`,
-    `<th data-sort="gp" style="cursor:pointer">GP<span class="sort-arrow">${sortKey==='gp'?(sortAsc?'↑':'↓'):''}</span></th>`,
-  ];
+  function buildRegSchema(activeCols) {
+    const schema = [
+      { key: '_rank', label: '#', type: 'rank', sortable: false },
+      { key: 'name', label: 'Player', type: 'player', sortable: true },
+      { key: 'pos', label: 'Pos', type: 'position', sortable: true },
+      { key: 'gp', label: 'GP', type: 'number', sortable: true },
+    ];
+    for (const c of activeCols) {
+      schema.push({ key: c.key, label: c.label, type: 'number', sortable: true, bold: !!c.bold });
+    }
+    return schema;
+  }
 
-  const statCols = cfg.cols.map(c => {
-    const active = sortKey === c.key;
-    const arrow  = active ? (sortAsc ? '↑' : '↓') : '';
-    return `<th class="${c.cls || ''} ${active ? 'sorted' : ''}" data-sort="${c.key}" style="cursor:pointer">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
-  });
+  function buildPoSchema() {
+    return [
+      { key: '_rank', label: '#', type: 'rank', sortable: false },
+      { key: 'display_name', label: 'Player', type: 'player', sortable: true },
+      { key: 'pos', label: 'Pos', type: 'position', sortable: true },
+      { key: 'gp', label: 'GP', type: 'number', sortable: true },
+      { key: 'goals', label: 'Goals', type: 'number', sortable: true, bold: true },
+      { key: 'assists', label: 'Assists', type: 'number', sortable: true },
+      { key: 'xg60', label: 'xG/60', type: 'number', sortable: true },
+    ];
+  }
 
-  thead.innerHTML = [...fixed, ...statCols].join('');
-}
+  const wrap = document.querySelector('.tbl-wrap[data-tbl-id]');
+  if (!wrap) return;
+  const tblId = wrap.dataset.tblId;
+  const tbody = wrap.querySelector('tbody');
 
-// ── Render body ───────────────────────────────────────────────────────────────
-function render() {
-  renderHeader();
+  function render() {
+    if (gameType === 3) {
+      renderPlayoff();
+      return;
+    }
+    const cfg = SIT_COLS[situation];
+    const activeCols = cfg.cols;
+    let filtered = DATA.slice();
+    if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
 
-  let filtered = DATA.slice();
-  if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
+    filtered.sort((a, b) => {
+      const av = a[sortKey] ?? -Infinity;
+      const bv = b[sortKey] ?? -Infinity;
+      return bv - av;
+    });
 
-  filtered.sort((a, b) => {
-    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    return sortAsc ? av - bv : bv - av;
-  });
+    const total = filtered.length;
+    const visible = showAll ? filtered : filtered.slice(0, PAGE);
 
-  const total   = filtered.length;
-  const visible = showAll ? filtered : filtered.slice(0, PAGE);
+    const newSchema = buildRegSchema(activeCols);
+    const replacer = window.HGB_Table && window.HGB_Table.replaceColumns;
+    if (typeof replacer === 'function') replacer(tblId, newSchema);
 
-  const tbody = document.getElementById('lb-tbody');
-  if (!tbody) return;
+    if (visible.length === 0) {
+      tbody.innerHTML = `<tr class="tbl-empty"><td colspan="${newSchema.length}">No data</td></tr>`;
+    } else {
+      tbody.innerHTML = visible.map((r, i) => regRowHtml(r, i + 1, activeCols)).join('');
+    }
+    wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
 
-  const cfg = SIT_COLS[situation];
-  tbody.innerHTML = visible.map((r, i) => {
-    const statTds = cfg.cols.map(c =>
-      `<td class="td-stat ${c.cls || ''}">${sitCell(r, c.key)}</td>`
-    ).join('');
-    return `<tr>
-      <td class="td-rk">${String(i + 1).padStart(2, '0')}</td>
-      <td><div class="td-player">
-        <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" width="22" height="22" loading="lazy">
-        <div class="td-info">
-          <a href="/stats/player/${r.slug}" class="td-name">${r.name}</a>
-          <span class="td-sub">${r.team} · ${r.pos} · ${r.gp} GP</span>
-        </div>
-      </div></td>
-      <td class="td-pos c-pos">${r.pos}</td>
-      <td class="td-gp">${r.gp}</td>
-      ${statTds}
-    </tr>`;
-  }).join('');
+    document.getElementById('lb-count').textContent = `${total} players · 2025–26`;
+    document.getElementById('lb-title').textContent = 'Season Leaderboards';
 
-  // Count
-  const countEl = document.getElementById('lb-count');
-  if (countEl) countEl.textContent = `${total} players · 2025–26`;
-
-  // Show-all button
-  const moreDiv = document.getElementById('lb-more');
-  const moreBtn = document.getElementById('lb-more-btn');
-  if (moreDiv && moreBtn) {
+    const moreDiv = document.getElementById('lb-more');
+    const moreBtn = document.getElementById('lb-more-btn');
     if (!showAll && total > PAGE) {
       moreDiv.style.display = '';
       moreBtn.textContent = `Show all ${total} players →`;
@@ -669,193 +553,78 @@ function render() {
       moreDiv.style.display = 'none';
     }
   }
-}
 
-// ── Event delegation on thead ────────────────────────────────────────────────
-document.querySelector('thead')?.addEventListener('click', e => {
-  const th = e.target?.closest('th[data-sort]');
-  if (!th) return;
-  const key = th.dataset.sort;
-  if (sortKey === key) { sortAsc = !sortAsc; }
-  else { sortKey = key; sortAsc = false; }
-  showAll = false;
-  render();
-});
+  function renderPlayoff() {
+    const unified = buildPoUnified();
+    const sortField = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
+    unified.sort((a, b) => (b[sortField] ?? -Infinity) - (a[sortField] ?? -Infinity));
 
-// ── Situation tabs ────────────────────────────────────────────────────────────
-document.querySelectorAll('[data-sit]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    situation = btn.dataset.sit;
-    sortKey   = SIT_COLS[situation].defaultSort;
-    sortAsc   = false;
-    showAll   = false;
-    document.querySelectorAll('[data-sit]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    render();
-  });
-});
+    const newSchema = buildPoSchema();
+    const replacer = window.HGB_Table && window.HGB_Table.replaceColumns;
+    if (typeof replacer === 'function') replacer(tblId, newSchema);
 
-// ── Position tabs ─────────────────────────────────────────────────────────────
-document.querySelectorAll('[data-pos]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    posFilter = btn.dataset.pos;
-    showAll   = false;
-    document.querySelectorAll('[data-pos]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    render();
-  });
-});
+    if (unified.length === 0) {
+      tbody.innerHTML = `<tr class="tbl-empty"><td colspan="${newSchema.length}">Playoff data available once postseason begins</td></tr>`;
+    } else {
+      tbody.innerHTML = unified.map((r, i) => poRowHtml(r, i + 1)).join('');
+    }
+    wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
 
-// ── Show all ──────────────────────────────────────────────────────────────────
-document.getElementById('lb-more-btn')?.addEventListener('click', () => {
-  showAll = true;
-  render();
-});
-
-// ── Game-type toggle ──────────────────────────────────────────────────────────
-document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const gt = parseInt(btn.dataset.gametype);
-    if (gt === gameType) return;
-    gameType = gt;
-    updateUrl();
-    syncGameType();
-    if (gt === 2) render();
-  });
-});
-
-// ── Playoff sort headers ──────────────────────────────────────────────────────
-['goals', 'assists', 'xg'].forEach(key => {
-  document.getElementById(`po-sort-${key}`)?.addEventListener('click', () => {
-    if (poSortKey === key) poSortAsc = !poSortAsc;
-    else { poSortKey = key; poSortAsc = false; }
-    renderPlayoffTable();
-  });
-});
-
-readUrl();
-syncGameType();
-render();
-
-// ── PNG Export ────────────────────────────────────────────────────────────────
-const sgn2 = n => n >= 0 ? '+' : '';
-
-const SIT_EXPORT_COLS = {
-  all: [
-    { label: '#',      key: '_rank', width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',  width: 240, align: 'left', fontFamily: 'body' },
-    { label: 'Team',   key: 'team',  width: 58,  align: 'center' },
-    { label: 'Pos',    key: 'pos',   width: 48,  align: 'center' },
-    { label: 'GP',     key: 'gp',    width: 54,  align: 'center' },
-    { label: 'WAR',    key: 'war',   width: 86,  align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null, bold: true },
-    { label: 'G/60',   key: 'g60',   width: 76,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'A1/60',  key: 'a60',   width: 80,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'xG/60',  key: 'x60',   width: 80,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'Fin',    key: 'fin',   width: 76,  align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-    { label: 'Impact', key: 'imp',   width: 86,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-  ],
-  '5v5': [
-    { label: '#',      key: '_rank',    width: 44,  align: 'center' },
-    { label: 'Player', key: 'name',     width: 220, align: 'left', fontFamily: 'body' },
-    { label: 'Team',   key: 'team',     width: 56,  align: 'center' },
-    { label: 'Pos',    key: 'pos',      width: 48,  align: 'center' },
-    { label: 'GP',     key: 'gp',       width: 52,  align: 'center' },
-    { label: 'xGF%',   key: 'xgf_pct', width: 76,  align: 'center',
-      format: v => v != null ? v.toFixed(1) + '%' : '—',
-      color: (v, _r, tok) => v != null ? (v >= 55 ? tok.pos : v <= 45 ? tok.neg : null) : null,
-      bold: (v) => v != null && (v >= 55 || v <= 45) },
-    { label: 'xGF/60', key: 'xgf60',   width: 86,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'xGA/60', key: 'xga60',   width: 86,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'SC/60',  key: 'sc60',    width: 76,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'HDC/60', key: 'hdc60',   width: 82,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'HDC%',   key: 'hdc_pct', width: 76,  align: 'center',
-      format: v => v != null ? v.toFixed(1) + '%' : '—' },
-  ],
-  pp: [
-    { label: '#',         key: '_rank',   width: 44,  align: 'center' },
-    { label: 'Player',    key: 'name',    width: 220, align: 'left', fontFamily: 'body' },
-    { label: 'Team',      key: 'team',    width: 56,  align: 'center' },
-    { label: 'Pos',       key: 'pos',     width: 48,  align: 'center' },
-    { label: 'GP',        key: 'gp',      width: 52,  align: 'center' },
-    { label: 'PP min/gm', key: 'pp_toi',  width: 108, align: 'center',
-      format: v => v != null ? v.toFixed(1) : '—' },
-    { label: 'PP G',      key: 'pp_g',    width: 72,  align: 'center' },
-    { label: 'PP xG/60',  key: 'pp_xg60', width: 96,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'SC/60',     key: 'sc60',    width: 82,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'HDC/60',    key: 'hdc60',   width: 88,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-  ],
-};
-
-const PO_EXPORT_COLS = [
-  { label: '#',       key: '_rank',    width: 44,  align: 'center' },
-  { label: 'Player',  key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
-  { label: 'Team',    key: 'team_abbrev',  width: 58,  align: 'center' },
-  { label: 'Pos',     key: 'pos',      width: 48,  align: 'center' },
-  { label: 'GP',      key: 'gp',       width: 52,  align: 'center' },
-  { label: 'Goals',   key: 'goals',    width: 72,  align: 'center',
-    format: v => v != null ? String(v) : '—' },
-  { label: 'Assists', key: 'assists',  width: 80,  align: 'center',
-    format: v => v != null ? String(v) : '—' },
-  { label: 'xG/60',   key: 'xg60',    width: 80,  align: 'center',
-    format: v => v != null ? v.toFixed(2) : '—' },
-];
-
-function getExportChips() {
-  if (gameType === 3) return ['Playoffs'];
-  const chips = [{ all: 'All Situations', '5v5': '5v5', pp: 'Power Play' }[situation]];
-  if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
-  return chips;
-}
-
-document.getElementById('dl-btn').addEventListener('click', function () {
-  if (gameType === 3) {
-    const rows = buildPoUnified()
-      .sort((a, b) => {
-        const field = poSortKey === 'goals' ? 'goals' : poSortKey === 'assists' ? 'assists' : 'xg60';
-        const av = a[field] ?? -Infinity;
-        const bv = b[field] ?? -Infinity;
-        return poSortAsc ? av - bv : bv - av;
-      })
-      .map((r, i) => ({ ...r, _rank: i + 1 }));
-    window.HGB_Export.downloadTablePng({
-      title: 'Playoff Leaderboards',
-      filterChips: getExportChips(),
-      rows,
-      columns: PO_EXPORT_COLS,
-      filename: 'hgb-leaderboards-playoff.png',
-    });
-    return;
+    document.getElementById('lb-title').textContent = 'Playoff Leaderboards';
+    document.getElementById('lb-count').textContent = unified.length > 0
+      ? `${unified.length} players · 2025–26 playoffs`
+      : 'No playoff data yet';
+    document.getElementById('lb-more').style.display = 'none';
   }
 
-  let filtered = DATA.slice();
-  if (posFilter !== 'all') filtered = filtered.filter(r => r.group === posFilter);
-  filtered.sort((a, b) => {
-    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    return sortAsc ? av - bv : bv - av;
+  function syncGameType() {
+    const isPlayoff = gameType === 3;
+    document.getElementById('sit-filter').style.display = isPlayoff ? 'none' : '';
+    document.getElementById('pos-filter').style.display = isPlayoff ? 'none' : '';
+    document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
+    });
+  }
+
+  document.querySelectorAll('[data-sit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      situation = btn.dataset.sit;
+      sortKey = SIT_COLS[situation].defaultSort;
+      showAll = false;
+      document.querySelectorAll('[data-sit]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      render();
+    });
   });
-  const rows = filtered.map((r, i) => Object.assign({ _rank: i + 1 }, r));
-  window.HGB_Export.downloadTablePng({
-    title: 'Season Leaderboards',
-    filterChips: getExportChips(),
-    rows,
-    columns: SIT_EXPORT_COLS[situation],
-    filename: 'hgb-leaderboards.png',
+  document.querySelectorAll('[data-pos]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      posFilter = btn.dataset.pos;
+      showAll = false;
+      document.querySelectorAll('[data-pos]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      render();
+    });
   });
-});
+  document.getElementById('lb-more-btn')?.addEventListener('click', () => {
+    showAll = true;
+    render();
+  });
+  document.querySelectorAll('#gametype-filter .lb-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gt = parseInt(btn.dataset.gametype);
+      if (gt === gameType) return;
+      gameType = gt;
+      updateUrl();
+      syncGameType();
+      render();
+    });
+  });
+
+  readUrl();
+  syncGameType();
+  render();
+})();
 </script>
+
+</body>
+</html>
