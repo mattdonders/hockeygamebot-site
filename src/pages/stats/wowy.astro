@@ -4,6 +4,19 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
+
+// 4 fixed rows. SSR with empty rows; client fills via tbl:rows-changed.
+const columns = [
+  { key: 'segment', label: 'Segment',  type: 'label' as const, sortable: false },
+  { key: 'toi_min', label: 'TOI (min)',type: 'number' as const },
+  { key: 'games',   label: 'Games',    type: 'number' as const },
+  { key: 'xgf_pct', label: 'xGF%',     type: 'number' as const, bold: true },
+  { key: 'xgf',     label: 'xGF',      type: 'number' as const },
+  { key: 'xga',     label: 'xGA',      type: 'number' as const },
+  { key: 'xgf_60',  label: 'xGF/60',   type: 'number' as const },
+  { key: 'xga_60',  label: 'xGA/60',   type: 'number' as const },
+];
 ---
 <!doctype html>
 <html lang="en">
@@ -36,6 +49,8 @@ import Fonts from '../../components/Fonts.astro';
   --ink-04:  rgba(13,13,20,0.04);
   --red:     #E8002D;
   --green:   #4ade80;
+  --stats-pos: #166534;
+  --stats-neg: #991b1b;
   --grid-line: rgba(13,13,20,0.04);
   --display: "Barlow Condensed", sans-serif;
   --body:    "Barlow", sans-serif;
@@ -73,7 +88,6 @@ a { color: inherit; text-decoration: none; }
 .section-head h2 { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.5vw, 28px); text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
 .section-lede { font-size: 13px; color: var(--ink-48); max-width: 780px; line-height: 1.6; margin-bottom: 16px; }
 
-/* Player pickers */
 .picker-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
 .picker-group { display: flex; flex-direction: column; gap: 6px; min-width: 200px; flex: 1; max-width: 280px; }
 .picker-label { font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); }
@@ -108,10 +122,9 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer; outline: none;
 }
 
-/* WOWY result table */
+/* WOWY result chrome */
 .wowy-result { display: none; }
 .wowy-result.visible { display: block; }
-
 .wowy-header { margin-bottom: 16px; }
 .wowy-title { font-family: var(--display); font-weight: 800; font-size: 22px; text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
 .wowy-subtitle { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; margin-top: 4px; }
@@ -119,27 +132,14 @@ a { color: inherit; text-decoration: none; }
 .wowy-no-data { padding: 32px; background: var(--surface); border: 1px solid var(--ink-14); font-family: var(--mono); font-size: 13px; color: var(--ink-48); text-align: center; display: none; }
 .wowy-no-data.visible { display: block; }
 
-.tbl-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-family: var(--body); font-size: 13px; }
-thead tr { border-bottom: 2px solid var(--ink); }
-th { padding: 9px 12px; text-align: right; font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-48); white-space: nowrap; }
-th:first-child { text-align: left; min-width: 200px; }
-tbody tr { border-bottom: 1px solid var(--ink-06); }
-tbody tr:last-child { border-bottom: none; }
-tbody tr.segment-with { background: rgba(74,222,128,0.06); }
-td { padding: 10px 12px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--ink); white-space: nowrap; }
-td:first-child { text-align: left; font-family: var(--body); font-weight: 600; font-size: 13px; }
-
+/* Segment label cell — two-line stack with optional TOGETHER badge.
+   Row tinting REMOVED per TABLES.md §3: differentiation now comes from
+   the badge + bolded primary line, not a background color. */
 .seg-label { display: flex; flex-direction: column; gap: 2px; }
-.seg-name { font-weight: 700; }
-.seg-desc { font-family: var(--mono); font-size: 10px; color: var(--ink-48); font-weight: 400; }
-.seg-with-badge { display: inline-block; background: rgba(74,222,128,0.2); color: #166534; font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.1em; padding: 1px 6px; margin-left: 6px; vertical-align: middle; }
+.seg-name  { font-weight: 700; font-family: var(--body); font-size: 13px; }
+.seg-desc  { font-family: var(--mono); font-size: 10px; color: var(--ink-48); font-weight: 400; }
+.seg-with-badge { display: inline-block; background: var(--ink); color: var(--bg); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.1em; padding: 1px 6px; margin-left: 6px; vertical-align: middle; }
 
-.xgf-hi  { color: #166534; font-weight: 700; }
-.xgf-mid { color: var(--ink); }
-.xgf-lo  { color: #991b1b; font-weight: 700; }
-
-/* Empty state before selection */
 .picker-hint { padding: 48px 0; text-align: center; }
 .picker-hint-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.3; }
 .picker-hint-text { font-family: var(--mono); font-size: 13px; color: var(--ink-48); letter-spacing: 0.04em; }
@@ -155,7 +155,6 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
   .mast-ghost { font-size: 120px; }
   .picker-row { flex-direction: column; }
   .picker-vs { display: none; }
-  th, td { padding: 7px 8px; }
 }
 </style>
 </head>
@@ -224,7 +223,6 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
         </div>
       </div>
 
-      <!-- Result area -->
       <div id="picker-hint" class="picker-hint">
         <div class="picker-hint-icon">↑</div>
         <div class="picker-hint-text">Select two players above to see their WOWY breakdown</div>
@@ -239,23 +237,13 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
           <div class="wowy-title" id="wowy-title"></div>
           <div class="wowy-subtitle" id="wowy-subtitle"></div>
         </div>
-        <div class="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Segment</th>
-                <th>TOI (min)</th>
-                <th>Games</th>
-                <th>xGF%</th>
-                <th>xGF</th>
-                <th>xGA</th>
-                <th>xGF/60</th>
-                <th>xGA/60</th>
-              </tr>
-            </thead>
-            <tbody id="wowy-tbody"></tbody>
-          </table>
-        </div>
+
+        <Table
+          columns={columns}
+          rows={[]}
+          sticky={false}
+          ariaLabel="WOWY 4-segment breakdown"
+        />
       </div>
     </div>
   </div>
@@ -273,12 +261,10 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
   'use strict';
 
   let allPairs = [];
-  let playerIndex = {};   // name → [{ id, name, team, season }]
-  let selectedA = null;   // { id, name }
-  let selectedB = null;   // { id, name }
+  let playerIndex = {};
+  let selectedA = null;
+  let selectedB = null;
   let seasonFilter = 'all';
-
-  // ── Autocomplete ─────────────────────────────────────────────────────────
 
   function buildPlayerIndex() {
     const seen = new Set();
@@ -304,12 +290,11 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
 
   function makeAutocomplete(inputEl, dropdownEl, onSelect) {
     let activeIdx = -1;
-
     function showDropdown(items) {
       dropdownEl.innerHTML = '';
       activeIdx = -1;
       if (!items.length) { dropdownEl.classList.remove('open'); return; }
-      items.forEach((p, i) => {
+      items.forEach((p) => {
         const div = document.createElement('div');
         div.className = 'autocomplete-item';
         div.innerHTML = `<span>${esc(p.name)}</span>`;
@@ -318,13 +303,11 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
       });
       dropdownEl.classList.add('open');
     }
-
     inputEl.addEventListener('input', () => {
       inputEl.classList.remove('selected');
       const matches = matchPlayers(inputEl.value);
       showDropdown(matches);
     });
-
     inputEl.addEventListener('keydown', e => {
       const items = dropdownEl.querySelectorAll('.autocomplete-item');
       if (e.key === 'ArrowDown') {
@@ -341,13 +324,10 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
         dropdownEl.classList.remove('open');
       }
     });
-
     inputEl.addEventListener('blur', () => {
       setTimeout(() => dropdownEl.classList.remove('open'), 150);
     });
   }
-
-  // ── WOWY lookup ──────────────────────────────────────────────────────────
 
   function findPairs(idA, idB) {
     return allPairs.filter(r =>
@@ -357,28 +337,16 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
   }
 
   function aggregateSegments(records) {
-    // Sum all 4 segments across the given records (e.g. multi-season or multi-team)
-    function addSeg(acc, seg) {
-      if (!seg) return;
-      acc.toi   += (seg.toi_min || 0) * 60;
-      acc.xgf   += seg.xgf  || 0;
-      acc.xga   += seg.xga  || 0;
-      acc.gf    += 0; // gf/ga not exposed per-segment in current schema, use pct only
-      acc.ga    += 0;
-    }
-
     const w  = { toi:0, xgf:0, xga:0, games:0 };
     const a  = { toi:0, xgf:0, xga:0 };
     const b  = { toi:0, xgf:0, xga:0 };
     const n  = { toi:0, xgf:0, xga:0 };
-
     records.forEach(r => {
       if (r.with)    { w.toi  += (r.with.toi_min||0)*60;   w.xgf  += r.with.xgf||0;   w.xga  += r.with.xga||0;   w.games += r.with.games||0; }
       if (r.a_wo_b)  { a.toi  += (r.a_wo_b.toi_min||0)*60; a.xgf  += r.a_wo_b.xgf||0; a.xga  += r.a_wo_b.xga||0; }
       if (r.b_wo_a)  { b.toi  += (r.b_wo_a.toi_min||0)*60; b.xgf  += r.b_wo_a.xgf||0; b.xga  += r.b_wo_a.xga||0; }
       if (r.neither) { n.toi  += (r.neither.toi_min||0)*60; n.xgf  += r.neither.xgf||0; n.xga  += r.neither.xga||0; }
     });
-
     function toSeg(acc, extraGames) {
       const tot = acc.xgf + acc.xga;
       const min = round1(acc.toi / 60);
@@ -392,7 +360,6 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
         xga_60:   acc.toi > 0 ? round2(acc.xga / acc.toi * 3600) : null,
       };
     }
-
     return {
       with:    toSeg(w, w.games),
       a_wo_b:  toSeg(a, null),
@@ -404,31 +371,29 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
   function round1(v) { return Math.round(v * 10) / 10; }
   function round2(v) { return Math.round(v * 100) / 100; }
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
-  function xgfClass(v) {
+  function xgfColor(v) {
     if (v == null) return '';
-    if (v >= 55) return 'xgf-hi';
-    if (v <= 45) return 'xgf-lo';
-    return 'xgf-mid';
+    if (v >= 55) return 'var(--stats-pos)';
+    if (v <= 45) return 'var(--stats-neg)';
+    return '';
   }
-
   function fmt1(v) { return v != null ? v.toFixed(1) : '—'; }
   function fmt2(v) { return v != null ? v.toFixed(2) : '—'; }
-  function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function esc(s)  { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-  function renderRow(seg, labelHtml, isWith) {
-    const pc = xgfClass(seg.xgf_pct);
+  function renderRow(seg, labelHtml) {
+    const xCol = xgfColor(seg.xgf_pct);
+    const xStyle = xCol ? ` style="color:${xCol}"` : '';
     const games = seg.games != null ? seg.games : '—';
-    return `<tr${isWith ? ' class="segment-with"' : ''}>
-      <td>${labelHtml}</td>
-      <td>${fmt1(seg.toi_min)}</td>
-      <td>${games}</td>
-      <td class="${pc}">${seg.xgf_pct != null ? seg.xgf_pct.toFixed(1)+'%' : '—'}</td>
-      <td>${fmt2(seg.xgf)}</td>
-      <td>${fmt2(seg.xga)}</td>
-      <td>${fmt2(seg.xgf_60)}</td>
-      <td>${fmt2(seg.xga_60)}</td>
+    return `<tr class="tbl-tr">
+      <td class="tbl-td type-label align-left">${labelHtml}</td>
+      <td class="tbl-td align-center type-number">${fmt1(seg.toi_min)}</td>
+      <td class="tbl-td align-center type-number">${games}</td>
+      <td class="tbl-td align-center type-number bold"${xStyle}>${seg.xgf_pct != null ? seg.xgf_pct.toFixed(1)+'%' : '—'}</td>
+      <td class="tbl-td align-center type-number">${fmt2(seg.xgf)}</td>
+      <td class="tbl-td align-center type-number">${fmt2(seg.xga)}</td>
+      <td class="tbl-td align-center type-number">${fmt2(seg.xgf_60)}</td>
+      <td class="tbl-td align-center type-number">${fmt2(seg.xga_60)}</td>
     </tr>`;
   }
 
@@ -443,37 +408,30 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
       result.classList.remove('visible');
       return;
     }
-
     hint.style.display = 'none';
-
     let records = findPairs(selectedA.id, selectedB.id);
     if (seasonFilter !== 'all') {
       records = records.filter(r => r.season === seasonFilter);
     }
-
     if (!records.length) {
       noData.classList.add('visible');
       result.classList.remove('visible');
       return;
     }
-
     noData.classList.remove('visible');
     result.classList.add('visible');
 
-    // Figure out A vs B ordering (player1/player2 as stored)
     const ref = records[0];
     const aIsP1 = ref.player1_id === selectedA.id;
     const nameA = selectedA.name;
     const nameB = selectedB.name;
 
-    // Aggregate across all matching records
-    let segs = aggregateSegments(
+    const segs = aggregateSegments(
       aIsP1
         ? records
         : records.map(r => ({ ...r, a_wo_b: r.b_wo_a, b_wo_a: r.a_wo_b }))
     );
 
-    // Team abbreviations + season labels
     const teams   = [...new Set(records.map(r => r.team))].join('/');
     const seasons = [...new Set(records.map(r => {
       const y = r.season;
@@ -481,28 +439,26 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
     }))].join(', ');
 
     document.getElementById('wowy-title').textContent = `${nameA} & ${nameB}`;
-    document.getElementById('wowy-subtitle').textContent =
-      `${teams} · ${seasons} · 5v5 regular season`;
+    document.getElementById('wowy-subtitle').textContent = `${teams} · ${seasons} · 5v5 regular season`;
 
     const rows = [
       renderRow(segs.with,
-        `<div class="seg-label"><span class="seg-name">${esc(nameA)} &amp; ${esc(nameB)} <span class="seg-with-badge">TOGETHER</span></span></div>`,
-        true),
+        `<div class="seg-label"><span class="seg-name">${esc(nameA)} &amp; ${esc(nameB)} <span class="seg-with-badge">TOGETHER</span></span></div>`),
       renderRow(segs.a_wo_b,
-        `<div class="seg-label"><span class="seg-name">${esc(nameA)}</span><span class="seg-desc">without ${esc(nameB)}</span></div>`,
-        false),
+        `<div class="seg-label"><span class="seg-name">${esc(nameA)}</span><span class="seg-desc">without ${esc(nameB)}</span></div>`),
       renderRow(segs.b_wo_a,
-        `<div class="seg-label"><span class="seg-name">${esc(nameB)}</span><span class="seg-desc">without ${esc(nameA)}</span></div>`,
-        false),
+        `<div class="seg-label"><span class="seg-name">${esc(nameB)}</span><span class="seg-desc">without ${esc(nameA)}</span></div>`),
       renderRow(segs.neither,
-        `<div class="seg-label"><span class="seg-name">${esc(teams)}</span><span class="seg-desc">without either</span></div>`,
-        false),
+        `<div class="seg-label"><span class="seg-name">${esc(teams)}</span><span class="seg-desc">without either</span></div>`),
     ];
 
-    document.getElementById('wowy-tbody').innerHTML = rows.join('');
+    const wrap = document.querySelector('.tbl-wrap[data-tbl-id]');
+    const tbody = wrap ? wrap.querySelector('tbody') : null;
+    if (tbody) {
+      tbody.innerHTML = rows.join('');
+      wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
+    }
   }
-
-  // ── Init ──────────────────────────────────────────────────────────────────
 
   async function init() {
     try {
@@ -514,9 +470,7 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
         `<p style="font-family:var(--mono);font-size:13px;color:var(--red)">Failed to load: ${err.message}</p>`;
       return;
     }
-
     buildPlayerIndex();
-
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('main-content').style.display = 'block';
 
@@ -532,7 +486,6 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
       dropA.classList.remove('open');
       renderResult();
     });
-
     makeAutocomplete(inputB, dropB, p => {
       selectedB = p;
       inputB.value = p.name;
@@ -540,17 +493,13 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
       dropB.classList.remove('open');
       renderResult();
     });
-
     document.getElementById('season-filter').addEventListener('change', e => {
       seasonFilter = e.target.value;
       renderResult();
     });
-
-    // Clear selection when input is edited
     inputA.addEventListener('input', () => { if (selectedA) { selectedA = null; renderResult(); } });
     inputB.addEventListener('input', () => { if (selectedB) { selectedB = null; renderResult(); } });
 
-    // Pre-fill player A from ?player=ID URL param
     const urlPid = new URLSearchParams(window.location.search).get('player');
     if (urlPid) {
       const pid = parseInt(urlPid, 10);
@@ -561,10 +510,8 @@ td:first-child { text-align: left; font-family: var(--body); font-weight: 600; f
         inputA.classList.add('selected');
       }
     }
-
     renderResult();
   }
-
   init();
 })();
 </script>
