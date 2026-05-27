@@ -2,11 +2,11 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
 import { loadPlayers, loadPlayerGames } from '../../lib/stats-loader';
 
 const allPlayers = loadPlayers().filter(p => p.gp >= 20);
 
-// Build per-player impact rows at build time
 type ImpactRow = {
   id: number; slug: string; name: string;
   team: string; pos: string; group: 'F' | 'D'; gp: number;
@@ -29,6 +29,21 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     worst: allGs.length ? +Math.min(...allGs).toFixed(2) : 0,
   };
 });
+
+// Column schema for <Table>. Sparklines (`l10`) render as inline SVG —
+// we pass them through Table.astro by rendering rows client-side and
+// dispatching tbl:rows-changed; SSR keeps an empty/loading state.
+const columns = [
+  { key: '_rank', label: '#',          type: 'rank' as const, sortable: false },
+  { key: 'name',  label: 'Player',     type: 'player' as const, sub: (r: any) => `${r.team} · ${r.pos}` },
+  { key: 'pos',   label: 'Pos',        type: 'position' as const, sortable: true },
+  { key: 'gp',    label: 'GP',         type: 'number' as const },
+  { key: 'avg',   label: 'Avg Impact', type: 'number' as const, bold: true },
+  { key: 'l10a',  label: 'L10 Avg',    type: 'number' as const },
+  { key: 'l10',   label: 'L10 Trend',  type: 'label' as const, sortable: false },
+  { key: 'best',  label: 'Best',       type: 'number' as const },
+  { key: 'worst', label: 'Worst',      type: 'number' as const },
+];
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -59,10 +74,11 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
       --display:  'Barlow Condensed', sans-serif;
       --body:     'Barlow', sans-serif;
       --mono:     'JetBrains Mono', monospace;
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
     }
     html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
 
-    /* ── Masthead ── */
     .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
       background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
         linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
@@ -86,10 +102,8 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
     .mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
 
-    /* ── Layout ── */
     .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
 
-    /* ── Table section ── */
     .lb-section { padding: 40px 0 0; }
     .lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
       margin-bottom: 16px; flex-wrap: wrap; }
@@ -97,7 +111,6 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
       text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
     .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
 
-    /* ── Filter tabs ── */
     .lb-filters { display: flex; align-items: center; gap: 6px; }
     .lb-tab {
       font-family: var(--display); font-weight: 700; font-size: 10.5px;
@@ -108,54 +121,15 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     .lb-tab:hover { background: var(--ink-06); color: var(--ink); }
     .lb-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
-    /* ── Table ── */
-    .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; }
-    colgroup .c-rank  { width: 44px; }
-    colgroup .c-stat  { width: 80px; }
-    colgroup .c-spark { width: 88px; }
-    colgroup .c-sm    { width: 48px; }
+    /* Sparkline cell — leaves the standard cell padding/alignment but
+       overrides text-align so the SVG sits flush-left. */
+    .td-spark { padding: 4px 12px !important; vertical-align: middle; text-align: left !important; }
 
-    thead th {
-      padding: 10px 12px 8px; font-family: var(--mono); font-size: 9.5px; font-weight: 600;
-      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48);
-      border-bottom: 2px solid var(--ink-14); text-align: center;
-      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
-    }
-    thead th:first-child  { text-align: left; padding-left: 16px; cursor: default; }
-    thead th.th-player    { text-align: left; cursor: default; }
-    thead th.th-spark     { text-align: left; }
-    thead th:hover        { color: var(--ink); }
-    thead th.sorted       { color: var(--ink); }
-    .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.4; font-size: 8px; transition: opacity 0.1s; }
-    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
-
-    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: var(--ink-04); }
-    td { padding: 7px 12px; vertical-align: middle; }
-    td:first-child { padding-left: 16px; }
-
-    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
-      text-align: left; font-variant-numeric: tabular-nums; }
-    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
-
-    .td-player { display: flex; align-items: center; gap: 10px; min-width: 150px; }
-    .td-logo   { width: 28px; height: 28px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
-    .td-info   { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-    .td-name   { font-size: 15px; font-weight: 600; color: var(--ink);
-      text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .td-name:hover { color: var(--red); }
-    .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
-
-    .td-num { font-family: var(--mono); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
+    /* Impact +/- color helpers (legacy, scoped to impact table) */
     .sv { font-weight: 700; }
-    .sv.pos { color: var(--green); }
-    .sv.neg { color: var(--red); }
+    .sv.pos { color: var(--stats-pos); }
+    .sv.neg { color: var(--stats-neg); }
 
-    .td-spark { padding: 4px 12px; vertical-align: middle; }
-
-    /* ── Method strip ── */
     .lb-method { padding: 28px 0 0; }
     .lb-method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
     .lb-method-card { padding: 16px 20px; border: 1px solid var(--ink-14); margin: -1px 0 0 -1px; }
@@ -166,7 +140,6 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
       text-transform: uppercase; padding: 1px 5px; border-radius: 2px; margin-left: 6px; }
     .badge-core { background: var(--ink); color: var(--bg); }
 
-    /* ── Footer ── */
     .lb-footer { max-width: 1200px; margin: 0 auto; padding: 20px 32px;
       font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
       text-transform: uppercase; color: var(--ink-20); }
@@ -174,8 +147,6 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     @media (max-width: 768px) {
       .wrap, .mast-inner { padding-left: 16px; padding-right: 16px; }
       .mast-top { font-size: 10px; }
-      colgroup .c-spark { display: none; }
-      .col-spark { display: none; }
     }
   </style>
 </head>
@@ -183,7 +154,6 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
 
 <Nav currentPath="/stats/impact" />
 
-<!-- ── Masthead ── -->
 <header class="mast">
   <div class="mast-corners">
     <div class="corner tl"></div><div class="corner tr"></div>
@@ -206,7 +176,7 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     <div class="lb-head">
       <div class="lb-title">Season <span style="color:var(--red)">Impact</span></div>
       <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap">
-        <div class="lb-filters">
+        <div class="lb-filters" id="pos-filter">
           <button class="lb-tab active" data-pos="all">All</button>
           <button class="lb-tab" data-pos="F">Forwards</button>
           <button class="lb-tab" data-pos="D">Defence</button>
@@ -215,42 +185,20 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
       </div>
     </div>
 
-    <div class="lb-wrap">
-      <table id="impact-table">
-        <colgroup>
-          <col class="c-rank">
-          <col style="min-width:150px">
-          <col class="c-sm">
-          <col class="c-sm">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-spark col-spark">
-          <col class="c-stat">
-          <col class="c-stat">
-        </colgroup>
-        <thead>
-          <tr>
-            <th class="th-player">#</th>
-            <th class="th-player">Player</th>
-            <th data-sort="pos" style="text-align:left">Pos<span class="sort-arrow">↕</span></th>
-            <th data-sort="gp">GP<span class="sort-arrow">↕</span></th>
-            <th data-sort="avg" class="sorted">Avg Impact<span class="sort-arrow">↓</span></th>
-            <th data-sort="l10a">L10 Avg<span class="sort-arrow">↕</span></th>
-            <th class="th-spark col-spark" style="text-align:left; padding-left:12px">L10 Trend</th>
-            <th data-sort="best">Best<span class="sort-arrow">↕</span></th>
-            <th data-sort="worst">Worst<span class="sort-arrow">↕</span></th>
-          </tr>
-        </thead>
-        <tbody id="impact-tbody"></tbody>
-      </table>
-      <!-- Pagination controls -->
-      <div id="impact-pager" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--ink-06);background:var(--surface)">
-        <div style="font-family:var(--mono);font-size:10px;color:var(--ink-32);letter-spacing:0.06em" id="pager-info"></div>
-        <div style="display:flex;gap:4px" id="pager-btns"></div>
-      </div>
+    <Table
+      columns={columns}
+      rows={[]}
+      defaultSort={{ column: 'avg', direction: 'desc' }}
+      scrollable
+      maxHeight={760}
+      isLoading
+      ariaLabel="HGB Impact leaderboard"
+    />
+    <div id="impact-pager" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--ink-06);background:var(--surface)">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--ink-32);letter-spacing:0.06em" id="pager-info"></div>
+      <div style="display:flex;gap:4px" id="pager-btns"></div>
     </div>
 
-    <!-- Methodology strip -->
     <div class="lb-method">
       <div class="lb-method-grid">
         <div class="lb-method-card">
@@ -272,10 +220,22 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
 
 <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · HGB IMPACT v2</footer>
 
-<script define:vars={{ tableRows }}>
+<script type="application/json" id="impact-data" set:html={JSON.stringify(tableRows)}></script>
+
+<script>
+(function() {
+  'use strict';
+  const dataEl = document.getElementById('impact-data');
+  if (!dataEl) return;
+  const tableRows = JSON.parse(dataEl.textContent || '[]');
+
   const sgn = v => v >= 0 ? '+' : '';
   const fmt  = v => v != null ? `${sgn(v)}${v.toFixed(2)}` : '—';
   const GS_MIN = -5, GS_MAX = 12;
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
 
   function sparkSvg(vals) {
     if (!vals || !vals.length) return '<span style="color:var(--ink-20)">—</span>';
@@ -304,14 +264,44 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
   function filtered() {
     return tableRows.filter(r => posFilter === 'all' || r.group === posFilter);
   }
-
   function sorted(rows) {
     return [...rows].sort((a, b) => {
-      const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-      const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-      if (typeof av === 'string') return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
-      return sortAsc ? av - bv : bv - av;
+      const av = a[sortKey] ?? -Infinity;
+      const bv = b[sortKey] ?? -Infinity;
+      if (typeof av === 'string') return bv.localeCompare(av);
+      return bv - av;
     });
+  }
+
+  function rowHtml(r, rank) {
+    const href = `/stats/player/${r.slug}`;
+    const teamAbbr = esc(r.team || '');
+    const nameEsc = esc(r.name);
+    const subText = `${r.team} · ${r.pos}`;
+    const avgColor = r.avg >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
+    const l10Color = r.l10a == null ? '' : (r.l10a >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)');
+
+    const cells = [];
+    cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
+    cells.push(
+      `<td class="tbl-td td-player align-left">` +
+      `<div class="td-player-inner">` +
+      (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
+      `<div class="td-player-meta">` +
+      `<span class="td-name">${nameEsc}</span>` +
+      `<span class="td-sub">${esc(subText)}</span>` +
+      `</div></div></td>`
+    );
+    cells.push(`<td class="tbl-td align-center"><span class="pos-badge">${esc(r.pos)}</span></td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${r.gp ?? '—'}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number bold" style="color:${avgColor}">${fmt(r.avg)}</td>`);
+    const l10Style = l10Color ? ` style="color:${l10Color}"` : '';
+    cells.push(`<td class="tbl-td align-center type-number"${l10Style}>${r.l10a == null ? '—' : fmt(r.l10a)}</td>`);
+    cells.push(`<td class="tbl-td td-spark">${sparkSvg(r.l10)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number" style="color:var(--stats-pos)">${sgn(r.best)}${Number(r.best).toFixed(2)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number" style="color:var(--stats-neg)">${sgn(r.worst)}${Number(r.worst).toFixed(2)}</td>`);
+
+    return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">${cells.join('')}</tr>`;
   }
 
   function renderPager(total, page) {
@@ -340,66 +330,27 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     document.getElementById('pg-next')?.addEventListener('click', () => { currentPage = Math.min(pages - 1, page + 1); renderTable(); });
   }
 
+  const wrap = document.querySelector('.tbl-wrap[data-tbl-id]');
+  const tbody = wrap ? wrap.querySelector('tbody') : null;
+
   function renderTable() {
+    if (!wrap || !tbody) return;
     const allRows = sorted(filtered());
     const start = currentPage * PAGE_SIZE;
     const rows  = allRows.slice(start, start + PAGE_SIZE);
-    const tbody = document.getElementById('impact-tbody');
 
-    tbody.innerHTML = rows.map((r, i) => {
-      const rank = start + i + 1;
-      const avgCls = r.avg >= 0 ? 'pos' : 'neg';
-      const l10Cls = r.l10a != null ? (r.l10a >= 0 ? 'pos' : 'neg') : '';
-      const bestStr = `<span class="sv pos">${sgn(r.best)}${r.best.toFixed(2)}</span>`;
-      const worstStr = `<span class="sv neg">${sgn(r.worst)}${r.worst.toFixed(2)}</span>`;
-      return `<tr data-id="${r.id}">
-        <td class="td-rk">${rank}</td>
-        <td>
-          <div class="td-player">
-            <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" onerror="this.style.display='none'">
-            <div class="td-info">
-              <a class="td-name" href="/stats/player/${r.slug}">${r.name}</a>
-              <span class="td-sub">${r.team} · ${r.pos}</span>
-            </div>
-          </div>
-        </td>
-        <td class="td-num" style="text-align:left;font-family:var(--mono);font-size:11px;color:var(--ink-48)">${r.pos}</td>
-        <td class="td-num">${r.gp}</td>
-        <td class="td-num"><span class="sv ${avgCls}">${fmt(r.avg)}</span></td>
-        <td class="td-num">${r.l10a != null ? `<span class="sv ${l10Cls}">${fmt(r.l10a)}</span>` : '—'}</td>
-        <td class="td-spark col-spark">${sparkSvg(r.l10)}</td>
-        <td class="td-num">${bestStr}</td>
-        <td class="td-num">${worstStr}</td>
-      </tr>`;
-    }).join('');
+    if (rows.length === 0) {
+      tbody.innerHTML = `<tr class="tbl-empty"><td colspan="9">No data available</td></tr>`;
+    } else {
+      tbody.innerHTML = rows.map((r, i) => rowHtml(r, start + i + 1)).join('');
+    }
+    wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
 
     renderPager(allRows.length, currentPage);
     const countEl = document.getElementById('lb-count');
     if (countEl) countEl.textContent = `${allRows.length} skater${allRows.length !== 1 ? 's' : ''} · click any column to sort`;
   }
 
-  function updateHeaders() {
-    document.querySelectorAll('#impact-table thead th[data-sort]').forEach(th => {
-      const key = th.dataset.sort;
-      const arrow = th.querySelector('.sort-arrow');
-      th.classList.toggle('sorted', key === sortKey);
-      if (arrow) arrow.textContent = key === sortKey ? (sortAsc ? '↑' : '↓') : '↕';
-    });
-  }
-
-  // Sort headers
-  document.querySelectorAll('#impact-table thead th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      if (sortKey === key) { sortAsc = !sortAsc; }
-      else { sortKey = key; sortAsc = key === 'worst'; }
-      currentPage = 0;
-      updateHeaders();
-      renderTable();
-    });
-  });
-
-  // Position filter tabs
   document.querySelectorAll('.lb-tab[data-pos]').forEach(btn => {
     btn.addEventListener('click', () => {
       posFilter = btn.dataset.pos;
@@ -410,7 +361,7 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
   });
 
   renderTable();
-  updateHeaders();
+})();
 </script>
 
 </body>
