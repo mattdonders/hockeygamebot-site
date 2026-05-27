@@ -147,6 +147,17 @@ export const PlayerRecordSchema = z.object({
   sc_pct:           z.number().optional(),
   hdc_pct:          z.number().optional(),
   toi_pp_sec_total: z.number().optional(),
+  toi_pk_sec_total: z.number().optional(),
+  toi_ev_sec_total: z.number().optional(),
+  // Strength-state splits — added May 2026
+  a1_pp:     z.number().int().optional(),
+  a1_pk:     z.number().int().optional(),
+  a2_pp:     z.number().int().optional(),
+  a2_pk:     z.number().int().optional(),
+  shots_pp:  z.number().int().optional(),
+  shots_pk:  z.number().int().optional(),
+  sum_xg_pp: z.number().optional(),
+  sum_xg_pk: z.number().optional(),
   // Penalty differential — draw/take counts for WAR breakdown display
   penalties_drawn: z.number().int().optional(),
   penalties_taken: z.number().int().optional(),

@@ -28,6 +28,26 @@ const tableRows = eligible.map(p => {
   const tot60    = toi60(p);
   const goals    = p.goals;
   const assists  = p.assists;
+  const rawSog   = Math.round(p.rates_per_60.shots * tot60);
+  const rawIxg   = p.rates_per_60.ixg * tot60;
+
+  // Strength-state splits
+  const goalsPp  = p.goals_pp  ?? 0;
+  const goalsSh  = p.goals_sh  ?? 0;
+  const goalsEv  = p.goals_ev  ?? 0;
+  const aPp      = (p.a1_pp ?? 0) + (p.a2_pp ?? 0);
+  const aPk      = (p.a1_pk ?? 0) + (p.a2_pk ?? 0);
+  const aEv      = Math.max(0, assists - aPp - aPk);
+  const shotsPp  = p.shots_pp ?? 0;
+  const shotsPk  = p.shots_pk ?? 0;
+  const shotsEv  = Math.max(0, rawSog - shotsPp - shotsPk);
+  const ixgPp    = p.sum_xg_pp ?? 0;
+  const ixgPk    = p.sum_xg_pk ?? 0;
+  const ixgEv    = Math.max(0, rawIxg - ixgPp - ixgPk);
+  const toiPpSec = p.toi_pp_sec_total ?? 0;
+  const toiPkSec = p.toi_pk_sec_total ?? 0;
+  const toiEvSec = p.toi_ev_sec_total ?? 0;
+
   return {
     slug:     p.slug,
     name:     p.display_name,
@@ -35,12 +55,12 @@ const tableRows = eligible.map(p => {
     pos:      p.pos,
     group:    p.pos_group,
     gp:       p.gp,
-    // Counting stats
+    // Counting stats (all-situations)
     goals,
     assists,
     points:   goals + assists,
-    sog:      Math.round(p.rates_per_60.shots * tot60),
-    ixg:      +(p.rates_per_60.ixg * tot60).toFixed(2),
+    sog:      rawSog,
+    ixg:      +rawIxg.toFixed(2),
     toi_pg:   +(p.toi_avg_sec / 60).toFixed(1),
     // Rates
     g60:      +p.rates_per_60.goals.toFixed(2),
@@ -56,17 +76,27 @@ const tableRows = eligible.map(p => {
     imp:      +p.avg_gs_display.toFixed(2),
     imp_p:    Math.round(p.gs_pct),
     rapm:     p.rapm != null ? +p.rapm.toFixed(3) : null,
-    // 5v5 (kept for future tabs)
+    // 5v5 on-ice
     xgf_pct:  xgfTotal > 0 ? +(evOff / xgfTotal * 100).toFixed(1) : 50.0,
     xgf60:    +evOff.toFixed(2),
     xga60:    +evDef.toFixed(2),
     sc60:     +(p.rates_per_60.sc_per60 ?? 0).toFixed(2),
     hdc60:    +(p.rates_per_60.hdc_per60 ?? 0).toFixed(2),
     hdc_pct:  +(p.hdc_pct ?? 50).toFixed(1),
-    // PP
-    pp_toi:   p.toi_pp_sec_total != null ? +(p.toi_pp_sec_total / p.gp / 60).toFixed(1) : 0,
-    pp_g:     p.goals_pp ?? 0,
+    // PP (legacy fields kept for compat)
+    pp_toi:   toiPpSec > 0 ? +(toiPpSec / p.gp / 60).toFixed(1) : 0,
+    pp_g:     goalsPp,
     pp_xg60:  +(p.rates_per_60.xg_pp_per60 ?? 0).toFixed(2),
+    // Strength-state raw fields (used by client-side filter)
+    goals_ev: goalsEv,  goals_pp: goalsPp,  goals_sh: goalsSh,
+    a_ev:     aEv,      a_pp:     aPp,      a_pk:     aPk,
+    shots_ev: shotsEv,  shots_pp: shotsPp,  shots_pk: shotsPk,
+    ixg_ev:   +ixgEv.toFixed(2),
+    ixg_pp:   +ixgPp.toFixed(2),
+    ixg_pk:   +ixgPk.toFixed(2),
+    toi_ev_sec: toiEvSec,
+    toi_pp_sec: toiPpSec,
+    toi_pk_sec: toiPkSec,
     // Playoff counting — null if player didn't play playoffs
     po_gp:      p.playoff_gp      ?? null,
     po_goals:   p.playoff_goals   ?? null,
@@ -346,6 +376,12 @@ const tableRows = eligible.map(p => {
         <button class="active" data-display="totals">Totals</button>
         <button data-display="per60">Per 60</button>
       </div>
+      <div class="btn-group" id="strength-filter">
+        <button class="active" data-strength="all">All</button>
+        <button data-strength="5v5">5v5</button>
+        <button data-strength="pp">PP</button>
+        <button data-strength="pk">PK</button>
+      </div>
       <select id="team-filter">
         <option value="all">All Teams</option>
       </select>
@@ -419,7 +455,8 @@ let sortAsc     = false;
 let showAll     = false;
 let topN        = null;   // null = no limit; number = slice after sort
 let searchQuery = '';
-let displayMode = 'totals'; // 'totals' | 'per60'
+let displayMode   = 'totals'; // 'totals' | 'per60'
+let strengthMode  = 'all';   // 'all' | '5v5' | 'pp' | 'pk'
 
 // ── Tab column definitions ────────────────────────────────────────────────────
 // Fixed columns in every tab: #, Player, Pos, GP
@@ -485,11 +522,51 @@ const COUNTING_PER60_COLS = [
 const TOTALS_TO_P60 = { points: 'p60', goals: 'g60', assists: 'a60', sog: 'sog60', ixg: 'x60' };
 const P60_TO_TOTALS = { p60: 'points', g60: 'goals', a60: 'assists', sog60: 'sog', x60: 'ixg' };
 
-function getActiveCols() {
-  if (viewTab === 'counting' && displayMode === 'per60' && gameType !== 3) {
-    return COUNTING_PER60_COLS;
+// ── Strength-state helpers ────────────────────────────────────────────────────
+
+function getStrengthStats(r, mode) {
+  if (mode === 'all') return { goals: r.goals, assists: r.assists, points: r.points, sog: r.sog, ixg: r.ixg, toi_sec: null, toi_pg: r.toi_pg };
+  let goals, assists, sog, ixg, toiSec;
+  if (mode === '5v5') {
+    goals = r.goals_ev ?? 0; assists = r.a_ev ?? 0; sog = r.shots_ev ?? 0; ixg = r.ixg_ev ?? 0; toiSec = r.toi_ev_sec ?? 0;
+  } else if (mode === 'pp') {
+    goals = r.goals_pp ?? 0; assists = r.a_pp ?? 0; sog = r.shots_pp ?? 0; ixg = r.ixg_pp ?? 0; toiSec = r.toi_pp_sec ?? 0;
+  } else {
+    goals = r.goals_sh ?? 0; assists = r.a_pk ?? 0; sog = r.shots_pk ?? 0; ixg = r.ixg_pk ?? 0; toiSec = r.toi_pk_sec ?? 0;
   }
-  return TABS[viewTab].cols;
+  return { goals, assists, points: goals + assists, sog, ixg, toi_sec: toiSec, toi_pg: toiSec > 0 ? toiSec / r.gp / 60 : 0 };
+}
+
+function getStatValue(r, key, st, hr) {
+  switch (key) {
+    case 'goals':   return st.goals;
+    case 'assists': return st.assists;
+    case 'points':  return st.points;
+    case 'sog':     return st.sog;
+    case 'ixg':     return st.ixg;
+    case 'toi_pg':  return st.toi_pg;
+    case 'g60':     return st.goals   / hr;
+    case 'a60':     return st.assists / hr;
+    case 'p60':     return st.points  / hr;
+    case 'sog60':   return st.sog     / hr;
+    case 'x60':     return st.ixg     / hr;
+    default:        return r[key];
+  }
+}
+
+function getActiveCols() {
+  let cols;
+  if (viewTab === 'counting' && displayMode === 'per60' && gameType !== 3) {
+    cols = COUNTING_PER60_COLS;
+  } else {
+    cols = TABS[viewTab].cols;
+  }
+  if (strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates')) {
+    const prefix = { '5v5': 'EV ', pp: 'PP ', pk: 'SH ' }[strengthMode];
+    const strengthKeys = new Set(['goals','assists','points','sog','ixg','toi_pg','g60','a60','p60','sog60','x60']);
+    return cols.map(c => strengthKeys.has(c.key) ? { ...c, label: prefix + c.label } : c);
+  }
+  return cols;
 }
 
 function resolveDefaultSort(tab, gt) {
@@ -511,6 +588,8 @@ function readUrl() {
     displayMode = 'per60';
     if (viewTab === 'counting' && TOTALS_TO_P60[sortKey]) sortKey = TOTALS_TO_P60[sortKey];
   }
+  const strength = p.get('strength');
+  if (strength && ['5v5', 'pp', 'pk'].includes(strength)) strengthMode = strength;
 }
 
 function updateUrl() {
@@ -520,6 +599,7 @@ function updateUrl() {
   if (teamFilter !== 'all') p.set('team', teamFilter);
   if (minToi > 0) p.set('toi', String(minToi));
   if (displayMode === 'per60') p.set('display', 'per60');
+  if (strengthMode !== 'all') p.set('strength', strengthMode);
   history.replaceState(null, '', p.toString() ? `?${p}` : window.location.pathname);
 }
 
@@ -555,6 +635,17 @@ function syncUi() {
       btn.style.pointerEvents = isPlayoff ? 'none' : '';
     }
   });
+
+  // Strength filter: only applies to counting/rates tabs in regular season
+  const strengthOk = !isPlayoff && (viewTab === 'counting' || viewTab === 'rates');
+  document.querySelectorAll('#strength-filter button').forEach(btn => {
+    const sm = btn.dataset.strength;
+    btn.classList.toggle('active', sm === strengthMode);
+    if (sm !== 'all') {
+      btn.style.opacity       = strengthOk ? '' : '0.35';
+      btn.style.pointerEvents = strengthOk ? '' : 'none';
+    }
+  });
 }
 
 // ── getRows ───────────────────────────────────────────────────────────────────
@@ -573,8 +664,18 @@ function getRows() {
     rows = rows.filter(r => r.name.toLowerCase().includes(q));
   }
   rows.sort((a, b) => {
-    const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-    const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    let av, bv;
+    if (strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates') && gameType !== 3) {
+      const sta = getStrengthStats(a, strengthMode);
+      const stb = getStrengthStats(b, strengthMode);
+      const hra = (sta.toi_sec / 3600) || 0.001;
+      const hrb = (stb.toi_sec / 3600) || 0.001;
+      av = getStatValue(a, sortKey, sta, hra) ?? (sortAsc ? Infinity : -Infinity);
+      bv = getStatValue(b, sortKey, stb, hrb) ?? (sortAsc ? Infinity : -Infinity);
+    } else {
+      av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+      bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
+    }
     return sortAsc ? av - bv : bv - av;
   });
   if (topN != null) rows = rows.slice(0, topN);
@@ -634,12 +735,15 @@ function renderBody(visibleRows) {
     return;
   }
 
+  const useStrength = strengthMode !== 'all' && (viewTab === 'counting' || viewTab === 'rates') && !isPlayoff;
   tbody.innerHTML = visibleRows.map((r, i) => {
     const gp = (isPlayoff && viewTab === 'counting') ? r.po_gp : r.gp;
+    const st = useStrength ? getStrengthStats(r, strengthMode) : null;
+    const hr = st ? ((st.toi_sec / 3600) || 0.001) : 1;
 
     const statTds = activeCols.map(c => {
       const dataKey = (isPlayoff && c.poKey) ? c.poKey : c.key;
-      const val = r[dataKey];
+      const val = st ? getStatValue(r, c.key, st, hr) : r[dataKey];
       let html;
       if (c.signed) {
         const pctKey = PCT_MAP[c.key];
@@ -715,6 +819,7 @@ document.querySelectorAll('#gametype-filter button').forEach(btn => {
     const gt = parseInt(btn.dataset.gametype);
     if (gt === gameType) return;
     gameType = gt;
+    if (gt === 3) strengthMode = 'all'; // no split data for playoffs
     sortKey  = resolveDefaultSort(viewTab, gt);
     sortAsc  = false;
     showAll  = false;
@@ -729,6 +834,7 @@ document.querySelectorAll('#view-filter button').forEach(btn => {
     const v = btn.dataset.view;
     if (v === viewTab || (gameType === 3 && TABS[v]?.regOnly)) return;
     viewTab = v;
+    if (v !== 'counting' && v !== 'rates') strengthMode = 'all';
     sortKey = resolveDefaultSort(v);
     sortAsc = false;
     showAll = false;
@@ -756,6 +862,19 @@ document.querySelectorAll('#display-filter button').forEach(btn => {
     if (mode === 'per60'   && TOTALS_TO_P60[sortKey]) sortKey = TOTALS_TO_P60[sortKey];
     if (mode === 'totals'  && P60_TO_TOTALS[sortKey]) sortKey = P60_TO_TOTALS[sortKey];
     displayMode = mode;
+    showAll = false;
+    updateUrl();
+    syncUi();
+    render();
+  });
+});
+
+document.querySelectorAll('#strength-filter button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const sm = btn.dataset.strength;
+    if (sm === strengthMode || gameType === 3) return;
+    if (sm !== 'all' && viewTab !== 'counting' && viewTab !== 'rates') return;
+    strengthMode = sm;
     showAll = false;
     updateUrl();
     syncUi();
@@ -918,6 +1037,7 @@ function getExportChips() {
   const tabLabel = { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[viewTab];
   const chips = [isPlayoff ? 'Playoffs' : 'Regular Season', tabLabel];
   if (displayMode === 'per60' && viewTab === 'counting' && !isPlayoff) chips.push('Per 60');
+  if (strengthMode !== 'all' && !isPlayoff) chips.push({ '5v5': 'Even Strength', pp: 'Power Play', pk: 'Penalty Kill' }[strengthMode]);
   if (topN != null) chips.push(`Top ${topN}`);
   if (posFilter !== 'all') chips.push(posFilter === 'F' ? 'Forwards' : 'Defense');
   if (teamFilter !== 'all') chips.push(teamFilter);
