@@ -2,6 +2,7 @@
 import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
+import Table from '../../../components/Table.astro';
 import { loadGoalies } from '../../../lib/stats-loader';
 import { pickTeamColor } from '../../../lib/team-colors';
 import type { GoalieRecord } from '../../../lib/stats-schemas';
@@ -68,6 +69,30 @@ const BIN_SHORT: Record<string, string> = {
   'Hard (60-80%)':   'Hard',
   'Hardest (80-100%)': 'Hardest',
 };
+
+// Shot-type breakdown table (Table.astro consumer) —————————————————————————
+const shotTypeRows = goalie.types.map(t => ({
+  shot_type_group: t.shot_type_group,
+  sa:              t.sa,
+  sv_pct:          t.sv_pct,
+  league_sv_pct:   t.league_sv_pct,
+  gsax:            t.gsax,
+}));
+const signedColor = (v: any, _r: any, tok?: { pos: string; neg: string }) => {
+  if (v == null) return undefined;
+  return v >= 0 ? tok?.pos : tok?.neg;
+};
+const shotTypeColumns = [
+  { key: 'shot_type_group', label: 'Type',   type: 'label' as const, bold: true },
+  { key: 'sa',              label: 'SA',     type: 'number' as const },
+  { key: 'sv_pct',          label: 'SV%',    type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(3) },
+  { key: 'league_sv_pct',   label: 'Lg SV%', type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(3) },
+  { key: 'gsax',            label: 'GSAx',   type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1),
+    color: signedColor },
+];
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -192,20 +217,8 @@ const BIN_SHORT: Record<string, string> = {
     .bin-svpct { font-family: var(--mono); font-size: 9px; white-space: nowrap;
       min-width: 48px; text-align: right; }
 
-    /* ── Shot-type table ── */
-    .type-table { width: 100%; border-collapse: collapse; }
-    .type-table th { font-family: var(--mono); font-size: 9px; font-weight: 700;
-      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32);
-      border-bottom: 1px solid var(--ink-10); padding: 6px 8px; text-align: center; }
-    .type-table th:first-child { text-align: left; }
-    .type-table td { padding: 7px 8px; font-family: var(--mono); font-size: 11px;
-      border-bottom: 1px solid var(--ink-06); text-align: center;
-      font-variant-numeric: tabular-nums; }
-    .type-table td:first-child { text-align: left; font-family: var(--body); font-size: 13px; font-weight: 600; }
-    .type-table tr:last-child td { border-bottom: none; }
-    .sv { font-weight: 700; }
-    .sv.pos { color: var(--green); }
-    .sv.neg { color: var(--red); }
+    /* Shot-type table chrome lives in Table.astro now. */
+    .sec-body .tbl-wrap { border: none; }
 
     @media (max-width: 768px) {
       .mast-inner, .wrap { padding-left: 16px; padding-right: 16px; }
@@ -385,31 +398,12 @@ const BIN_SHORT: Record<string, string> = {
       </div>
       <div class="sec-body" style="padding:0">
         {goalie.types.length > 0 ? (
-          <table class="type-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>SA</th>
-                <th>SV%</th>
-                <th>Lg SV%</th>
-                <th>GSAx</th>
-              </tr>
-            </thead>
-            <tbody>
-              {goalie.types.map(t => {
-                const isPos = t.gsax >= 0;
-                return (
-                  <tr>
-                    <td>{t.shot_type_group}</td>
-                    <td>{t.sa}</td>
-                    <td>{t.sv_pct.toFixed(3)}</td>
-                    <td style="color:var(--ink-48)">{t.league_sv_pct.toFixed(3)}</td>
-                    <td><span class={`sv ${isPos ? 'pos' : 'neg'}`}>{isPos ? '+' : ''}{t.gsax.toFixed(1)}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <Table
+            columns={shotTypeColumns}
+            rows={shotTypeRows}
+            sticky={false}
+            ariaLabel="GSAx by shot type"
+          />
         ) : (
           <div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:16px 20px">
             Shot-type breakdown available after next pipeline run.
