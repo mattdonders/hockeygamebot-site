@@ -1070,6 +1070,17 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
   </section>
 )}
 
+<!-- ── YESTERDAY DYNAMIC — populated by renderYesterday() from live API data ── -->
+<section class="yesterday-rest" id="yesterday-dynamic" style="display:none">
+  <div class="wrap">
+    <div class="section-head">
+      <h2 class="section-title">Yesterday's <span class="accent">results</span></h2>
+      <div class="section-meta" id="yesterday-dynamic-date"></div>
+    </div>
+    <div class="results-grid results-grid-compact" id="yesterday-dynamic-grid"></div>
+  </div>
+</section>
+
 <!-- ── BOT CARDS — hidden until live bot generates real cards ── -->
 <section class="botzone" style="display:none">
   <div class="wrap botzone-head">
@@ -1921,6 +1932,45 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     </div>`;
   }
 
+  function renderYesterday(data) {
+    const prev = data?.previous_day;
+    const games = (prev?.games ?? []).filter(g => { const s = gs(g); return s === 'final' || s === 'game-end'; });
+    const dynSec  = document.getElementById('yesterday-dynamic');
+    const featSec = document.getElementById('featured-section');
+    const restSec = document.getElementById('yesterday-rest-section');
+    if (featSec) featSec.style.display = 'none';
+    if (restSec) restSec.style.display = 'none';
+    if (!dynSec || !games.length) return;
+
+    const dateLabel = prev.hockey_date ? fmtDate(prev.hockey_date) : 'Last night';
+    setText('yesterday-dynamic-date', dateLabel);
+
+    const cards = games.map(g => {
+      const a = g.away_team.abbrev, h = g.home_team.abbrev;
+      const ac = clr(a), hc = clr(h);
+      const awayWins = g.away_team.score > g.home_team.score;
+      const isOT = (g.clock?.period ?? 0) >= 4;
+      const xgA = g.stats?.xg_5v5?.away ?? null, xgH = g.stats?.xg_5v5?.home ?? null;
+      const xgBar = xgA != null && xgH != null ? (() => {
+        const tot = xgA + xgH, aShare = tot > 0 ? Math.round(xgA / tot * 100) : 50;
+        return `<div class="result-xg-row"><span class="result-xg-num" style="color:${ac}">${xgA.toFixed(1)}</span><div class="result-xg-bar" style="background:linear-gradient(90deg,${ac} ${aShare}%,${hc} ${aShare}%)"></div><span class="result-xg-num" style="color:${hc}">${xgH.toFixed(1)}</span><span class="result-xg-lbl">xG</span></div>`;
+      })() : '';
+      return `<a class="result-card" href="/games/${g.game_id}">
+        <div class="result-accent"><div style="background:${ac}"></div><div style="background:${hc}"></div></div>
+        <div class="result-body">
+          <div class="result-score-row">
+            <div class="result-team"><img class="result-logo" src="https://assets.nhle.com/logos/nhl/svg/${a}_light.svg" alt="${a}" onerror="this.style.display='none'" style="${awayWins ? '' : 'opacity:0.35;filter:grayscale(0.4)'}"><div class="result-abbr ${awayWins ? 'lead' : 'trail'}">${a}</div></div>
+            <div class="result-score-center"><div class="result-scores"><span class="result-n ${awayWins ? 'lead' : 'trail'}">${g.away_team.score}</span><span class="result-sep">–</span><span class="result-n ${awayWins ? 'trail' : 'lead'}">${g.home_team.score}</span></div><div class="result-period">FINAL${isOT ? ' · OT' : ''}</div></div>
+            <div class="result-team"><img class="result-logo" src="https://assets.nhle.com/logos/nhl/svg/${h}_light.svg" alt="${h}" onerror="this.style.display='none'" style="${awayWins ? 'opacity:0.35;filter:grayscale(0.4)' : ''}"><div class="result-abbr ${awayWins ? 'trail' : 'lead'}">${h}</div></div>
+          </div>${xgBar}
+        </div>
+      </a>`;
+    }).join('');
+
+    setHtml('yesterday-dynamic-grid', cards);
+    dynSec.style.display = '';
+  }
+
   async function renderStateD(data) {
     const g = data?.games?.[0];
     if (!g) return;
@@ -1939,6 +1989,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     // Render immediately with whatever we have
     sdWrap.innerHTML = buildStateDHtml(g, _seriesData, _narrativesCache ? _getCachedNarrative(g) : null, _seriesStatsCache ? _getCachedSeriesGames(g) : null);
     startGhCountdown();
+    renderYesterday(data);
 
     // Fetch series data + narrative + per-game scores in parallel if not yet loaded
     if (!_seriesData || !_narrativesCache || !_seriesStatsCache) {
