@@ -336,6 +336,15 @@ const pctBars = [
     .explore-pills { display: flex; flex-wrap: wrap; gap: 8px; }
     .explore-pill { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-48); border: 1px solid var(--ink-14); padding: 5px 10px; text-decoration: none; transition: color 0.1s, border-color 0.1s; white-space: nowrap; }
     .explore-pill:hover { color: var(--ink); border-color: var(--ink-32); }
+
+    /* Player display controls */
+    .player-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .player-controls-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .btn-group { display: inline-flex; border: 1px solid var(--ink-14); }
+    .btn-group button { background: var(--surface); border: none; border-right: 1px solid var(--ink-14); font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 10px; cursor: pointer; color: var(--ink-48); transition: background 0.12s, color 0.12s; white-space: nowrap; }
+    .btn-group button:last-child { border-right: none; }
+    .btn-group button.active { background: var(--ink); color: var(--bg); }
+    .btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
     .content-main { display: flex; flex-direction: column; gap: 16px; }
     .content-side { display: flex; flex-direction: column; gap: 16px; }
 
@@ -584,16 +593,22 @@ const pctBars = [
         </div>
         <div class="hero-tile season-tile">
           <div class="season-cell ga">
-            <div class="season-cell-val">{totalGoals}</div>
-            <div class="season-cell-lbl">G</div>
+            <div class="season-cell-val" id="gap-g-val"
+              data-totals={String(totalGoals)}
+              data-per60={player.rates_per_60.goals.toFixed(2)}>{totalGoals}</div>
+            <div class="season-cell-lbl" id="gap-g-lbl">G</div>
           </div>
           <div class="season-cell ga">
-            <div class="season-cell-val">{totalAssists}</div>
-            <div class="season-cell-lbl">A</div>
+            <div class="season-cell-val" id="gap-a-val"
+              data-totals={String(totalAssists)}
+              data-per60={totTOIhr > 0 ? (totalAssists / totTOIhr).toFixed(2) : '—'}>{totalAssists}</div>
+            <div class="season-cell-lbl" id="gap-a-lbl">A</div>
           </div>
           <div class="season-cell pts">
-            <div class="season-cell-val" style={`color:${teamColor}`}>{totalGoals + totalAssists}</div>
-            <div class="season-cell-lbl">PTS</div>
+            <div class="season-cell-val" id="gap-p-val" style={`color:${teamColor}`}
+              data-totals={String(totalGoals + totalAssists)}
+              data-per60={pts60 != null ? pts60.toFixed(2) : '—'}>{totalGoals + totalAssists}</div>
+            <div class="season-cell-lbl" id="gap-p-lbl">PTS</div>
           </div>
         </div>
       </div>
@@ -612,6 +627,15 @@ const pctBars = [
         <a href={`/stats/lines?team=${player.team_abbrev}&player=${player.player_id}`} class="explore-pill">{player.first_name}'s Line Combos →</a>
         <a href={`/stats/wowy?player=${player.player_id}`} class="explore-pill">WOWY — With or Without →</a>
         <a href="/stats/skaters" class="explore-pill">Leaderboards →</a>
+      </div>
+
+      <!-- PLAYER DISPLAY CONTROLS -->
+      <div class="player-controls">
+        <div class="btn-group" id="player-display-filter">
+          <button class="active" data-display="totals">Totals</button>
+          <button data-display="per60">Per 60</button>
+        </div>
+        <span class="player-controls-meta" id="player-display-meta">Season counting stats · 2025–26</span>
       </div>
 
       <!-- WAR BREAKDOWN -->
@@ -2121,6 +2145,42 @@ const pctBars = [
 </script>
 
 <script>
+  // ── Per-60 display toggle ────────────────────────────────────────────────
+  (function() {
+    const TOTALS_LABEL = { g: 'G', a: 'A', p: 'PTS' };
+    const PER60_LABEL  = { g: 'G/60', a: 'A/60', p: 'P/60' };
+
+    function applyDisplay(mode) {
+      const isP60 = mode === 'per60';
+      const lbls  = isP60 ? PER60_LABEL : TOTALS_LABEL;
+      ['g', 'a', 'p'].forEach(k => {
+        const val = document.getElementById(`gap-${k}-val`);
+        const lbl = document.getElementById(`gap-${k}-lbl`);
+        if (val) val.textContent = val.dataset[isP60 ? 'per60' : 'totals'] ?? val.textContent;
+        if (lbl) lbl.textContent = lbls[k];
+      });
+      document.querySelectorAll('#player-display-filter button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.display === mode);
+      });
+      const meta = document.getElementById('player-display-meta');
+      if (meta) meta.textContent = isP60
+        ? 'Per-60-min rates · all situations · 2025–26'
+        : 'Season counting stats · 2025–26';
+      // Update URL param (omit when default)
+      const p = new URLSearchParams(window.location.search);
+      if (isP60) p.set('display', 'per60'); else p.delete('display');
+      history.replaceState(null, '', p.toString() ? `?${p}` : window.location.pathname);
+    }
+
+    // Read initial state from URL
+    const initMode = new URLSearchParams(window.location.search).get('display') === 'per60' ? 'per60' : 'totals';
+    if (initMode === 'per60') applyDisplay('per60');
+
+    document.querySelectorAll('#player-display-filter button').forEach(btn => {
+      btn.addEventListener('click', () => applyDisplay(btn.dataset.display));
+    });
+  })();
+
   // Impact trend chart — dot hover tooltips
   const tip = document.getElementById('imp-tip');
   if (tip) {
