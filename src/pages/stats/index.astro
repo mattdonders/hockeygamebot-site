@@ -2,6 +2,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
 import { loadPlayers, loadLeaderboard, loadPlayoffLeaderboard, loadGoalies } from '../../lib/stats-loader';
 
 const allPlayers  = loadPlayers();
@@ -116,6 +117,82 @@ const searchIndex = allPlayers.map(p => ({
 }));
 
 function sgn(n: number): string { return n >= 0 ? '+' : ''; }
+
+// ── Table.astro column schemas for the 7 mini-leaderboards ──────────────────
+// Each card is a tiny 10-row table — sticky thead is unnecessary
+// (TABLES.md §2). PNG export is wired on the 6 cards that had it before.
+
+const signedColor = (v: any, _r: any, tok?: { pos: string; neg: string }) => {
+  if (v == null) return undefined;
+  return v >= 0 ? tok?.pos : tok?.neg;
+};
+
+const pointsColumns = [
+  { key: 'rank',         label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'display_name', label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team_abbrev} · ${r.pos}` },
+  { key: 'goals',        label: 'G',      type: 'number' as const },
+  { key: 'assists',      label: 'A',      type: 'number' as const },
+  { key: 'points',       label: 'P',      type: 'number' as const, bold: true },
+];
+
+const impactColumns = [
+  { key: 'rank',         label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'display_name', label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team_abbrev} · ${r.pos}` },
+  { key: 'gp',           label: 'GP',     type: 'number' as const },
+  { key: 'value',        label: 'Impact', type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+    color: signedColor },
+];
+
+const gsaxColumns = [
+  { key: 'rank',        label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'name',        label: 'Goalie', type: 'player' as const, sub: (r: any) => `${r.team_abbrev}${r.games != null ? ' · ' + r.games + ' GP' : ''}` },
+  { key: 'sa',          label: 'SA',     type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toLocaleString() },
+  { key: 'gsax',        label: 'GSAx',   type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+    color: signedColor },
+];
+
+const goalsColumns = [
+  { key: 'rank',         label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'display_name', label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team_abbrev} · ${r.pos}` },
+  { key: 'gp',           label: 'GP',     type: 'number' as const },
+  { key: 'goals',        label: 'G',      type: 'number' as const, bold: true },
+];
+
+const assistsColumns = [
+  { key: 'rank',         label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'display_name', label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team_abbrev} · ${r.pos}` },
+  { key: 'gp',           label: 'GP',     type: 'number' as const },
+  { key: 'assists',      label: 'A',      type: 'number' as const, bold: true },
+];
+
+const xgColumns = [
+  { key: 'rank',         label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'display_name', label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team_abbrev} · ${r.pos}` },
+  { key: 'gp',           label: 'GP',     type: 'number' as const },
+  { key: 'xg60',         label: 'xG/60',  type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(2) },
+];
+
+const pts60Columns = [
+  { key: 'rank',         label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'display_name', label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team_abbrev} · ${r.pos}` },
+  { key: 'gp',           label: 'GP',     type: 'number' as const },
+  { key: 'pts60',        label: 'P/60',   type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(2) },
+];
+
+// Rows need `team` so Table.astro's td-player can render the team logo.
+function withTeam(rs: any[]) { return rs.map(r => ({ ...r, team: r.team_abbrev })); }
+const regPointsT  = withTeam(regPoints);
+const regImpactT  = withTeam(regImpact);
+const regGsaxT    = withTeam(regGsax);
+const regGoalsT   = withTeam(regGoals);
+const regAssistsT = withTeam(regAssists);
+const regXgT      = withTeam(regXg);
+const regPts60T   = withTeam(regPts60);
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -222,36 +299,10 @@ function sgn(n: number): string { return n >= 0 ? '+' : ''; }
       text-transform: uppercase; letter-spacing: 0.02em; color: var(--ink); }
     .lb-card-desc { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32);
       letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
-    .lb-card-png { background: none; border: 1px solid var(--ink-14); padding: 4px 10px;
-      cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 10px;
-      letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48);
-      transition: all 0.15s; border-radius: 2px; white-space: nowrap; flex-shrink: 0; }
-    .lb-card-png:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-
-    /* ── Card table ── */
-    .lb-card table { width: 100%; border-collapse: collapse; }
-    .lb-card thead th { padding: 7px 10px 6px; font-family: var(--display); font-size: 10px;
-      font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-32);
-      border-bottom: 1px solid var(--ink-14); text-align: center; }
-    .lb-card thead th.th-left { text-align: left; }
-    .lb-card tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
-    .lb-card tbody tr:last-child { border-bottom: none; }
-    .lb-card tbody tr:hover { background: var(--ink-04); }
-    .lb-card td { padding: 7px 10px; font-family: var(--mono); font-size: 11.5px; text-align: center;
-      font-variant-numeric: tabular-nums; color: var(--ink); }
-    .lb-card .td-rk { color: var(--ink-32); font-size: 10.5px; }
-    .lb-card tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
-    .lb-card .td-player { text-align: left; }
-    .lb-card .td-player-inner { display: flex; align-items: center; gap: 8px; }
-    .lb-card .td-logo { width: 18px; height: 18px; object-fit: contain; flex-shrink: 0; }
-    .lb-card .td-name { font-family: var(--body); font-weight: 600; font-size: 13px; color: var(--ink);
-      white-space: nowrap; text-decoration: none; }
-    .lb-card .td-name:hover { color: var(--red); }
-    .lb-card .td-sub { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.04em; }
-    .lb-card .td-val { font-weight: 700; font-size: 13px; }
-    .lb-card .td-val.pos { color: var(--stats-pos); }
-    .lb-card .td-val.neg { color: var(--stats-neg); }
-    .lb-card .td-pts { font-weight: 700; font-size: 14px; }
+    /* Card table chrome lives in Table.astro now. We do drop the wrap's own
+       border because the card itself already provides one. */
+    .lb-card .tbl-wrap { border: none; background: transparent; }
+    .lb-card .tbl-actions { padding: 6px 12px; }
 
     /* card footer */
     .lb-card-foot { display: flex; align-items: center; justify-content: flex-end;
@@ -319,295 +370,152 @@ function sgn(n: number): string { return n >= 0 ? '+' : ''; }
   <div class="card-grid">
 
     <!-- POINTS card -->
-    <article class="lb-card">
+    <article class="lb-card" id="card-points">
       <div class="lb-card-head">
         <div>
           <div class="lb-card-title">Points</div>
           <div class="lb-card-desc" id="points-desc">Goals + Assists · Regular Season</div>
         </div>
-        <button class="lb-card-png" id="png-points">↓ PNG</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:28px">#</th>
-            <th class="th-left">Player</th>
-            <th style="width:32px">G</th>
-            <th style="width:32px">A</th>
-            <th style="width:36px">P</th>
-          </tr>
-        </thead>
-        <tbody id="tbody-points">
-          {regPoints.map(r => (
-            <tr>
-              <td class="td-rk">{r.rank}</td>
-              <td class="td-player">
-                <div class="td-player-inner">
-                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-                  <div>
-                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
-                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
-                  </div>
-                </div>
-              </td>
-              <td>{r.goals}</td>
-              <td>{r.assists}</td>
-              <td class="td-pts">{r.points}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Table
+        columns={pointsColumns}
+        rows={regPointsT}
+        rowHref={(r) => `/stats/player/${r.slug}`}
+        sticky={false}
+        exportFilename="hgb-points.png"
+        exportTitle="Points Leaders"
+        ariaLabel="Points leaderboard"
+      />
       <div class="lb-card-foot">
         <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
       </div>
     </article>
 
     <!-- HGB IMPACT card -->
-    <article class="lb-card">
+    <article class="lb-card" id="card-impact">
       <div class="lb-card-head">
         <div>
           <div class="lb-card-title">HGB Impact</div>
           <div class="lb-card-desc" id="impact-desc">Per-game avg · Regular Season</div>
         </div>
-        <button class="lb-card-png" id="png-impact">↓ PNG</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:28px">#</th>
-            <th class="th-left">Player</th>
-            <th style="width:36px">GP</th>
-            <th style="width:64px">Impact</th>
-          </tr>
-        </thead>
-        <tbody id="tbody-impact">
-          {regImpact.map(r => (
-            <tr>
-              <td class="td-rk">{r.rank}</td>
-              <td class="td-player">
-                <div class="td-player-inner">
-                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-                  <div>
-                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
-                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
-                  </div>
-                </div>
-              </td>
-              <td>{r.gp}</td>
-              <td class={`td-val ${r.value >= 0 ? 'pos' : 'neg'}`}>{r.value >= 0 ? '+' : ''}{r.value.toFixed(2)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Table
+        columns={impactColumns}
+        rows={regImpactT}
+        rowHref={(r) => `/stats/player/${r.slug}`}
+        sticky={false}
+        exportFilename="hgb-impact.png"
+        exportTitle="HGB Impact Leaders"
+        ariaLabel="HGB Impact leaderboard"
+      />
       <div class="lb-card-foot">
         <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
       </div>
     </article>
 
     <!-- GOALIE GSAx card -->
-    <article class="lb-card">
+    <article class="lb-card" id="card-gsax">
       <div class="lb-card-head">
         <div>
           <div class="lb-card-title">Goalie GSAx</div>
           <div class="lb-card-desc" id="gsax-desc">Goals Saved Above Expected · Regular Season</div>
         </div>
-        <button class="lb-card-png" id="png-gsax">↓ PNG</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:28px">#</th>
-            <th class="th-left">Goalie</th>
-            <th style="width:40px">SA</th>
-            <th style="width:60px">GSAx</th>
-          </tr>
-        </thead>
-        <tbody id="tbody-gsax">
-          {regGsax.map(r => (
-            <tr>
-              <td class="td-rk">{r.rank}</td>
-              <td class="td-player">
-                <div class="td-player-inner">
-                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-                  <div>
-                    <a class="td-name" href="/stats/goalies">{r.name}</a>
-                    <div class="td-sub">{r.team_abbrev}</div>
-                  </div>
-                </div>
-              </td>
-              <td>{r.sa.toLocaleString()}</td>
-              <td class={`td-val ${r.gsax >= 0 ? 'pos' : 'neg'}`}>{r.gsax >= 0 ? '+' : ''}{r.gsax.toFixed(2)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Table
+        columns={gsaxColumns}
+        rows={regGsaxT}
+        rowHref={(r) => `/stats/goalies/${r.goalie_id}`}
+        sticky={false}
+        exportFilename="hgb-gsax.png"
+        exportTitle="Goalie GSAx Leaders"
+        ariaLabel="Goalie GSAx leaderboard"
+      />
       <div class="lb-card-foot">
         <a class="lb-card-link" href="/stats/goalies">See all goalies →</a>
       </div>
     </article>
 
     <!-- GOALS card -->
-    <article class="lb-card">
+    <article class="lb-card" id="card-goals">
       <div class="lb-card-head">
         <div>
           <div class="lb-card-title">Goals</div>
           <div class="lb-card-desc" id="goals-desc">Total goals · Regular Season</div>
         </div>
-        <button class="lb-card-png" id="png-goals">↓ PNG</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:28px">#</th>
-            <th class="th-left">Player</th>
-            <th style="width:36px">GP</th>
-            <th style="width:44px">G</th>
-          </tr>
-        </thead>
-        <tbody id="tbody-goals">
-          {regGoals.map(r => (
-            <tr>
-              <td class="td-rk">{r.rank}</td>
-              <td class="td-player">
-                <div class="td-player-inner">
-                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-                  <div>
-                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
-                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
-                  </div>
-                </div>
-              </td>
-              <td>{r.gp}</td>
-              <td class="td-pts">{r.goals}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Table
+        columns={goalsColumns}
+        rows={regGoalsT}
+        rowHref={(r) => `/stats/player/${r.slug}`}
+        sticky={false}
+        exportFilename="hgb-goals.png"
+        exportTitle="Goals Leaders"
+        ariaLabel="Goals leaderboard"
+      />
       <div class="lb-card-foot">
         <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
       </div>
     </article>
 
     <!-- ASSISTS card -->
-    <article class="lb-card">
+    <article class="lb-card" id="card-assists">
       <div class="lb-card-head">
         <div>
           <div class="lb-card-title">Assists</div>
           <div class="lb-card-desc" id="assists-desc">Total assists · Regular Season</div>
         </div>
-        <button class="lb-card-png" id="png-assists">↓ PNG</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:28px">#</th>
-            <th class="th-left">Player</th>
-            <th style="width:36px">GP</th>
-            <th style="width:44px">A</th>
-          </tr>
-        </thead>
-        <tbody id="tbody-assists">
-          {regAssists.map(r => (
-            <tr>
-              <td class="td-rk">{r.rank}</td>
-              <td class="td-player">
-                <div class="td-player-inner">
-                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-                  <div>
-                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
-                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
-                  </div>
-                </div>
-              </td>
-              <td>{r.gp}</td>
-              <td class="td-pts">{r.assists}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Table
+        columns={assistsColumns}
+        rows={regAssistsT}
+        rowHref={(r) => `/stats/player/${r.slug}`}
+        sticky={false}
+        exportFilename="hgb-assists.png"
+        exportTitle="Assists Leaders"
+        ariaLabel="Assists leaderboard"
+      />
       <div class="lb-card-foot">
         <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
       </div>
     </article>
 
     <!-- xG card -->
-    <article class="lb-card">
+    <article class="lb-card" id="card-xg">
       <div class="lb-card-head">
         <div>
           <div class="lb-card-title">Exp. Goals</div>
           <div class="lb-card-desc" id="xg-desc">Individual xG/60 · Regular Season</div>
         </div>
-        <button class="lb-card-png" id="png-xg">↓ PNG</button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:28px">#</th>
-            <th class="th-left">Player</th>
-            <th style="width:36px">GP</th>
-            <th style="width:56px">xG/60</th>
-          </tr>
-        </thead>
-        <tbody id="tbody-xg">
-          {regXg.map(r => (
-            <tr>
-              <td class="td-rk">{r.rank}</td>
-              <td class="td-player">
-                <div class="td-player-inner">
-                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-                  <div>
-                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
-                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
-                  </div>
-                </div>
-              </td>
-              <td>{r.gp}</td>
-              <td class="td-pts">{r.xg60.toFixed(2)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Table
+        columns={xgColumns}
+        rows={regXgT}
+        rowHref={(r) => `/stats/player/${r.slug}`}
+        sticky={false}
+        exportFilename="hgb-xg.png"
+        exportTitle="Expected Goals Leaders"
+        ariaLabel="Expected goals leaderboard"
+      />
       <div class="lb-card-foot">
         <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
       </div>
     </article>
 
     <!-- POINTS/60 card -->
-    <article class="lb-card">
+    <article class="lb-card" id="card-pts60">
       <div class="lb-card-head">
         <div>
           <div class="lb-card-title">Points/60</div>
           <div class="lb-card-desc">Total pts per 60 min · Regular Season</div>
         </div>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:28px">#</th>
-            <th class="th-left">Player</th>
-            <th style="width:36px">GP</th>
-            <th style="width:56px">P/60</th>
-          </tr>
-        </thead>
-        <tbody>
-          {regPts60.map(r => (
-            <tr>
-              <td class="td-rk">{r.rank}</td>
-              <td class="td-player">
-                <div class="td-player-inner">
-                  <img class="td-logo" src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`} alt={r.team_abbrev} width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-                  <div>
-                    <a class="td-name" href={`/stats/player/${r.slug}`}>{r.display_name}</a>
-                    <div class="td-sub">{r.team_abbrev} · {r.pos}</div>
-                  </div>
-                </div>
-              </td>
-              <td>{r.gp}</td>
-              <td class="td-pts">{r.pts60.toFixed(2)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Table
+        columns={pts60Columns}
+        rows={regPts60T}
+        rowHref={(r) => `/stats/player/${r.slug}`}
+        sticky={false}
+        ariaLabel="Points/60 leaderboard"
+      />
       <div class="lb-card-foot">
         <a class="lb-card-link" href="/stats/skaters">See all skaters →</a>
       </div>
@@ -637,109 +545,138 @@ function updateUrl() {
 }
 
 // ── Table renderers ──────────────────────────────────────────────────────────
+// SSR-rendered rows use Table.astro's own markup. On playoff toggle the JS
+// rebuilds the tbody contents matching that markup, then dispatches
+// tbl:rows-changed so the component re-snapshots + re-binds row navigation.
 
-function renderRow(r, cols) {
-  return `<tr>
-    <td class="td-rk">${r.rank}</td>
-    <td class="td-player"><div class="td-player-inner">
-      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-      <div>
-        <a class="td-name" href="${r.href || '#'}">${r.display_name || r.name}</a>
-        <div class="td-sub">${r.sub || ''}</div>
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Build a Table.astro player-row <tr> matching the SSR output.
+function tblRow(opts) {
+  // opts: { rank, href, name, team, sub, cells }
+  // cells: array of { text, bold?, color? }
+  const teamAbbr = escHtml(opts.team || '');
+  const nameEsc = escHtml(opts.name);
+  const subEsc = escHtml(opts.sub || '');
+  const cellsHtml = opts.cells.map(c => {
+    const cls = ['tbl-td', 'align-center', 'type-number', c.bold ? 'bold' : ''].filter(Boolean).join(' ');
+    const style = c.color ? ` style="color:${c.color}"` : '';
+    return `<td class="${cls}"${style}>${c.text}</td>`;
+  }).join('');
+  const trAttrs = opts.href ? `class="tbl-tr clickable" tabindex="0" data-href="${opts.href}" role="link"` : 'class="tbl-tr"';
+  return `<tr ${trAttrs}>
+    <td class="tbl-td td-rk align-right">${String(opts.rank).padStart(2, '0')}</td>
+    <td class="tbl-td td-player align-left">
+      <div class="td-player-inner">
+        ${teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : ''}
+        <div class="td-player-meta">
+          <span class="td-name">${nameEsc}</span>
+          <span class="td-sub">${subEsc}</span>
+        </div>
       </div>
-    </div></td>
-    ${cols.map(c => `<td class="${c.cls || ''}">${c.fmt(r)}</td>`).join('')}
+    </td>
+    ${cellsHtml}
   </tr>`;
 }
 
-function renderPointsTable() {
-  const rows  = gameType === 3 ? poPoints : regPoints;
-  const tbody = document.getElementById('tbody-points');
+function fillCard(cardId, rows, rowBuilder, colspan, emptyMsg) {
+  const wrap = document.querySelector(`#${cardId} .tbl-wrap[data-tbl-id]`);
+  if (!wrap) return;
+  const tbody = wrap.querySelector('tbody');
   if (!tbody) return;
-  if (rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="no-data">No playoff data yet</td></tr>`;
-    return;
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = `<tr class="tbl-empty"><td colspan="${colspan}">${emptyMsg}</td></tr>`;
+  } else {
+    tbody.innerHTML = rows.map((r, i) => rowBuilder(r, i + 1)).join('');
   }
-  const sgn = v => v >= 0 ? '' : '';
-  tbody.innerHTML = rows.map(r => `<tr>
-    <td class="td-rk">${r.rank}</td>
-    <td class="td-player"><div class="td-player-inner">
-      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-      <div>
-        <a class="td-name" href="/stats/player/${r.slug}">${r.display_name}</a>
-        <div class="td-sub">${r.team_abbrev} · ${r.pos}</div>
-      </div>
-    </div></td>
-    <td>${r.goals}</td>
-    <td>${r.assists}</td>
-    <td class="td-pts">${r.points}</td>
-  </tr>`).join('');
+  wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
 }
 
-function renderCountingCard(tbodyId, regRows, poRows, valKey, valLabel, valFmt) {
-  const rows  = gameType === 3 ? poRows : regRows;
-  const tbody = document.getElementById(tbodyId);
-  if (!tbody) return;
-  if (rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" class="no-data">No playoff data yet</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = rows.map((r, i) => `<tr>
-    <td class="td-rk">${r.rank ?? i + 1}</td>
-    <td class="td-player"><div class="td-player-inner">
-      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-      <div>
-        <a class="td-name" href="/stats/player/${r.slug}">${r.display_name}</a>
-        <div class="td-sub">${r.team_abbrev} · ${r.pos}</div>
-      </div>
-    </div></td>
-    <td>${r.gp}</td>
-    <td class="td-pts">${valFmt(r[valKey])}</td>
-  </tr>`).join('');
+function renderPointsTable() {
+  if (gameType !== 3) return; // SSR already has regular season
+  fillCard('card-points', poPoints, (r, i) => tblRow({
+    rank: i, href: `/stats/player/${r.slug}`, name: r.display_name, team: r.team_abbrev,
+    sub: `${r.team_abbrev} · ${r.pos}`,
+    cells: [{ text: String(r.goals) }, { text: String(r.assists) }, { text: String(r.points), bold: true }],
+  }), 5, 'No playoff data yet');
+}
+
+function renderCountingCard(cardId, regRows, poRows, valKey, valFmt) {
+  if (gameType !== 3) return; // SSR already has regular
+  fillCard(cardId, poRows, (r, i) => tblRow({
+    rank: i, href: `/stats/player/${r.slug}`, name: r.display_name, team: r.team_abbrev,
+    sub: `${r.team_abbrev} · ${r.pos}`,
+    cells: [{ text: String(r.gp ?? '—') }, { text: valFmt(r[valKey]), bold: true }],
+  }), 4, 'No playoff data yet');
 }
 
 function renderImpactTable() {
-  // HGB Impact: reg season only for now
-  const tbody = document.getElementById('tbody-impact');
-  if (!tbody) return;
-  if (gameType === 3) {
-    tbody.innerHTML = `<tr><td colspan="4" class="no-data">Regular season only — playoff Impact coming soon</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = regImpact.map(r => `<tr>
-    <td class="td-rk">${r.rank}</td>
-    <td class="td-player"><div class="td-player-inner">
-      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-      <div>
-        <a class="td-name" href="/stats/player/${r.slug}">${r.display_name}</a>
-        <div class="td-sub">${r.team_abbrev} · ${r.pos}</div>
-      </div>
-    </div></td>
-    <td>${r.gp}</td>
-    <td class="td-val ${r.value >= 0 ? 'pos' : 'neg'}">${r.value >= 0 ? '+' : ''}${r.value.toFixed(2)}</td>
-  </tr>`).join('');
+  if (gameType !== 3) return;
+  fillCard('card-impact', [], null, 4, 'Regular season only — playoff Impact coming soon');
 }
 
 function renderGsaxTable() {
-  const rows  = gameType === 3 ? poGsax : regGsax;
-  const tbody = document.getElementById('tbody-gsax');
-  if (!tbody) return;
-  if (rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" class="no-data">No playoff data yet</td></tr>`;
-    return;
+  if (gameType !== 3) return;
+  fillCard('card-gsax', poGsax, (r, i) => {
+    const color = r.gsax >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
+    return tblRow({
+      rank: i, href: `/stats/goalies/${r.goalie_id}`, name: r.name, team: r.team_abbrev,
+      sub: `${r.team_abbrev}${r.games != null ? ' · ' + r.games + ' GP' : ''}`,
+      cells: [
+        { text: r.sa.toLocaleString() },
+        { text: (r.gsax >= 0 ? '+' : '') + r.gsax.toFixed(2), bold: true, color },
+      ],
+    });
+  }, 4, 'No playoff data yet');
+}
+
+function restoreRegular() {
+  // For the regular path we'd ideally just reload SSR rows. Since SSR is the
+  // canonical source for the regular dataset, simplest path is to refresh the
+  // page when switching back from playoff. Toggle code below uses a tiny
+  // helper that re-rebuilds the rows in place from JSON copies.
+  function buildPointsRow(r, i) {
+    return tblRow({
+      rank: i, href: `/stats/player/${r.slug}`, name: r.display_name, team: r.team_abbrev,
+      sub: `${r.team_abbrev} · ${r.pos}`,
+      cells: [{ text: String(r.goals) }, { text: String(r.assists) }, { text: String(r.points), bold: true }],
+    });
   }
-  tbody.innerHTML = rows.map(r => `<tr>
-    <td class="td-rk">${r.rank}</td>
-    <td class="td-player"><div class="td-player-inner">
-      <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg" alt="${r.team_abbrev}" width="18" height="18" loading="lazy" onerror="this.style.display='none'">
-      <div>
-        <a class="td-name" href="/stats/goalies">${r.name}</a>
-        <div class="td-sub">${r.team_abbrev}${r.games != null ? ' · ' + r.games + ' GP' : ''}</div>
-      </div>
-    </div></td>
-    <td>${r.sa.toLocaleString()}</td>
-    <td class="td-val ${r.gsax >= 0 ? 'pos' : 'neg'}">${r.gsax >= 0 ? '+' : ''}${r.gsax.toFixed(2)}</td>
-  </tr>`).join('');
+  function buildCountingRow(r, i, valKey, fmt) {
+    return tblRow({
+      rank: i, href: `/stats/player/${r.slug}`, name: r.display_name, team: r.team_abbrev,
+      sub: `${r.team_abbrev} · ${r.pos}`,
+      cells: [{ text: String(r.gp ?? '—') }, { text: fmt(r[valKey]), bold: true }],
+    });
+  }
+  fillCard('card-points',  regPoints,  buildPointsRow, 5, 'No data');
+  fillCard('card-goals',   regGoals,   (r, i) => buildCountingRow(r, i, 'goals',   v => String(v)), 4, 'No data');
+  fillCard('card-assists', regAssists, (r, i) => buildCountingRow(r, i, 'assists', v => String(v)), 4, 'No data');
+  fillCard('card-xg',      regXg,      (r, i) => buildCountingRow(r, i, 'xg60',    v => Number(v).toFixed(2)), 4, 'No data');
+  fillCard('card-impact',  regImpact,  (r, i) => {
+    const color = r.value >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
+    return tblRow({
+      rank: i, href: `/stats/player/${r.slug}`, name: r.display_name, team: r.team_abbrev,
+      sub: `${r.team_abbrev} · ${r.pos}`,
+      cells: [
+        { text: String(r.gp ?? '—') },
+        { text: (r.value >= 0 ? '+' : '') + r.value.toFixed(2), bold: true, color },
+      ],
+    });
+  }, 4, 'No data');
+  fillCard('card-gsax',    regGsax,    (r, i) => {
+    const color = r.gsax >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
+    return tblRow({
+      rank: i, href: `/stats/goalies/${r.goalie_id}`, name: r.name, team: r.team_abbrev,
+      sub: r.team_abbrev,
+      cells: [
+        { text: r.sa.toLocaleString() },
+        { text: (r.gsax >= 0 ? '+' : '') + r.gsax.toFixed(2), bold: true, color },
+      ],
+    });
+  }, 4, 'No data');
 }
 
 function syncUi() {
@@ -761,12 +698,16 @@ function syncUi() {
 }
 
 function renderAll() {
-  renderPointsTable();
-  renderCountingCard('tbody-goals',   regGoals,   poGoals,   'goals',   'G',     v => v);
-  renderCountingCard('tbody-assists', regAssists, poAssists, 'assists', 'A',     v => v);
-  renderCountingCard('tbody-xg',      regXg,      poXg,      'xg60',   'xG/60', v => typeof v === 'number' ? v.toFixed(2) : v);
-  renderImpactTable();
-  renderGsaxTable();
+  if (gameType === 3) {
+    renderPointsTable();
+    renderCountingCard('card-goals',   regGoals,   poGoals,   'goals',   v => String(v));
+    renderCountingCard('card-assists', regAssists, poAssists, 'assists', v => String(v));
+    renderCountingCard('card-xg',      regXg,      poXg,      'xg60',    v => typeof v === 'number' ? v.toFixed(2) : String(v));
+    renderImpactTable();
+    renderGsaxTable();
+  } else {
+    restoreRegular();
+  }
   syncUi();
 }
 
@@ -781,88 +722,10 @@ document.querySelectorAll('#gametype-filter button').forEach(btn => {
   });
 });
 
-// ── PNG export per card ──────────────────────────────────────────────────────
-const POINTS_COLS = [
-  { label: '#',      key: '_rank',        width: 40,  align: 'center' },
-  { label: 'Player', key: 'display_name', width: 220, align: 'left', fontFamily: 'body', bold: true },
-  { label: 'Team',   key: 'team_abbrev',  width: 56,  align: 'center' },
-  { label: 'Pos',    key: 'pos',          width: 44,  align: 'center' },
-  { label: 'G',      key: 'goals',        width: 44,  align: 'center' },
-  { label: 'A',      key: 'assists',      width: 44,  align: 'center' },
-  { label: 'P',      key: 'points',       width: 52,  align: 'center', bold: true },
-];
-const IMPACT_COLS = [
-  { label: '#',      key: '_rank',        width: 40,  align: 'center' },
-  { label: 'Player', key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
-  { label: 'Team',   key: 'team_abbrev',  width: 56,  align: 'center' },
-  { label: 'Pos',    key: 'pos',          width: 44,  align: 'center' },
-  { label: 'GP',     key: 'gp',           width: 48,  align: 'center' },
-  { label: 'Impact', key: 'value',        width: 80,  align: 'center', bold: true,
-    format: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '—',
-    color: (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-];
-const GSAX_COLS = [
-  { label: '#',     key: '_rank',       width: 40,  align: 'center' },
-  { label: 'Goalie', key: 'name',       width: 220, align: 'left', fontFamily: 'body', bold: true },
-  { label: 'Team',  key: 'team_abbrev', width: 56,  align: 'center' },
-  { label: 'SA',    key: 'sa',          width: 60,  align: 'center' },
-  { label: 'GSAx',  key: 'gsax',        width: 72,  align: 'center', bold: true,
-    format: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '—',
-    color: (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-];
-
-const modeLabel = () => gameType === 3 ? 'Playoffs' : 'Regular Season';
-
-const COUNTING_COLS_G = [
-  { label: '#', key: '_rank', width: 40, align: 'center' },
-  { label: 'Player', key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
-  { label: 'Team', key: 'team_abbrev', width: 56, align: 'center' },
-  { label: 'Pos', key: 'pos', width: 44, align: 'center' },
-  { label: 'GP', key: 'gp', width: 48, align: 'center' },
-  { label: 'G', key: 'goals', width: 52, align: 'center', bold: true },
-];
-const COUNTING_COLS_A = [
-  { label: '#', key: '_rank', width: 40, align: 'center' },
-  { label: 'Player', key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
-  { label: 'Team', key: 'team_abbrev', width: 56, align: 'center' },
-  { label: 'Pos', key: 'pos', width: 44, align: 'center' },
-  { label: 'GP', key: 'gp', width: 48, align: 'center' },
-  { label: 'A', key: 'assists', width: 52, align: 'center', bold: true },
-];
-const COUNTING_COLS_XG = [
-  { label: '#', key: '_rank', width: 40, align: 'center' },
-  { label: 'Player', key: 'display_name', width: 240, align: 'left', fontFamily: 'body', bold: true },
-  { label: 'Team', key: 'team_abbrev', width: 56, align: 'center' },
-  { label: 'Pos', key: 'pos', width: 44, align: 'center' },
-  { label: 'GP', key: 'gp', width: 48, align: 'center' },
-  { label: 'xG/60', key: 'xg60', width: 72, align: 'center', bold: true, format: v => v != null ? v.toFixed(2) : '—' },
-];
-
-document.getElementById('png-goals')?.addEventListener('click', () => {
-  const rows = (gameType === 3 ? poGoals : regGoals).map((r, i) => ({ ...r, _rank: i + 1 }));
-  window.HGB_Export.downloadTablePng({ title: 'Goals Leaders', filterChips: [modeLabel()], rows, columns: COUNTING_COLS_G, filename: 'hgb-goals.png' });
-});
-document.getElementById('png-assists')?.addEventListener('click', () => {
-  const rows = (gameType === 3 ? poAssists : regAssists).map((r, i) => ({ ...r, _rank: i + 1 }));
-  window.HGB_Export.downloadTablePng({ title: 'Assists Leaders', filterChips: [modeLabel()], rows, columns: COUNTING_COLS_A, filename: 'hgb-assists.png' });
-});
-document.getElementById('png-xg')?.addEventListener('click', () => {
-  const rows = (gameType === 3 ? poXg : regXg).map((r, i) => ({ ...r, _rank: i + 1 }));
-  window.HGB_Export.downloadTablePng({ title: 'Expected Goals Leaders', filterChips: [modeLabel()], rows, columns: COUNTING_COLS_XG, filename: 'hgb-xg.png' });
-});
-
-document.getElementById('png-points')?.addEventListener('click', () => {
-  const rows = (gameType === 3 ? poPoints : regPoints).map((r, i) => ({ ...r, _rank: i + 1 }));
-  window.HGB_Export.downloadTablePng({ title: 'Points Leaders', filterChips: [modeLabel()], rows, columns: POINTS_COLS, filename: 'hgb-points.png' });
-});
-document.getElementById('png-impact')?.addEventListener('click', () => {
-  const rows = regImpact.map((r, i) => ({ ...r, _rank: i + 1 }));
-  window.HGB_Export.downloadTablePng({ title: 'HGB Impact Leaders', filterChips: ['Regular Season'], rows, columns: IMPACT_COLS, filename: 'hgb-impact.png' });
-});
-document.getElementById('png-gsax')?.addEventListener('click', () => {
-  const rows = (gameType === 3 ? poGsax : regGsax).map((r, i) => ({ ...r, _rank: i + 1 }));
-  window.HGB_Export.downloadTablePng({ title: 'Goalie GSAx Leaders', filterChips: [modeLabel()], rows, columns: GSAX_COLS, filename: 'hgb-gsax.png' });
-});
+// ── PNG export ───────────────────────────────────────────────────────────────
+// Wired natively by Table.astro via the exportFilename prop on each card.
+// The component reads cell text from the active rows + the closed-over schema
+// at click time so the PNG mirrors what's on screen.
 
 // ── Player search ─────────────────────────────────────────────────────────────
 const input   = document.getElementById('player-search');
