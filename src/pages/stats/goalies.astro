@@ -2,6 +2,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
 import { loadGoalies } from '../../lib/stats-loader';
 import { pickTeamColor } from '../../lib/team-colors';
 
@@ -49,6 +50,9 @@ const playoffRows = allGoalies
     };
   })
   .sort((a, b) => b.gsax - a.gsax);
+
+// Pre-sort regular rows by gsax desc (matches defaultSort below).
+tableRows.sort((a, b) => b.gsax - a.gsax);
 
 // ── Cumulative chart data ────────────────────────────────────────────────────
 
@@ -165,7 +169,47 @@ function makePlayoffPath(pts: CumPoint[]): string {
 
 const playoffLegendItems = [...playoffChartLines].sort((a, b) => b.final - a.final);
 
+// ── Column definitions for <Table> ──────────────────────────────────────────
+// Single schema serves both regular + playoff datasets. The GP column shows
+// "—" for regular rows (games: null) and a number for playoff rows. No
+// `display: none` column-hiding (per TABLES.md §8).
+
 const sgn = (v: number) => v >= 0 ? '+' : '';
+
+const fmt2Sign = (v: number | null | undefined): string =>
+  v == null ? '—' : `${sgn(v)}${v.toFixed(2)}`;
+
+const fmt2 = (v: number | null | undefined): string =>
+  v == null ? '—' : Number(v).toFixed(2);
+
+const fmt3 = (v: number | null | undefined): string =>
+  v == null ? '—' : Number(v).toFixed(3);
+
+const fmtVsExp = (v: number | null | undefined): string =>
+  v == null ? '—' : `${sgn(v)}${v.toFixed(2)}%`;
+
+const fmtCommas = (v: number | null | undefined): string =>
+  v == null ? '—' : Number(v).toLocaleString();
+
+const signColor = (v: number | null | undefined, _row: any, tok?: { pos: string; neg: string }): string | undefined => {
+  if (v == null) return undefined;
+  return v >= 0 ? tok?.pos : tok?.neg;
+};
+
+const columns = [
+  { key: '_rank', label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'name',  label: 'Goalie', type: 'player' as const, sub: (r: any) => r.team ?? '' },
+  { key: 'games', label: 'GP',     type: 'number' as const, format: (v: any) => v == null ? '—' : String(v) },
+  { key: 'sa',    label: 'SA',     type: 'number' as const, format: fmtCommas },
+  { key: 'ga',    label: 'GA',     type: 'number' as const },
+  { key: 'xga',   label: 'xGA',    type: 'number' as const, format: fmt2 },
+  { key: 'gsax',  label: 'GSAx',   type: 'number' as const, format: fmt2Sign, color: signColor, bold: true },
+  { key: 'sv_pct',label: 'SV%',    type: 'number' as const, format: fmt3 },
+  { key: 'vs_exp',label: 'vs Exp', type: 'number' as const, format: fmtVsExp, color: signColor },
+];
+
+// Decorate rows with rank for SSR (Table will re-sort if user clicks header).
+const initialRows = tableRows.map((r, i) => ({ ...r, _rank: i + 1 }));
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -259,83 +303,12 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
 
     /* ── Table section ── */
     .lb-section { padding: 40px 0 0; }
-    .lb-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; }
-    colgroup .c-rank  { width: 44px; }
-    colgroup .c-stat  { width: 80px; }
-    colgroup .c-wide  { width: 100px; }
 
     .btn-group { display: inline-flex; border: 1px solid var(--ink-14); }
     .btn-group button { background: var(--surface); border: none; border-right: 1px solid var(--ink-14); padding: 6px 14px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48); transition: background 0.1s, color 0.1s; }
     .btn-group button:last-child { border-right: none; }
     .btn-group button.active { background: var(--ink); color: var(--bg); }
     .btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
-
-    /* ── Column header tooltips ── */
-    thead th[data-tip] { position: relative; }
-    thead th[data-tip]::after {
-      content: attr(data-tip);
-      position: absolute;
-      bottom: calc(100% + 6px);
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--ink);
-      color: var(--bg);
-      padding: 6px 10px;
-      font-family: var(--body);
-      font-size: 11px;
-      font-weight: 400;
-      letter-spacing: 0.02em;
-      text-transform: none;
-      white-space: normal;
-      width: max-content;
-      max-width: 210px;
-      border-radius: 2px;
-      line-height: 1.5;
-      text-align: left;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.15s;
-      z-index: 50;
-    }
-    thead th[data-tip]:hover::after { opacity: 1; }
-
-    thead th {
-      padding: 10px 12px 8px; font-family: var(--display); font-size: 12px; font-weight: 700;
-      letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48);
-      border-bottom: 2px solid var(--ink-14); text-align: center;
-      cursor: pointer; user-select: none; white-space: nowrap; transition: color 0.1s;
-    }
-    thead th:first-child { text-align: left; padding-left: 16px; cursor: default; }
-    thead th.th-player  { text-align: left; cursor: default; }
-    thead th:hover { color: var(--ink); }
-    thead th.sorted { color: var(--ink); }
-    .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.4; font-size: 8px; transition: opacity 0.1s; }
-    thead th.sorted .sort-arrow { opacity: 1; color: var(--red); }
-
-    tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.08s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: var(--ink-04); }
-    td { padding: 8px 12px; vertical-align: middle; }
-    td:first-child { padding-left: 16px; }
-
-    .td-rk { font-family: var(--mono); font-size: 11px; color: var(--ink-32);
-      text-align: left; font-variant-numeric: tabular-nums; }
-    tbody tr:nth-child(-n+3) .td-rk { color: var(--red); font-weight: 700; }
-
-    .td-player { display: flex; align-items: center; gap: 10px; min-width: 160px; }
-    .td-logo   { width: 22px; height: 22px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
-    .td-info   { display: flex; flex-direction: column; gap: 1px; }
-    .td-name   { font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; }
-    .td-sub    { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
-
-    .td-num { font-family: var(--mono); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
-    .sv { font-weight: 700; }
-    .sv.pos { color: var(--stats-pos); }
-    .sv.neg { color: var(--stats-neg); }
-
-    .dl-btn { background: none; border: 1px solid var(--ink-20); padding: 5px 12px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; border-radius: 2px; white-space: nowrap; }
-    .dl-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 
     /* ── Method strip ── */
     .lb-method { padding: 28px 0 0; }
@@ -537,38 +510,20 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <div class="section-meta" id="lb-meta">{tableRows.length} goalies · click any column to sort</div>
-        <button class="dl-btn" id="dl-btn">↓ PNG</button>
       </div>
     </div>
-    <div class="lb-wrap">
-      <table id="goalie-table">
-        <colgroup>
-          <col class="c-rank">
-          <col style="min-width:160px">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-stat">
-          <col class="c-wide">
-          <col class="c-stat">
-          <col class="c-stat">
-        </colgroup>
-        <thead>
-          <tr>
-            <th class="th-player">#</th>
-            <th class="th-player">Goalie</th>
-            <th data-sort="games" id="th-games" style="display:none" data-tip="Games played in the playoffs">GP<span class="sort-arrow">↕</span></th>
-            <th data-sort="sa" data-tip="Shots Against">SA<span class="sort-arrow">↕</span></th>
-            <th data-sort="ga" data-tip="Goals Against">GA<span class="sort-arrow">↕</span></th>
-            <th data-sort="xga" data-tip="Expected Goals Against — HGB XGBoost model (AUC 0.77), all-situations Fenwick shots">xGA<span class="sort-arrow">↕</span></th>
-            <th data-sort="gsax" class="sorted" data-tip="Goals Saved Above Expected — xGA minus actual GA. Positive = saved more goals than expected given shot quality.">GSAx<span class="sort-arrow">↓</span></th>
-            <th data-sort="sv_pct" data-tip="Save Percentage — actual saves ÷ shots against">SV%<span class="sort-arrow">↕</span></th>
-            <th data-sort="vs_exp" data-tip="Actual SV% minus expected SV% (1 − xGA/SA), in percentage points. Positive = outperforming the shot quality faced.">vs Exp<span class="sort-arrow">↕</span></th>
-          </tr>
-        </thead>
-        <tbody id="goalie-tbody">
-        </tbody>
-      </table>
-    </div>
+
+    <Table
+      columns={columns}
+      rows={initialRows}
+      rowHref={(r) => `/stats/goalies/${r.goalie_id}`}
+      defaultSort={{ column: 'gsax', direction: 'desc' }}
+      scrollable
+      maxHeight={760}
+      exportFilename="hgb-goalies.png"
+      exportTitle="Goalie GSAx"
+      ariaLabel="NHL goalie GSAx leaderboard"
+    />
 
     <!-- Methodology strip -->
     <div class="lb-method">
@@ -593,195 +548,164 @@ const sgn = (v: number) => v >= 0 ? '+' : '';
 
 <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · GOALIES GSAx</footer>
 
+<!-- Client-side dataset payloads — JS swaps tbody on game-type toggle -->
+<script type="application/json" id="goalies-data" set:html={JSON.stringify({ regular: tableRows, playoffs: playoffRows })}></script>
+
 <script is:inline src="/js/table-export.js"></script>
-<script define:vars={{ tableRows, playoffRows }}>
-  const sgn  = v => v >= 0 ? '+' : '';
-  const fmt2 = v => v != null ? `${sgn(v)}${v.toFixed(2)}` : '—';
 
-  let gameType = 2; // 2=regular, 3=playoffs
-  let sortKey  = 'gsax';
-  let sortAsc  = false;
+<script>
+  // ── Game-type toggle: swap tbody contents in place, dispatch tbl:rows-changed
+  // Mirrors the pattern used in /stats/teams (TABLES.md §7).
+  (function() {
+    'use strict';
 
-  function readUrl() {
-    const p = new URLSearchParams(window.location.search);
-    if (p.get('game_type') === '3' || p.get('season') === 'playoff') gameType = 3;
-  }
+    interface GoalieRow {
+      goalie_id: number;
+      name: string;
+      team: string;
+      sa: number;
+      ga: number;
+      xga: number;
+      gsax: number;
+      sv_pct: number | null;
+      vs_exp: number | null;
+      games: number | null;
+    }
+    interface Payload { regular: GoalieRow[]; playoffs: GoalieRow[]; }
 
-  function updateUrl() {
-    const p = new URLSearchParams();
-    if (gameType === 3) p.set('game_type', '3');
-    const qs = p.toString();
-    history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
-  }
+    const wrap = document.querySelector<HTMLElement>('.tbl-wrap[data-tbl-id]');
+    if (!wrap) return;
+    const tbody = wrap.querySelector<HTMLTableSectionElement>('tbody');
+    if (!tbody) return;
 
-  function activeRows() { return gameType === 3 ? playoffRows : tableRows; }
-
-  function renderTable() {
-    const rows = [...activeRows()].sort((a, b) => {
-      const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-      const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-      return sortAsc ? av - bv : bv - av;
-    });
-
-    const isPlayoff = gameType === 3;
-    const thGames = document.getElementById('th-games');
-    if (thGames) thGames.style.display = isPlayoff ? '' : 'none';
-
-    document.getElementById('lb-meta').textContent =
-      `${rows.length} goalies · click any column to sort`;
-
-    const tbody = document.getElementById('goalie-tbody');
-    if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:60px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">No playoff data yet — check back during the postseason</td></tr>`;
+    const dataEl = document.getElementById('goalies-data') as HTMLScriptElement | null;
+    if (!dataEl) return;
+    let payload: Payload;
+    try {
+      payload = JSON.parse(dataEl.textContent || '{}');
+    } catch (e) {
+      console.error('[goalies] failed to parse payload', e);
       return;
     }
 
-    tbody.innerHTML = rows.map((r, i) => {
-      const gsaxCls = r.gsax >= 0 ? 'pos' : 'neg';
-      const veCls   = r.vs_exp != null ? (r.vs_exp >= 0 ? 'pos' : 'neg') : '';
-      const gpCell  = isPlayoff ? `<td class="td-num">${r.games ?? '—'}</td>` : '';
-      return `<tr>
-        <td class="td-rk">${i + 1}</td>
-        <td>
-          <div class="td-player">
-            <img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg" alt="${r.team}" onerror="this.style.display='none'">
-            <div class="td-info">
-              <a class="td-name" href="/stats/goalies/${r.goalie_id}" style="text-decoration:none;color:inherit"
-                onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='inherit'">${r.name}</a>
-              <span class="td-sub">${r.team}</span>
-            </div>
-          </div>
-        </td>
-        ${gpCell}
-        <td class="td-num">${r.sa.toLocaleString()}</td>
-        <td class="td-num">${r.ga}</td>
-        <td class="td-num">${r.xga.toFixed(2)}</td>
-        <td class="td-num"><span class="sv ${gsaxCls}">${fmt2(r.gsax)}</span></td>
-        <td class="td-num">${r.sv_pct != null ? r.sv_pct.toFixed(3) : '—'}</td>
-        <td class="td-num">${r.vs_exp != null ? `<span class="sv ${veCls}">${fmt2(r.vs_exp)}%</span>` : '—'}</td>
-      </tr>`;
-    }).join('');
-  }
+    const params = new URLSearchParams(window.location.search);
+    let gameType: 'regular' | 'playoffs' =
+      (params.get('game_type') === '3' || params.get('season') === 'playoff') ? 'playoffs' : 'regular';
 
-  function updateHeaders() {
-    document.querySelectorAll('#goalie-table thead th[data-sort]').forEach(th => {
-      const key = th.dataset.sort;
-      const arrow = th.querySelector('.sort-arrow');
-      th.classList.toggle('sorted', key === sortKey);
-      if (arrow) arrow.textContent = key === sortKey ? (sortAsc ? '↑' : '↓') : '↕';
-    });
-  }
-
-  function syncToggle() {
-    document.querySelectorAll('#gametype-filter button').forEach(btn => {
-      btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameType);
-    });
-    const mastStat = document.getElementById('mast-stat');
-    if (mastStat) {
-      mastStat.textContent = gameType === 3
-        ? `${playoffRows.length} qualifying goalies · min 100 SA · 2025–26 playoffs`
-        : `${tableRows.length} qualifying goalies · min 500 SA · 2025–26 regular season`;
+    function writeUrl(): void {
+      const p = new URLSearchParams();
+      if (gameType === 'playoffs') p.set('game_type', '3');
+      const qs = p.toString();
+      history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
     }
-  }
 
-  function syncChart() {
-    const regWrap  = document.getElementById('chart-wrap-reg');
-    const poWrap   = document.getElementById('chart-wrap-playoff');
-    const chartMeta = document.getElementById('chart-meta');
-    if (regWrap)  regWrap.style.display  = gameType === 3 ? 'none' : '';
-    if (poWrap)   poWrap.style.display   = gameType === 3 ? '' : 'none';
-    if (chartMeta) chartMeta.textContent = gameType === 3
-      ? 'Top 12 goalies by |playoff GSAx| · postseason running total'
-      : 'Top 12 goalies by |GSAx| · season running total';
-  }
+    const sgn = (v: number) => v >= 0 ? '+' : '';
+    function esc(s: string): string {
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'} as Record<string, string>)[c]);
+    }
 
-  // Wire toggle
-  document.querySelectorAll('#gametype-filter button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const gt = parseInt(btn.dataset.gametype);
-      if (gt === gameType) return;
-      gameType = gt;
-      sortKey = 'gsax'; sortAsc = false;
-      syncToggle();
-      syncChart();
-      updateUrl();
-      updateHeaders();
+    // Build a <tr> HTML string matching Table.astro's output shape.
+    function rowHtml(r: GoalieRow, rank: number): string {
+      const href = `/stats/goalies/${r.goalie_id}`;
+      const teamAbbr = esc(r.team || '');
+      const nameEsc = esc(r.name);
+      const gsaxColor = r.gsax >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
+      const veColor = r.vs_exp == null ? '' : (r.vs_exp >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)');
+
+      const cells: string[] = [];
+      // Rank
+      cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
+      // Player lockup
+      cells.push(
+        `<td class="tbl-td td-player align-left">` +
+        `<div class="td-player-inner">` +
+        (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
+        `<div class="td-player-meta">` +
+        `<span class="td-name">${nameEsc}</span>` +
+        (teamAbbr ? `<span class="td-sub">${teamAbbr}</span>` : '') +
+        `</div></div></td>`
+      );
+      // GP
+      cells.push(`<td class="tbl-td align-center type-number">${r.games == null ? '—' : String(r.games)}</td>`);
+      // SA
+      cells.push(`<td class="tbl-td align-center type-number">${r.sa == null ? '—' : Number(r.sa).toLocaleString()}</td>`);
+      // GA
+      cells.push(`<td class="tbl-td align-center type-number">${r.ga == null ? '—' : String(r.ga)}</td>`);
+      // xGA
+      cells.push(`<td class="tbl-td align-center type-number">${r.xga == null ? '—' : Number(r.xga).toFixed(2)}</td>`);
+      // GSAx (bold + color)
+      cells.push(`<td class="tbl-td align-center type-number bold" style="color:${gsaxColor}">${r.gsax == null ? '—' : sgn(r.gsax) + Number(r.gsax).toFixed(2)}</td>`);
+      // SV%
+      cells.push(`<td class="tbl-td align-center type-number">${r.sv_pct == null ? '—' : Number(r.sv_pct).toFixed(3)}</td>`);
+      // vs Exp (color)
+      const veStyle = veColor ? ` style="color:${veColor}"` : '';
+      cells.push(`<td class="tbl-td align-center type-number"${veStyle}>${r.vs_exp == null ? '—' : sgn(r.vs_exp) + Number(r.vs_exp).toFixed(2) + '%'}</td>`);
+
+      return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">${cells.join('')}</tr>`;
+    }
+
+    function activeRows(): GoalieRow[] {
+      const rows = gameType === 'playoffs' ? payload.playoffs : payload.regular;
+      return rows.slice().sort((a, b) => (b.gsax ?? 0) - (a.gsax ?? 0));
+    }
+
+    function renderTable(): void {
+      const rows = activeRows();
+      if (rows.length === 0) {
+        tbody!.innerHTML = `<tr class="tbl-empty"><td colspan="9">No playoff data yet — check back during the postseason</td></tr>`;
+      } else {
+        tbody!.innerHTML = rows.map((r, i) => rowHtml(r, i + 1)).join('');
+      }
+      const meta = document.getElementById('lb-meta');
+      if (meta) meta.textContent = `${rows.length} goalies · click any column to sort`;
+      wrap!.dispatchEvent(new CustomEvent('tbl:rows-changed'));
+    }
+
+    function syncToggle(): void {
+      document.querySelectorAll<HTMLButtonElement>('#gametype-filter button').forEach(btn => {
+        const isPlayoff = btn.dataset.gametype === '3';
+        const want = gameType === 'playoffs';
+        btn.classList.toggle('active', isPlayoff === want);
+      });
+      const mastStat = document.getElementById('mast-stat');
+      if (mastStat) {
+        mastStat.textContent = gameType === 'playoffs'
+          ? `${payload.playoffs.length} qualifying goalies · min 100 SA · 2025–26 playoffs`
+          : `${payload.regular.length} qualifying goalies · min 500 SA · 2025–26 regular season`;
+      }
+    }
+
+    function syncChart(): void {
+      const regWrap = document.getElementById('chart-wrap-reg');
+      const poWrap  = document.getElementById('chart-wrap-playoff');
+      const chartMeta = document.getElementById('chart-meta');
+      if (regWrap)  regWrap.style.display  = gameType === 'playoffs' ? 'none' : '';
+      if (poWrap)   poWrap.style.display   = gameType === 'playoffs' ? '' : 'none';
+      if (chartMeta) chartMeta.textContent = gameType === 'playoffs'
+        ? 'Top 12 goalies by |playoff GSAx| · postseason running total'
+        : 'Top 12 goalies by |GSAx| · season running total';
+    }
+
+    document.querySelectorAll<HTMLButtonElement>('#gametype-filter button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const gt = btn.dataset.gametype === '3' ? 'playoffs' : 'regular';
+        if (gt === gameType) return;
+        gameType = gt;
+        syncToggle();
+        syncChart();
+        writeUrl();
+        renderTable();
+      });
+    });
+
+    // Initial: if URL says playoffs, re-render. Otherwise, SSR is already
+    // the regular dataset — just sync the UI.
+    syncToggle();
+    syncChart();
+    if (gameType === 'playoffs') {
       renderTable();
-    });
-  });
-
-  document.querySelectorAll('#goalie-table thead th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      if (sortKey === key) { sortAsc = !sortAsc; }
-      else { sortKey = key; sortAsc = false; }
-      updateHeaders();
-      renderTable();
-    });
-  });
-
-  readUrl();
-  syncToggle();
-  syncChart();
-  renderTable();
-  updateHeaders();
-
-  // ── PNG Export ───────────────────────────────────────────────────────────────
-  const sgn2 = v => v >= 0 ? '+' : '';
-
-  const EXPORT_COLS_REG = [
-    { label: '#',      key: '_rank',   width: 44,  align: 'center' },
-    { label: 'Goalie', key: 'name',    width: 280, align: 'left', fontFamily: 'body' },
-    { label: 'SA',     key: 'sa',      width: 86,  align: 'center' },
-    { label: 'GA',     key: 'ga',      width: 72,  align: 'center' },
-    { label: 'xGA',    key: 'xga',     width: 86,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'GSAx',   key: 'gsax',    width: 90,  align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null,
-      bold: true },
-    { label: 'SV%',    key: 'sv_pct',  width: 86,  align: 'center',
-      format: v => v != null ? v.toFixed(3) : '—' },
-    { label: 'vs Exp', key: 'vs_exp',  width: 100, align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(2) + '%' : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-  ];
-
-  const EXPORT_COLS_PO = [
-    { label: '#',      key: '_rank',   width: 44,  align: 'center' },
-    { label: 'Goalie', key: 'name',    width: 260, align: 'left', fontFamily: 'body' },
-    { label: 'GP',     key: 'games',   width: 60,  align: 'center' },
-    { label: 'SA',     key: 'sa',      width: 78,  align: 'center' },
-    { label: 'GA',     key: 'ga',      width: 64,  align: 'center' },
-    { label: 'xGA',    key: 'xga',     width: 80,  align: 'center',
-      format: v => v != null ? v.toFixed(2) : '—' },
-    { label: 'GSAx',   key: 'gsax',    width: 86,  align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(2) : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null,
-      bold: true },
-    { label: 'SV%',    key: 'sv_pct',  width: 80,  align: 'center',
-      format: v => v != null ? v.toFixed(3) : '—' },
-    { label: 'vs Exp', key: 'vs_exp',  width: 96,  align: 'center',
-      format: v => v != null ? sgn2(v) + v.toFixed(2) + '%' : '—',
-      color:  (v, _r, tok) => v != null ? (v >= 0 ? tok.pos : tok.neg) : null },
-  ];
-
-  document.getElementById('dl-btn').addEventListener('click', function () {
-    const active = [...(gameType === 3 ? playoffRows : tableRows)];
-    active.sort((a, b) => {
-      const av = a[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-      const bv = b[sortKey] ?? (sortAsc ? Infinity : -Infinity);
-      return sortAsc ? av - bv : bv - av;
-    });
-    const rows = active.map((r, i) => Object.assign({ _rank: i + 1 }, r));
-    window.HGB_Export.downloadTablePng({
-      title: 'Goalie GSAx',
-      filterChips: [gameType === 3 ? 'Playoffs' : 'Regular Season'],
-      rows,
-      columns: gameType === 3 ? EXPORT_COLS_PO : EXPORT_COLS_REG,
-      filename: 'hgb-goalies.png',
-    });
-  });
+    }
+  })();
 </script>
 
 <script>
