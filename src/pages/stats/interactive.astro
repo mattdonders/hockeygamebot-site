@@ -4,6 +4,21 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
+
+// Empty SSR rows — client fetch fills via tbl:rows-changed.
+const columns = [
+  { key: '_rank',        label: '#',           type: 'rank' as const, sortable: false },
+  { key: 'display_name', label: 'Player',      type: 'player' as const, sub: (r: any) => `${r.team_abbrev ?? ''} · ${r.pos ?? ''}` },
+  { key: 'pos',          label: 'Pos',         type: 'position' as const, sortable: true },
+  { key: 'gp',           label: 'GP',          type: 'number' as const },
+  { key: 'ev_offence',   label: 'EV Off %',    type: 'number' as const },
+  { key: 'ev_defence',   label: 'EV Def %',    type: 'number' as const },
+  { key: 'finishing',    label: 'Finishing %', type: 'number' as const },
+  { key: 'goals_60',     label: 'Goals/60',    type: 'number' as const },
+  { key: 'a1_60',        label: '1st A/60',    type: 'number' as const },
+  { key: 'game_score',   label: 'Impact %',    type: 'number' as const, bold: true },
+];
 ---
 <!doctype html>
 <html lang="en">
@@ -185,47 +200,9 @@ img { display: block; max-width: 100%; }
 }
 #search-input::placeholder { color: var(--ink-32); }
 
-/* ── TABLE ───────────────────────────────────────────────── */
-.tbl-wrap {
-  background: var(--surface); border: 1px solid var(--ink-14);
-  overflow-x: auto; overflow-y: auto; max-height: 640px;
-}
-table {
-  width: 100%; border-collapse: collapse;
-  font-family: var(--body); font-size: 13px;
-}
-thead { position: sticky; top: 0; z-index: 20; background: var(--surface); box-shadow: 0 2px 0 var(--ink); }
-thead tr { border-bottom: 2px solid var(--ink); }
-th {
-  padding: 9px 12px; text-align: right;
-  font-family: var(--display); font-weight: 700;
-  font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
-  color: var(--ink-48); white-space: nowrap;
-  cursor: pointer; user-select: none;
-  transition: color 0.1s;
-}
-th:first-child, th:nth-child(2), th:nth-child(3) { text-align: left; }
-th:hover { color: var(--ink); }
-th.sorted { color: var(--ink); }
-th .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.4; font-size: 9px; }
-th.sorted .sort-arrow { opacity: 1; color: var(--red); }
-
-tbody tr {
-  border-bottom: 1px solid var(--ink-06);
-  transition: background 0.1s;
-}
-tbody tr:last-child { border-bottom: none; }
-tbody tr:hover { background: var(--ink-04); }
-td {
-  padding: 8px 12px; text-align: right;
-  font-family: var(--mono); font-size: 12px; color: var(--ink);
-  white-space: nowrap;
-}
-td:first-child { text-align: left; font-family: var(--body); font-weight: 600; font-size: 13px; color: var(--ink); }
-td:nth-child(2) { text-align: left; font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
-td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
-
-/* Percentile cells */
+/* Percentile cell — small inline pill rendered inside number cells.
+   Color/threshold helpers retained here because the percentile pill is a
+   page-specific affordance (not part of Table.astro's universal styling). */
 .pct-cell {
   display: inline-block; padding: 2px 6px; min-width: 36px;
   font-family: var(--mono); font-size: 11.5px; font-weight: 600;
@@ -237,10 +214,11 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
 .pct-20  { background: #fb923c; color: #3b1200; }
 .pct-low { background: #f87171; color: #2d0808; }
 
-/* Show-all row */
+/* Show-all row sits below the table wrap */
 .tbl-more {
   border-top: 1px solid var(--ink-14);
   padding: 12px; text-align: center;
+  background: var(--surface);
 }
 .tbl-more button {
   background: none; border: 1px solid var(--ink-20);
@@ -366,28 +344,18 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
         </div>
       </div>
 
-      <div class="tbl-wrap">
-        <table id="lb-table">
-          <thead>
-            <tr>
-              <th data-col="display_name">Player <span class="sort-arrow"></span></th>
-              <th data-col="team_abbrev">Team <span class="sort-arrow"></span></th>
-              <th data-col="pos">Pos <span class="sort-arrow"></span></th>
-              <th data-col="gp">GP <span class="sort-arrow"></span></th>
-              <th data-col="ev_offence">EV Off % <span class="sort-arrow"></span></th>
-              <th data-col="ev_defence">EV Def % <span class="sort-arrow"></span></th>
-              <th data-col="finishing">Finishing % <span class="sort-arrow"></span></th>
-              <th data-col="goals_60">Goals/60 <span class="sort-arrow"></span></th>
-              <th data-col="a1_60">1st A/60 <span class="sort-arrow"></span></th>
-              <th data-col="game_score">Impact % <span class="sort-arrow"></span></th>
-            </tr>
-          </thead>
-          <tbody id="lb-tbody"></tbody>
-        </table>
-        <div class="tbl-more" id="tbl-more-row" style="display:none">
-          <button id="tbl-show-all-btn">Show All Players</button>
-          <div class="tbl-count" id="tbl-count-label"></div>
-        </div>
+      <Table
+        columns={columns}
+        rows={[]}
+        defaultSort={{ column: 'game_score', direction: 'desc' }}
+        scrollable
+        maxHeight={640}
+        isLoading
+        ariaLabel="Interactive analytics leaderboard"
+      />
+      <div class="tbl-more" id="tbl-more-row" style="display:none">
+        <button id="tbl-show-all-btn">Show All Players</button>
+        <div class="tbl-count" id="tbl-count-label"></div>
       </div>
     </div>
 
@@ -521,46 +489,61 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
   }
 
   // ── TABLE RENDER ───────────────────────────────────────────────────────────
+  function rowHtml(p, rank) {
+    const evOff = p.percentiles_vs_pos?.ev_offence ?? null;
+    const evDef = p.percentiles_vs_pos?.ev_defence ?? null;
+    const fin   = p.percentiles_vs_pos?.finishing ?? null;
+    const goals60 = p.rates_per_60?.goals ?? null;
+    const a160   = p.rates_per_60?.a1 ?? null;
+    const gs     = p.percentiles_vs_pos?.game_score ?? p.gs_pct ?? null;
+    const teamAbbr = escHtml(p.team_abbrev ?? '');
+    const nameEsc = escHtml(p.display_name ?? '');
+    const subText = `${p.team_abbrev ?? ''} · ${p.pos ?? ''}`;
+
+    const cells = [];
+    cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
+    cells.push(
+      `<td class="tbl-td td-player align-left">` +
+      `<div class="td-player-inner">` +
+      (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
+      `<div class="td-player-meta">` +
+      `<span class="td-name">${nameEsc}</span>` +
+      `<span class="td-sub">${escHtml(subText)}</span>` +
+      `</div></div></td>`
+    );
+    cells.push(`<td class="tbl-td align-center"><span class="pos-badge">${escHtml(p.pos ?? '')}</span></td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${p.gp ?? '—'}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${pctCell(evOff)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${pctCell(evDef)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${pctCell(fin)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${goals60 != null ? goals60.toFixed(2) : '—'}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${a160 != null ? a160.toFixed(2) : '—'}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number bold">${pctCell(gs)}</td>`);
+
+    const href = p.slug ? `/stats/player/${p.slug}` : '';
+    const trAttrs = href ? `class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link"` : 'class="tbl-tr"';
+    return `<tr ${trAttrs}>${cells.join('')}</tr>`;
+  }
+
   function renderTable() {
     const filtered = applyFilters(allPlayers, tblPosFilter, searchQuery);
     const sorted = sortPlayers(filtered, sortCol, sortAsc);
     const shown = showAll ? sorted : sorted.slice(0, TOP_N);
 
-    const tbody = document.getElementById('lb-tbody');
-    const fragment = document.createDocumentFragment();
+    const wrap = document.querySelector('.tbl-wrap[data-tbl-id]');
+    const tbody = wrap ? wrap.querySelector('tbody') : null;
+    if (!tbody || !wrap) return;
 
-    shown.forEach(p => {
-      const evOff = p.percentiles_vs_pos?.ev_offence ?? null;
-      const evDef = p.percentiles_vs_pos?.ev_defence ?? null;
-      const fin   = p.percentiles_vs_pos?.finishing ?? null;
-      const goals60 = p.rates_per_60?.goals ?? null;
-      const a160   = p.rates_per_60?.a1 ?? null;
-      const gs     = p.percentiles_vs_pos?.game_score ?? p.gs_pct ?? null;
+    if (shown.length === 0) {
+      tbody.innerHTML = `<tr class="tbl-empty"><td colspan="10">No players match current filters</td></tr>`;
+    } else {
+      tbody.innerHTML = shown.map((p, i) => rowHtml(p, i + 1)).join('');
+    }
+    wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
 
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${escHtml(p.display_name ?? '')}</td>
-        <td>${escHtml(p.team_abbrev ?? '')}</td>
-        <td>${escHtml(p.pos ?? '')}</td>
-        <td>${p.gp ?? '—'}</td>
-        <td>${pctCell(evOff)}</td>
-        <td>${pctCell(evDef)}</td>
-        <td>${pctCell(fin)}</td>
-        <td>${goals60 != null ? goals60.toFixed(2) : '—'}</td>
-        <td>${a160 != null ? a160.toFixed(2) : '—'}</td>
-        <td>${pctCell(gs)}</td>
-      `;
-      fragment.appendChild(tr);
-    });
-
-    tbody.innerHTML = '';
-    tbody.appendChild(fragment);
-
-    // Meta label
     document.getElementById('tbl-meta').textContent =
       `${shown.length} of ${filtered.length} players`;
 
-    // Show-all toggle
     const moreRow = document.getElementById('tbl-more-row');
     const countLabel = document.getElementById('tbl-count-label');
     if (!showAll && filtered.length > TOP_N) {
@@ -569,19 +552,6 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
     } else {
       moreRow.style.display = 'none';
     }
-
-    // Update column sort arrows
-    document.querySelectorAll('#lb-table th').forEach(th => {
-      const col = th.dataset.col;
-      const arrow = th.querySelector('.sort-arrow');
-      if (col === sortCol) {
-        th.classList.add('sorted');
-        arrow.textContent = sortAsc ? ' ↑' : ' ↓';
-      } else {
-        th.classList.remove('sorted');
-        arrow.textContent = '';
-      }
-    });
   }
 
   function pctCell(v) {
@@ -722,20 +692,8 @@ td:nth-child(3) { text-align: left; font-family: var(--mono); font-size: 11px; c
 
   // ── EVENT WIRING ───────────────────────────────────────────────────────────
   function wireEvents() {
-    // Table column sort
-    document.querySelectorAll('#lb-table th[data-col]').forEach(th => {
-      th.addEventListener('click', () => {
-        const col = th.dataset.col;
-        if (sortCol === col) {
-          sortAsc = !sortAsc;
-        } else {
-          sortCol = col;
-          sortAsc = col === 'display_name' || col === 'team_abbrev' || col === 'pos';
-        }
-        showAll = false;
-        renderTable();
-      });
-    });
+    // Column sort is delegated to Table.astro now — clicks on headers fire
+    // the component's built-in 3-state cycle (desc → asc → unsorted).
 
     // Table pos filter
     document.querySelectorAll('#tbl-pos-filter button').forEach(btn => {
