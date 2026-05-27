@@ -5,6 +5,22 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
+
+// SSR column schema. Rows are fetched client-side, so initial rows are empty.
+const columns = [
+  { key: '_rank',    label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'players',  label: 'Line',   type: 'label' as const },
+  { key: 'type',     label: 'Type',   type: 'position' as const },
+  { key: 'team',     label: 'Team',   type: 'team' as const },
+  { key: 'toi_min',  label: 'Minutes',type: 'number' as const },
+  { key: 'min_per_g',label: 'Min/G',  type: 'number' as const },
+  { key: 'xgf_pct',  label: 'xG%',    type: 'number' as const, bold: true },
+  { key: 'xgf',      label: 'xGF',    type: 'number' as const },
+  { key: 'xga',      label: 'xGA',    type: 'number' as const },
+  { key: 'xgf_60',   label: 'xGF/60', type: 'number' as const },
+  { key: 'xga_60',   label: 'xGA/60', type: 'number' as const },
+];
 ---
 <!doctype html>
 <html lang="en">
@@ -98,36 +114,6 @@ select {
 #team-add-select:disabled { opacity: 0.35; }
 .slider-wrap input[type=range] { width: 120px; accent-color: var(--red); }
 
-.tbl-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; overflow-y: auto; max-height: 700px; }
-table { width: 100%; border-collapse: collapse; font-family: var(--body); font-size: 13px; }
-thead { position: sticky; top: 0; z-index: 20; background: var(--surface); box-shadow: 0 2px 0 var(--ink); }
-thead tr { border-bottom: 2px solid var(--ink); }
-th { padding: 9px 12px; text-align: center; font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48); white-space: nowrap; cursor: pointer; user-select: none; transition: color 0.1s; }
-th:nth-child(2), th:nth-child(4) { text-align: left; }
-th:first-child { text-align: center; }
-th:hover { color: var(--ink); }
-th.sorted { color: var(--ink); }
-th .sort-arrow { display: inline-block; margin-left: 4px; opacity: 0.4; font-size: 9px; }
-th.sorted .sort-arrow { opacity: 1; color: var(--red); }
-tbody tr { border-bottom: 1px solid var(--ink-06); transition: background 0.1s; cursor: pointer; }
-tbody tr:last-child { border-bottom: none; }
-tbody tr:hover { background: var(--ink-04); }
-tbody tr:hover .line-link { color: var(--red); }
-.line-link { color: inherit; text-decoration: none; display: block; }
-td { padding: 8px 12px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink); white-space: nowrap; }
-td:first-child { font-family: var(--mono); font-size: 11px; color: var(--ink-48); width: 40px; }
-td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; font-size: 13px; }
-
-.type-pill { display: inline-block; padding: 1px 6px; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.1em; }
-.type-f { background: rgba(74,222,128,0.18); color: #166534; }
-.type-d { background: rgba(96,165,250,0.18); color: #1e3a5f; }
-
-.xgf-hi  { color: var(--stats-pos); font-weight: 700; }
-.xgf-mid { color: var(--ink); }
-.xgf-lo  { color: var(--stats-neg); font-weight: 700; }
-
-.dl-btn { background: none; border: 1px solid var(--ink-20); padding: 5px 12px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; border-radius: 2px; white-space: nowrap; }
-.dl-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .tbl-more { border-top: 1px solid var(--ink-14); padding: 12px; text-align: center; }
 .tbl-more button { background: none; border: 1px solid var(--ink-20); padding: 6px 20px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; }
 .tbl-more button:hover { border-color: var(--ink); color: var(--ink); }
@@ -142,7 +128,6 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
   .mast-inner { padding: 32px 20px 28px; }
   .wrap { padding: 0 20px 60px; }
   .mast-ghost { font-size: 120px; }
-  th, td { padding: 7px 8px; }
 }
 </style>
 </head>
@@ -180,7 +165,6 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
         <h2>Lines &amp; Pairs</h2>
         <div style="display:flex;align-items:center;gap:12px">
           <span class="section-meta" id="tbl-meta"></span>
-          <button class="dl-btn" id="dl-btn">↓ PNG</button>
         </div>
       </div>
       <p class="section-lede">
@@ -214,29 +198,20 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
         </div>
       </div>
 
-      <div class="tbl-wrap">
-        <table id="lines-table">
-          <thead>
-            <tr>
-              <th data-col="rank"># <span class="sort-arrow"></span></th>
-              <th data-col="players">Line <span class="sort-arrow"></span></th>
-              <th data-col="type">Type <span class="sort-arrow"></span></th>
-              <th data-col="team">Team <span class="sort-arrow"></span></th>
-              <th data-col="toi_min">Minutes <span class="sort-arrow"></span></th>
-              <th data-col="min_per_g">Min/G <span class="sort-arrow"></span></th>
-              <th data-col="xgf_pct">xG% <span class="sort-arrow"></span></th>
-              <th data-col="xgf">xGF <span class="sort-arrow"></span></th>
-              <th data-col="xga">xGA <span class="sort-arrow"></span></th>
-              <th data-col="xgf_60">xGF/60 <span class="sort-arrow"></span></th>
-              <th data-col="xga_60">xGA/60 <span class="sort-arrow"></span></th>
-            </tr>
-          </thead>
-          <tbody id="lines-tbody"></tbody>
-        </table>
-        <div class="tbl-more" id="tbl-more-row" style="display:none">
-          <button id="tbl-show-all-btn">Show All</button>
-          <div class="tbl-count" id="tbl-count-label"></div>
-        </div>
+      <Table
+        columns={columns}
+        rows={[]}
+        defaultSort={{ column: 'xgf_pct', direction: 'desc' }}
+        scrollable
+        maxHeight={700}
+        loadingMessage="Loading line data..."
+        exportFilename="hgb-lines.png"
+        exportTitle="Lines & Pairs"
+        ariaLabel="NHL line combinations leaderboard"
+      />
+      <div class="tbl-more" id="tbl-more-row" style="display:none">
+        <button id="tbl-show-all-btn">Show All</button>
+        <div class="tbl-count" id="tbl-count-label"></div>
       </div>
     </div>
   </div>
@@ -259,18 +234,14 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
   const TOP_N = 100;
 
   let allLines = [];
-  let gameTypeFilter = 2; // 2=regular season, 3=playoffs
+  let gameTypeFilter = 2;
   let typeFilter    = 'all';
   let seasonFilter  = 'all';
   const MAX_TEAMS = 3;
-  let selectedTeams = []; // [] = all teams
+  let selectedTeams = [];
   let minToi        = REG_DEFAULT_TOI;
-  let sortCol       = 'xgf_pct';
-  let sortAsc       = false;
   let showAll       = false;
-  let playerFilter  = null; // numeric player_id — null = no filter
-
-  // ── URL state ────────────────────────────────────────────────────────────────
+  let playerFilter  = null;
 
   function readUrlParams() {
     const p = new URLSearchParams(window.location.search);
@@ -305,11 +276,8 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
     history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
   }
 
-  // ── Filters + sort ───────────────────────────────────────────────────────────
-
   function applyFilters() {
     return allLines.filter(r => {
-      // game_type: entries without the field are treated as regular season
       const rowGt = r.game_type != null ? r.game_type : 2;
       return rowGt === gameTypeFilter &&
         (typeFilter === 'all' || r.type === typeFilter) &&
@@ -320,134 +288,109 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
     });
   }
 
-  function sortRows(rows) {
-    return [...rows].sort((a, b) => {
-      const av = a[sortCol] ?? (sortAsc ? Infinity : -Infinity);
-      const bv = b[sortCol] ?? (sortAsc ? Infinity : -Infinity);
-      if (typeof av === 'string') return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
-      return sortAsc ? av - bv : bv - av;
-    });
-  }
-
-  // ── Render ───────────────────────────────────────────────────────────────────
-
-  function xgfClass(v) {
-    if (v == null) return '';
-    if (v >= 55) return 'xgf-hi';
-    if (v <= 45) return 'xgf-lo';
-    return 'xgf-mid';
-  }
-
-  function fmt(v, decimals = 1) {
-    return v != null ? v.toFixed(decimals) : '—';
-  }
-
-  function esc(s) {
-    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
-
-  // ── Slug generation (mirrors src/lib/line-slug.ts) ──────────────────────────
+  function fmt(v, decimals = 1) { return v != null ? v.toFixed(decimals) : '—'; }
+  function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function _sd(s) { return s.normalize('NFD').replace(/\p{M}/gu, ''); }
   function toLineSlug(line) {
-    var team  = line.team.toLowerCase();
-    var names = line.players.split('–').map(function(p) {
-      var parts = _sd(p.trim()).split(/\s+/);
+    const team  = line.team.toLowerCase();
+    const names = line.players.split('–').map(p => {
+      const parts = _sd(p.trim()).split(/\s+/);
       return (parts[parts.length - 1] || 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '');
     }).sort();
-    var season = line.season.slice(0,4) + '-' + line.season.slice(6);
-    var gt     = line.game_type === 3 ? 'playoffs' : 'regular';
+    const season = line.season.slice(0,4) + '-' + line.season.slice(6);
+    const gt     = line.game_type === 3 ? 'playoffs' : 'regular';
     return [team].concat(names).concat([season, gt]).join('-');
   }
 
-  function renderTable() {
-    const filtered = applyFilters();
-    const sorted   = sortRows(filtered);
-    const shown    = showAll ? sorted : sorted.slice(0, TOP_N);
+  function xgfColor(v) {
+    if (v == null) return '';
+    if (v >= 55) return 'var(--stats-pos)';
+    if (v <= 45) return 'var(--stats-neg)';
+    return '';
+  }
 
-    const tbody = document.getElementById('lines-tbody');
+  // Build a <tr> matching Table.astro's expected output shape.
+  function rowHtml(r, rank) {
+    const slug = toLineSlug(r);
+    const href = `/stats/lines/${slug}`;
+    const teamAbbr = esc(r.team || '');
+    const xgfCol = xgfColor(r.xgf_pct);
+
+    const cells = [];
+    cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
+    cells.push(`<td class="tbl-td type-label align-left">${esc(r.players)}</td>`);
+    cells.push(`<td class="tbl-td align-center"><span class="pos-badge">${esc(r.type)}</span></td>`);
+    // Team cell
+    cells.push(
+      `<td class="tbl-td td-team align-left" data-team-abbr="${teamAbbr}">` +
+      `<div class="td-team-inner">` +
+      (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="26" height="26" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
+      `<span class="td-abbr">${teamAbbr}</span>` +
+      `</div></td>`
+    );
+    cells.push(`<td class="tbl-td align-center type-number">${fmt(r.toi_min)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${r.min_per_g ?? '—'}</td>`);
+    const xgfStyle = xgfCol ? ` style="color:${xgfCol}"` : '';
+    cells.push(`<td class="tbl-td align-center type-number bold"${xgfStyle}>${r.xgf_pct != null ? r.xgf_pct.toFixed(1) + '%' : '—'}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${fmt(r.xgf, 2)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${fmt(r.xga, 2)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${fmt(r.xgf_60, 2)}</td>`);
+    cells.push(`<td class="tbl-td align-center type-number">${fmt(r.xga_60, 2)}</td>`);
+
+    return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">${cells.join('')}</tr>`;
+  }
+
+  const wrap = document.querySelector('.tbl-wrap[data-tbl-id]');
+  const tbody = wrap ? wrap.querySelector('tbody') : null;
+
+  function renderTable() {
+    if (!wrap || !tbody) return;
+    const filtered = applyFilters();
+    // Default sort by xgf_pct desc.
+    const sorted = filtered.slice().sort((a, b) => (b.xgf_pct ?? -Infinity) - (a.xgf_pct ?? -Infinity));
+    const shown = showAll ? sorted : sorted.slice(0, TOP_N);
 
     if (filtered.length === 0) {
       const msg = gameTypeFilter === 3
         ? 'No playoff data yet — check back during the postseason'
         : 'No lines match current filters';
-      tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:60px 20px;font-family:var(--mono);font-size:13px;color:var(--ink-48);letter-spacing:0.04em">${msg}</td></tr>`;
+      tbody.innerHTML = `<tr class="tbl-empty"><td colspan="11">${msg}</td></tr>`;
       document.getElementById('tbl-meta').textContent = '0 lines';
       document.getElementById('tbl-more-row').style.display = 'none';
+      wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
       return;
     }
 
-    const frag = document.createDocumentFragment();
-    shown.forEach((r, i) => {
-      const tr = document.createElement('tr');
-      const rank = showAll ? sorted.indexOf(r) + 1 : i + 1;
-      const pctClass = xgfClass(r.xgf_pct);
-      const slug = toLineSlug(r);
-      tr.dataset.slug = slug;
-      tr.innerHTML = `
-        <td>${rank}</td>
-        <td><a class="line-link" href="/stats/lines/${slug}">${esc(r.players)}</a></td>
-        <td><span class="type-pill type-${r.type.toLowerCase()}">${r.type}</span></td>
-        <td>${esc(r.team)}</td>
-        <td>${fmt(r.toi_min)}</td>
-        <td>${r.min_per_g ?? '—'}</td>
-        <td class="${pctClass}">${r.xgf_pct != null ? r.xgf_pct.toFixed(1) + '%' : '—'}</td>
-        <td>${fmt(r.xgf, 2)}</td>
-        <td>${fmt(r.xga, 2)}</td>
-        <td>${fmt(r.xgf_60, 2)}</td>
-        <td>${fmt(r.xga_60, 2)}</td>
-      `;
-      frag.appendChild(tr);
-    });
-
-    tbody.innerHTML = '';
-    tbody.appendChild(frag);
-
-    document.getElementById('tbl-meta').textContent =
-      `${shown.length} of ${filtered.length} lines`;
+    tbody.innerHTML = shown.map((r, i) => rowHtml(r, i + 1)).join('');
+    document.getElementById('tbl-meta').textContent = `${shown.length} of ${filtered.length} lines`;
 
     const moreRow = document.getElementById('tbl-more-row');
     if (!showAll && filtered.length > TOP_N) {
       moreRow.style.display = '';
-      document.getElementById('tbl-count-label').textContent =
-        `Showing top ${TOP_N} — ${filtered.length - TOP_N} more`;
+      document.getElementById('tbl-count-label').textContent = `Showing top ${TOP_N} — ${filtered.length - TOP_N} more`;
     } else {
       moreRow.style.display = 'none';
     }
 
-    document.querySelectorAll('#lines-table th').forEach(th => {
-      const col = th.dataset.col;
-      const arrow = th.querySelector('.sort-arrow');
-      if (col === sortCol) {
-        th.classList.add('sorted');
-        if (arrow) arrow.textContent = sortAsc ? ' ↑' : ' ↓';
-      } else {
-        th.classList.remove('sorted');
-        if (arrow) arrow.textContent = '';
-      }
-    });
+    wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
   }
 
   function syncUiToState() {
-    // game type toggle
     document.querySelectorAll('#gametype-filter button').forEach(btn => {
       btn.classList.toggle('active', parseInt(btn.dataset.gametype) === gameTypeFilter);
     });
-    // type filter
     document.querySelectorAll('#type-filter button').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.type === typeFilter);
     });
-    // season select
     const seasonSel = document.getElementById('season-filter');
     if (seasonSel) seasonSel.value = seasonFilter;
     renderTeamChips();
-    // toi slider — playoffs use 5m steps and smaller min; reg season uses 10m
     const slider = document.getElementById('toi-slider');
     const label  = document.getElementById('toi-label');
     slider.step  = gameTypeFilter === 3 ? '5' : '10';
     slider.min   = gameTypeFilter === 3 ? '5' : '20';
     slider.value = minToi;
     label.textContent = minToi;
-    // mast lede
     const lede = document.getElementById('mast-lede');
     if (lede) {
       lede.innerHTML = gameTypeFilter === 3
@@ -455,8 +398,6 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
         : 'Forward lines (3-man) and defensive pairs at 5v5 · 2022–23 through 2025–26 regular season · Ranked by <span class="mono">xGoals%</span>. Minimum TOI slider filters noise.';
     }
   }
-
-  // ── Setup ────────────────────────────────────────────────────────────────────
 
   function renderTeamChips() {
     const container = document.getElementById('team-chips');
@@ -500,7 +441,6 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
         renderTable();
       });
     });
-
     document.querySelectorAll('#type-filter button').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('#type-filter button').forEach(b => b.classList.remove('active'));
@@ -511,14 +451,12 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
         renderTable();
       });
     });
-
     document.getElementById('season-filter').addEventListener('change', e => {
       seasonFilter = e.target.value;
       showAll = false;
       updateUrl();
       renderTable();
     });
-
     document.getElementById('team-add-select').addEventListener('change', e => {
       const t = e.target.value;
       if (t && !selectedTeams.includes(t) && selectedTeams.length < MAX_TEAMS) {
@@ -528,9 +466,8 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
         updateUrl();
         renderTable();
       }
-      e.target.value = ''; // reset dropdown
+      e.target.value = '';
     });
-
     const slider = document.getElementById('toi-slider');
     const label  = document.getElementById('toi-label');
     slider.addEventListener('input', e => {
@@ -539,39 +476,15 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
       showAll = false;
       renderTable();
     });
-
-    document.querySelectorAll('#lines-table th[data-col]').forEach(th => {
-      th.addEventListener('click', () => {
-        const col = th.dataset.col;
-        if (sortCol === col) {
-          sortAsc = !sortAsc;
-        } else {
-          sortCol = col;
-          sortAsc = col === 'players' || col === 'team' || col === 'type';
-        }
-        showAll = false;
-        renderTable();
-      });
-    });
-
     document.getElementById('tbl-show-all-btn').addEventListener('click', () => {
       showAll = true;
       document.getElementById('tbl-more-row').style.display = 'none';
       renderTable();
     });
-
-    // Row click → navigate to detail page (clicking the <a> directly also works)
-    document.getElementById('lines-tbody').addEventListener('click', (e) => {
-      const link = e.target.closest('.line-link');
-      if (link) return; // <a> handles it natively
-      const tr = e.target.closest('tr[data-slug]');
-      if (tr) window.location.href = '/stats/lines/' + tr.dataset.slug;
-    });
   }
 
   async function init() {
     readUrlParams();
-
     try {
       const res = await fetch('https://api.hockeygamebot.com/v1/stats/lines');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -584,73 +497,13 @@ td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; 
         `<p style="font-family:var(--mono);font-size:13px;color:var(--red)">Failed to load: ${err.message}</p>`;
       return;
     }
-
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('main-content').style.display = 'block';
-
     populateTeams();
     syncUiToState();
     wireEvents();
     renderTable();
   }
-
-  // ── PNG Export ───────────────────────────────────────────────────────────────
-  const EXPORT_COLS = [
-    { label: '#',       key: '_rank',    width: 44,  align: 'center' },
-    { label: 'Line',    key: 'players',  width: 330, align: 'left', fontFamily: 'body', bold: true },
-    { label: 'Type',    key: 'type',     width: 52,  align: 'center',
-      pill: (v) => v === 'F' ? { bg: 'rgba(74,222,128,0.22)', fg: '#166534' }
-                 : v === 'D' ? { bg: 'rgba(96,165,250,0.22)', fg: '#1e3a5f' }
-                 : null },
-    { label: 'Team',    key: 'team',     width: 54,  align: 'center' },
-    { label: 'Minutes', key: 'toi_min',  width: 82,  align: 'center',
-      format: (v) => v != null ? v.toFixed(1) : '—' },
-    { label: 'Min/G',   key: 'min_per_g', width: 68, align: 'center',
-      format: (v) => v != null ? v.toFixed(1) : '—' },
-    { label: 'xG%',     key: 'xgf_pct', width: 76,  align: 'center',
-      format: (v) => v != null ? v.toFixed(1) + '%' : '—',
-      color:  (v, _r, tok) => v >= 55 ? tok.pos : v <= 45 ? tok.neg : null,
-      bold:   (v) => v != null && (v >= 55 || v <= 45) },
-    { label: 'xGF',     key: 'xgf',     width: 72,  align: 'center',
-      format: (v) => v != null ? v.toFixed(2) : '—' },
-    { label: 'xGA',     key: 'xga',     width: 72,  align: 'center',
-      format: (v) => v != null ? v.toFixed(2) : '—' },
-    { label: 'xGF/60',  key: 'xgf_60',  width: 84,  align: 'center',
-      format: (v) => v != null ? v.toFixed(2) : '—' },
-    { label: 'xGA/60',  key: 'xga_60',  width: 84,  align: 'center',
-      format: (v) => v != null ? v.toFixed(2) : '—' },
-  ];
-
-  function getExportChips() {
-    const chips = [gameTypeFilter === 3 ? 'Playoffs' : 'Regular Season'];
-    if (typeFilter !== 'all') chips.push(typeFilter === 'F' ? 'Forwards' : 'Defense');
-    if (selectedTeams.length > 0) chips.push(selectedTeams.join(' + '));
-    if (seasonFilter !== 'all') chips.push(seasonFilter.slice(0, 4) + '–' + seasonFilter.slice(6));
-    const def = gameTypeFilter === 3 ? PO_DEFAULT_TOI : REG_DEFAULT_TOI;
-    if (minToi !== def) chips.push('Min TOI: ' + minToi + 'm');
-    const colNames = { xgf_pct: 'xG%', toi_min: 'Minutes', min_per_g: 'Min/G',
-      xgf: 'xGF', xga: 'xGA', xgf_60: 'xGF/60', xga_60: 'xGA/60',
-      rank: '#', players: 'Line', type: 'Type', team: 'Team' };
-    chips.push('Sort: ' + (colNames[sortCol] || sortCol) + ' ' + (sortAsc ? '↑' : '↓'));
-    return chips;
-  }
-
-  document.getElementById('dl-btn').addEventListener('click', function () {
-    const rows = applyFilters()
-      .sort((a, b) => {
-        const av = a[sortCol] ?? (sortAsc ? Infinity : -Infinity);
-        const bv = b[sortCol] ?? (sortAsc ? Infinity : -Infinity);
-        return sortAsc ? av - bv : bv - av;
-      })
-      .map((r, i) => Object.assign({ _rank: i + 1 }, r));
-    window.HGB_Export.downloadTablePng({
-      title: 'Lines & Pairs',
-      filterChips: getExportChips(),
-      rows,
-      columns: EXPORT_COLS,
-      filename: 'hgb-lines.png',
-    });
-  });
 
   init();
 })();
