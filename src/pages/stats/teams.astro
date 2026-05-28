@@ -26,6 +26,7 @@ interface TeamRow {
   team_name_nickname: string;
   division: string;
   conference: string;
+  season: string;
   gp: number;
   wins: number;
   losses: number;
@@ -83,7 +84,16 @@ const initialStrength = url.searchParams.get('strength') === '5v5'      ? '5v5' 
 const initialConf     = url.searchParams.get('conf')     ?? 'all';
 const initialDiv      = url.searchParams.get('div')      ?? 'all';
 
-const baseTeams = initialGameType === 'playoffs' ? mockTeamsPlayoff : mockTeamsReg;
+// Extract available seasons from combined data, newest first.
+const availableSeasons = [...new Set([
+  ...mockTeamsReg.map(t => t.season),
+  ...mockTeamsPlayoff.map(t => t.season),
+])].sort().reverse();
+const defaultSeason = availableSeasons[0] ?? '2025-26';
+const initialSeason = url.searchParams.get('season') ?? defaultSeason;
+
+const baseTeams = (initialGameType === 'playoffs' ? mockTeamsPlayoff : mockTeamsReg)
+  .filter(t => t.season === initialSeason);
 
 // ── Per-60 + strength transform ─────────────────────────────────────────────
 // Fix 3 (Round 3, 2026-05-27): the previous build only crossed (gameType × display)
@@ -134,7 +144,7 @@ function toRow(
     ...t,
     rank: 0, // assigned after sort
     record: `${t.wins}-${t.losses}-${t.ot_losses}`,
-    season: '2025-26',
+    season: t.season,
     // Per-60 versions of counting stats. Both 5v5 and all-sit divide by the
     // same `hours` for now — when teams.json ships an all-situations TOI it
     // should be used as the denominator for the all-sit branch.
@@ -157,6 +167,7 @@ function toRow(
 }
 
 // ── Apply non-toggle filters at build time ──────────────────────────────────
+// baseTeams is already filtered by season (see above).
 let filtered = baseTeams;
 if (initialConf !== 'all') filtered = filtered.filter(t => t.conference.toLowerCase().startsWith(initialConf.toLowerCase().charAt(0)));
 if (initialDiv  !== 'all') filtered = filtered.filter(t => t.division.toLowerCase() === initialDiv.toLowerCase());
@@ -235,11 +246,13 @@ const fmtCount = (v: number | null | undefined): string => {
 const labelFor = (base: string, display: 'totals' | 'per60'): string =>
   display === 'per60' ? `${base}/60` : base;
 
-// ── Season formatter (Fix 6 / Round 3) ─────────────────────────────────────
-// Only 25-26 data exists today; future multi-season data will fill this column
-// via the pipeline. The column is sortable so users can re-order chronologically
-// once more seasons are available.
-const fmtSeason = (_v: any): string => '25-26';
+// ── Season formatter ────────────────────────────────────────────────────────
+// Pipeline writes "2025-26"; display as "25-26" to save column width.
+const fmtSeason = (v: any): string => {
+  const s = String(v ?? '');
+  const m = s.match(/^(\d{2})(\d{2})-(\d{2})$/);  // "2025-26"
+  return m ? `${m[2]}-${m[3]}` : s;
+};
 
 const columns = [
   {
@@ -503,6 +516,11 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
         <option value="central"      selected={initialDiv === 'central'}>Central</option>
         <option value="pacific"      selected={initialDiv === 'pacific'}>Pacific</option>
       </select>
+      <select class="lb-select" id="season-filter">
+        {availableSeasons.map(s => (
+          <option value={s} selected={s === initialSeason}>{s}</option>
+        ))}
+      </select>
       <div class="lb-spacer"></div>
       <input type="search" id="team-search" placeholder="Search team…" autocomplete="off" />
     </div>
@@ -552,7 +570,7 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
     type Strength = 'all' | '5v5';
     interface PayloadRow {
       team_abbrev: string; team_name_full: string; team_name_city: string; team_name_nickname: string;
-      division: string; conference: string;
+      division: string; conference: string; season: string;
       gp: number; wins: number; losses: number; ot_losses: number; points: number;
       gf: number; ga: number; toi_5v5_sec: number;
       gf_5v5: number; ga_5v5: number; gf_pct_5v5: number;
@@ -560,7 +578,7 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
       sf_5v5: number; sa_5v5: number; sf_pct_5v5: number;
       sh_pct_5v5: number; sv_pct_5v5: number; pdo_5v5: number;
       pp_pct: number; pk_pct: number; pp_xgf_60: number; pk_xga_60: number;
-      rank: number; record: string; season: string;
+      rank: number; record: string;
       gf_display: number; ga_display: number; xgf_display: number; xga_display: number;
     }
     // Fix 3 (Round 3): payload is now 8 variants (gameType × strength × display)
@@ -612,27 +630,41 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
     }
 
     const params = new URLSearchParams(window.location.search);
+
+    // Derive available seasons from payload (newest first) for dropdown wiring.
+    const allSeasons: string[] = [...new Set([
+      ...payload.regular.all.totals.map((r: PayloadRow) => r.season),
+      ...payload.playoffs.all.totals.map((r: PayloadRow) => r.season),
+    ] as string[])].sort().reverse();
+    const defaultSeason = allSeasons[0] ?? '2025-26';
+
     const state = {
       gameType: (params.get('game_type') === 'playoffs' ? 'playoffs' : 'regular') as GameType,
       display:  (params.get('display')  === 'per60'    ? 'per60'    : 'totals')   as Display,
       strength: (params.get('strength') === '5v5'      ? '5v5'      : 'all')      as Strength,
       conf:     params.get('conf') ?? 'all',
       div:      params.get('div')  ?? 'all',
+      season:   params.get('season') ?? defaultSeason,
       search:   '',
     };
 
     function writeUrl(): void {
       const p = new URLSearchParams();
-      if (state.gameType !== 'regular') p.set('game_type', state.gameType);
-      if (state.display  !== 'totals')  p.set('display',  state.display);
-      if (state.strength !== 'all')     p.set('strength', state.strength);
-      if (state.conf     !== 'all')     p.set('conf',     state.conf);
-      if (state.div      !== 'all')     p.set('div',      state.div);
+      if (state.gameType !== 'regular')      p.set('game_type', state.gameType);
+      if (state.display  !== 'totals')       p.set('display',  state.display);
+      if (state.strength !== 'all')          p.set('strength', state.strength);
+      if (state.conf     !== 'all')          p.set('conf',     state.conf);
+      if (state.div      !== 'all')          p.set('div',      state.div);
+      if (state.season   !== defaultSeason)  p.set('season',   state.season);
       const qs = p.toString();
       history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
     }
 
     // ── Formatters (mirror the build-time helpers in the frontmatter) ─────
+    const fmtSeasonDisplay = (s: string): string => {
+      const m = s.match(/^(\d{2})(\d{2})-(\d{2})$/);
+      return m ? `${m[2]}-${m[3]}` : s;
+    };
     const fmtPct = (v: number | null | undefined) =>
       v == null ? '—' : (v * 100).toFixed(1) + '%';
     const fmtFloat1 = (v: number | null | undefined) =>
@@ -681,7 +713,7 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
       // Numeric cells — keep order in sync with the columns array in the
       // frontmatter. Season column (Fix 6) sits between Team and GP.
       const numericCells: Array<{ text: string; bold?: boolean; color?: string }> = [
-        { text: '25-26' }, // Season — abbreviated to match JFresh display
+        { text: fmtSeasonDisplay(r.season) }, // Season — abbreviated to match JFresh display
         { text: String(r.gp) },
         { text: r.record },
         { text: fmtCount(r.gf_display) },
@@ -736,8 +768,9 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
       // the `fivev5` key in the payload to keep identifiers valid.
       const strengthKey = state.strength === '5v5' ? 'fivev5' : 'all';
       const dataset = payload[state.gameType][strengthKey][state.display];
-      // Apply conf + div filters
+      // Apply season + conf + div filters
       let filtered = dataset.filter(r => {
+        if (r.season !== state.season) return false;
         if (state.conf !== 'all') {
           // matches if conference starts with the filter letter (e/w)
           const confLetter = state.conf.charAt(0).toLowerCase();
@@ -850,6 +883,13 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
     const divSel = document.getElementById('div-filter') as HTMLSelectElement | null;
     if (divSel) divSel.addEventListener('change', () => {
       state.div = divSel.value;
+      writeUrl();
+      render();
+    });
+
+    const seasonSel = document.getElementById('season-filter') as HTMLSelectElement | null;
+    if (seasonSel) seasonSel.addEventListener('change', () => {
+      state.season = seasonSel.value;
       writeUrl();
       render();
     });
