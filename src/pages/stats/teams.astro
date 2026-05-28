@@ -34,6 +34,10 @@ interface TeamRow {
   points: number;
   gf: number;
   ga: number;
+  xgf_all: number;
+  xga_all: number;
+  xgf_pct_all: number;
+  toi_all_sec: number;
   toi_5v5_sec: number;
   gf_5v5: number;
   ga_5v5: number;
@@ -119,25 +123,30 @@ function toRow(
   xgf_pct: number;
   sf_pct: number;
 } {
-  const hours = t.toi_5v5_sec / 3600;
-  const isPer60 = display === 'per60';
   const is5v5 = strength === '5v5';
+  const isPer60 = display === 'per60';
+  // Use all-sit TOI as per-60 denominator when viewing all-sit numbers.
+  const toiSec = is5v5 ? t.toi_5v5_sec : (t.toi_all_sec ?? t.toi_5v5_sec);
+  const hours = toiSec / 3600;
 
   // Pick the source values for each metric based on strength state.
-  // GF/GA: mock has both fields. xGF/xGA/SF%: mock has 5v5 only; we re-use the
-  // 5v5 value for "all" with a small upward bump (~8%) to fake the all-sit
-  // delta — purely so the toggle is visible during mock-data review. The
-  // pipeline will deliver real all-sit values for these columns.
   const gfRaw  = is5v5 ? t.gf_5v5 : t.gf;
   const gaRaw  = is5v5 ? t.ga_5v5 : t.ga;
-  const xgfRaw = is5v5 ? t.xgf_5v5 : +(t.xgf_5v5 * 1.08).toFixed(1);
-  const xgaRaw = is5v5 ? t.xga_5v5 : +(t.xga_5v5 * 1.08).toFixed(1);
+  // xGF/xGA: real all-sit values from pipeline; fall back to 5v5 if field absent
+  // (old cached JSON from before the pipeline fix).
+  const xgfRaw = is5v5
+    ? t.xgf_5v5
+    : (t.xgf_all ?? t.xgf_5v5);
+  const xgaRaw = is5v5
+    ? t.xga_5v5
+    : (t.xga_all ?? t.xga_5v5);
 
-  // Derived rate stats (different baselines per strength state).
-  const gfPct  = is5v5 ? t.gf_pct_5v5 : +(gfRaw / (gfRaw + gaRaw)).toFixed(3);
-  const xgfPct = is5v5 ? t.xgf_pct_5v5 : +(xgfRaw / (xgfRaw + xgaRaw)).toFixed(3);
-  // SF%: only 5v5 available; for "all" we leave it at the 5v5 value (would
-  // be `(sf_all / (sf_all + sa_all))` once pipeline ships).
+  // Derived rate stats
+  const gfPct  = is5v5 ? t.gf_pct_5v5 : +(gfRaw / (gfRaw + gaRaw) || 0.5).toFixed(3);
+  const xgfPct = is5v5
+    ? t.xgf_pct_5v5
+    : (t.xgf_pct_all ?? +(xgfRaw / (xgfRaw + xgaRaw) || 0.5).toFixed(3));
+  // SF%: all-sit not yet in pipeline; use 5v5 value for both buckets
   const sfPct  = t.sf_pct_5v5;
 
   return {
@@ -572,7 +581,9 @@ const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams 
       team_abbrev: string; team_name_full: string; team_name_city: string; team_name_nickname: string;
       division: string; conference: string; season: string;
       gp: number; wins: number; losses: number; ot_losses: number; points: number;
-      gf: number; ga: number; toi_5v5_sec: number;
+      gf: number; ga: number;
+      xgf_all?: number; xga_all?: number; xgf_pct_all?: number;
+      toi_all_sec?: number; toi_5v5_sec: number;
       gf_5v5: number; ga_5v5: number; gf_pct_5v5: number;
       xgf_5v5: number; xga_5v5: number; xgf_pct_5v5: number;
       sf_5v5: number; sa_5v5: number; sf_pct_5v5: number;
