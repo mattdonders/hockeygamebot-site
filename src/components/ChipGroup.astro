@@ -1,0 +1,153 @@
+---
+/**
+ * ChipGroup.astro — Canonical Filter Chip Group Component
+ * ============================================================
+ * Interactive button group for mutually exclusive filter toggles.
+ * Replaces the 25+ hand-rolled `.btn-group` declarations identified
+ * in the 2026-05-27 chips/pills/badges audit.
+ *
+ * CANONICAL SPEC: hgb-docs/CHIPS.md (sections 2, 7)
+ * COLOR/TYPOGRAPHY: hgb-docs/BRAND.md (§1, §2) and BRAND_LIGHT.md
+ *
+ * USAGE
+ * --------------------------------------------------------------
+ *   <ChipGroup
+ *     name="gametype"
+ *     items={[
+ *       { label: 'Regular Season', value: 'regular', active: true },
+ *       { label: 'Playoffs',       value: 'playoffs' },
+ *     ]}
+ *   />
+ *
+ *   // Listen for changes:
+ *   document.addEventListener('chip:changed', (e) => {
+ *     const { name, value } = e.detail;
+ *     if (name === 'gametype') { /* update state *\/ }
+ *   });
+ *
+ * EVENT CONTRACT
+ * --------------------------------------------------------------
+ * Clicking a chip dispatches `chip:changed` (bubbles: true):
+ *   { detail: { name: string, value: string } }
+ *
+ * The component also writes `.active` on the clicked button and
+ * removes it from siblings — consuming pages don't need to manage
+ * visual toggle state. The `chip:changed` event fires AFTER the
+ * visual update.
+ *
+ * COMPATIBILITY WITH EXISTING PAGES
+ * --------------------------------------------------------------
+ * Pages that already use the `data-*` attribute + direct `click`
+ * listener pattern (like teams.astro's `#gametype-filter`) still
+ * work unchanged. ChipGroup renders the same HTML structure those
+ * listeners expect: buttons with `data-{name}="{value}"` attributes.
+ * The consuming page can use EITHER the `chip:changed` event OR its
+ * own button click listeners — both coexist without conflict.
+ */
+
+interface ChipItem {
+  label: string;
+  value: string;
+  active?: boolean;
+}
+
+interface Props {
+  items: ChipItem[];
+  /** Identifies this group in `chip:changed` events and sets `data-{name}="{value}"` on each button. */
+  name: string;
+  /** Optional HTML id for the container element. Useful when migrating pages that query by id. */
+  id?: string;
+  className?: string;
+}
+
+const { items, name, id, className } = Astro.props;
+const wrapClass = ['chip-group', className].filter(Boolean).join(' ');
+
+// Build a camelCase attribute name for data-* from `name`.
+// e.g., name="gametype" → data-gametype, name="game-type" → data-gameType
+const dataAttr = `data-${name}`;
+---
+
+<div class={wrapClass} data-chip-group={name} id={id}>
+  {items.map((item) => (
+    <button
+      type="button"
+      class={item.active ? 'active' : ''}
+      {...{ [dataAttr]: item.value }}
+      data-chip-value={item.value}
+    >
+      {item.label}
+    </button>
+  ))}
+</div>
+
+<style is:global>
+  /* GLOBAL (not scoped) — mirrors Table.astro's pattern. Class names are
+     namespaced to `.chip-group` so the global blast radius is bounded.
+     See CHIPS.md §2 for the full canonical spec. */
+
+  .chip-group {
+    display: inline-flex;
+    border: 1px solid var(--ink-14);
+  }
+
+  .chip-group button {
+    font-family: var(--display);     /* Barlow Condensed — NOT var(--body), NOT var(--mono) */
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-48);
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--ink-14);
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    line-height: 1;
+    white-space: nowrap;
+    /* Explicit border-radius: 0 — all HGB UI uses sharp corners */
+    border-radius: 0;
+  }
+
+  .chip-group button:last-child { border-right: none; }
+
+  .chip-group button:hover:not(.active) {
+    background: var(--ink-06);
+    color: var(--ink);
+  }
+
+  .chip-group button.active {
+    background: var(--ink);
+    color: var(--bg);
+  }
+</style>
+
+<script>
+  // Wire click → visual toggle + chip:changed event.
+  // Runs once per ChipGroup instance. Idempotent via a dataset guard so
+  // re-attaching to the same element on hydration won't double-bind.
+  function initChipGroup(group: HTMLElement) {
+    if (group.dataset.chipBound === '1') return;
+    group.dataset.chipBound = '1';
+
+    const name = group.dataset.chipGroup ?? '';
+
+    group.querySelectorAll<HTMLButtonElement>('button[data-chip-value]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Visual: move .active to the clicked button
+        group.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        // Dispatch chip:changed on the container (bubbles up to window)
+        group.dispatchEvent(new CustomEvent('chip:changed', {
+          detail: { name, value: btn.dataset.chipValue ?? '' },
+          bubbles: true,
+        }));
+      });
+    });
+  }
+
+  // Initialize all ChipGroup instances on the page
+  document.querySelectorAll<HTMLElement>('[data-chip-group]').forEach(initChipGroup);
+</script>

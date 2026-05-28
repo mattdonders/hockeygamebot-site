@@ -1,0 +1,122 @@
+---
+/**
+ * StatusPill.astro — Canonical Game State Indicator
+ * ============================================================
+ * Display-only status pill for game state (LIVE, FINAL, OT, etc.).
+ * Replaces 4 drifted pulse keyframe implementations found across
+ * the site in the 2026-05-27 chips/pills/badges audit.
+ *
+ * CANONICAL SPEC: hgb-docs/CHIPS.md (sections 3, 7)
+ * COLOR/TYPOGRAPHY: hgb-docs/BRAND.md (§1, §2) and BRAND_LIGHT.md
+ *
+ * USAGE
+ * --------------------------------------------------------------
+ *   <!-- Live game with pulsing dot (default) -->
+ *   <StatusPill state="live" />
+ *
+ *   <!-- Overtime game, custom label -->
+ *   <StatusPill state="ot" label="OT FINAL" />
+ *
+ *   <!-- Final game, no dot -->
+ *   <StatusPill state="final" dot={false} />
+ *
+ *   <!-- Custom intermission label -->
+ *   <StatusPill state="intermission" label="2nd INT" />
+ *
+ * REQUIRED TOKENS
+ * --------------------------------------------------------------
+ * Pages using StatusPill must define these in :root:
+ *   --status-live:      #00E5FF    (cyan)
+ *   --status-final:     var(--ink-48)
+ *   --status-ot:        #FF9800    (orange)
+ *   --status-scheduled: var(--ink-48)
+ *
+ * STATE REFERENCE
+ * --------------------------------------------------------------
+ *   live         → cyan, pulsing dot
+ *   final        → muted, no dot
+ *   ot           → orange, no dot
+ *   so           → orange (same as ot), no dot
+ *   pre          → muted (scheduled color), no dot
+ *   intermission → muted, no dot
+ */
+
+type GameState = 'live' | 'final' | 'ot' | 'pre' | 'intermission' | 'so';
+
+interface Props {
+  state: GameState;
+  /** Custom label. Defaults to state uppercased (e.g., "live" → "LIVE"). */
+  label?: string;
+  /** Show the 6px circle indicator. Default: true. */
+  dot?: boolean;
+}
+
+const { state, dot = true } = Astro.props;
+// Default label: uppercase the state. "so" → "SO", "intermission" → "INTERMISSION"
+const label = Astro.props.label ?? state.toUpperCase();
+---
+
+<span class="status-pill" data-state={state}>
+  {dot && <span class="dot" aria-hidden="true"></span>}
+  {label}
+</span>
+
+<style is:global>
+  /* GLOBAL — mirrors Table.astro/ChipGroup.astro pattern.
+     Class names are namespaced to `.status-pill` and `.hgb-status-pulse`.
+     See CHIPS.md §3 for the full canonical spec. */
+
+  .status-pill {
+    font-family: var(--display);     /* Barlow Condensed */
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1;
+  }
+
+  /* State → color mapping using data-state attribute */
+  .status-pill[data-state="live"]         { color: var(--status-live, #00E5FF); }
+  .status-pill[data-state="final"]        { color: var(--status-final, var(--ink-48)); }
+  .status-pill[data-state="ot"]           { color: var(--status-ot, #FF9800); }
+  .status-pill[data-state="so"]           { color: var(--status-ot, #FF9800); }
+  .status-pill[data-state="pre"]          { color: var(--status-scheduled, var(--ink-48)); }
+  .status-pill[data-state="intermission"] { color: var(--ink-48); }
+
+  /* The 6px circular indicator — inherits color from the pill state */
+  .status-pill .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    flex: none;
+  }
+
+  /* Only LIVE gets the pulse animation.
+     Uses the single canonical keyframe `hgb-status-pulse`, replacing:
+       @keyframes pulse
+       @keyframes pulse-dot
+       @keyframes status-pulse
+       @keyframes livePulse
+     All previously drifted implementations should be removed when migrating
+     a page to use StatusPill. */
+  .status-pill[data-state="live"] .dot {
+    animation: hgb-status-pulse 1.8s ease-out infinite;
+  }
+
+  /* hgb-status-pulse — THE canonical live-indicator pulse animation.
+     The `hgb-` prefix namespaces this keyframe to prevent collisions.
+     1.8s duration: long enough to feel "breathing", short enough to signal urgency.
+     ease-out: the spread dissipates naturally, not mechanically.
+     box-shadow spread: 8px (generous but not overwhelming at 6px dot size).
+     Starting opacity 0.55: dot is slightly dimmed at 0% so the glow
+     feels like it emanates from the dot, not appears from nothing. */
+  @keyframes hgb-status-pulse {
+    0%   { box-shadow: 0 0 0 0   currentColor; opacity: 0.55; }
+    70%  { box-shadow: 0 0 0 8px currentColor; opacity: 0; }
+    100% { box-shadow: 0 0 0 0   currentColor; opacity: 0; }
+  }
+</style>
