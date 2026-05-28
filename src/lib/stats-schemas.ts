@@ -250,9 +250,13 @@ export type TeamGameEntry = z.infer<typeof TeamGameEntrySchema>;
 export const GoalieGameSchema = z.object({
   game_date:   z.string(),
   team_abbrev: z.string(),
+  opp_abbrev:  z.string().nullable().optional(),
+  decision:    z.enum(['W', 'L', 'OT', 'SO']).nullable().optional(),
+  toi_sec:     z.number().int().nonnegative().nullable().optional(),
   game_type:   z.number().int().optional().default(2),
   sa:   z.number().int().nonnegative(),
   ga:   z.number().int().nonnegative(),
+  sv_pct: z.number().nullable().optional(),
   xga:  z.number(),
   gsax: z.number(),
 });
