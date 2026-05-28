@@ -35,13 +35,24 @@ export async function getStaticPaths() {
   warF.forEach((p, i) => warPctMap.set(p.player_id, Math.round(100 - (i / warF.length) * 100)));
   warD.forEach((p, i) => warPctMap.set(p.player_id, Math.round(100 - (i / warD.length) * 100)));
 
-  function findPeers(all: PlayerSummary[], current: PlayerSummary) {
-    const curWar = current.war ?? 0;
+  function findPeers(all: PlayerSummary[], current: PlayerSummary, mode: 'war' | 'rating' = 'war') {
+    const curVal = mode === 'rating' ? (current.hgb_rating ?? current.war ?? 0) : (current.war ?? 0);
     const candidates = all
-      .filter(p => p.player_id !== current.player_id && p.pos_group === current.pos_group && p.war != null)
-      .sort((a, b) => Math.abs((a.war ?? 0) - curWar) - Math.abs((b.war ?? 0) - curWar));
+      .filter(p => {
+        if (p.player_id === current.player_id) return false;
+        if (p.pos_group !== current.pos_group) return false;
+        return mode === 'rating' ? (p.hgb_rating != null) : (p.war != null);
+      })
+      .sort((a, b) => {
+        const aVal = mode === 'rating' ? (a.hgb_rating ?? 0) : (a.war ?? 0);
+        const bVal = mode === 'rating' ? (b.hgb_rating ?? 0) : (b.war ?? 0);
+        return Math.abs(aVal - curVal) - Math.abs(bVal - curVal);
+      });
     for (const band of [0.5, 1.5, 3]) {
-      const inBand = candidates.filter(p => Math.abs((p.war ?? 0) - curWar) <= band);
+      const inBand = candidates.filter(p => {
+        const v = mode === 'rating' ? (p.hgb_rating ?? 0) : (p.war ?? 0);
+        return Math.abs(v - curVal) <= band;
+      });
       if (inBand.length >= 3) return inBand.slice(0, 4);
     }
     return candidates.slice(0, 4);
@@ -51,14 +62,17 @@ export async function getStaticPaths() {
     const playerGames = loadPlayerGames(player.player_id);
     const rankInfo    = rankMap.get(player.player_id)    ?? { rank: 0, total: 0 };
     const rapmRank    = rapmRankMap.get(player.player_id) ?? null;
-    const peers       = findPeers(players, player).map(p => ({
+    const mapPeer = (p: PlayerSummary) => ({
       player_id: p.player_id, slug: p.slug,
       first_name: p.first_name, last_name: p.last_name,
       display_name: p.display_name, team_abbrev: p.team_abbrev,
       pos: p.pos, gp: p.gp, rapm: p.rapm, war: p.war,
-    }));
+      hgb_rating: p.hgb_rating,
+    });
+    const peers        = findPeers(players, player, 'war').map(mapPeer);
+    const peersRating  = findPeers(players, player, 'rating').map(mapPeer);
     const warPct = warPctMap.get(player.player_id) ?? null;
-    return { params: { slug: player.slug }, props: { player, playerGames, rankInfo, rapmRank, peers, warPct } };
+    return { params: { slug: player.slug }, props: { player, playerGames, rankInfo, rapmRank, peers, peersRating, warPct } };
   });
 }
 
@@ -69,12 +83,18 @@ interface Props {
   rapmRank: { rankPos: number; totalPos: number; rankAll: number; totalAll: number } | null;
   peers: Array<{
     player_id: number; slug: string; first_name: string; last_name: string;
-    display_name: string; team_abbrev: string; pos: string; gp: number; rapm: number | null; war: number | null;
+    display_name: string; team_abbrev: string; pos: string; gp: number;
+    rapm: number | null; war: number | null; hgb_rating: number | null;
+  }>;
+  peersRating: Array<{
+    player_id: number; slug: string; first_name: string; last_name: string;
+    display_name: string; team_abbrev: string; pos: string; gp: number;
+    rapm: number | null; war: number | null; hgb_rating: number | null;
   }>;
   warPct: number | null;
 }
 
-const { player, playerGames, rankInfo, rapmRank, peers, warPct } = Astro.props;
+const { player, playerGames, rankInfo, rapmRank, peers, peersRating, warPct } = Astro.props;
 
 function fmtToi(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -762,11 +782,6 @@ const gameLogColumns = [
               <div class="war-total-label">Total WAR</div>
               <div class={`war-total-val ${player.war >= 0 ? 'pos' : 'neg'}`}>{fmt(player.war)}</div>
             </div>
-            {rapmRank && (
-              <div class="war-rank-note">
-                WAR ranks #{rapmRank.rankPos} among {posPlural} · {warPct}th percentile · top {(rapmRank.rankAll / rapmRank.totalAll * 100).toFixed(0)}% overall
-              </div>
-            )}
           </div>
         );
       })()}
@@ -1080,12 +1095,16 @@ const gameLogColumns = [
 
       <!-- Similar Players -->
       {peers.length > 0 && (
-        <div class="card">
+        <div class="card" id="peers-card">
           <div class="card-head">
             <span class="card-eyebrow">Similar &nbsp;<span class="accent">{posPlural}</span></span>
-            <span class="card-meta">by WAR</span>
+            <div class="btn-group" id="peers-mode-filter" style="margin-left:auto;">
+              <button class="active" data-peers-mode="war">WAR</button>
+              <button data-peers-mode="rating">Rating</button>
+            </div>
           </div>
-          <div class="peer-strip">
+          {/* WAR peers */}
+          <div class="peer-strip" id="peers-war">
             {peers.map(peer => (
               <a href={`/stats/player/${peer.slug}`} class="peer-row">
                 <div style="flex:1">
@@ -1094,6 +1113,20 @@ const gameLogColumns = [
                 </div>
                 {peer.war != null
                   ? <span class={`peer-rapm ${peer.war >= 0 ? 'pos' : 'neg'}`}>{sign(peer.war)}{peer.war.toFixed(2)}</span>
+                  : <span class="peer-rapm" style="color:var(--ink-32)">—</span>}
+              </a>
+            ))}
+          </div>
+          {/* Rating peers */}
+          <div class="peer-strip" id="peers-rating" style="display:none">
+            {peersRating.map(peer => (
+              <a href={`/stats/player/${peer.slug}`} class="peer-row">
+                <div style="flex:1">
+                  <div class="peer-name">{peer.first_name[0]}. {peer.last_name}</div>
+                  <div class="peer-meta">{peer.team_abbrev} · {peer.pos} · {peer.gp} GP</div>
+                </div>
+                {peer.hgb_rating != null
+                  ? <span class={`peer-rapm ${peer.hgb_rating >= 0 ? 'pos' : 'neg'}`}>{sign(peer.hgb_rating)}{peer.hgb_rating.toFixed(2)}</span>
                   : <span class="peer-rapm" style="color:var(--ink-32)">—</span>}
               </a>
             ))}
@@ -2616,6 +2649,20 @@ const gameLogColumns = [
 
     document.querySelectorAll('#rapm-mode-filter button').forEach(btn => {
       btn.addEventListener('click', () => applyRapmMode(btn.dataset.rapmMode));
+    });
+  })();
+
+  // Similar Players WAR / Rating toggle
+  (() => {
+    const filter = document.getElementById('peers-mode-filter');
+    if (!filter) return;
+    filter.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.peersMode;
+        filter.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+        document.getElementById('peers-war').style.display    = mode === 'war'    ? '' : 'none';
+        document.getElementById('peers-rating').style.display = mode === 'rating' ? '' : 'none';
+      });
     });
   })();
 
