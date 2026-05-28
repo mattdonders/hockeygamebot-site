@@ -644,6 +644,16 @@ const gameLogColumns = [
       <!-- Right: 3 stat tiles -->
       <div class="mast-right">
         <div class="hero-tile">
+          <div class="tile-label">HGB Rating</div>
+          <div class="tile-big" style={`color:${teamColor}`}>
+            {player.hgb_rating_percentile != null ? `${player.hgb_rating_percentile}%` : '—'}
+          </div>
+          <div class="tile-sub">
+            {player.hgb_rating != null ? `${player.hgb_rating > 0 ? '+' : ''}${player.hgb_rating.toFixed(2)} Rating` : '—'}
+            {(player.hgb_rating_confidence === 'limited' || player.hgb_rating_confidence === 'limited_sample') ? ' · limited sample' : ''}
+          </div>
+        </div>
+        <div class="hero-tile">
           <div class="tile-label">HGB WAR</div>
           <div class="tile-big" style={`color:${teamColor}`}>
             {warPct != null ? `${warPct}%` : '—'}
@@ -654,7 +664,7 @@ const gameLogColumns = [
           </div>
         </div>
         <div class="hero-tile">
-          <div class="tile-label">HGB IMPACT</div>
+          <div class="tile-label">HGB Game Impact</div>
           <div class="tile-big" style="color:var(--ink)">
             {Math.round(player.percentiles_vs_pos.game_score)}%
           </div>
@@ -709,11 +719,12 @@ const gameLogColumns = [
 
       <!-- WAR BREAKDOWN -->
       {player.war != null && (() => {
-        const wc      = player.war_components;
-        const ev5Comp = wc?.ev5 ?? 0;
-        const ppComp  = wc?.pp  ?? 0;
-        const pkComp  = wc?.pk  ?? 0;
-        const penComp = wc?.pen ?? 0;
+        const wc          = player.war_components;
+        const ev5RapmComp = wc?.ev5_rapm_war  ?? wc?.ev5 ?? 0;
+        const finishComp  = wc?.finishing_war  ?? 0;
+        const ppComp      = wc?.pp  ?? 0;
+        const pkComp      = wc?.pk  ?? 0;
+        const penComp     = wc?.pen ?? 0;
         const fmt     = (v: number) => (v >= 0 ? '+' : '') + v.toFixed(2);
         // Fixed reference scale: WAR=4.0 fills 100% — bars comparable across all players
         const BAR_REF = 4.0;
@@ -724,11 +735,12 @@ const gameLogColumns = [
           valC: val >= 0.02 ? (isFirst ? teamColor : '#14803c') : val <= -0.02 ? 'var(--red)' : 'var(--ink-32)',
         });
         const rows = [
-          mkRow('5v5 RAPM',          ev5Comp, true),
-          mkRow('PP RAPM',           ppComp,  false),
-          mkRow('PK RAPM',           pkComp,  false),
-          mkRow('Pen. Differential', penComp, false),
-        ].filter(r => wc != null || r.label === '5v5 RAPM');
+          mkRow('EV5 RAPM',          ev5RapmComp, true),
+          mkRow('Finishing',         finishComp,  false),
+          mkRow('PP RAPM',           ppComp,      false),
+          mkRow('PK RAPM',           pkComp,      false),
+          mkRow('Pen. Differential', penComp,     false),
+        ].filter(r => wc != null || r.label === 'EV5 RAPM');
         return (
           <div class="card">
             <div class="card-head">
@@ -1041,8 +1053,11 @@ const gameLogColumns = [
     team:        player.team_abbrev,
     gp:          player.gp,
     toiAvgSec:   player.toi_avg_sec,
-    war:           player.war,
-    warPct:        warPct,
+    war:                    player.war,
+    warPct:                 warPct,
+    hgb_rating:             player.hgb_rating ?? null,
+    hgb_rating_percentile:  player.hgb_rating_percentile ?? null,
+    hgb_rating_confidence:  player.hgb_rating_confidence ?? 'full',
     impact:        player.avg_gs_centered,
     impactPct:     player.percentiles_vs_pos.game_score,
     avgGsDisplay:  player.avg_gs_display,
@@ -1235,30 +1250,41 @@ const gameLogColumns = [
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
 
-      // 2 hero stats to the right of headshot
+      // 3 hero stats to the right of headshot: Rating | WAR | Game Impact
       const statX = HS_CX + R + 16;
-      const statW = (W - statX - PAD) / 2;
+      const statW = (W - statX - PAD) / 3;
+      const ratingPctVal = D.hgb_rating_percentile ?? null;
+      const ratingRawStr = D.hgb_rating != null
+        ? (D.hgb_rating > 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating'
+        : '—';
+      const ratingConfStr = (D.hgb_rating_confidence === 'limited' || D.hgb_rating_confidence === 'limited_sample') ? ' limited sample' : '';
       const warPctVal  = D.warPct  ?? Math.round(D.impactPct);
       const impPctVal  = Math.round(D.impactPct);
       const warRawStr  = D.war != null ? D.war.toFixed(2) + ' WAR' : '—';
-      const gsAvgStr   = D.avgGsDisplay != null ? D.avgGsDisplay.toFixed(2) + ' GS avg' : '—';
+      const gsAvgStr   = D.avgGsDisplay != null ? D.avgGsDisplay.toFixed(2) + ' avg' : '—';
       const heroStats  = [
-        { label: 'HGB WAR',    big: warPctVal + '%',  small: warRawStr,  color: TEAM_C },
-        { label: 'HGB IMPACT', big: impPctVal + '%',  small: gsAvgStr,   color: INK   },
+        { label: 'HGB RATING',      big: ratingPctVal != null ? ratingPctVal + '%' : '—', small: ratingRawStr, small2: ratingConfStr, color: TEAM_C },
+        { label: 'HGB WAR',         big: warPctVal + '%',                                 small: warRawStr,    small2: '',            color: TEAM_C },
+        { label: 'HGB GAME IMPACT', big: impPctVal + '%',                                 small: gsAvgStr,     small2: '',            color: INK   },
       ];
       for (let i = 0; i < heroStats.length; i++) {
         const s  = heroStats[i];
         const sx = statX + i * statW + statW / 2;
         if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(statX + i * statW, y + 14, 1, HERO_H - 28); }
-        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.font = '700 8px "Barlow Condensed", sans-serif';
         ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText(s.label, sx, y + 16);
-        ctx.font = '800 30px "Barlow Condensed", sans-serif';
+        ctx.fillText(s.label, sx, y + 14);
+        ctx.font = '800 26px "Barlow Condensed", sans-serif';
         ctx.fillStyle = s.color; ctx.textBaseline = 'top';
-        ctx.fillText(s.big, sx, y + 28);
-        ctx.font = '800 16px "Barlow Condensed", sans-serif';
+        ctx.fillText(s.big, sx, y + 26);
+        ctx.font = '800 11px "Barlow Condensed", sans-serif';
         ctx.fillStyle = INK48; ctx.textBaseline = 'top';
-        ctx.fillText(s.small, sx, y + 63);
+        ctx.fillText(s.small, sx, y + 58);
+        if (s.small2) {
+          ctx.font = '700 8px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+          ctx.fillText(s.small2, sx, y + 72);
+        }
       }
       y += HERO_H;
 
