@@ -135,6 +135,7 @@ Full plan: `docs/plans/stats-redesign.md`
 
 ## Completed
 
+- [x] **Chips/Pills/Badges migration** (2026-05-28, `docs/plans/chips-migration-workflow.mjs`) — migrated all hand-rolled `.btn-group`/status-span/badge UI to the shared `ChipGroup`/`StatusPill`/`Badge` components per `hgb-docs/CHIPS.md`. 21 candidates audited → 11 correctly skipped as out-of-scope (§10), 10 migrated: `stats/{skaters,goalies,lines,interactive,index,player/[slug]}.astro`, `index.astro`, `games/index.astro`, `scoreboard.astro`, `components/home/LiveHero.astro`. Consolidated the drifted pulse keyframes (`pulse-bg`/`pulse-dot`/`ringPulse`) into the component-owned `hgb-status-pulse`. JS-`innerHTML` status indicators emit the global `.status-pill`/`data-state` markup primed by an SSR component instance. Clean build = 5242 pages (unchanged). NOTE: light/dark visual sign-off still pending (all CSS uses tokens, should flip automatically). Out-of-scope leftovers flagged for a later pass: `stats/lines` & `interactive` `.pos-badge` (owned by Table.astro), `player/[slug]` dead `.badge`/`.hero-*` CSS, `scoreboard`/`LiveHero` per-strength color coding collapsed to `matchup`/`default` (no blue/amber/green Badge kinds exist).
 - [x] `/playoffs/2026` modal: color overrides for red/red (OTT→gold #C2912C) and orange/orange (ANA→gold #FCD116) matchups
 - [x] `/playoffs/2026` modal: a11y focus-on-open, telemetry bullet removal, unit spacing fix
 - [x] `/playoffs/2026` modal: consolidate game-times + series-status into one carousel fetch

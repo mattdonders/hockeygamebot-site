@@ -4,6 +4,8 @@ import Nav from '../components/Nav.astro';
 import ThemeScript from '../components/ThemeScript.astro';
 import Fonts from '../components/Fonts.astro';
 import GameModal from '../components/GameModal.astro';
+import StatusPill from '../components/StatusPill.astro';
+import Badge from '../components/Badge.astro';
 
 type PlayoffSnap = {
   series_id: string;
@@ -70,6 +72,11 @@ try {
   --orange: #c2410c;
   --blue: #1d4ed8;
   --cyan: #0284c7;
+  --status-live: #00E5FF;
+  --status-final: var(--ink-48);
+  --status-ot: #FF9800;
+  --status-scheduled: var(--ink-48);
+  --status-goal: #00E676;
   --display: "Barlow Condensed", sans-serif;
   --body: "Barlow", sans-serif;
   --mono: "JetBrains Mono", monospace;
@@ -169,7 +176,7 @@ img { display: block; max-width: 100%; }
 .gg-13r-right .hc-score-center { min-width: 88px !important; gap: 4px !important; }
 .gg-13r-right .hc-sb-row { gap: 4px !important; }
 .gg-13r-right .hc-star-name { font-size: 10px !important; }
-.gg-13r-right .hc-status    { font-size: 12px !important; }
+.gg-13r-right .status-pill  { font-size: 11px !important; }
 .gg-15r .hc-logo { width: 60px !important; height: 60px !important; }
 .gg-15r .hc-abbr { font-size: 24px !important; }
 .gg-15r .hc-n    { font-size: 50px !important; }
@@ -177,7 +184,7 @@ img { display: block; max-width: 100%; }
 .gg-15r .hc-score-center { min-width: 92px !important; gap: 4px !important; }
 .gg-15r .hc-sb-row { gap: 4px !important; }
 .gg-15r .hc-star-name { font-size: 10px !important; }
-.gg-15r .hc-status    { font-size: 13px !important; }
+.gg-15r .status-pill  { font-size: 12px !important; }
 .hcard.compact .hc-last { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── HERO CARD ── */
@@ -224,30 +231,10 @@ img { display: block; max-width: 100%; }
 /* ── CARD SUB-ELEMENTS ── */
 .hc-accent { width: 100%; }
 .hc-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 0; position: relative; z-index: 2; }
-.hc-status { font-family: var(--display); font-size: clamp(13px, 1.2vw, 17px); font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; gap: 8px; color: var(--ink-48); }
-.hc-status.live { color: var(--cyan); }
-.hc-status.final { color: var(--ink-32); }
-.hc-status.ot { color: var(--orange); }
-.hc-status.scheduled { color: var(--ink-48); }
-.hc-status.intermission { color: var(--blue); }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); position: relative; flex-shrink: 0; }
-.status-dot::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; border: 1.5px solid var(--cyan); animation: ringPulse 1.8s ease-out infinite; }
-.hc-status.final .status-dot { background: var(--ink-32); }
-.hc-status.final .status-dot::after,
-.hc-status.scheduled .status-dot::after { display: none; }
-.hc-status.scheduled .status-dot { background: var(--ink-32); }
-.hc-status.intermission .status-dot { background: var(--blue); }
-.hc-status.intermission .status-dot::after { display: none; }
-@keyframes ringPulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.9); opacity: 0; } }
+/* Game-state pill (.status-pill) and category badges (.cat-badge) now come from
+   the canonical StatusPill.astro / Badge.astro components — their is:global CSS
+   is bundled via the hidden static instances in <body>. See hgb-docs/CHIPS.md. */
 .hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
-.badge { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 0; border: 1px solid; display: inline-flex; align-items: center; line-height: 1; }
-.badge.pp   { color: #92400e; border-color: rgba(146,64,14,0.3); background: rgba(146,64,14,0.07); }
-.badge.pk   { color: var(--red); border-color: rgba(232,0,45,0.3); background: rgba(232,0,45,0.06); }
-.badge.adv  { color: #166534; border-color: rgba(22,101,52,0.3); background: rgba(22,101,52,0.06); }
-.badge.en   { color: #c2410c; border-color: rgba(194,65,12,0.3); background: rgba(194,65,12,0.07); }
-.badge.hot  { color: #c2410c; border-color: rgba(194,65,12,0.3); background: rgba(194,65,12,0.06); }
-.badge.close{ color: var(--red); border-color: rgba(232,0,45,0.3); background: rgba(232,0,45,0.05); }
-.badge.ot   { color: #c2410c; border-color: rgba(194,65,12,0.35); background: rgba(194,65,12,0.08); }
 
 /* ── WIN PROBABILITY TEXT ── */
 .hc-wp-text { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 2px; }
@@ -429,6 +416,23 @@ img { display: block; max-width: 100%; }
 <body>
 
 <div id="catchup-pill">CATCHING UP TO LIVE…</div>
+
+{/* Cards/badges/status pills on this page are built at runtime in JS template
+    literals (innerHTML), so the StatusPill/Badge components can't be invoked
+    per-card. We render one hidden instance of each here so Astro bundles their
+    canonical `is:global` CSS onto the page; the JS builders below emit the same
+    `.status-pill`/`.cat-badge` markup the components produce. */}
+<div hidden aria-hidden="true">
+  <StatusPill state="live" />
+  <StatusPill state="final" />
+  <StatusPill state="ot" />
+  <StatusPill state="pre" />
+  <StatusPill state="intermission" />
+  <Badge kind="ot" label="ot" />
+  <Badge kind="cold" label="cold" />
+  <Badge kind="hot" label="hot" />
+  <Badge kind="matchup" label="matchup" />
+</div>
 
 <Nav currentPath={Astro.url.pathname} />
 
@@ -865,10 +869,44 @@ function buildStatBarHtml(label, awayVal, homeVal, awayColor, homeColor) {
   </div>`;
 }
 
+// Maps the buildBadgesFromGame() prefix tokens to canonical Badge kinds
+// (CHIPS.md §4). Strength-state badges (pp/pk/adv/en) use the documented
+// `matchup` kind for strength line items; close/tied uses `cold` (red tint).
+const BADGE_KIND = {
+  ot: 'ot',
+  close: 'cold',
+  hot: 'hot',
+  pp: 'matchup',
+  pk: 'matchup',
+  adv: 'matchup',
+  en: 'matchup',
+};
+
+// Emits canonical StatusPill markup (.status-pill[data-state] + .dot) for the
+// hero card header. The component CSS is bundled via the hidden static StatusPill
+// instances in <body>. See hgb-docs/CHIPS.md §3.
+function buildStatusPillHtml(card) {
+  let state, label;
+  if (card.isFinal) {
+    state = 'final'; label = 'FINAL';
+  } else if (card.isScheduled) {
+    state = 'pre'; label = formatStartTime(card.startTime);
+  } else if (card.inIntermission) {
+    const intClock = card.clock && card.clock !== '--:--' ? ` · ${card.clock}` : '';
+    state = 'intermission'; label = `${periodLabel(card.period, card.isOT)} INT${intClock}`;
+  } else {
+    state = card.isOT ? 'ot' : 'live';
+    label = `${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+  }
+  return `<span class="status-pill" data-state="${state}"><span class="dot" aria-hidden="true"></span>${label}</span>`;
+}
+
 function buildBadgesHtml(badges) {
   return (badges || []).map(b => {
-    const [cls, ...rest] = b.split(':');
-    return `<span class="badge ${cls}">${rest.join(':')}</span>`;
+    const [token, ...rest] = b.split(':');
+    const kind = BADGE_KIND[token] || 'default';
+    const cls = kind === 'default' ? 'cat-badge' : `cat-badge cat-badge--${kind}`;
+    return `<span class="${cls}">${rest.join(':')}</span>`;
   }).join('');
 }
 
@@ -877,21 +915,7 @@ function buildCardInner(card, washData) {
   const ac = scoreClass(card.awayScore, card.homeScore);
   const hc = scoreClass(card.homeScore, card.awayScore);
 
-  let statusClass, statusHtml;
-  if (card.isFinal) {
-    statusClass = 'final';
-    statusHtml = `<div class="status-dot"></div> FINAL`;
-  } else if (card.isScheduled) {
-    statusClass = 'scheduled';
-    statusHtml = `<div class="status-dot"></div> ${formatStartTime(card.startTime)}`;
-  } else if (card.inIntermission) {
-    statusClass = 'intermission';
-    const intClock = card.clock && card.clock !== '--:--' ? ` · ${card.clock}` : '';
-    statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} INT${intClock}`;
-  } else {
-    statusClass = card.isOT ? 'ot' : 'live';
-    statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
-  }
+  const statusHtml = buildStatusPillHtml(card);
 
 
   const washHtml = washData ? `
@@ -911,7 +935,7 @@ function buildCardInner(card, washData) {
     ${debugChip}
     <div class="hc-accent" style="${buildAccentStyle(card)}"></div>
     <div class="hc-head">
-      <div class="hc-status ${statusClass}">${statusHtml}</div>
+      ${statusHtml}
       <div class="hc-badges">
         ${buildBadgesHtml(card.badges)}
       </div>
@@ -1339,25 +1363,9 @@ function updateCardInPlace(slotIndex, card) {
   if (logos[0]) logos[0].className = `hc-logo ${card.isFinal && ac==='trail' ? 'dim' : ''}`;
   if (logos[1]) logos[1].className = `hc-logo ${card.isFinal && hc==='trail' ? 'dim' : ''}`;
 
-  // Status
-  const statusEl = el.querySelector('.hc-status');
-  if (statusEl) {
-    let statusClass, statusHtml;
-    if (card.isFinal) {
-      statusClass = 'final'; statusHtml = `<div class="status-dot"></div> FINAL`;
-    } else if (card.isScheduled) {
-      statusClass = 'scheduled'; statusHtml = `<div class="status-dot"></div> ${formatStartTime(card.startTime)}`;
-    } else if (card.inIntermission) {
-      statusClass = 'intermission';
-      const intClock = card.clock && card.clock !== '--:--' ? ` · ${card.clock}` : '';
-      statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} INT${intClock}`;
-    } else {
-      statusClass = card.isOT ? 'ot' : 'live';
-      statusHtml = `<div class="status-dot"></div> ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
-    }
-    statusEl.className = `hc-status ${statusClass}`;
-    statusEl.innerHTML = statusHtml;
-  }
+  // Status — replace the canonical .status-pill in place (matches buildCardInner)
+  const statusEl = el.querySelector('.status-pill');
+  if (statusEl) statusEl.outerHTML = buildStatusPillHtml(card);
 
   // Badges
   const badgesEl = el.querySelector('.hc-badges');

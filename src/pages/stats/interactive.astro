@@ -5,6 +5,8 @@ import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
 import Table from '../../components/Table.astro';
+import ChipGroup from '../../components/ChipGroup.astro';
+import Badge from '../../components/Badge.astro';
 
 // Empty SSR rows — client fetch fills via tbl:rows-changed.
 const columns = [
@@ -114,13 +116,9 @@ img { display: block; max-width: 100%; }
   text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em;
   color: var(--ink); margin-bottom: 14px; display: flex; align-items: center; gap: 16px;
 }
+/* Layout-only override for the masthead Beta badge (visual styling now
+   owned by Badge.astro / .cat-badge). */
 .beta-pill {
-  display: inline-flex; align-items: center;
-  background: var(--red); color: #fff;
-  font-family: var(--display); font-weight: 700;
-  font-size: 11px; letter-spacing: 0.18em;
-  text-transform: uppercase; padding: 3px 9px;
-  line-height: 1; vertical-align: middle;
   transform: translateY(-4px);
   flex-shrink: 0;
 }
@@ -175,18 +173,6 @@ img { display: block; max-width: 100%; }
   display: flex; align-items: center; gap: 10px;
   flex-wrap: wrap; margin-bottom: 12px;
 }
-.btn-group { display: inline-flex; border: 1px solid var(--ink-14); }
-.btn-group button {
-  background: var(--surface); border: none; border-right: 1px solid var(--ink-14);
-  padding: 6px 14px; cursor: pointer;
-  font-family: var(--body); font-weight: 600; font-size: 11.5px;
-  letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--ink-48); transition: background 0.1s, color 0.1s;
-}
-.btn-group button:last-child { border-right: none; }
-.btn-group button.active { background: var(--ink); color: var(--bg); }
-.btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
-
 .search-wrap {
   display: inline-flex; align-items: center;
   border: 1px solid var(--ink-14); background: var(--surface);
@@ -298,7 +284,7 @@ img { display: block; max-width: 100%; }
     <div class="mast-card">
       <h1 class="mast-headline">
         Interactive Analytics
-        <span class="beta-pill">Beta</span>
+        <Badge kind="red" label="Beta" className="beta-pill" />
       </h1>
       <p class="mast-lede">
         2025–26 season · Sortable leaderboard table and scatter plot ·
@@ -331,11 +317,15 @@ img { display: block; max-width: 100%; }
       </p>
 
       <div class="controls">
-        <div class="btn-group" id="tbl-pos-filter">
-          <button class="active" data-pos="all">All</button>
-          <button data-pos="F">Forwards</button>
-          <button data-pos="D">Defense</button>
-        </div>
+        <ChipGroup
+          id="tbl-pos-filter"
+          name="pos"
+          items={[
+            { label: 'All',      value: 'all', active: true },
+            { label: 'Forwards', value: 'F',   active: false },
+            { label: 'Defense',  value: 'D',   active: false },
+          ]}
+        />
         <div class="search-wrap">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
@@ -371,11 +361,15 @@ img { display: block; max-width: 100%; }
       </p>
 
       <div class="scatter-controls">
-        <div class="btn-group" id="scatter-pos-filter">
-          <button class="active" data-pos="all">All</button>
-          <button data-pos="F">Forwards</button>
-          <button data-pos="D">Defense</button>
-        </div>
+        <ChipGroup
+          id="scatter-pos-filter"
+          name="pos"
+          items={[
+            { label: 'All',      value: 'all', active: true },
+            { label: 'Forwards', value: 'F',   active: false },
+            { label: 'Defense',  value: 'D',   active: false },
+          ]}
+        />
       </div>
 
       <div class="scatter-wrap">
@@ -695,15 +689,21 @@ img { display: block; max-width: 100%; }
     // Column sort is delegated to Table.astro now — clicks on headers fire
     // the component's built-in 3-state cycle (desc → asc → unsorted).
 
-    // Table pos filter
-    document.querySelectorAll('#tbl-pos-filter button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#tbl-pos-filter button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        tblPosFilter = btn.dataset.pos;
+    // Position filters (ChipGroup) — both groups use name="pos", so route by
+    // container id. ChipGroup owns the .active visual state; we only react to
+    // the emitted chip:changed event to drive the data filter.
+    document.addEventListener('chip:changed', e => {
+      if (e.detail.name !== 'pos') return;
+      const groupId = e.target && e.target.id;
+      const value = e.detail.value;
+      if (groupId === 'tbl-pos-filter') {
+        tblPosFilter = value;
         showAll = false;
         renderTable();
-      });
+      } else if (groupId === 'scatter-pos-filter') {
+        scatterPosFilter = value;
+        renderScatter();
+      }
     });
 
     // Search
@@ -718,16 +718,6 @@ img { display: block; max-width: 100%; }
       showAll = true;
       document.getElementById('tbl-more-row').style.display = 'none';
       renderTable();
-    });
-
-    // Scatter pos filter
-    document.querySelectorAll('#scatter-pos-filter button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#scatter-pos-filter button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        scatterPosFilter = btn.dataset.pos;
-        renderScatter();
-      });
     });
 
     // Chart.js handles canvas resize natively via maintainAspectRatio: false

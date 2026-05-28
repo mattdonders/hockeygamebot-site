@@ -25,7 +25,7 @@
  *     the footer entirely.
  *
  * Structure:
- *   1. lh-head — LIVE cyan badge (ringPulse) + period/clock +
+ *   1. lh-head — LIVE StatusPill (cyan, pulsing) + period/clock +
  *                right-aligned meta chip group (state chip FIRST, then
  *                broadcast/series chips).
  *   2. lh-body 1.2fr / 1fr grid:
@@ -136,6 +136,8 @@ export interface FeaturedGame {
 
 import ShootoutTracker from './ShootoutTracker.astro';
 import TeamLogo from './TeamLogo.astro';
+import StatusPill from '../StatusPill.astro';
+import Badge from '../Badge.astro';
 
 interface Props {
   game: FeaturedGame;
@@ -215,11 +217,16 @@ function fmtClock(): string {
  * chip group). 5v5 and unset both suppress the chip entirely — the
  * user's eye shouldn't have to parse a "5v5 is normal" chip.
  *
- * Returned `colorVar` + `tintVar` are used for inline CSS variable
- * overrides; a single `.chip.state-chip` rule consumes them for border,
- * text, and background-tint.
+ * Returned `kind` maps to a canonical <Badge> kind (CHIPS.md §4):
+ *   PP        → live  (cyan — advantage energy)
+ *   EN        → ot    (orange — high-stakes)
+ *   SO        → red   (HGB brand red)
+ *   4v4 / 3v3 → default (outlined; no canonical blue Badge kind exists)
  */
-type StateChip = { text: string; colorVar: string; tintVar: string } | null;
+type BadgeKind =
+  | 'default' | 'solid' | 'red' | 'hot' | 'cold'
+  | 'ot' | 'live' | 'final' | 'mile' | 'matchup';
+type StateChip = { text: string; kind: BadgeKind } | null;
 function resolveStrengthChip(s?: StrengthState | null): StateChip {
   if (!s) return null;
   const state = (s.state || '').toUpperCase();
@@ -229,27 +236,21 @@ function resolveStrengthChip(s?: StrengthState | null): StateChip {
   const parts = [s.team, state, s.clock].filter(Boolean);
   const text = parts.join(' ');
 
-  // Color rules (per SITE-HOME-016 spec):
-  //   PP             → cyan (--status-live)     advantage energy
-  //   EN             → orange (--status-ot)     high-stakes
-  //   4v4 / 3v3      → blue (--status-intermission)
-  //   SO             → red (--hgb-red)
-  // tintVar is a 5%-alpha rgba of the same hue — subtle readability boost
-  // without the chip screaming at the rest of the meta strip.
-  let colorVar = 'var(--status-live)';
-  let tintVar = 'rgba(0, 229, 255, 0.05)';
+  // Kind rules (per SITE-HOME-016 spec, mapped to Badge kinds):
+  //   PP             → live (cyan)      advantage energy
+  //   EN             → ot (orange)      high-stakes
+  //   4v4 / 3v3      → default          (no blue Badge kind in CHIPS.md)
+  //   SO             → red
+  let kind: BadgeKind = 'live';
   if (state === 'EN') {
-    colorVar = 'var(--status-ot)';
-    tintVar = 'rgba(255, 152, 0, 0.05)';
+    kind = 'ot';
   } else if (state === '4V4' || state === '3V3') {
-    colorVar = 'var(--status-intermission)';
-    tintVar = 'rgba(96, 165, 250, 0.05)';
+    kind = 'default';
   } else if (state === 'SO') {
-    colorVar = 'var(--hgb-red)';
-    tintVar = 'rgba(232, 0, 45, 0.05)';
+    kind = 'red';
   }
 
-  return { text, colorVar, tintVar };
+  return { text, kind };
 }
 const stateChip = resolveStrengthChip(game.strength_state);
 
@@ -312,21 +313,13 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
 
   <!-- head row -->
   <div class="lh-head">
-    <div class="badge">
-      <span class="dot" aria-hidden="true"></span>
-      <span>{fmtClock()}</span>
-    </div>
+    <StatusPill state="live" label={fmtClock()} dot />
     <div class="meta">
       {stateChip && (
-        <span
-          class="chip state-chip"
-          style={`--sc-color:${stateChip.colorVar};--sc-tint:${stateChip.tintVar};`}
-        >
-          {stateChip.text}
-        </span>
+        <Badge kind={stateChip.kind} label={stateChip.text} />
       )}
       {game.meta_chips.map((chip) => (
-        <span class="chip">{chip}</span>
+        <Badge kind="default" label={chip} />
       ))}
     </div>
   </div>
@@ -592,33 +585,6 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
     flex-wrap: wrap;
   }
 
-  .badge {
-    color: var(--status-live);
-    font-family: var(--font-site-body);
-    font-weight: 700;
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .badge .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--status-live);
-    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
-    animation: ringPulse 1.8s ease-out infinite;
-  }
-
-  @keyframes ringPulse {
-    0%   { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55); }
-    70%  { box-shadow: 0 0 0 10px rgba(0, 229, 255, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
-  }
-
   .meta {
     color: #666;
     font-family: var(--font-site-body);
@@ -629,22 +595,6 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
     display: flex;
     gap: 14px;
     flex-wrap: wrap;
-  }
-
-  .chip {
-    border: 1px solid var(--site-border2);
-    padding: 3px 8px;
-    border-radius: var(--radius-sm);
-    color: #bbb;
-  }
-
-  /* State chip (first in meta group) — color-coded per state type via
-     per-chip CSS variable overrides. 5v5 suppresses rendering upstream. */
-  .chip.state-chip {
-    border-color: var(--sc-color, var(--status-live));
-    color: var(--sc-color, var(--status-live));
-    background: var(--sc-tint, transparent);
-    font-weight: 700;
   }
 
   /* ── body layout ──────────────────────────────────────────────── */
@@ -976,8 +926,8 @@ const earlierCount = Math.max(0, allFeedRows.length - visibleFeedRows.length);
     height: 6px;
     border-radius: 999px;
     background: var(--status-live);
-    box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.55);
-    animation: ringPulse 1.8s ease-out infinite;
+    color: var(--status-live);
+    animation: hgb-status-pulse 1.8s ease-out infinite;
     flex: none;
   }
 
