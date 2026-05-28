@@ -352,11 +352,11 @@ const gameLogColumns = [
     /* Percentile bars */
     .pct-row { display: grid; grid-template-columns: 100px 72px 1fr 44px; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--ink-06); }
     .pct-row:last-child { border-bottom: 0; }
-    .pct-label { font-family: var(--body); font-weight: 600; font-size: 12px; color: var(--ink); }
+    .pct-label { font-family: var(--body); font-weight: 500; font-size: 13px; color: var(--ink-48); }
     .pct-rate { font-family: var(--mono); font-size: 10px; color: var(--ink-32); text-align: right; font-variant-numeric: tabular-nums; }
     .pct-track { height: 10px; background: var(--ink-06); border-radius: 2px; overflow: hidden; }
     .pct-fill { height: 100%; border-radius: 2px; }
-    .pct-pct { font-family: var(--display); font-weight: 800; font-size: 18px; text-align: right; font-variant-numeric: tabular-nums; }
+    .pct-pct { font-family: var(--mono); font-weight: 700; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
 
     /* RAPM grid */
     .rapm-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; }
@@ -565,7 +565,7 @@ const gameLogColumns = [
       .pct-row { grid-template-columns: 76px 36px 1fr 36px; gap: 5px; padding: 8px 12px; }
       .pct-label { font-size: 11px; }
       .pct-rate { font-size: 9px; }
-      .pct-pct { font-size: 16px; }
+      .pct-pct { font-size: 11px; }
       .content { padding: 16px 0 48px; }
       /* WAR breakdown: tighter label column */
       .war-row { grid-template-columns: 90px 1fr 44px; gap: 8px; padding: 9px 12px; }
@@ -788,51 +788,107 @@ const gameLogColumns = [
         </div>
       )}
 
-      <!-- PERCENTILE PROFILE -->
-      <div class="card" id="pct-profile-card">
-        <div class="card-head">
-          <span class="card-eyebrow" id="pct-eyebrow">Percentile profile &nbsp;<span class="accent">vs. {posPlural}</span></span>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div class="btn-group" id="pct-mode-filter">
-              <button class="active" data-pct-mode="season">Season</button>
-              <button data-pct-mode="rating">Rating</button>
-            </div>
-            <span class="card-meta" id="pct-card-meta">min 20 GP · 2025–26</span>
-          </div>
-        </div>
-        <div class="pct-rows">
-          {pctBars.map(bar => {
-            const rate = player.rates_per_60[bar.key as keyof typeof player.rates_per_60] as number | undefined;
-            const tierC = bar.val >= 75
-              ? (bar.key === 'ev_defence' ? '#4285f4' : '#137333')
-              : bar.val >= 50
-                ? (bar.key === 'ev_defence' ? '#7baaf7' : '#34a853')
-                : bar.val >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
-            const isEvOff = bar.key === 'ev_offence';
-            const isEvDef = bar.key === 'ev_defence';
-            const ratingVal = isEvOff
-              ? (player.hgb_rating_off_pct ?? null)
-              : isEvDef
-                ? (player.hgb_rating_def_pct ?? null)
-                : null;
-            return (
-              <div class="pct-row"
-                data-bar-key={bar.key}
-                data-season-val={bar.val.toFixed(1)}
-                data-rating-val={ratingVal != null ? ratingVal.toFixed(1) : ''}
-                data-is-blue={bar.key === 'ev_defence' ? 'true' : 'false'}
-              >
-                <span class="pct-label">{bar.label}</span>
-                <span class="pct-rate">{rate != null ? rate.toFixed(2) : '—'}</span>
-                <div class="pct-track">
-                  <div class="pct-fill" style={`width:${bar.val.toFixed(1)}%;background:${tierC}`}></div>
+      <!-- RAPM PROFILE (2 bars, SEASON / RATING toggle) -->
+      {(() => {
+        const rapmBars = [
+          {
+            label: 'EV Offense',
+            key: 'ev_offence',
+            val: player.percentiles_vs_pos.ev_offence,
+            ratingVal: player.hgb_rating_off_pct ?? null,
+            grad: 'linear-gradient(90deg,#c8e6d0,#137333)',
+            isBlue: false,
+          },
+          {
+            label: 'EV Defense',
+            key: 'ev_defence',
+            val: player.percentiles_vs_pos.ev_defence,
+            ratingVal: player.hgb_rating_def_pct ?? null,
+            grad: 'linear-gradient(90deg,#e8f0fe,#4285f4)',
+            isBlue: true,
+          },
+        ];
+        return (
+          <div class="card" id="pct-rapm-card">
+            <div class="card-head">
+              <span class="card-eyebrow">RAPM Profile &nbsp;<span class="accent">vs. {posPlural}</span></span>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div class="btn-group" id="rapm-mode-filter">
+                  <button class="active" data-rapm-mode="season">Season</button>
+                  <button data-rapm-mode="rating">Rating · 3yr</button>
                 </div>
-                <span class="pct-pct" style={`color:${tierC}`}>{Math.round(bar.val)}%</span>
+                <span class="card-meta" id="rapm-card-meta">min 200 min · 2025–26</span>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            </div>
+            <div class="pct-rows">
+              {rapmBars.map(bar => {
+                const tierC = bar.val >= 75
+                  ? (bar.isBlue ? '#4285f4' : '#137333')
+                  : bar.val >= 50
+                    ? (bar.isBlue ? '#7baaf7' : '#34a853')
+                    : bar.val >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
+                return (
+                  <div class="pct-row"
+                    data-bar-key={bar.key}
+                    data-season-val={bar.val.toFixed(1)}
+                    data-rating-val={bar.ratingVal != null ? bar.ratingVal.toFixed(1) : ''}
+                    data-is-blue={bar.isBlue ? 'true' : 'false'}
+                  >
+                    <span class="pct-label"><span class="rapm-bar-base-label">{bar.label}</span><span class="rapm-bar-3yr-suffix" style="display:none;font-size:10px;font-weight:400;color:var(--ink-32);margin-left:4px;">· 3yr</span></span>
+                    <span class="pct-rate"></span>
+                    <div class="pct-track">
+                      <div class="pct-fill" style={`width:${bar.val.toFixed(1)}%;background:${tierC}`}></div>
+                    </div>
+                    <span class="pct-pct" style={`color:${tierC}`}>{Math.round(bar.val)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      <!-- RATE STATS PROFILE (8 bars, no toggle) -->
+      {(() => {
+        const rateBars = [
+          { label: 'Goals / 60', key: 'goals',     val: player.percentiles_vs_pos.goals,      isBlue: false, isRed: false },
+          { label: 'A1 / 60',    key: 'a1',        val: player.percentiles_vs_pos.a1,         isBlue: false, isRed: false },
+          { label: 'xG / 60',    key: 'ixg',       val: player.percentiles_vs_pos.ixg,        isBlue: false, isRed: false },
+          { label: 'Finishing',  key: 'finishing',  val: player.percentiles_vs_pos.finishing,  isBlue: false, isRed: false },
+          { label: 'Shots / 60', key: 'shots',     val: player.percentiles_vs_pos.shots,      isBlue: false, isRed: false },
+          { label: 'Pen. Diff',  key: 'pen_diff',  val: player.percentiles_vs_pos.pen_diff,   isBlue: false, isRed: false },
+          ...(player.qoc != null ? [{ label: 'Opp. Quality', key: 'qoc', val: player.qoc, isBlue: false, isRed: true }] : []),
+          ...(player.qot != null ? [{ label: 'Mate Quality', key: 'qot', val: player.qot, isBlue: true,  isRed: false }] : []),
+        ];
+        return (
+          <div class="card" id="pct-rate-card" style="margin-top:24px">
+            <div class="card-head">
+              <span class="card-eyebrow">Rate Stats &nbsp;<span class="accent">vs. {posPlural}</span></span>
+              <span class="card-meta">min 20 GP · 2025–26</span>
+            </div>
+            <div class="pct-rows">
+              {rateBars.map(bar => {
+                const rate = player.rates_per_60[bar.key as keyof typeof player.rates_per_60] as number | undefined;
+                const tierC = bar.val >= 75
+                  ? (bar.isBlue ? '#4285f4' : bar.isRed ? '#842029' : '#137333')
+                  : bar.val >= 50
+                    ? (bar.isBlue ? '#7baaf7' : bar.isRed ? '#c03244' : '#34a853')
+                    : bar.val >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
+                return (
+                  <div class="pct-row">
+                    <span class="pct-label">{bar.label}</span>
+                    <span class="pct-rate">{rate != null ? rate.toFixed(2) : '—'}</span>
+                    <div class="pct-track">
+                      <div class="pct-fill" style={`width:${bar.val.toFixed(1)}%;background:${tierC}`}></div>
+                    </div>
+                    <span class="pct-pct" style={`color:${tierC}`}>{Math.round(bar.val)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       <!-- SHOT MAP -->
       {shotMapSVG && (
@@ -2509,7 +2565,9 @@ const gameLogColumns = [
     });
   })();
 
-  // ── Percentile profile SEASON / RATING toggle ───────────────────────────
+  // ── RAPM Profile SEASON / RATING toggle (Table 1 only) ─────────────────
+  // Only EV Offense and EV Defense bars are toggled. Rate Stats table is
+  // always single-season and is never touched by this code.
   (function() {
     function tierColor(val, isBlue) {
       if (val >= 75) return isBlue ? '#4285f4' : '#137333';
@@ -2518,61 +2576,44 @@ const gameLogColumns = [
       return '#E8002D';
     }
 
-    function applyPctMode(mode) {
+    function applyRapmMode(mode) {
       const isRating = mode === 'rating';
 
-      // Update toggle buttons
-      document.querySelectorAll('#pct-mode-filter button').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.pctMode === mode);
+      // Update toggle buttons in RAPM card only
+      document.querySelectorAll('#rapm-mode-filter button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.rapmMode === mode);
       });
 
-      // Update eyebrow and meta text
-      const eyebrow = document.getElementById('pct-eyebrow');
-      const meta    = document.getElementById('pct-card-meta');
-      if (isRating) {
-        if (eyebrow) eyebrow.innerHTML = 'Percentile profile &nbsp;<span class="accent">vs. defensemen · 3-yr weighted</span>';
-        if (meta)    meta.textContent  = 'Prior-informed · 3-yr weighted';
-      } else {
-        if (eyebrow) eyebrow.innerHTML = 'Percentile profile &nbsp;<span class="accent">vs. defensemen</span>';
-        if (meta)    meta.textContent  = 'min 20 GP · 2025–26';
-      }
+      // Update meta text (right side of RAPM card header)
+      const meta = document.getElementById('rapm-card-meta');
+      if (meta) meta.textContent = isRating
+        ? 'Prior-informed · 3-yr weighted'
+        : 'min 200 min · 2025–26';
 
-      // Update each bar row
-      document.querySelectorAll('#pct-profile-card .pct-row').forEach(row => {
-        const key        = row.dataset.barKey;
-        const isBlue     = row.dataset.isBlue === 'true';
-        const seasonVal  = parseFloat(row.dataset.seasonVal ?? '0');
-        const ratingRaw  = row.dataset.ratingVal;
-        const hasRating  = ratingRaw !== '' && ratingRaw != null;
-        const isRatingBar = (key === 'ev_offence' || key === 'ev_defence');
+      // Update each bar row in the RAPM card only
+      document.querySelectorAll('#pct-rapm-card .pct-row').forEach(row => {
+        const isBlue    = row.dataset.isBlue === 'true';
+        const seasonVal = parseFloat(row.dataset.seasonVal ?? '0');
+        const ratingRaw = row.dataset.ratingVal;
+        const hasRating = ratingRaw !== '' && ratingRaw != null;
 
-        let val, labelText;
-        if (isRating && isRatingBar) {
-          val = hasRating ? parseFloat(ratingRaw) : null;
-          const baseLabel = key === 'ev_offence' ? 'EV Offense' : 'EV Defense';
-          labelText = baseLabel + ' · 3yr';
-        } else {
-          val = seasonVal;
-          labelText = key === 'ev_offence' ? 'EV Offense'
-                    : key === 'ev_defence' ? 'EV Defense'
-                    : null; // non-EV bars: label unchanged, don't touch
-        }
+        const val = (isRating && hasRating) ? parseFloat(ratingRaw) : seasonVal;
+        const isNull = isRating && !hasRating;
 
-        // Update label if this is an EV bar
-        if (isRatingBar) {
-          const labelEl = row.querySelector('.pct-label');
-          if (labelEl) labelEl.textContent = labelText;
-        }
+        // Toggle the "· 3yr" suffix span — visible only in RATING mode
+        const suffix = row.querySelector('.rapm-bar-3yr-suffix');
+        if (suffix) suffix.style.display = isRating ? 'inline' : 'none';
 
-        // Update fill + percentage display
-        const fill   = row.querySelector('.pct-fill');
-        const pctEl  = row.querySelector('.pct-pct');
+        // Update fill + percentage — fonts/colors stay consistent in both modes
+        const fill  = row.querySelector('.pct-fill');
+        const pctEl = row.querySelector('.pct-pct');
 
-        if (val == null) {
-          // null rating case — grey bar, dash
+        if (isNull) {
+          // No rating data available — show empty state
           if (fill)  { fill.style.width = '0%'; fill.style.background = 'rgba(13,13,20,0.14)'; }
           if (pctEl) { pctEl.textContent = '—'; pctEl.style.color = 'rgba(13,13,20,0.32)'; }
         } else {
+          // Use identical colors in both SEASON and RATING modes
           const color = tierColor(val, isBlue);
           if (fill)  { fill.style.width = val.toFixed(1) + '%'; fill.style.background = color; }
           if (pctEl) { pctEl.textContent = Math.round(val) + '%'; pctEl.style.color = color; }
@@ -2580,8 +2621,8 @@ const gameLogColumns = [
       });
     }
 
-    document.querySelectorAll('#pct-mode-filter button').forEach(btn => {
-      btn.addEventListener('click', () => applyPctMode(btn.dataset.pctMode));
+    document.querySelectorAll('#rapm-mode-filter button').forEach(btn => {
+      btn.addEventListener('click', () => applyRapmMode(btn.dataset.rapmMode));
     });
   })();
 
