@@ -1013,6 +1013,9 @@ const gameLogColumns = [
         <button id="download-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};`}>
           Player Card →
         </button>
+        <button id="download-rating-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:1px solid ${teamColor};margin-bottom:8px;background:transparent;color:${teamColor};`}>
+          HGB Rating Card →
+        </button>
         <button id="download-expanded-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:1px solid ${teamColor};margin-bottom:8px;background:transparent;color:${teamColor};`}>
           Expanded Card →
         </button>
@@ -1099,6 +1102,7 @@ const gameLogColumns = [
     qot: player.qot ?? null,
     hgb_rating_off_pct: player.hgb_rating_off_pct ?? null,
     hgb_rating_def_pct: player.hgb_rating_def_pct ?? null,
+    hgb_rating_n_prior: (player as any).hgb_rating_components?.n_prior_seasons ?? null,
     edge: player.edge ?? null,
     recentGS:    allGames.slice(-10).map(g => g.gs_display),
     teamColor:   teamColor,
@@ -2137,6 +2141,292 @@ const gameLogColumns = [
       return canvas;
     }
 
+    // ── HGB Rating Card (JFresh-style blended component card) ────────────
+    async function drawRatingCard() {
+      const BG      = '#EFEEE8';
+      const SURFACE = '#FFFFFF';
+      const GREEN   = '#166534';
+      const YELLOW  = 'rgba(13,13,20,0.40)';
+      const INK20   = 'rgba(13,13,20,0.20)';
+      const SCALE   = 2;
+      const W       = 560;
+      const PAD     = 24;
+
+      // ── height layout ─────────────────────────────────────────────────
+      const HDR_H    = 48;   // white name header
+      const CHIP_H   = 32;   // chips row
+      const HERO_H   = 112;  // big hero rating tile
+      const SEP_H    = 1;
+      const COMP_LBL = 22;   // "COMPONENT PROFILE" section label
+      const COMP_H   = 86;   // 5 component tiles row
+      const CTX_LBL  = 22;   // "CONTEXT" section label
+      const CTX_H    = 72;   // 3 context tiles row
+      const FOOT_H   = 36;
+
+      const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + 16 +
+                      COMP_LBL + COMP_H + 14 + CTX_LBL + CTX_H + 12 + FOOT_H;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = W * SCALE;
+      canvas.height = TOTAL_H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      // background
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, TOTAL_H);
+
+      let y = 0;
+
+      // ── Header — white, player name ──────────────────────────────────
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, y, W, HDR_H);
+      ctx.font = '800 22px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
+      ctx.fillStyle = INK14; ctx.fillRect(0, y + HDR_H - 1, W, 1);
+      y += HDR_H;
+
+      // ── Chips — team | position | season | HGB wordmark ─────────────
+      const chipH = 18, chipY0 = y + (CHIP_H - chipH) / 2;
+      const TEAM_NAMES_R = {
+        ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
+        BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',
+        CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',
+        DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',
+        FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',
+        MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',
+        NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',
+        PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',
+        SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',
+        TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',
+        VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
+      };
+      const rChips = [TEAM_NAMES_R[D.team] || D.team, D.posLabel.toUpperCase(), '2025-26'];
+      let rcx = PAD;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      for (let ci = 0; ci < rChips.length; ci++) {
+        const tw = ctx.measureText(rChips[ci]).width;
+        const cw = tw + 18;
+        rrect(ctx, rcx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci === 0 ? TEAM_C : INK; ctx.fill();
+        ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(rChips[ci], rcx + 9, chipY0 + chipH / 2);
+        rcx += cw + 8;
+      }
+      const rbrand = 'HOCKEYGAMEBOT';
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      const rbtw = ctx.measureText(rbrand).width;
+      const rbcw = rbtw + 18;
+      rrect(ctx, W - PAD - rbcw, chipY0, rbcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(rbrand, W - PAD - rbcw + 9, chipY0 + chipH / 2);
+      y += CHIP_H;
+
+      // ── Hero tile — HGB Rating ─────────────────────────────────────
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(PAD, y + 10, W - PAD * 2, HERO_H - 10);
+      // left accent bar
+      ctx.fillStyle = TEAM_C;
+      ctx.fillRect(PAD, y + 10, 5, HERO_H - 10);
+      // border
+      ctx.strokeStyle = INK14; ctx.lineWidth = 1;
+      ctx.strokeRect(PAD + 0.5, y + 10.5, W - PAD * 2 - 1, HERO_H - 11);
+
+      const heroRatingPct = D.hgb_rating_percentile;
+      const heroRatingRaw = D.hgb_rating;
+      const heroConf      = D.hgb_rating_confidence;
+      const heroNPrior    = D.hgb_rating_n_prior;
+      const isLimited     = heroConf === 'limited' || heroConf === 'limited_sample';
+
+      // label: "HGB RATING"
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      ctx.fillText('HGB RATING', PAD + 18, y + 18);
+
+      // big percentile number
+      const bigPctStr = heroRatingPct != null ? ordinal(heroRatingPct) + ' percentile' : '—';
+      ctx.font = '800 42px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = heroRatingPct != null ? TEAM_C : INK32;
+      ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      ctx.fillText(bigPctStr, PAD + 18, y + 30);
+
+      // raw value + weighting
+      const rawStr = heroRatingRaw != null
+        ? (heroRatingRaw >= 0 ? '+' : '') + heroRatingRaw.toFixed(2) + ' Rating'
+        : '—';
+      const weightStr = heroNPrior != null ? ` · ${heroNPrior}-yr weighted` : ' · 3-yr weighted';
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      ctx.fillText(rawStr + weightStr, PAD + 18, y + 78);
+
+      // limited sample badge
+      if (isLimited) {
+        ctx.font = '600 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(185,83,0,0.72)';
+        ctx.fillText('limited sample', PAD + 18, y + 93);
+      }
+
+      y += HERO_H;
+
+      // ── Separator ─────────────────────────────────────────────────────
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, W, SEP_H); y += SEP_H;
+      y += 16;
+
+      // ── Component section label ────────────────────────────────────────
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText('COMPONENT PROFILE', PAD, y + COMP_LBL / 2);
+      const clw = ctx.measureText('COMPONENT PROFILE').width;
+      ctx.fillStyle = INK14;
+      ctx.fillRect(PAD + clw + 8, y + COMP_LBL / 2, W - PAD * 2 - clw - 8, 1);
+      y += COMP_LBL;
+
+      // ── 5 component tiles ─────────────────────────────────────────────
+      // Components: EV Offense (3yr) | EV Defense (3yr) | PP | Finishing | Pen. Diff
+      const pct = D.percentiles;
+      const compTiles = [
+        {
+          label: 'EV OFFENSE',
+          sub:   '· 3yr',
+          val:   D.hgb_rating_off_pct,
+          fallback: pct.ev_offence,
+        },
+        {
+          label: 'EV DEFENSE',
+          sub:   '· 3yr',
+          val:   D.hgb_rating_def_pct,
+          fallback: pct.ev_defence,
+        },
+        {
+          label: 'PP RAPM',
+          sub:   '· season',
+          val:   pct.pp_off ?? null,
+          fallback: null,
+        },
+        {
+          label: 'FINISHING',
+          sub:   '· season',
+          val:   pct.finishing ?? null,
+          fallback: null,
+        },
+        {
+          label: 'PEN. DIFF',
+          sub:   '· season',
+          val:   pct.pen_diff ?? null,
+          fallback: null,
+        },
+      ];
+
+      function ratingTileColor(v) {
+        if (v == null) return INK32;
+        if (v >= 70) return GREEN;
+        if (v >= 40) return YELLOW;
+        return RED;
+      }
+
+      const tileW = (W - PAD * 2 - 4 * 6) / 5;
+      let tx = PAD;
+      for (let ti = 0; ti < compTiles.length; ti++) {
+        const t = compTiles[ti];
+        const effectiveVal = t.val != null ? t.val : t.fallback;
+        const tileColor = ratingTileColor(effectiveVal);
+
+        // tile background
+        ctx.fillStyle = SURFACE;
+        ctx.fillRect(tx, y, tileW, COMP_H);
+        ctx.strokeStyle = INK10; ctx.lineWidth = 1;
+        ctx.strokeRect(tx + 0.5, y + 0.5, tileW - 1, COMP_H - 1);
+
+        // top accent bar in tier color
+        ctx.fillStyle = tileColor;
+        ctx.fillRect(tx, y, tileW, 4);
+
+        // label
+        ctx.font = '700 8px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(t.label, tx + tileW / 2, y + 10);
+
+        // big percentile value
+        ctx.font = '800 28px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = tileColor;
+        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        const valStr = effectiveVal != null ? Math.round(effectiveVal) + '%' : '—';
+        ctx.fillText(valStr, tx + tileW / 2, y + 24);
+
+        // sub label (· 3yr or · season)
+        ctx.font = '500 7px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'bottom'; ctx.textAlign = 'center';
+        ctx.fillText(t.sub, tx + tileW / 2, y + COMP_H - 6);
+
+        tx += tileW + 6;
+      }
+      y += COMP_H;
+      y += 14;
+
+      // ── Context section label ──────────────────────────────────────────
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText('CONTEXT', PAD, y + CTX_LBL / 2);
+      const ctxlw = ctx.measureText('CONTEXT').width;
+      ctx.fillStyle = INK14;
+      ctx.fillRect(PAD + ctxlw + 8, y + CTX_LBL / 2, W - PAD * 2 - ctxlw - 8, 1);
+      y += CTX_LBL;
+
+      // ── 3 context tiles: Goals/60 | A1/60 | Opp. Quality ──────────────
+      const ctxTiles = [
+        { label: 'GOALS / 60',    val: pct.goals ?? null },
+        { label: 'A1 / 60',       val: pct.a1    ?? null },
+        { label: 'OPP. QUALITY',  val: D.qoc     ?? null },
+      ];
+
+      const ctxTileW = (W - PAD * 2 - 2 * 8) / 3;
+      let cttx = PAD;
+      for (let ci = 0; ci < ctxTiles.length; ci++) {
+        const ct = ctxTiles[ci];
+        const ctColor = ratingTileColor(ct.val);
+
+        ctx.fillStyle = SURFACE;
+        ctx.fillRect(cttx, y, ctxTileW, CTX_H);
+        ctx.strokeStyle = INK10; ctx.lineWidth = 1;
+        ctx.strokeRect(cttx + 0.5, y + 0.5, ctxTileW - 1, CTX_H - 1);
+
+        // top accent bar
+        ctx.fillStyle = ctColor;
+        ctx.fillRect(cttx, y, ctxTileW, 3);
+
+        // label
+        ctx.font = '700 8px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(ct.label, cttx + ctxTileW / 2, y + 9);
+
+        // value
+        ctx.font = '800 24px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = ctColor;
+        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        const ctValStr = ct.val != null ? Math.round(ct.val) + '%' : '—';
+        ctx.fillText(ctValStr, cttx + ctxTileW / 2, y + 24);
+
+        cttx += ctxTileW + 8;
+      }
+      y += CTX_H;
+      y += 12;
+
+      // ── Footer ────────────────────────────────────────────────────────
+      ctx.fillStyle = INK06; ctx.fillRect(0, y, W, FOOT_H);
+      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      const posLabelFooter = D.posLabel ? D.posLabel.toUpperCase() + 'S' : 'POSITION';
+      ctx.fillText(
+        `3-YEAR WEIGHTED RATING · PERCENTILE VS ${posLabelFooter} · HOCKEYGAMEBOT.COM · HGB STATS · 2025-26`,
+        W / 2, y + FOOT_H / 2
+      );
+
+      return canvas;
+    }
+
     // ── shared canvas download helper ────────────────────────────────────
     function downloadCanvas(canvas, filename) {
       canvas.toBlob(blob => {
@@ -2171,9 +2461,10 @@ const gameLogColumns = [
       });
     }
 
-    bindCardBtn('download-card-btn',     'Player Card →',   drawCard,              `hgb_${D.slug}_25-26.png`);
-    bindCardBtn('download-expanded-btn', 'Expanded Card →', drawLandscapeCard,     `hgb_${D.slug}_expanded_25-26.png`, '900px · 2× retina PNG');
-    bindCardBtn('download-edge-btn',     'NHL EDGE Card →', drawEdgeCard,          `hgb_${D.slug}_edge_25-26.png`);
+    bindCardBtn('download-card-btn',     'Player Card →',      drawCard,              `hgb_${D.slug}_25-26.png`);
+    bindCardBtn('download-rating-btn',   'HGB Rating Card →',  drawRatingCard,        `hgb_${D.slug}_rating_25-26.png`, '560px · 2× retina PNG');
+    bindCardBtn('download-expanded-btn', 'Expanded Card →',    drawLandscapeCard,     `hgb_${D.slug}_expanded_25-26.png`, '900px · 2× retina PNG');
+    bindCardBtn('download-edge-btn',     'NHL EDGE Card →',    drawEdgeCard,          `hgb_${D.slug}_edge_25-26.png`);
   })();
 </script>
 
