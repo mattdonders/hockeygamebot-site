@@ -100,6 +100,8 @@ export const PlayerRecordSchema = z.object({
   hgb_rating:             z.number().nullable().optional(),
   hgb_rating_percentile:  z.number().nullable().optional(),
   hgb_rating_confidence:  z.enum(['full', 'limited', 'limited_sample']).optional(),
+  hgb_rating_off_pct:     z.number().nullable().optional(),
+  hgb_rating_def_pct:     z.number().nullable().optional(),
   career_seasons: z.array(z.object({
     season:      z.string(),
     team:        z.string(),
