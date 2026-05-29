@@ -1095,7 +1095,7 @@ const gameLogColumns = [
         <button id="download-edge-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:1px solid ${teamColor};background:transparent;color:${teamColor};`}>
           NHL EDGE Card →
         </button>
-        <div class="cta-note" id="card-status">560px · 2× retina PNG</div>
+        <div class="cta-note" id="card-status">750px · Discord-friendly · 2× retina PNG</div>
       </div>
 
       <!-- Similar Players -->
@@ -1264,30 +1264,33 @@ const gameLogColumns = [
       const INK20   = 'rgba(13,13,20,0.20)';
 
       const SCALE = 2;
-      const W     = 560;
+      const W     = 750;   // wider for Discord embeds (was 560)
       const PAD   = 28;
 
-      // section heights
-      const HDR_H    = 48;
-      const CHIP_H   = 32;
-      const HERO_H   = 88;
+      // Heights targeting 750×~900 for Discord embed friendliness.
+      // 2-col percentile bars halve the pct section height vs the old single-column layout.
+      const HDR_H    = 52;
+      const CHIP_H   = 34;
+      const HERO_H   = 130;   // taller hero, bigger headshot + stats
       const SEP_H    = 1;
-      const KPI_LH   = 22;
-      const KPI_VH   = 38;
+      const COUNTS_H = 68;    // season G/A/PTS counting stats strip
+      const KPI_LH   = 24;
+      const KPI_VH   = 50;
       const SEC_SEP  = 20;
       const PCT_LBL  = 22;
-      const extraBars = (D.qoc != null ? 1 : 0) + (D.qot != null ? 1 : 0);
-      const N_BARS   = 8 + extraBars;
-      const BAR_ROW  = 32;
-      const PCT_H    = N_BARS * BAR_ROW;
+      // 2-column percentile bars: 5 rows × 2 cols = 10 bars total
+      const BAR_ROW  = 48;
+      const N_ROWS   = 5;
+      const PCT_H    = N_ROWS * BAR_ROW;
       const SP_LBL   = 22;
-      const SP_H     = 72;
+      const SP_H     = 100;
       const FOOT_H   = 36;
-      // Extra height for 3-year blended RAPM section (2 bars + label + sep)
+      // 3-year blended section: 2 bars side-by-side (1 row)
       const hasBlended = D.hgb_rating_off_pct != null || D.hgb_rating_def_pct != null;
-      const BLEND_H  = hasBlended ? (SEC_SEP + PCT_LBL + 2 * BAR_ROW) : 0;
+      const BLEND_BAR_ROW = 32;
+      const BLEND_H  = hasBlended ? (SEC_SEP + PCT_LBL + BLEND_BAR_ROW) : 0;
 
-      const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + KPI_LH + KPI_VH +
+      const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + COUNTS_H + KPI_LH + KPI_VH +
                       BLEND_H + SEC_SEP + PCT_LBL + PCT_H + SEC_SEP + SP_LBL + SP_H + FOOT_H;
 
       const canvas = document.createElement('canvas');
@@ -1321,7 +1324,7 @@ const gameLogColumns = [
       // ── header (white) — name only ───────────────────────────────────────
       ctx.fillStyle = SURFACE;
       ctx.fillRect(0, y, W, HDR_H);
-      ctx.font = '800 22px "Barlow Condensed", sans-serif';
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
       ctx.fillStyle = INK;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
@@ -1355,17 +1358,17 @@ const gameLogColumns = [
       ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
       y += CHIP_H;
 
-      // ── hero: headshot + 2 headline stats ────────────────────────────────
+      // ── hero: headshot + 3 headline stats ────────────────────────────────
       ctx.fillStyle = TEAM_C;
       ctx.fillRect(0, y, 6, HERO_H);
-      const R = 34, HS_CX = PAD + 6 + R, HS_CY = y + HERO_H / 2;
+      const R = 38, HS_CX = PAD + 6 + R, HS_CY = y + HERO_H / 2;
       const hsImg = await loadImg(D.headshotUrl);
       ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
       if (hsImg) {
         ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
       } else {
         ctx.fillStyle = INK10; ctx.fill();
-        ctx.font = '800 22px "Barlow Condensed", sans-serif';
+        ctx.font = '800 24px "Barlow Condensed", sans-serif';
         ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
         ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
       }
@@ -1374,7 +1377,7 @@ const gameLogColumns = [
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
 
       // 3 hero stats to the right of headshot: Rating | WAR | Game Impact
-      const statX = HS_CX + R + 16;
+      const statX = HS_CX + R + 18;
       const statW = (W - statX - PAD) / 3;
       const ratingPctVal = D.hgb_rating_percentile ?? null;
       const ratingRawStr = D.hgb_rating != null
@@ -1394,19 +1397,19 @@ const gameLogColumns = [
         const s  = heroStats[i];
         const sx = statX + i * statW + statW / 2;
         if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(statX + i * statW, y + 14, 1, HERO_H - 28); }
-        ctx.font = '700 8px "Barlow Condensed", sans-serif';
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
         ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         ctx.fillText(s.label, sx, y + 14);
-        ctx.font = '800 26px "Barlow Condensed", sans-serif';
+        ctx.font = '800 30px "Barlow Condensed", sans-serif';
         ctx.fillStyle = s.color; ctx.textBaseline = 'top';
-        ctx.fillText(s.big, sx, y + 26);
-        ctx.font = '800 11px "Barlow Condensed", sans-serif';
+        ctx.fillText(s.big, sx, y + 27);
+        ctx.font = '800 12px "Barlow Condensed", sans-serif';
         ctx.fillStyle = INK48; ctx.textBaseline = 'top';
-        ctx.fillText(s.small, sx, y + 58);
+        ctx.fillText(s.small, sx, y + 66);
         if (s.small2) {
-          ctx.font = '700 8px "Barlow Condensed", sans-serif';
+          ctx.font = '700 9px "Barlow Condensed", sans-serif';
           ctx.fillStyle = INK32; ctx.textBaseline = 'top';
-          ctx.fillText(s.small2, sx, y + 72);
+          ctx.fillText(s.small2, sx, y + 82);
         }
       }
       y += HERO_H;
@@ -1414,7 +1417,34 @@ const gameLogColumns = [
       // separator
       ctx.fillStyle = INK14; ctx.fillRect(0, y, W, SEP_H); y += SEP_H;
 
-      // ── KPI row — 5 rate stats, values only (bars handle percentiles) ──────
+      // ── Season counting stats strip — G / A / PTS / GP / TOI/GP ──────────
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, y, W, COUNTS_H);
+      const totalPts  = D.totalG + D.totalA;
+      const toiAvgStr = (() => { const m = Math.floor(D.toiAvgSec/60), s = Math.round(D.toiAvgSec%60); return m+':'+(s<10?'0':'')+s; })();
+      const countCols = [
+        { label: 'GOALS',   val: String(D.totalG),  color: INK },
+        { label: 'ASSISTS', val: String(D.totalA),  color: INK },
+        { label: 'POINTS',  val: String(totalPts),  color: TEAM_C },
+        { label: 'GP',      val: String(D.gp),      color: INK },
+        { label: 'TOI/GP',  val: toiAvgStr,         color: INK },
+      ];
+      const cColW = (W - PAD * 2) / countCols.length;
+      for (let ci = 0; ci < countCols.length; ci++) {
+        const cc = countCols[ci];
+        const cx2 = PAD + ci * cColW + cColW / 2;
+        if (ci > 0) { ctx.fillStyle = INK06; ctx.fillRect(PAD + ci * cColW, y + 10, 1, COUNTS_H - 20); }
+        ctx.font = '800 32px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = cc.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText(cc.val, cx2, y + COUNTS_H / 2 - 8);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
+        ctx.fillText(cc.label, cx2, y + COUNTS_H / 2 + 16);
+      }
+      ctx.fillStyle = INK06; ctx.fillRect(0, y + COUNTS_H - 1, W, 1);
+      y += COUNTS_H;
+
+      // ── KPI row — 5 rate stats ────────────────────────────────────────────
       const finVal = D.finishing != null
         ? (D.finishing >= 0 ? '+' : '') + D.finishing.toFixed(2)
         : '—';
@@ -1444,7 +1474,7 @@ const gameLogColumns = [
       }
       y += KPI_LH;
 
-      ctx.font = '800 22px "Barlow Condensed", sans-serif';
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
       ctx.textBaseline = 'middle';
       for (let ki = 0; ki < kpis.length; ki++) {
         const kx = PAD + ki * kColW + kColW / 2;
@@ -1471,29 +1501,34 @@ const gameLogColumns = [
           { label: 'EV Offense', val: ratingOffPct ?? 0, blue: false },
           { label: 'EV Defense', val: ratingDefPct ?? 0, blue: true  },
         ];
-        const BAR_LABEL_W2 = 82, BAR_RANK_W2 = 46;
-        const BAR_AVAIL2 = W - PAD * 2 - BAR_LABEL_W2 - BAR_RANK_W2 - 12;
-        const BAR_H_PX2 = 14, BAR_ROW_H2 = 32;
-        for (const row of blendedBars) {
-          const by2 = y + (BAR_ROW_H2 - BAR_H_PX2) / 2;
+        // 2-column layout for blended bars too
+        const BLEND_COL_GAP = 16;
+        const BLEND_COL_W = (W - PAD * 2 - BLEND_COL_GAP) / 2;
+        const BLEND_LABEL_W = 82, BLEND_RANK_W = 42;
+        const BLEND_AVAIL = BLEND_COL_W - BLEND_LABEL_W - BLEND_RANK_W - 8;
+        const BAR_H_PX2 = 12;
+        for (let bi = 0; bi < blendedBars.length; bi++) {
+          const row = blendedBars[bi];
+          const colX = PAD + bi * (BLEND_COL_W + BLEND_COL_GAP);
+          const by2 = y + (BLEND_BAR_ROW - BAR_H_PX2) / 2;
           ctx.font = '600 10px "Barlow", sans-serif';
           ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-          ctx.fillText(row.label, PAD, y + BAR_ROW_H2 / 2);
-          const bx2 = PAD + BAR_LABEL_W2;
-          rrect(ctx, bx2, by2, BAR_AVAIL2, BAR_H_PX2, 3);
+          ctx.fillText(row.label, colX, y + BLEND_BAR_ROW / 2);
+          const bx2 = colX + BLEND_LABEL_W;
+          rrect(ctx, bx2, by2, BLEND_AVAIL, BAR_H_PX2, 3);
           ctx.fillStyle = INK10; ctx.fill();
-          const fillW2 = Math.max(0, Math.min(1, row.val / 100)) * BAR_AVAIL2;
+          const fillW2 = Math.max(0, Math.min(1, row.val / 100)) * BLEND_AVAIL;
           rrect(ctx, bx2, by2, fillW2, BAR_H_PX2, 3);
           ctx.fillStyle = row.blue ? '#4285f4' : '#137333'; ctx.fill();
           ctx.font = '700 12px "JetBrains Mono", monospace';
           ctx.fillStyle = row.blue ? '#4285f4' : '#137333';
           ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-          ctx.fillText(Math.round(row.val) + '%', W - PAD, y + BAR_ROW_H2 / 2);
-          y += BAR_ROW_H2;
+          ctx.fillText(Math.round(row.val) + '%', colX + BLEND_COL_W, y + BLEND_BAR_ROW / 2);
         }
+        y += BLEND_BAR_ROW;
       }
 
-      // ── percentile section ───────────────────────────────────────────────
+      // ── percentile section — 2-column layout ─────────────────────────────
       y += SEC_SEP;
       ctx.font = '700 9px "Barlow Condensed", sans-serif';
       ctx.fillStyle = RED; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
@@ -1504,48 +1539,68 @@ const gameLogColumns = [
       y += PCT_LBL;
 
       const pct = D.percentiles;
-      const barRows = [
+      // Left column: EV Offense, EV Defense, Goals/60, A1/60, xG/60
+      const leftBarRows = [
         { label: 'EV Offense', val: pct.ev_offence, blue: false },
         { label: 'EV Defense', val: pct.ev_defence, blue: true  },
         { label: 'Goals / 60', val: pct.goals,      blue: false },
         { label: 'A1 / 60',    val: pct.a1,         blue: false },
         { label: 'xG / 60',    val: pct.ixg,        blue: false },
+      ];
+      // Right column: Finishing, Shots/60, Pen.Diff, Opp.Quality, Mate Quality
+      const rightBarRows = [
         { label: 'Finishing',  val: pct.finishing,  blue: false },
         { label: 'Shots / 60', val: pct.shots,      blue: false },
         { label: 'Pen. Diff',  val: pct.pen_diff,   blue: false },
-        ...(D.qoc != null ? [{ label: 'Opp. Quality', val: D.qoc, blue: false, red: true }] : []),
-        ...(D.qot != null ? [{ label: 'Mate Quality', val: D.qot, blue: true  }] : []),
+        ...(D.qoc != null ? [{ label: 'Opp. Quality', val: D.qoc, blue: false, red: true  }] : [{ label: 'Opp. Quality', val: 50, blue: false, red: true,  skip: true }]),
+        ...(D.qot != null ? [{ label: 'Mate Quality', val: D.qot, blue: true               }] : [{ label: 'Mate Quality', val: 50, blue: true,              skip: true }]),
       ];
 
-      const BAR_LABEL_W = 82;
-      const BAR_RANK_W  = 46;  // wider to fit 16px ordinal
-      const BAR_AVAIL   = W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 12;
-      const BAR_H_PX    = 14;  // thicker bars
-      const BAR_ROW_H   = 32;  // taller rows to breathe
+      // 2-column bar geometry
+      const COL_GAP     = 20;  // gap between columns
+      const COL_W       = (W - PAD * 2 - COL_GAP) / 2;
+      const BAR_LABEL_W = 76;
+      const BAR_RANK_W  = 40;
+      const BAR_AVAIL   = COL_W - BAR_LABEL_W - BAR_RANK_W - 8;
+      const BAR_H_PX    = 12;
+      const BAR_ROW_H   = BAR_ROW;
 
-      for (const row of barRows) {
-        const by = y + (BAR_ROW_H - BAR_H_PX) / 2;
-        // label
-        ctx.font = '600 10px "Barlow", sans-serif';
-        ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-        ctx.fillText(row.label, PAD, y + BAR_ROW_H / 2);
-        // track
-        const bx = PAD + BAR_LABEL_W;
-        rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
-        ctx.fillStyle = INK10; ctx.fill();
-        // fill
-        const fillW = Math.max(6, (row.val / 100) * BAR_AVAIL);
-        rrect(ctx, bx, by, fillW, BAR_H_PX, 3);
-        const tierC = row.val >= 75 ? (row.blue ? '#4285f4' : row.red ? '#842029' : '#14803c')
-                    : row.val >= 50 ? (row.blue ? '#7baaf7' : row.red ? '#c03244' : '#34a853')
-                    : row.val >= 25 ? INK32 : RED;
-        ctx.fillStyle = tierC; ctx.fill();
-        // percentage — large, in tier color
-        ctx.font = '800 16px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = tierC; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        ctx.fillText(Math.round(row.val) + '%', W - PAD, y + BAR_ROW_H / 2);
-        y += BAR_ROW_H;
+      function drawBarCol(rows, colX) {
+        for (let ri = 0; ri < rows.length; ri++) {
+          const row = rows[ri];
+          if (row.skip) { /* empty slot — keep row height */ }
+          else {
+            const rowY = y + ri * BAR_ROW_H;
+            const by = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
+            // label
+            ctx.font = '600 10px "Barlow", sans-serif';
+            ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+            ctx.fillText(row.label, colX, rowY + BAR_ROW_H / 2);
+            // track
+            const bx = colX + BAR_LABEL_W;
+            rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
+            ctx.fillStyle = INK10; ctx.fill();
+            // fill
+            const fillW = Math.max(6, (row.val / 100) * BAR_AVAIL);
+            rrect(ctx, bx, by, fillW, BAR_H_PX, 3);
+            const tierC = row.val >= 75 ? (row.blue ? '#4285f4' : row.red ? '#842029' : '#14803c')
+                        : row.val >= 50 ? (row.blue ? '#7baaf7' : row.red ? '#c03244' : '#34a853')
+                        : row.val >= 25 ? INK32 : RED;
+            ctx.fillStyle = tierC; ctx.fill();
+            // percentage
+            ctx.font = '800 14px "Barlow Condensed", sans-serif';
+            ctx.fillStyle = tierC; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            ctx.fillText(Math.round(row.val) + '%', colX + COL_W, rowY + BAR_ROW_H / 2);
+          }
+        }
       }
+
+      drawBarCol(leftBarRows,  PAD);
+      // center divider
+      ctx.fillStyle = INK10; ctx.fillRect(PAD + COL_W + COL_GAP / 2, y, 1, N_ROWS * BAR_ROW_H);
+      drawBarCol(rightBarRows, PAD + COL_W + COL_GAP);
+
+      y += N_ROWS * BAR_ROW_H;
 
       // ── sparkline (last 10 games) ────────────────────────────────────────
       y += SEC_SEP;
