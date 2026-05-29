@@ -1,0 +1,571 @@
+---
+import Nav from '../components/Nav.astro';
+import ThemeScript from '../components/ThemeScript.astro';
+import Fonts from '../components/Fonts.astro';
+const currentPath = '/methodology';
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Methodology · HockeyGameBot</title>
+  <meta name="description" content="How HGB Ratings and WAR work — the components, RAPM model, prior blending, and card guide." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="HockeyGameBot" />
+  <meta property="og:title" content="How HGB Ratings Work · HockeyGameBot" />
+  <meta property="og:description" content="HGB WAR, HGB Rating, RAPM, and what every bar on the player card actually means." />
+  <meta property="og:url" content="https://hockeygamebot.com/methodology" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@hockeygamebot" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/favicon-180x180.png" />
+</head>
+<body>
+
+<style is:global>
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --red:     #E8002D;
+  --ink-86:  rgba(13,13,20,0.86);
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-04:  rgba(13,13,20,0.04);
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+}
+html[data-theme="dark"] {
+  --bg:      #1c1c1f;
+  --bg-2:    #272729;
+  --surface: #262629;
+  --ink:     #ede9e1;
+  --red:     #ff3d50;
+  --ink-86:  rgba(237,233,225,0.92);
+  --ink-72:  rgba(237,233,225,0.82);
+  --ink-56:  rgba(237,233,225,0.68);
+  --ink-48:  rgba(237,233,225,0.60);
+  --ink-32:  rgba(237,233,225,0.42);
+  --ink-20:  rgba(237,233,225,0.20);
+  --ink-14:  rgba(237,233,225,0.14);
+  --ink-10:  rgba(237,233,225,0.10);
+  --ink-06:  rgba(237,233,225,0.06);
+  --ink-04:  rgba(237,233,225,0.04);
+}
+html[data-theme="dark"] footer { background: #111113; }
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+/* ── MASTHEAD ── */
+.mast {
+  border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--ink-04) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ink-04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  position: relative;
+}
+.mast-ghost {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(72px, 15vw, 160px);
+  letter-spacing: -0.01em; text-transform: uppercase;
+  color: var(--ink); opacity: 0.04; pointer-events: none; white-space: nowrap; user-select: none;
+}
+.mast-inner { position: relative; z-index: 2; padding: 36px 0; }
+.mast-eyebrow-row {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-48);
+  display: flex; align-items: center; gap: 8px; margin-bottom: 20px;
+}
+.mast-eyebrow-row .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; flex-shrink: 0; }
+.mast-card {
+  background: var(--surface); border: 1px solid var(--ink);
+  padding: 28px 32px 24px;
+}
+.mast-card-eyebrow {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--red); margin-bottom: 10px;
+}
+.mast-headline {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(40px, 5vw, 64px);
+  letter-spacing: -0.01em; text-transform: uppercase; line-height: 0.95;
+  margin-bottom: 14px;
+}
+.mast-sub {
+  font-family: var(--body); font-size: 15px; color: var(--ink-56);
+  line-height: 1.65; max-width: 580px;
+}
+
+/* ── CONTENT LAYOUT ── */
+.content { padding: 0 0 80px; }
+.content-inner { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 32px; padding-top: 32px; align-items: start; }
+@media (max-width: 900px) { .content-inner { grid-template-columns: 1fr; } }
+
+/* ── SECTIONS ── */
+.section { padding: 40px 0; border-bottom: 1px solid var(--ink-14); }
+.section:last-child { border-bottom: none; }
+.section-label {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--red);
+  margin-bottom: 8px;
+}
+.section-title {
+  font-family: var(--display); font-weight: 800; font-size: 26px;
+  letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: 16px;
+}
+.prose { display: flex; flex-direction: column; gap: 14px; }
+.prose p { font-size: 15px; color: var(--ink-72); line-height: 1.7; }
+
+/* ── TWO-PRODUCT CARDS ── */
+.product-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 4px; }
+@media (max-width: 600px) { .product-grid { grid-template-columns: 1fr; } }
+.product-card {
+  background: var(--surface); border: 1.5px solid var(--ink-14);
+  padding: 20px 22px;
+}
+.product-card-label {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--red);
+  margin-bottom: 8px;
+}
+.product-card-name {
+  font-family: var(--display); font-weight: 800; font-size: 22px;
+  letter-spacing: 0.02em; text-transform: uppercase; margin-bottom: 10px;
+}
+.product-card p { font-size: 14px; color: var(--ink-56); line-height: 1.65; }
+
+/* ── COMPONENT LIST ── */
+.component-list { display: flex; flex-direction: column; gap: 16px; margin-top: 4px; }
+.component-row { display: flex; gap: 14px; align-items: flex-start; }
+.component-tag {
+  flex-shrink: 0; width: 6px; height: 6px; background: var(--red); border-radius: 50%;
+  margin-top: 7px;
+}
+.component-tag.ctx { background: #3b82f6; }
+.component-body {}
+.component-name {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink);
+  margin-bottom: 4px;
+}
+.component-desc { font-size: 14px; color: var(--ink-56); line-height: 1.65; }
+.ctx-note {
+  font-family: var(--mono); font-size: 10px; color: #3b82f6;
+  letter-spacing: 0.06em; text-transform: uppercase; margin-top: 4px;
+}
+
+/* ── PERSISTENCE TABLE ── */
+.persist-table-wrap { border: 1.5px solid var(--ink-14); margin-top: 16px; overflow-x: auto; }
+.persist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.persist-table th {
+  padding: 9px 14px; text-align: left;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-48); background: var(--bg-2);
+  border-bottom: 1.5px solid var(--ink-14);
+}
+.persist-table td {
+  padding: 11px 14px; border-bottom: 1px solid var(--ink-06);
+  color: var(--ink-72);
+}
+.persist-table tr:last-child td { border-bottom: none; }
+.persist-table td:first-child { color: var(--ink); font-weight: 600; }
+
+/* ── CODE / MONO BLOCKS ── */
+.mono-block {
+  background: var(--bg-2); border: 1.5px solid var(--ink-14);
+  padding: 18px 20px; margin-top: 4px;
+  font-family: var(--mono); font-size: 12px;
+  color: var(--ink-72); line-height: 1.8; letter-spacing: 0.03em;
+  overflow-x: auto; white-space: pre;
+}
+
+/* ── CARD GUIDE ── */
+.guide-list { display: flex; flex-direction: column; gap: 0; margin-top: 4px; }
+.guide-row {
+  display: grid; grid-template-columns: 140px 1fr;
+  gap: 12px; align-items: start;
+  padding: 12px 0; border-bottom: 1px solid var(--ink-06);
+}
+.guide-row:last-child { border-bottom: none; }
+.guide-key {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--ink); letter-spacing: 0.04em; line-height: 1.5;
+}
+.guide-key .key-tag {
+  display: inline-block; padding: 1px 6px;
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  border: 1px solid var(--ink-20); margin-top: 4px;
+}
+.guide-val { font-size: 14px; color: var(--ink-56); line-height: 1.65; }
+.guide-bar-green { display: inline-block; width: 10px; height: 10px; background: #22c55e; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.guide-bar-gray  { display: inline-block; width: 10px; height: 10px; background: var(--ink-32); border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.guide-bar-red   { display: inline-block; width: 10px; height: 10px; background: var(--red); border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.guide-bar-blue  { display: inline-block; width: 10px; height: 10px; background: #3b82f6; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+/* ── SIDEBAR ── */
+.sidebar { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 80px; }
+.sidebar-card {
+  background: var(--surface); border: 1.5px solid var(--ink-14);
+  padding: 18px 20px;
+}
+.sidebar-label {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48);
+  margin-bottom: 12px;
+}
+.sidebar-nav { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-nav a {
+  font-size: 13px; color: var(--ink-48); padding: 5px 0;
+  border-bottom: 1px solid var(--ink-06); transition: color .15s;
+  text-decoration: none;
+}
+.sidebar-nav a:last-child { border-bottom: none; }
+.sidebar-nav a:hover { color: var(--ink); }
+.sidebar-version {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-48); line-height: 1.8;
+  letter-spacing: 0.03em;
+}
+.sidebar-version strong { color: var(--ink-72); }
+.limitations-list { display: flex; flex-direction: column; gap: 12px; }
+.limit-item { display: flex; gap: 12px; align-items: flex-start; }
+.limit-dot { flex-shrink: 0; width: 5px; height: 5px; background: var(--ink-32); border-radius: 50%; margin-top: 7px; }
+.limit-text { font-size: 14px; color: var(--ink-56); line-height: 1.65; }
+.limit-text strong { color: var(--ink-72); font-weight: 600; }
+
+/* ── FOOTER ── */
+footer {
+  background: var(--ink); padding: 28px 0;
+  font-family: var(--mono); font-size: 11px;
+  color: rgba(255,255,255,0.24); letter-spacing: 0.06em; text-align: center;
+}
+footer a { color: rgba(255,255,255,0.4); transition: color .15s; }
+footer a:hover { color: rgba(255,255,255,0.7); }
+.footer-sep { margin: 0 12px; opacity: 0.3; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+  .mast-card { padding: 20px; }
+  .mast-inner { padding: 24px 0; }
+  .guide-row { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .wrap { padding: 0 16px; }
+}
+</style>
+
+<Nav currentPath={currentPath} />
+
+<!-- ── MASTHEAD ── -->
+<section class="mast">
+  <div class="mast-ghost">METHODOLOGY</div>
+  <div class="wrap">
+    <div class="mast-inner">
+      <div class="mast-eyebrow-row">
+        <span class="pip"></span>
+        HockeyGameBot · HGB Stats
+      </div>
+      <div class="mast-card">
+        <p class="mast-card-eyebrow">Model Documentation</p>
+        <h1 class="mast-headline">How HGB<br/>Ratings Work</h1>
+        <p class="mast-sub">HockeyGameBot uses play-by-play, shift, expected goal, RAPM, and production data to estimate player value. Two products: HGB WAR (what a player did this season) and HGB Rating (how good we think they are right now).</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CONTENT ── -->
+<div class="content">
+  <div class="wrap">
+    <div class="content-inner">
+
+      <!-- Main column -->
+      <div class="main-col">
+
+        <!-- Two Products -->
+        <div class="section" id="two-products">
+          <p class="section-label">The Two Products</p>
+          <h2 class="section-title">WAR vs Rating</h2>
+          <div class="product-grid">
+            <div class="product-card">
+              <p class="product-card-label">Current season</p>
+              <p class="product-card-name">HGB WAR</p>
+              <p>Current-season accounting. How much value did this player produce this year versus a replacement-level player? Single-season, no priors. Comparable to baseball WAR in concept — it tells you what happened, not what a player is worth going forward.</p>
+            </div>
+            <div class="product-card">
+              <p class="product-card-label">Prior-informed</p>
+              <p class="product-card-name">HGB Rating</p>
+              <p>Blends the current season with recent history, weighted by current role and playing time. Closer to a projected value than a box score. A player can have a strong Rating but a mediocre WAR (small sample this year), or vice versa.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Components -->
+        <div class="section" id="components">
+          <p class="section-label">Scored Components</p>
+          <h2 class="section-title">What Goes Into WAR</h2>
+          <div class="component-list">
+            <div class="component-row">
+              <div class="component-tag"></div>
+              <div class="component-body">
+                <p class="component-name">EV Offense</p>
+                <p class="component-desc">Isolated on-ice expected goal share contribution at 5v5, via RAPM. Measures how much a player moves the needle offensively when they're on the ice, separated from their teammates' contributions.</p>
+              </div>
+            </div>
+            <div class="component-row">
+              <div class="component-tag"></div>
+              <div class="component-body">
+                <p class="component-name">EV Defense</p>
+                <p class="component-desc">Isolated on-ice expected goals against impact at 5v5, via RAPM. How much does this player's presence suppress opponent offense, independent of who they play with?</p>
+              </div>
+            </div>
+            <div class="component-row">
+              <div class="component-tag"></div>
+              <div class="component-body">
+                <p class="component-name">Individual Offense</p>
+                <p class="component-desc">Personal goals and primary assists production bonus, z-scored versus positional peers. Rewards players who drive personal counting stats above and beyond what RAPM already captures in shot volume.</p>
+              </div>
+            </div>
+            <div class="component-row">
+              <div class="component-tag"></div>
+              <div class="component-body">
+                <p class="component-name">PP Offense</p>
+                <p class="component-desc">Power play RAPM times PP TOI. How much offensive value a player generates on the man advantage, scaled by how much they're actually used there.</p>
+              </div>
+            </div>
+            <div class="component-row">
+              <div class="component-tag"></div>
+              <div class="component-body">
+                <p class="component-name">PK Defense</p>
+                <p class="component-desc">Penalty kill RAPM times PK TOI. Defensive impact on the kill, weighted by actual deployment.</p>
+              </div>
+            </div>
+            <div class="component-row">
+              <div class="component-tag"></div>
+              <div class="component-body">
+                <p class="component-name">Penalties</p>
+                <p class="component-desc">Drawn minus taken, with a flat value per opportunity of approximately 0.20 goals. Players who consistently draw power plays are adding value that doesn't show up in shot metrics.</p>
+              </div>
+            </div>
+            <div class="component-row">
+              <div class="component-tag ctx"></div>
+              <div class="component-body">
+                <p class="component-name">Opp. Quality (QoC)</p>
+                <p class="component-desc">Average quality of opponents faced. Context only — not a WAR component. High QoC means a player faces tougher competition; low QoC means sheltered deployment.</p>
+                <p class="ctx-note">Context · Not scored</p>
+              </div>
+            </div>
+            <div class="component-row">
+              <div class="component-tag ctx"></div>
+              <div class="component-body">
+                <p class="component-name">Mate Quality (QoT)</p>
+                <p class="component-desc">Average quality of linemates. QoT and QoC appear on player cards to help interpret the scored components — they explain results, they don't add or subtract from the WAR score.</p>
+                <p class="ctx-note">Context · Not scored</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RAPM -->
+        <div class="section" id="rapm">
+          <p class="section-label">The Core Model</p>
+          <h2 class="section-title">How RAPM Works</h2>
+          <div class="prose">
+            <p>RAPM (Regularized Adjusted Plus-Minus) isolates individual player impact by controlling for teammates, opponents, zone starts, score state, and PP expiry. Every shift creates a set of equations where each player on the ice gets credit or blame for what happened, and ridge regression finds the player-level estimates that best explain the full dataset — while shrinking noisy estimates toward zero.</p>
+            <p>A player with a small sample gets pulled toward league average. A player with thousands of 5v5 minutes gets a more confident estimate. The model uses a two-perspective design: each shift generates one home-offensive row and one away-offensive row, keeping offensive and defensive signals separated so that a defenseman who suppresses shots doesn't accidentally look like an offensive contributor.</p>
+          </div>
+        </div>
+
+        <!-- Rating Blend -->
+        <div class="section" id="rating-blend">
+          <p class="section-label">How Rating Is Built</p>
+          <h2 class="section-title">Prior Blending</h2>
+          <div class="prose">
+            <p>WAR is a single-season number. Rating is forward-looking and uses a prior blend. EV Rating uses a 3-year prior weighted by current TOI confidence — a player with 1,200 EV minutes this season gets a confident estimate; a player with 200 minutes gets more prior weight.</p>
+            <p>PP and PK Rating use role-aware prior blending: players with current special teams usage get prior credit; players who aren't being deployed there don't carry forward their old PP/PK history.</p>
+          </div>
+          <p style="font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; margin-top: 20px; margin-bottom: 6px; text-transform: uppercase;">Persistence slopes (empirically derived)</p>
+          <div class="persist-table-wrap">
+            <table class="persist-table">
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Forwards</th>
+                  <th>Defensemen</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>EV Offense</td>
+                  <td>0.629 / year</td>
+                  <td>0.527 / year</td>
+                </tr>
+                <tr>
+                  <td>EV Defense</td>
+                  <td>0.458 / year</td>
+                  <td>0.397 / year</td>
+                </tr>
+                <tr>
+                  <td>PP (3-year)</td>
+                  <td colspan="2">0.45 / 0.20 / 0.10</td>
+                </tr>
+                <tr>
+                  <td>PK (3-year)</td>
+                  <td colspan="2">0.40 / 0.18 / 0.08</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="font-size: 13px; color: var(--ink-48); line-height: 1.65; margin-top: 12px;">EV offense is more persistent than EV defense — consistent with findings across other WAR systems. PP and PK use lighter persistence to account for the noisier samples in special teams play.</p>
+        </div>
+
+        <!-- Card Guide -->
+        <div class="section" id="card-guide">
+          <p class="section-label">Reading the Card</p>
+          <h2 class="section-title">Card Guide</h2>
+          <div class="guide-list">
+            <div class="guide-row">
+              <div class="guide-key">
+                HGB Rating %
+                <div class="key-tag">Hero Tile</div>
+              </div>
+              <div class="guide-val">Prior-informed talent estimate. Where does this player sit in the league right now, accounting for their full track record and current role?</div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-key">
+                HGB WAR %
+                <div class="key-tag">Hero Tile</div>
+              </div>
+              <div class="guide-val">Current-season value. How much above replacement did this player produce this year, relative to positional peers?</div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-key">
+                HGB Impact %
+                <div class="key-tag">Hero Tile</div>
+              </div>
+              <div class="guide-val">Per-game production and involvement score. How active is this player game-to-game?</div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-key">Profile Bars</div>
+              <div class="guide-val">
+                3-year weighted percentile profile. Each bar shows where the player ranks among positional peers.<br/><br/>
+                <span class="guide-bar-green"></span>Above average performance<br/>
+                <span class="guide-bar-gray"></span>Near average performance<br/>
+                <span class="guide-bar-red"></span>Below average performance<br/>
+                <span class="guide-bar-blue"></span>Context metrics (QoC, QoT) — not good or bad, just deployment context
+              </div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-key">PP / PK Bars</div>
+              <div class="guide-val">Percentile among players with at least 50 minutes in that situation. Small-sample players are excluded entirely.</div>
+            </div>
+            <div class="guide-row">
+              <div class="guide-key">Hatched Bar (—)</div>
+              <div class="guide-val">Below the TOI threshold for that situation. No estimate is available. This is not the same as a zero value.</div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /main-col -->
+
+      <!-- Sidebar -->
+      <div class="sidebar">
+
+        <!-- Section nav -->
+        <div class="sidebar-card">
+          <p class="sidebar-label">On This Page</p>
+          <nav class="sidebar-nav">
+            <a href="#two-products">WAR vs Rating</a>
+            <a href="#components">Components</a>
+            <a href="#rapm">RAPM Model</a>
+            <a href="#rating-blend">Prior Blending</a>
+            <a href="#limitations">Limitations</a>
+            <a href="#card-guide">Card Guide</a>
+          </nav>
+        </div>
+
+        <!-- Limitations -->
+        <div class="sidebar-card" id="limitations">
+          <p class="sidebar-label">Known Limitations</p>
+          <div class="limitations-list">
+            <div class="limit-item">
+              <div class="limit-dot"></div>
+              <p class="limit-text"><strong>Penalty WAR uses flat counts.</strong> Severity differences (minors vs majors) aren't differentiated yet.</p>
+            </div>
+            <div class="limit-item">
+              <div class="limit-dot"></div>
+              <p class="limit-text"><strong>Replacement level is league-wide,</strong> not per-team. Fourth-liners on contenders and rebuilds share the same baseline.</p>
+            </div>
+            <div class="limit-item">
+              <div class="limit-dot"></div>
+              <p class="limit-text"><strong>PP/PK are noisier than EV.</strong> Treat special teams WAR with more skepticism, especially under 50 minutes.</p>
+            </div>
+            <div class="limit-item">
+              <div class="limit-dot"></div>
+              <p class="limit-text"><strong>Outcomes, not inputs.</strong> xG and goals, not passing quality, puck battles, or board play.</p>
+            </div>
+            <div class="limit-item">
+              <div class="limit-dot"></div>
+              <p class="limit-text"><strong>Territorial defense partially captured</strong> via on-ice xGA — not fully isolated as its own component.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Version -->
+        <div class="sidebar-card">
+          <p class="sidebar-label">Version</p>
+          <div class="sidebar-version">
+            <strong>2025-26 v1</strong><br/>
+            Updated May 2026<br/><br/>
+            Benchmarked against<br/>Evolving Hockey GAR<br/>and HockeyStats WAR
+          </div>
+        </div>
+
+        <!-- Stats link -->
+        <div class="sidebar-card" style="border-color: var(--red);">
+          <p class="sidebar-label" style="color: var(--red);">Explore the Data</p>
+          <a href="/stats/skaters" style="display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); transition: color .15s;">
+            Skater Stats →
+          </a>
+          <a href="/stats/goalies" style="display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); margin-top: 10px; transition: color .15s;">
+            Goalie Stats →
+          </a>
+        </div>
+
+      </div><!-- /sidebar -->
+
+    </div><!-- /content-inner -->
+  </div><!-- /wrap -->
+</div><!-- /content -->
+
+<footer>
+  hockeygamebot.com
+  <span class="footer-sep">·</span>
+  <a href="/stats">HGB Stats</a>
+  <span class="footer-sep">·</span>
+  Methodology v1 · 2025–26
+  <span class="footer-sep">·</span>
+  <a href="/support">Support the Project</a>
+</footer>
+
+</body>
+</html>
