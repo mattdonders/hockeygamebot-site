@@ -2501,24 +2501,31 @@ const gameLogColumns = [
       const eyeW = ctx.measureText('3-YEAR PROFILE').width;
       ctx.fillStyle = RED;
       ctx.fillText('  ' + vsLabel, PAD + eyeW, y);
+      // right-aligned meta: clarifies the Rating blend window per strength state
+      ctx.font = '400 8px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textAlign = 'right';
+      ctx.fillText('Rating: EV 3yr blended · PP/PK current season', W - PAD, y);
       ctx.textAlign = 'left';
       y += 12;
 
       // 11 bars, single column. Fall back to season percentiles when 3yr null.
       const pct3 = D.percentiles;
       const v3 = (a, b) => (a != null ? a : (b != null ? b : null));
+      // kind: 'context' → blue (deployment context / QoC / QoT / EV-defense isn't
+      // raw player skill, so it shouldn't use the green→red "good/bad" scale).
+      // All other bars default to the 5-tier green/gray/red performance scale.
       const profileBars = [
-        { label: 'EV Offense',   val: D.hgb_rating_off_pct,                            kind: 'green' },
-        { label: 'EV Defense',   val: D.hgb_rating_def_pct,                            kind: 'blue'  },
-        { label: 'Goals / 60',   val: v3(D.g_60_pct_3yr,      pct3.goals),             kind: 'green' },
-        { label: 'A1 / 60',      val: v3(D.a1_60_pct_3yr,     pct3.a1),                kind: 'green' },
-        { label: 'xG / 60',      val: v3(D.xg_60_pct_3yr,     pct3.ixg),               kind: 'green' },
-        { label: 'Finishing',    val: v3(D.finishing_pct_3yr, pct3.finishing),         kind: 'green' },
-        { label: 'Pen. Diff',    val: v3(D.pen_diff_pct_3yr,  pct3.pen_diff),          kind: 'green' },
-        { label: 'Power Play',   val: pct3.pp_off ?? null,                             kind: 'perf'  },
-        { label: 'Penalty Kill', val: pct3.pk_def ?? null,                             kind: 'perf'  },
-        { label: 'Opp. Quality', val: v3(D.qoc_pct_3yr,       D.qoc),                  kind: 'red'   },
-        { label: 'Mate Quality', val: v3(D.qot_pct_3yr,       D.qot),                  kind: 'blue'  },
+        { label: 'EV Offense',   val: D.hgb_rating_off_pct,                            kind: 'performance' },
+        { label: 'EV Defense',   val: D.hgb_rating_def_pct,                            kind: 'context'     },
+        { label: 'Goals / 60',   val: v3(D.g_60_pct_3yr,      pct3.goals),             kind: 'performance' },
+        { label: 'A1 / 60',      val: v3(D.a1_60_pct_3yr,     pct3.a1),                kind: 'performance' },
+        { label: 'xG / 60',      val: v3(D.xg_60_pct_3yr,     pct3.ixg),               kind: 'performance' },
+        { label: 'Finishing',    val: v3(D.finishing_pct_3yr, pct3.finishing),         kind: 'performance' },
+        { label: 'Pen. Diff',    val: v3(D.pen_diff_pct_3yr,  pct3.pen_diff),          kind: 'performance' },
+        { label: 'Power Play',   val: pct3.pp_off ?? null,                             kind: 'performance' },
+        { label: 'Penalty Kill', val: pct3.pk_def ?? null,                             kind: 'performance' },
+        { label: 'Opp. Quality', val: v3(D.qoc_pct_3yr,       D.qoc),                  kind: 'context'     },
+        { label: 'Mate Quality', val: v3(D.qot_pct_3yr,       D.qot),                  kind: 'context'     },
       ];
 
       const BAR_ROW_H   = 33;
@@ -2527,7 +2534,10 @@ const gameLogColumns = [
       const BAR_RANK_W  = 44;
       const BAR_AVAIL   = W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
 
-      function barFill(pct) {
+      function barFill(pct, kind) {
+        // contextual metrics (EV Defense, QoC, QoT) — always blue.
+        // High here is "tough deployment / context", not "good player skill".
+        if (kind === 'context') return '#4285f4';
         if (pct == null) return 'rgba(13,13,20,0.20)';
         if (pct >= 75) return '#137333';           // elite — dark green
         if (pct >= 55) return '#4CAF50';           // above avg — light green
@@ -2535,7 +2545,8 @@ const gameLogColumns = [
         if (pct >= 25) return '#E57373';           // below avg — light red
         return '#E8002D';                          // poor — dark red
       }
-      function pctColor(pct) {
+      function pctColor(pct, kind) {
+        if (kind === 'context') return '#4285f4';
         if (pct == null) return 'rgba(13,13,20,0.35)';
         if (pct >= 75) return '#137333';
         if (pct >= 55) return '#4CAF50';
@@ -2579,7 +2590,7 @@ const gameLogColumns = [
           rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
           ctx.fillStyle = hatch; ctx.fill();
         } else {
-          const tierC = barFill(val);
+          const tierC = barFill(val, b.kind);
           // fill
           const fillW = Math.max(6, (val / 100) * BAR_AVAIL);
           rrect(ctx, bx, by, fillW, BAR_H_PX, 3);
@@ -2593,7 +2604,7 @@ const gameLogColumns = [
           ctx.fillStyle = 'rgba(13,13,20,0.32)';
           ctx.fillText('—', W - PAD, rowY + BAR_ROW_H / 2);
         } else {
-          ctx.fillStyle = pctColor(val);
+          ctx.fillStyle = pctColor(val, b.kind);
           ctx.fillText(Math.round(val) + '%', W - PAD, rowY + BAR_ROW_H / 2);
         }
       }
