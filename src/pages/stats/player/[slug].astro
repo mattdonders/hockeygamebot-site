@@ -868,23 +868,25 @@ const gameLogColumns = [
         );
       })()}
 
-      <!-- RATE STATS PROFILE (8 bars, no toggle) -->
+      <!-- RATE STATS PROFILE (8 bars — toggled by the RAPM card's Season/Rating·3yr chips) -->
       {(() => {
+        // ratingPct = 3yr weighted percentile (JFresh-style 60/25/15 blend).
+        // ratingRate = 3yr weighted RAW per-60 value shown in the rate column.
         const rateBars = [
-          { label: 'Goals / 60', key: 'goals',     val: player.percentiles_vs_pos.goals,      isBlue: false, isRed: false },
-          { label: 'A1 / 60',    key: 'a1',        val: player.percentiles_vs_pos.a1,         isBlue: false, isRed: false },
-          { label: 'xG / 60',    key: 'ixg',       val: player.percentiles_vs_pos.ixg,        isBlue: false, isRed: false },
-          { label: 'Finishing',  key: 'finishing',  val: player.percentiles_vs_pos.finishing,  isBlue: false, isRed: false },
-          { label: 'Shots / 60', key: 'shots',     val: player.percentiles_vs_pos.shots,      isBlue: false, isRed: false },
-          { label: 'Pen. Diff',  key: 'pen_diff',  val: player.percentiles_vs_pos.pen_diff,   isBlue: false, isRed: false },
-          ...(player.qoc != null ? [{ label: 'Opp. Quality', key: 'qoc', val: player.qoc, isBlue: false, isRed: true }] : []),
-          ...(player.qot != null ? [{ label: 'Mate Quality', key: 'qot', val: player.qot, isBlue: true,  isRed: false }] : []),
+          { label: 'Goals / 60', key: 'goals',    val: player.percentiles_vs_pos.goals,     ratingPct: player.g_60_pct_3yr ?? null,        ratingRate: player.g_60_3yr ?? null,        isBlue: false, isRed: false },
+          { label: 'A1 / 60',    key: 'a1',       val: player.percentiles_vs_pos.a1,        ratingPct: player.a1_60_pct_3yr ?? null,       ratingRate: player.a1_60_3yr ?? null,       isBlue: false, isRed: false },
+          { label: 'xG / 60',    key: 'ixg',      val: player.percentiles_vs_pos.ixg,       ratingPct: player.xg_60_pct_3yr ?? null,       ratingRate: player.xg_60_3yr ?? null,       isBlue: false, isRed: false },
+          { label: 'Finishing',  key: 'finishing', val: player.percentiles_vs_pos.finishing, ratingPct: player.finishing_pct_3yr ?? null,   ratingRate: player.finishing_3yr ?? null,   isBlue: false, isRed: false },
+          { label: 'Shots / 60', key: 'shots',    val: player.percentiles_vs_pos.shots,     ratingPct: player.s_60_pct_3yr ?? null,        ratingRate: player.s_60_3yr ?? null,        isBlue: false, isRed: false },
+          { label: 'Pen. Diff',  key: 'pen_diff', val: player.percentiles_vs_pos.pen_diff,  ratingPct: player.pen_diff_pct_3yr ?? null,    ratingRate: player.pen_diff_60_3yr ?? null, isBlue: false, isRed: false },
+          ...(player.qoc != null ? [{ label: 'Opp. Quality', key: 'qoc', val: player.qoc, ratingPct: player.qoc_pct_3yr ?? null, ratingRate: null, isBlue: false, isRed: true }] : []),
+          ...(player.qot != null ? [{ label: 'Mate Quality', key: 'qot', val: player.qot, ratingPct: player.qot_pct_3yr ?? null, ratingRate: null, isBlue: true,  isRed: false }] : []),
         ];
         return (
           <div class="card" id="pct-rate-card" style="margin-top:24px">
             <div class="card-head">
-              <span class="card-eyebrow">Rate Stats &nbsp;<span class="accent">vs. {posPlural}</span></span>
-              <span class="card-meta">min 20 GP · 2025–26</span>
+              <span class="card-eyebrow"><span class="rate-card-base-label">Rate Stats</span><span class="rate-card-3yr-suffix" style="display:none">3yr Weighted</span> &nbsp;<span class="accent">vs. {posPlural}</span></span>
+              <span class="card-meta"><span class="rate-card-meta-base">min 20 GP · 2025–26</span><span class="rate-card-meta-3yr" style="display:none">3yr weighted · 60/25/15</span></span>
             </div>
             <div class="pct-rows">
               {rateBars.map(bar => {
@@ -895,7 +897,15 @@ const gameLogColumns = [
                     ? (bar.isBlue ? '#7baaf7' : bar.isRed ? '#c03244' : '#34a853')
                     : bar.val >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
                 return (
-                  <div class="pct-row">
+                  <div class="pct-row"
+                    data-rate-key={bar.key}
+                    data-season-val={bar.val.toFixed(1)}
+                    data-rating-val={bar.ratingPct != null ? Number(bar.ratingPct).toFixed(1) : ''}
+                    data-season-rate={rate != null ? rate.toFixed(2) : ''}
+                    data-rating-rate={bar.ratingRate != null ? Number(bar.ratingRate).toFixed(2) : ''}
+                    data-is-blue={bar.isBlue ? 'true' : 'false'}
+                    data-is-red={bar.isRed ? 'true' : 'false'}
+                  >
                     <span class="pct-label">{bar.label}</span>
                     <span class="pct-rate">{rate != null ? rate.toFixed(2) : '—'}</span>
                     <div class="pct-track">
@@ -2701,56 +2711,84 @@ const gameLogColumns = [
     });
   })();
 
-  // ── RAPM Profile SEASON / RATING toggle (Table 1 only) ─────────────────
-  // Only EV Offense and EV Defense bars are toggled. Rate Stats table is
-  // always single-season and is never touched by this code.
+  // ── SEASON / RATING·3yr toggle ─────────────────────────────────────────
+  // The RAPM card's Season / Rating·3yr chips now drive BOTH the RAPM card
+  // (EV Offence/Defence → hgb_rating_off/def_pct) AND the Rate Stats card
+  // (counting stats → 3yr weighted percentiles). In RATING mode the Rate
+  // Stats bars show the JFresh-style 60/25/15 weighted percentile + raw rate.
   (function() {
-    function tierColor(val, isBlue) {
-      if (val >= 75) return isBlue ? '#4285f4' : '#137333';
-      if (val >= 50) return isBlue ? '#7baaf7' : '#34a853';
+    function tierColor(val, isBlue, isRed) {
+      if (val >= 75) return isBlue ? '#4285f4' : isRed ? '#842029' : '#137333';
+      if (val >= 50) return isBlue ? '#7baaf7' : isRed ? '#c03244' : '#34a853';
       if (val >= 25) return 'rgba(13,13,20,0.32)';
       return '#E8002D';
+    }
+
+    function updateBar(row, isRating, opts) {
+      const isBlue    = row.dataset.isBlue === 'true';
+      const isRed     = row.dataset.isRed === 'true';
+      const seasonVal = parseFloat(row.dataset.seasonVal ?? '0');
+      const ratingRaw = row.dataset.ratingVal;
+      const hasRating = ratingRaw !== '' && ratingRaw != null;
+
+      const val    = (isRating && hasRating) ? parseFloat(ratingRaw) : seasonVal;
+      const isNull = isRating && !hasRating;
+
+      const fill  = row.querySelector('.pct-fill');
+      const pctEl = row.querySelector('.pct-pct');
+
+      // Swap the raw rate column (Rate Stats card only) between season / 3yr.
+      if (opts && opts.swapRate) {
+        const rateEl = row.querySelector('.pct-rate');
+        if (rateEl) {
+          const seasonRate = row.dataset.seasonRate;
+          const ratingRate = row.dataset.ratingRate;
+          if (isRating) {
+            rateEl.textContent = (ratingRate !== '' && ratingRate != null) ? ratingRate : '—';
+          } else {
+            rateEl.textContent = (seasonRate !== '' && seasonRate != null) ? seasonRate : '—';
+          }
+        }
+      }
+
+      if (isNull) {
+        if (fill)  { fill.style.width = '0%'; fill.style.background = 'rgba(13,13,20,0.14)'; }
+        if (pctEl) { pctEl.textContent = '—'; pctEl.style.color = 'rgba(13,13,20,0.32)'; }
+      } else {
+        const color = tierColor(val, isBlue, isRed);
+        if (fill)  { fill.style.width = val.toFixed(1) + '%'; fill.style.background = color; }
+        if (pctEl) { pctEl.textContent = Math.round(val) + '%'; pctEl.style.color = color; }
+      }
     }
 
     function applyRapmMode(mode) {
       const isRating = mode === 'rating';
 
-      // Update toggle buttons in RAPM card only
       document.querySelectorAll('#rapm-mode-filter button').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.rapmMode === mode);
       });
 
-      // Meta text removed — toggle label already communicates Season vs Rating·3yr
-
-      // Update each bar row in the RAPM card only
+      // RAPM card bars (EV Offence / Defence)
       document.querySelectorAll('#pct-rapm-card .pct-row').forEach(row => {
-        const isBlue    = row.dataset.isBlue === 'true';
-        const seasonVal = parseFloat(row.dataset.seasonVal ?? '0');
-        const ratingRaw = row.dataset.ratingVal;
-        const hasRating = ratingRaw !== '' && ratingRaw != null;
-
-        const val = (isRating && hasRating) ? parseFloat(ratingRaw) : seasonVal;
-        const isNull = isRating && !hasRating;
-
-        // Toggle the "· 3yr" suffix span — visible only in RATING mode
         const suffix = row.querySelector('.rapm-bar-3yr-suffix');
         if (suffix) suffix.style.display = isRating ? 'inline' : 'none';
-
-        // Update fill + percentage — fonts/colors stay consistent in both modes
-        const fill  = row.querySelector('.pct-fill');
-        const pctEl = row.querySelector('.pct-pct');
-
-        if (isNull) {
-          // No rating data available — show empty state
-          if (fill)  { fill.style.width = '0%'; fill.style.background = 'rgba(13,13,20,0.14)'; }
-          if (pctEl) { pctEl.textContent = '—'; pctEl.style.color = 'rgba(13,13,20,0.32)'; }
-        } else {
-          // Use identical colors in both SEASON and RATING modes
-          const color = tierColor(val, isBlue);
-          if (fill)  { fill.style.width = val.toFixed(1) + '%'; fill.style.background = color; }
-          if (pctEl) { pctEl.textContent = Math.round(val) + '%'; pctEl.style.color = color; }
-        }
+        updateBar(row, isRating, null);
       });
+
+      // Rate Stats card bars (counting stats → 3yr weighted percentiles)
+      document.querySelectorAll('#pct-rate-card .pct-row').forEach(row => {
+        updateBar(row, isRating, { swapRate: true });
+      });
+
+      // Rate Stats card header: flip label + meta to communicate 3yr mode
+      const baseLbl = document.querySelector('#pct-rate-card .rate-card-base-label');
+      const suf3yr  = document.querySelector('#pct-rate-card .rate-card-3yr-suffix');
+      const metaB   = document.querySelector('#pct-rate-card .rate-card-meta-base');
+      const meta3   = document.querySelector('#pct-rate-card .rate-card-meta-3yr');
+      if (baseLbl) baseLbl.style.display = isRating ? 'none' : 'inline';
+      if (suf3yr)  suf3yr.style.display  = isRating ? 'inline' : 'none';
+      if (metaB)   metaB.style.display   = isRating ? 'none' : 'inline';
+      if (meta3)   meta3.style.display   = isRating ? 'inline' : 'none';
     }
 
     document.querySelectorAll('#rapm-mode-filter button').forEach(btn => {

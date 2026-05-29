@@ -102,6 +102,23 @@ export const PlayerRecordSchema = z.object({
   hgb_rating_confidence:  z.enum(['full', 'limited', 'limited_sample']).optional(),
   hgb_rating_off_pct:     z.number().nullable().optional(),
   hgb_rating_def_pct:     z.number().nullable().optional(),
+  // 3-year weighted counting stats (JFresh-style 60/25/15 blend). Additive —
+  // raw blended per-60 values plus position-group percentile ranks. Surfaced
+  // by the Season / Rating·3yr toggle on the player page Rate Stats card.
+  g_60_3yr:           z.number().nullable().optional(),
+  a1_60_3yr:          z.number().nullable().optional(),
+  xg_60_3yr:          z.number().nullable().optional(),
+  s_60_3yr:           z.number().nullable().optional(),
+  finishing_3yr:      z.number().nullable().optional(),
+  pen_diff_60_3yr:    z.number().nullable().optional(),
+  g_60_pct_3yr:       z.number().nullable().optional(),
+  a1_60_pct_3yr:      z.number().nullable().optional(),
+  xg_60_pct_3yr:      z.number().nullable().optional(),
+  s_60_pct_3yr:       z.number().nullable().optional(),
+  finishing_pct_3yr:  z.number().nullable().optional(),
+  pen_diff_pct_3yr:   z.number().nullable().optional(),
+  qoc_pct_3yr:        z.number().nullable().optional(),
+  qot_pct_3yr:        z.number().nullable().optional(),
   career_seasons: z.array(z.object({
     season:      z.string(),
     team:        z.string(),
