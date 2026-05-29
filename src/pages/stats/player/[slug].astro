@@ -2515,8 +2515,8 @@ const gameLogColumns = [
         { label: 'xG / 60',      val: v3(D.xg_60_pct_3yr,     pct3.ixg),               kind: 'green' },
         { label: 'Finishing',    val: v3(D.finishing_pct_3yr, pct3.finishing),         kind: 'green' },
         { label: 'Pen. Diff',    val: v3(D.pen_diff_pct_3yr,  pct3.pen_diff),          kind: 'green' },
-        { label: 'PP Off',       val: pct3.pp_off ?? null,                             kind: 'perf'  },
-        { label: 'PK Def',       val: pct3.pk_def ?? null,                             kind: 'perf'  },
+        { label: 'Power Play',   val: pct3.pp_off ?? null,                             kind: 'perf'  },
+        { label: 'Penalty Kill', val: pct3.pk_def ?? null,                             kind: 'perf'  },
         { label: 'Opp. Quality', val: v3(D.qoc_pct_3yr,       D.qoc),                  kind: 'red'   },
         { label: 'Mate Quality', val: v3(D.qot_pct_3yr,       D.qot),                  kind: 'blue'  },
       ];
@@ -2544,6 +2544,19 @@ const gameLogColumns = [
         return '#E8002D';
       }
 
+      function makeHatchPattern(ctx) {
+        const sz = 6;
+        const pc = document.createElement('canvas');
+        pc.width = sz; pc.height = sz;
+        const px = pc.getContext('2d');
+        px.strokeStyle = 'rgba(13,13,20,0.18)';
+        px.lineWidth = 1;
+        px.beginPath();
+        px.moveTo(0, sz); px.lineTo(sz, 0);
+        px.stroke();
+        return ctx.createPattern(pc, 'repeat');
+      }
+
       for (let bi = 0; bi < profileBars.length; bi++) {
         const b = profileBars[bi];
         const rowY = y + bi * BAR_ROW_H;
@@ -2552,7 +2565,7 @@ const gameLogColumns = [
 
         // label
         ctx.font = '600 11px "Barlow", sans-serif';
-        ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
         ctx.fillText(b.label, PAD, rowY + BAR_ROW_H / 2);
 
         // track
@@ -2560,20 +2573,29 @@ const gameLogColumns = [
         rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
         ctx.fillStyle = INK10; ctx.fill();
 
-        const tierC = barFill(val);
-
-        // fill
-        if (val != null) {
+        if (val == null) {
+          // hatch pattern fill for no-data bars
+          const hatch = makeHatchPattern(ctx);
+          rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
+          ctx.fillStyle = hatch; ctx.fill();
+        } else {
+          const tierC = barFill(val);
+          // fill
           const fillW = Math.max(6, (val / 100) * BAR_AVAIL);
           rrect(ctx, bx, by, fillW, BAR_H_PX, 3);
           ctx.fillStyle = tierC; ctx.fill();
         }
 
-        // percentage (right-aligned)
+        // percentage (right-aligned) — skip for null bars, show muted dash instead
         ctx.font = '800 15px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = pctColor(val);
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        ctx.fillText(val != null ? Math.round(val) + '%' : '—', W - PAD, rowY + BAR_ROW_H / 2);
+        if (val == null) {
+          ctx.fillStyle = 'rgba(13,13,20,0.32)';
+          ctx.fillText('—', W - PAD, rowY + BAR_ROW_H / 2);
+        } else {
+          ctx.fillStyle = pctColor(val);
+          ctx.fillText(Math.round(val) + '%', W - PAD, rowY + BAR_ROW_H / 2);
+        }
       }
       y += profileBars.length * BAR_ROW_H + 12;
 
