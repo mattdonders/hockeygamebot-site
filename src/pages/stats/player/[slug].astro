@@ -1073,6 +1073,9 @@ const gameLogColumns = [
         <button id="download-expanded-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:1px solid ${teamColor};margin-bottom:8px;background:transparent;color:${teamColor};`}>
           Expanded Card →
         </button>
+        <button id="download-rating-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:1px solid ${teamColor};margin-bottom:8px;background:transparent;color:${teamColor};`}>
+          Rating Card →
+        </button>
         <button id="download-edge-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:1px solid ${teamColor};background:transparent;color:${teamColor};`}>
           NHL EDGE Card →
         </button>
@@ -1177,9 +1180,19 @@ const gameLogColumns = [
     },
     qoc: player.qoc ?? null,
     qot: player.qot ?? null,
-    hgb_rating_off_pct: player.hgb_rating_off_pct ?? null,
-    hgb_rating_def_pct: player.hgb_rating_def_pct ?? null,
+    hgb_rating_off_pct: player.hgb_rating_off_pct ?? (player as any).hgb_rating_components?.rating_off_pct ?? null,
+    hgb_rating_def_pct: player.hgb_rating_def_pct ?? (player as any).hgb_rating_components?.rating_def_pct ?? null,
     hgb_rating_n_prior: (player as any).hgb_rating_components?.n_prior_seasons ?? null,
+    // 3-year profile percentiles (fall back to season percentiles when null)
+    g_60_pct_3yr:        (player as any).g_60_pct_3yr        ?? null,
+    a1_60_pct_3yr:       (player as any).a1_60_pct_3yr       ?? null,
+    xg_60_pct_3yr:       (player as any).xg_60_pct_3yr       ?? null,
+    finishing_pct_3yr:   (player as any).finishing_pct_3yr   ?? null,
+    s_60_pct_3yr:        (player as any).s_60_pct_3yr        ?? null,
+    pen_diff_pct_3yr:    (player as any).pen_diff_pct_3yr    ?? null,
+    qoc_pct_3yr:         (player as any).qoc_pct_3yr         ?? null,
+    qot_pct_3yr:         (player as any).qot_pct_3yr         ?? null,
+    posGroup:            player.pos_group,
     edge: player.edge ?? null,
     recentGS:    allGames.slice(-10).map(g => g.gs_display),
     teamColor:   teamColor,
@@ -2316,55 +2329,29 @@ const gameLogColumns = [
     }
 
     // ── HGB Rating Card (JFresh-style blended component card) ────────────
+    // ── Rating Card — portrait 520×720, 3-year talent profile ──────────────
+    // Clean shareable card focused on the 3-year weighted talent profile.
+    // Header is copied exactly from drawCard's header/chips block.
     async function drawRatingCard() {
       const BG      = '#EFEEE8';
       const SURFACE = '#FFFFFF';
-      const GREEN   = '#166534';
-      const YELLOW  = 'rgba(13,13,20,0.40)';
-      const INK20   = 'rgba(13,13,20,0.20)';
       const SCALE   = 2;
-      const W       = 560;
-      const PAD     = 24;
-
-      // ── height layout ─────────────────────────────────────────────────
-      const HDR_H    = 48;   // white name header
-      const CHIP_H   = 32;   // chips row
-      const HERO_H   = 112;  // big hero rating tile
-      const SEP_H    = 1;
-      const COMP_LBL = 22;   // "COMPONENT PROFILE" section label
-      const COMP_H   = 86;   // 5 component tiles row
-      const CTX_LBL  = 22;   // "CONTEXT" section label
-      const CTX_H    = 72;   // 3 context tiles row
-      const FOOT_H   = 36;
-
-      const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + 16 +
-                      COMP_LBL + COMP_H + 14 + CTX_LBL + CTX_H + 12 + FOOT_H;
+      const W       = 520;
+      const H       = 720;
+      const PAD     = 28;
 
       const canvas = document.createElement('canvas');
       canvas.width  = W * SCALE;
-      canvas.height = TOTAL_H * SCALE;
+      canvas.height = H * SCALE;
       const ctx = canvas.getContext('2d');
       ctx.scale(SCALE, SCALE);
 
       // background
       ctx.fillStyle = BG;
-      ctx.fillRect(0, 0, W, TOTAL_H);
+      ctx.fillRect(0, 0, W, H);
 
-      let y = 0;
-
-      // ── Header — white, player name ──────────────────────────────────
-      ctx.fillStyle = SURFACE;
-      ctx.fillRect(0, y, W, HDR_H);
-      ctx.font = '800 22px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = INK;
-      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
-      ctx.fillStyle = INK14; ctx.fillRect(0, y + HDR_H - 1, W, 1);
-      y += HDR_H;
-
-      // ── Chips — team | position | season | HGB wordmark ─────────────
-      const chipH = 18, chipY0 = y + (CHIP_H - chipH) / 2;
-      const TEAM_NAMES_R = {
+      // team full name lookup (same table as drawCard)
+      const TEAM_NAMES = {
         ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
         BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',
         CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',
@@ -2377,226 +2364,209 @@ const gameLogColumns = [
         TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',
         VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
       };
-      const rChips = [TEAM_NAMES_R[D.team] || D.team, D.posLabel.toUpperCase(), '2025-26'];
-      let rcx = PAD;
+      const teamFullName = TEAM_NAMES[D.team] || D.team;
+
+      let y = 0;
+
+      // ════════ SECTION 1 — HEADER (copied exactly from drawCard) ════════
+      const HDR_H  = 52;
+      const CHIP_H = 34;
+
+      // header surface + orange/team accent bar
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, y, W, HDR_H);
+      ctx.fillStyle = '#E8002D';
+      ctx.fillRect(0, y, 4, HDR_H);
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
+      ctx.fillStyle = INK;
+      ctx.fillRect(0, y + HDR_H - 2, W, 2);
+      y += HDR_H;
+
+      // chips row — team | position | season  +  HOCKEYGAMEBOT (right)
+      const chipH = 18, chipY0 = y + (CHIP_H - chipH) / 2;
+      const chips = [teamFullName, D.posLabel.toUpperCase(), '2025-26'];
+      let cx = PAD;
       ctx.font = '700 9px "Barlow Condensed", sans-serif';
-      for (let ci = 0; ci < rChips.length; ci++) {
-        const tw = ctx.measureText(rChips[ci]).width;
+      for (let ci = 0; ci < chips.length; ci++) {
+        const tw = ctx.measureText(chips[ci]).width;
         const cw = tw + 18;
-        rrect(ctx, rcx, chipY0, cw, chipH, 3);
-        ctx.fillStyle = ci === 0 ? TEAM_C : INK; ctx.fill();
-        ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-        ctx.fillText(rChips[ci], rcx + 9, chipY0 + chipH / 2);
-        rcx += cw + 8;
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci === 0 ? TEAM_C : INK;
+        ctx.fill();
+        ctx.fillStyle = BG;
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+        cx += cw + 8;
       }
-      const rbrand = 'HOCKEYGAMEBOT';
-      ctx.font = '700 9px "Barlow Condensed", sans-serif';
-      const rbtw = ctx.measureText(rbrand).width;
-      const rbcw = rbtw + 18;
-      rrect(ctx, W - PAD - rbcw, chipY0, rbcw, chipH, 3);
+      const brand = 'HOCKEYGAMEBOT';
+      const btw = ctx.measureText(brand).width;
+      const bcw = btw + 18;
+      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
       ctx.fillStyle = RED; ctx.fill();
       ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText(rbrand, W - PAD - rbcw + 9, chipY0 + chipH / 2);
+      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
       y += CHIP_H;
 
-      // ── Hero tile — HGB Rating ─────────────────────────────────────
-      ctx.fillStyle = SURFACE;
-      ctx.fillRect(PAD, y + 10, W - PAD * 2, HERO_H - 10);
-      // left accent bar
-      ctx.fillStyle = TEAM_C;
-      ctx.fillRect(PAD, y + 10, 5, HERO_H - 10);
-      // border
-      ctx.strokeStyle = INK14; ctx.lineWidth = 1;
-      ctx.strokeRect(PAD + 0.5, y + 10.5, W - PAD * 2 - 1, HERO_H - 11);
+      // ════════ SECTION 2 — IDENTITY ROW (headshot + 3 hero tiles) ════════
+      const ID_H = 132;
+      y += 6;
 
-      const heroRatingPct = D.hgb_rating_percentile;
-      const heroRatingRaw = D.hgb_rating;
-      const heroConf      = D.hgb_rating_confidence;
-      const heroNPrior    = D.hgb_rating_n_prior;
-      const isLimited     = heroConf === 'limited' || heroConf === 'limited_sample';
-
-      // label: "HGB RATING"
-      ctx.font = '700 9px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-      ctx.fillText('HGB RATING', PAD + 18, y + 18);
-
-      // big percentile number
-      const bigPctStr = heroRatingPct != null ? ordinal(heroRatingPct) + ' percentile' : '—';
-      ctx.font = '800 42px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = heroRatingPct != null ? TEAM_C : INK32;
-      ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-      ctx.fillText(bigPctStr, PAD + 18, y + 30);
-
-      // raw value + weighting
-      const rawStr = heroRatingRaw != null
-        ? (heroRatingRaw >= 0 ? '+' : '') + heroRatingRaw.toFixed(2) + ' Rating'
-        : '—';
-      const weightStr = heroNPrior != null ? ` · ${heroNPrior}-yr weighted` : ' · 3-yr weighted';
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-      ctx.fillText(rawStr + weightStr, PAD + 18, y + 78);
-
-      // limited sample badge
-      if (isLimited) {
-        ctx.font = '600 9px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(185,83,0,0.72)';
-        ctx.fillText('limited sample', PAD + 18, y + 93);
-      }
-
-      y += HERO_H;
-
-      // ── Separator ─────────────────────────────────────────────────────
-      ctx.fillStyle = INK14; ctx.fillRect(0, y, W, SEP_H); y += SEP_H;
-      y += 16;
-
-      // ── Component section label ────────────────────────────────────────
-      ctx.font = '700 9px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText('COMPONENT PROFILE', PAD, y + COMP_LBL / 2);
-      const clw = ctx.measureText('COMPONENT PROFILE').width;
-      ctx.fillStyle = INK14;
-      ctx.fillRect(PAD + clw + 8, y + COMP_LBL / 2, W - PAD * 2 - clw - 8, 1);
-      y += COMP_LBL;
-
-      // ── 5 component tiles ─────────────────────────────────────────────
-      // Components: EV Offense (3yr) | EV Defense (3yr) | PP | Finishing | Pen. Diff
-      const pct = D.percentiles;
-      const compTiles = [
-        {
-          label: 'EV OFFENSE',
-          sub:   '· 3yr',
-          val:   D.hgb_rating_off_pct,
-          fallback: pct.ev_offence,
-        },
-        {
-          label: 'EV DEFENSE',
-          sub:   '· 3yr',
-          val:   D.hgb_rating_def_pct,
-          fallback: pct.ev_defence,
-        },
-        {
-          label: 'PP RAPM',
-          sub:   '· season',
-          val:   pct.pp_off ?? null,
-          fallback: null,
-        },
-        {
-          label: 'FINISHING',
-          sub:   '· season',
-          val:   pct.finishing ?? null,
-          fallback: null,
-        },
-        {
-          label: 'PEN. DIFF',
-          sub:   '· season',
-          val:   pct.pen_diff ?? null,
-          fallback: null,
-        },
-      ];
-
-      function ratingTileColor(v) {
-        if (v == null) return INK32;
-        if (v >= 70) return GREEN;
-        if (v >= 40) return YELLOW;
-        return RED;
-      }
-
-      const tileW = (W - PAD * 2 - 4 * 6) / 5;
-      let tx = PAD;
-      for (let ti = 0; ti < compTiles.length; ti++) {
-        const t = compTiles[ti];
-        const effectiveVal = t.val != null ? t.val : t.fallback;
-        const tileColor = ratingTileColor(effectiveVal);
-
-        // tile background
-        ctx.fillStyle = SURFACE;
-        ctx.fillRect(tx, y, tileW, COMP_H);
-        ctx.strokeStyle = INK10; ctx.lineWidth = 1;
-        ctx.strokeRect(tx + 0.5, y + 0.5, tileW - 1, COMP_H - 1);
-
-        // top accent bar in tier color
-        ctx.fillStyle = tileColor;
-        ctx.fillRect(tx, y, tileW, 4);
-
-        // label
-        ctx.font = '700 8px "JetBrains Mono", monospace';
-        ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText(t.label, tx + tileW / 2, y + 10);
-
-        // big percentile value
-        ctx.font = '800 28px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = tileColor;
-        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        const valStr = effectiveVal != null ? Math.round(effectiveVal) + '%' : '—';
-        ctx.fillText(valStr, tx + tileW / 2, y + 24);
-
-        // sub label (· 3yr or · season)
-        ctx.font = '500 7px "JetBrains Mono", monospace';
-        ctx.fillStyle = INK32; ctx.textBaseline = 'bottom'; ctx.textAlign = 'center';
-        ctx.fillText(t.sub, tx + tileW / 2, y + COMP_H - 6);
-
-        tx += tileW + 6;
-      }
-      y += COMP_H;
-      y += 14;
-
-      // ── Context section label ──────────────────────────────────────────
-      ctx.font = '700 9px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText('CONTEXT', PAD, y + CTX_LBL / 2);
-      const ctxlw = ctx.measureText('CONTEXT').width;
-      ctx.fillStyle = INK14;
-      ctx.fillRect(PAD + ctxlw + 8, y + CTX_LBL / 2, W - PAD * 2 - ctxlw - 8, 1);
-      y += CTX_LBL;
-
-      // ── 3 context tiles: Goals/60 | A1/60 | Opp. Quality ──────────────
-      const ctxTiles = [
-        { label: 'GOALS / 60',    val: pct.goals ?? null },
-        { label: 'A1 / 60',       val: pct.a1    ?? null },
-        { label: 'OPP. QUALITY',  val: D.qoc     ?? null },
-      ];
-
-      const ctxTileW = (W - PAD * 2 - 2 * 8) / 3;
-      let cttx = PAD;
-      for (let ci = 0; ci < ctxTiles.length; ci++) {
-        const ct = ctxTiles[ci];
-        const ctColor = ratingTileColor(ct.val);
-
-        ctx.fillStyle = SURFACE;
-        ctx.fillRect(cttx, y, ctxTileW, CTX_H);
-        ctx.strokeStyle = INK10; ctx.lineWidth = 1;
-        ctx.strokeRect(cttx + 0.5, y + 0.5, ctxTileW - 1, CTX_H - 1);
-
-        // top accent bar
-        ctx.fillStyle = ctColor;
-        ctx.fillRect(cttx, y, ctxTileW, 3);
-
-        // label
-        ctx.font = '700 8px "JetBrains Mono", monospace';
-        ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText(ct.label, cttx + ctxTileW / 2, y + 9);
-
-        // value
+      // headshot circle (same style as drawCard — team-color border)
+      const R = 36, HS_CX = PAD + R, HS_CY = y + ID_H / 2;
+      const hsImg = await loadImg(D.headshotUrl);
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
+      } else {
+        ctx.fillStyle = INK10; ctx.fill();
         ctx.font = '800 24px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = ctColor;
-        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        const ctValStr = ct.val != null ? Math.round(ct.val) + '%' : '—';
-        ctx.fillText(ctValStr, cttx + ctxTileW / 2, y + 24);
-
-        cttx += ctxTileW + 8;
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
       }
-      y += CTX_H;
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+      // 3 hero tiles to the right of headshot
+      const heroX  = HS_CX + R + 18;
+      const heroW  = (W - heroX - PAD) / 3;
+
+      const ratingPctVal = D.hgb_rating_percentile;
+      const ratingRawStr = D.hgb_rating != null
+        ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating'
+        : '—';
+      const warPctVal  = D.warPct  ?? (D.impactPct != null ? Math.round(D.impactPct) : null);
+      const impPctVal  = D.impactPct != null ? Math.round(D.impactPct) : null;
+      const warRawStr  = D.war != null ? D.war.toFixed(2) + ' WAR' : '—';
+      const impRawStr  = D.avgGsDisplay != null ? D.avgGsDisplay.toFixed(2) + ' avg' : '—';
+
+      const heroTiles = [
+        { label: 'HGB RATING', pct: ratingPctVal, sub: ratingRawStr, tag: '' },
+        { label: 'HGB WAR',    pct: warPctVal,    sub: warRawStr,    tag: '2025-26' },
+        { label: 'HGB IMPACT', pct: impPctVal,    sub: impRawStr,    tag: '2025-26' },
+      ];
+      for (let i = 0; i < heroTiles.length; i++) {
+        const t  = heroTiles[i];
+        const tcx = heroX + i * heroW + heroW / 2;
+        if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(heroX + i * heroW, y + 18, 1, ID_H - 36); }
+        // label
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(t.label, tcx, y + 20);
+        // big percentile
+        ctx.font = '900 36px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = t.pct != null ? TEAM_C : INK32;
+        ctx.fillText(t.pct != null ? t.pct + '%' : '—', tcx, y + 33);
+        // sub raw value
+        ctx.font = '800 12px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK48; ctx.textBaseline = 'top';
+        ctx.fillText(t.sub, tcx, y + 78);
+        // small season tag (current-season signal)
+        if (t.tag) {
+          ctx.font = '700 8px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+          ctx.fillText(t.tag, tcx, y + 96);
+        }
+      }
+      y += ID_H;
+
+      // separator
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, W, 1); y += 1;
+
+      // ════════ SECTION 3 — 3-YEAR PROFILE BARS ════════
+      y += 20;
+
+      // section header: eyebrow + red "VS. X" + right-aligned meta
+      const isF = D.posGroup === 'F';
+      const vsLabel = isF ? 'VS. FORWARDS' : 'VS. DEFENSEMANS';
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      ctx.fillText('3-YEAR PROFILE', PAD, y);
+      const eyeW = ctx.measureText('3-YEAR PROFILE').width;
+      ctx.fillStyle = RED;
+      ctx.fillText('  ' + vsLabel, PAD + eyeW, y);
+      // right-aligned meta
+      ctx.font = '600 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textAlign = 'right';
+      ctx.fillText('3yr weighted · 60/25/15', W - PAD, y);
+      ctx.textAlign = 'left';
       y += 12;
 
-      // ── Footer ────────────────────────────────────────────────────────
-      ctx.fillStyle = INK06; ctx.fillRect(0, y, W, FOOT_H);
-      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      // 10 bars, single column. Fall back to season percentiles when 3yr null.
+      const pct3 = D.percentiles;
+      const v3 = (a, b) => (a != null ? a : (b != null ? b : null));
+      const profileBars = [
+        { label: 'EV Offense',   val: D.hgb_rating_off_pct,                            kind: 'green' },
+        { label: 'EV Defense',   val: D.hgb_rating_def_pct,                            kind: 'blue'  },
+        { label: 'Goals / 60',   val: v3(D.g_60_pct_3yr,      pct3.goals),             kind: 'green' },
+        { label: 'A1 / 60',      val: v3(D.a1_60_pct_3yr,     pct3.a1),                kind: 'green' },
+        { label: 'xG / 60',      val: v3(D.xg_60_pct_3yr,     pct3.ixg),               kind: 'green' },
+        { label: 'Finishing',    val: v3(D.finishing_pct_3yr, pct3.finishing),         kind: 'green' },
+        { label: 'Shots / 60',   val: v3(D.s_60_pct_3yr,      pct3.shots),             kind: 'green' },
+        { label: 'Pen. Diff',    val: v3(D.pen_diff_pct_3yr,  pct3.pen_diff),          kind: 'green' },
+        { label: 'Opp. Quality', val: v3(D.qoc_pct_3yr,       D.qoc),                  kind: 'red'   },
+        { label: 'Mate Quality', val: v3(D.qot_pct_3yr,       D.qot),                  kind: 'blue'  },
+      ];
+
+      const BAR_ROW_H   = 33;
+      const BAR_H_PX    = 13;
+      const BAR_LABEL_W = 96;
+      const BAR_RANK_W  = 44;
+      const BAR_AVAIL   = W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
+
+      function barFill(kind, val) {
+        if (kind === 'blue') return '#4285f4';
+        if (kind === 'red')  return '#842029';
+        // green logic (good/bad): pen-diff negative handled by caller via raw val
+        if (val == null)  return INK32;
+        if (val >= 60)    return '#137333';
+        if (val >= 40)    return 'rgba(13,13,20,0.35)';
+        return '#E8002D';
+      }
+
+      for (let bi = 0; bi < profileBars.length; bi++) {
+        const b = profileBars[bi];
+        const rowY = y + bi * BAR_ROW_H;
+        const by   = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
+        const val  = b.val;
+
+        // label
+        ctx.font = '600 11px "Barlow", sans-serif';
+        ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(b.label, PAD, rowY + BAR_ROW_H / 2);
+
+        // track
+        const bx = PAD + BAR_LABEL_W;
+        rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
+        ctx.fillStyle = INK10; ctx.fill();
+
+        const tierC = barFill(b.kind, val);
+
+        // fill
+        if (val != null) {
+          const fillW = Math.max(6, (val / 100) * BAR_AVAIL);
+          rrect(ctx, bx, by, fillW, BAR_H_PX, 3);
+          ctx.fillStyle = tierC; ctx.fill();
+        }
+
+        // percentage (right-aligned)
+        ctx.font = '800 15px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = val != null ? tierC : INK32;
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillText(val != null ? Math.round(val) + '%' : '—', W - PAD, rowY + BAR_ROW_H / 2);
+      }
+      y += profileBars.length * BAR_ROW_H;
+
+      // ════════ SECTION 4 — FOOTER ════════
+      const FOOT_H = 36;
+      const footY = H - FOOT_H;
+      ctx.fillStyle = INK06; ctx.fillRect(0, footY, W, FOOT_H);
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
       ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-      const posLabelFooter = D.posLabel ? D.posLabel.toUpperCase() + 'S' : 'POSITION';
-      ctx.fillText(
-        `3-YEAR WEIGHTED RATING · PERCENTILE VS ${posLabelFooter} · HOCKEYGAMEBOT.COM · HGB STATS · 2025-26`,
-        W / 2, y + FOOT_H / 2
-      );
+      ctx.fillText('HOCKEYGAMEBOT · HGB STATS · 2025-26', W / 2, footY + FOOT_H / 2);
 
       return canvas;
     }
@@ -2638,6 +2608,7 @@ const gameLogColumns = [
     bindCardBtn('download-card-btn',     'Player Card →',      drawCard,              `hgb_${D.slug}_25-26.png`);
     bindCardBtn('download-expanded-btn', 'Expanded Card →',    drawLandscapeCard,     `hgb_${D.slug}_expanded_25-26.png`, '900px · 2× retina PNG');
     bindCardBtn('download-edge-btn',     'NHL EDGE Card →',    drawEdgeCard,          `hgb_${D.slug}_edge_25-26.png`);
+    bindCardBtn('download-rating-card-btn', 'Rating Card →',   drawRatingCard,        `hgb_rating_${D.slug}_25-26.png`, '520×720px · 2× retina PNG');
   })();
 </script>
 
