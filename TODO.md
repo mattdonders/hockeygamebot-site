@@ -114,6 +114,18 @@ Full plan: `docs/plans/stats-redesign.md`
 - [ ] QA division-grouped redesign on real playoff data (clinch/eliminated badges, opacity treatment)
 - [ ] Consider adding per-team recent post preview (last tweet/skeet from the bot feed)
 
+## Interactive / Explore Section (`/stats/interactive`)
+
+Currently a beta page with a leaderboard table + EV Off vs EV Def scatter plot. Surfacing in nav now. Expand into a full data exploration hub:
+
+- [ ] Selectable players (multi-select autocomplete, compare up to N players)
+- [ ] Selectable teams (filter scatter/charts by team)
+- [ ] Additional chart types: xGF% vs PP%, WAR vs Impact, finishing vs xG, etc.
+- [ ] Image export for any chart (PNG download, matches card design system)
+- [ ] Rename page from "Interactive Analytics" to "Explore" or "Viz"
+- [ ] Tooltip on hover showing player name + full stat breakdown
+- [ ] Axis selector dropdowns (x-axis stat, y-axis stat) — tableau-style
+
 ## Proposals
 
 - [ ] Review ig.hockeygamebot.com subdomain
@@ -129,6 +141,7 @@ Full plan: `docs/plans/stats-redesign.md`
 - [x] **SS-FIX-01**: Polish pass — phantom red stripe, hero ticker removed, heatmap shine, font floor audit, sparkline with adaptive zero line + white trendline, section C typography
 - [ ] **SS-6**: Methodology page `/stats/methodology`
 - [ ] **SS-7**: Mobile polish pass
+  - [ ] Player page: shrink the Season/Rating·3yr chip group above WAR breakdown to fit on a single line on mobile
 - [x] **SS-8**: Merge stats into main site nav (Home · Scoreboard · Playoffs · Stats · Teams · Support across all editorial pages)
 - [ ] **Export script**: Add `player_of_the_week` to `_meta.json` in `hgb-bot scripts/export_stats_data.py` (7-day rolling, min 3 GP/40min TOI) — site already reads it, fallback to season avg until then
 - [ ] **Goalie metrics**: Add GSAx to leaderboards when export pipeline has it — xG section in `/stats` has a comment marking the swap point
