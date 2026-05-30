@@ -971,7 +971,12 @@ function exportScatter() {
   const wrap = document.getElementById('scatter-svg-wrap');
   const svgEl = wrap && wrap.querySelector('svg');
   if (!svgEl) return;
-  svgToPng(svgEl, 'hgb-scatter.png');
+  const title = `${STATS[scXKey].label} vs ${STATS[scYKey].label}`;
+  const chips = [];
+  if (scPos !== 'all') chips.push(scPos === 'F' ? 'Forwards' : 'Defense');
+  if (scTeam !== 'all') chips.push(scTeam);
+  chips.push('2025–26');
+  svgToPng(svgEl, 'hgb-scatter.png', title, chips);
 }
 
 // ── COMPARISON CHART ───────────────────────────────────────────────────────
@@ -1151,53 +1156,97 @@ function exportComparison() {
   const wrap = document.getElementById('cmp-svg-wrap');
   const svgEl = wrap && wrap.querySelector('svg');
   if (!svgEl) return;
-  svgToPng(svgEl, 'hgb-comparison.png');
+  const title = `Player Comparison · ${STATS[cmpStat].label}`;
+  svgToPng(svgEl, 'hgb-comparison.png', title, ['2025–26']);
 }
 
-// ── SVG → PNG EXPORT ──────────────────────────────────────────────────────
-function svgToPng(svgEl, filename) {
-  const inkColor = getCssVar('--ink') || '#0d0d14';
-  const bgColor  = getCssVar('--surface') || '#ffffff';
+// ── SVG → PNG EXPORT (with HGB branded frame matching table-export.js) ────
+function svgToPng(svgEl, filename, title, chips = []) {
+  // Frame constants — mirror table-export.js exactly
+  const PAD     = 40;
+  const TITLE_H = 72;
+  const CHIPS_H = 46;
+  const BORDER  = 2;
+  const FRAME_H = TITLE_H + CHIPS_H + BORDER;
+  const T = { bg: '#EFEEE8', ink: '#0D0D14', red: '#E8002D' };
+
   const clone = svgEl.cloneNode(true);
   const W = +svgEl.getAttribute('width');
   const H = +svgEl.getAttribute('height');
 
-  // Set explicit background + font embed on clone
+  // Bake cream background into SVG so chart area matches the frame
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  bg.setAttribute('width', W);
-  bg.setAttribute('height', H);
-  bg.setAttribute('fill', bgColor);
-  clone.insertBefore(bg, clone.firstChild);
+  const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bgRect.setAttribute('width', W); bgRect.setAttribute('height', H);
+  bgRect.setAttribute('fill', T.bg);
+  clone.insertBefore(bgRect, clone.firstChild);
 
-  // Watermark
-  const wm = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  wm.setAttribute('x', W - 8);
-  wm.setAttribute('y', H - 6);
-  wm.setAttribute('text-anchor', 'end');
-  wm.setAttribute('font-family', '"Barlow Condensed", sans-serif');
-  wm.setAttribute('font-weight', '800');
-  wm.setAttribute('font-size', '10');
-  wm.setAttribute('letter-spacing', '0.12em');
-  wm.setAttribute('fill', inkColor);
-  wm.setAttribute('opacity', '0.22');
-  wm.textContent = 'HOCKEYGAMEBOT.COM';
-  clone.appendChild(wm);
+  const svgDataUrl = 'data:image/svg+xml;base64,' +
+    btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(clone))));
 
-  const serializer = new XMLSerializer();
-  const svgStr = serializer.serializeToString(clone);
-  const svgDataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgStr)));
-
+  const scale = 2;
   const canvas = document.createElement('canvas');
-  const scale = 2; // retina
   canvas.width  = W * scale;
-  canvas.height = H * scale;
+  canvas.height = (FRAME_H + H) * scale;
   const ctx = canvas.getContext('2d');
   ctx.scale(scale, scale);
 
+  // ── Frame background ──────────────────────────────────────────────────────
+  ctx.fillStyle = T.bg;
+  ctx.fillRect(0, 0, W, FRAME_H + H);
+
+  // ── Title ─────────────────────────────────────────────────────────────────
+  ctx.fillStyle = T.ink;
+  ctx.font = '800 30px "Barlow Condensed", sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText((title || filename).toUpperCase(), PAD, TITLE_H / 2);
+
+  // ── Chips row ─────────────────────────────────────────────────────────────
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') { ctx.roundRect(x, y, w, h, r); }
+    else {
+      ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+      ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+      ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+      ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+    }
+  }
+
+  const chipH  = 24;
+  const chipY0 = TITLE_H + (CHIPS_H - chipH) / 2;
+  let cx = PAD;
+  ctx.font = '700 10px "Barlow Condensed", sans-serif';
+
+  for (const chip of chips) {
+    const text = chip.toUpperCase();
+    const chipW = ctx.measureText(text).width + 22;
+    roundRect(cx, chipY0, chipW, chipH, 3);
+    ctx.fillStyle = T.ink; ctx.fill();
+    ctx.fillStyle = T.bg; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText(text, cx + 11, chipY0 + chipH / 2);
+    cx += chipW + 8;
+  }
+
+  // Brand pill — right side, red
+  const brand = 'HOCKEYGAMEBOT.COM';
+  ctx.font = '700 10px "Barlow Condensed", sans-serif';
+  const bW = ctx.measureText(brand).width + 22;
+  const bx = W - PAD - bW;
+  roundRect(bx, chipY0, bW, chipH, 3);
+  ctx.fillStyle = T.red; ctx.fill();
+  ctx.fillStyle = T.bg; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.fillText(brand, bx + 11, chipY0 + chipH / 2);
+
+  // ── 2px border line ───────────────────────────────────────────────────────
+  ctx.fillStyle = T.ink;
+  ctx.fillRect(0, TITLE_H + CHIPS_H, W, BORDER);
+
+  // ── Chart SVG below frame ─────────────────────────────────────────────────
   const img = new Image();
   img.onload = () => {
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, 0, FRAME_H);
     const dataUrl = canvas.toDataURL('image/png');
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                   (navigator.userAgent.includes('Mac') && 'ontouchend' in document);
@@ -1207,25 +1256,22 @@ function svgToPng(svgEl, filename) {
       const msg = document.createElement('p');
       msg.textContent = 'Long-press the image → "Save to Photos"';
       msg.style.cssText = 'color:#fff;font-family:"Barlow",sans-serif;font-size:15px;text-align:center;margin:0;';
-      const img = document.createElement('img');
-      img.src = dataUrl;
-      img.style.cssText = 'max-width:90vw;max-height:65vh;border:2px solid rgba(255,255,255,0.2);';
+      const previewImg = document.createElement('img');
+      previewImg.src = dataUrl;
+      previewImg.style.cssText = 'max-width:90vw;max-height:65vh;border:2px solid rgba(255,255,255,0.2);';
       const closeBtn = document.createElement('button');
       closeBtn.textContent = 'Close';
       closeBtn.style.cssText = 'padding:10px 28px;font-family:"Barlow",sans-serif;font-weight:700;font-size:14px;letter-spacing:0.06em;text-transform:uppercase;border:none;background:#fff;color:#0d0d14;cursor:pointer;';
       closeBtn.onclick = () => document.body.removeChild(overlay);
       overlay.addEventListener('click', e => { if (e.target === overlay) document.body.removeChild(overlay); });
-      overlay.append(msg, img, closeBtn);
+      overlay.append(msg, previewImg, closeBtn);
       document.body.appendChild(overlay);
     } else {
       canvas.toBlob((blob) => {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        link.href = url; link.download = filename;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(url), 100);
       }, 'image/png');
     }
