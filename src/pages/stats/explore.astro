@@ -1170,20 +1170,33 @@ function svgToPng(svgEl, filename, title, chips = []) {
   const FRAME_H = TITLE_H + CHIPS_H + BORDER;
   const T = { bg: '#EFEEE8', ink: '#0D0D14', red: '#E8002D' };
 
-  const clone = svgEl.cloneNode(true);
-  const W = +svgEl.getAttribute('width');
-  const H = +svgEl.getAttribute('height');
+  // Resolve SVG dimensions — getAttribute returns null if D3 skipped explicit attrs
+  let svgW = +svgEl.getAttribute('width');
+  let svgH = +svgEl.getAttribute('height');
+  if (!svgW || !svgH || isNaN(svgW) || isNaN(svgH)) {
+    const b = svgEl.getBoundingClientRect();
+    svgW = Math.round(b.width)  || 700;
+    svgH = Math.round(b.height) || 500;
+  }
 
-  // Bake cream background into SVG so chart area matches the frame
+  const clone = svgEl.cloneNode(true);
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('width',  svgW);
+  clone.setAttribute('height', svgH);
+
+  // Bake cream background so chart area matches the frame
   const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  bgRect.setAttribute('width', W); bgRect.setAttribute('height', H);
+  bgRect.setAttribute('width', svgW); bgRect.setAttribute('height', svgH);
   bgRect.setAttribute('fill', T.bg);
   clone.insertBefore(bgRect, clone.firstChild);
 
   const svgDataUrl = 'data:image/svg+xml;base64,' +
     btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(clone))));
 
+  // Total canvas width = SVG width + PAD on each side so chart sits inside
+  // the same left margin as the frame title/chips
+  const W = svgW + PAD * 2;
+  const H = svgH;
   const scale = 2;
   const canvas = document.createElement('canvas');
   canvas.width  = W * scale;
@@ -1251,8 +1264,9 @@ function svgToPng(svgEl, filename, title, chips = []) {
 
   // ── Chart SVG below frame ─────────────────────────────────────────────────
   const img = new Image();
+  img.onerror = () => alert('Export failed — try again after the chart finishes loading.');
   img.onload = () => {
-    ctx.drawImage(img, 0, FRAME_H);
+    ctx.drawImage(img, PAD, FRAME_H);
     const dataUrl = canvas.toDataURL('image/png');
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                   (navigator.userAgent.includes('Mac') && 'ontouchend' in document);
