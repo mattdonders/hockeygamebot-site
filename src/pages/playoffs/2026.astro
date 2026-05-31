@@ -55,16 +55,19 @@ type ApiSeries = {
 let apiSeries: ApiSeries[] = [];
 let apiSeriesR2: ApiSeries[] = [];
 let apiSeriesR3: ApiSeries[] = [];
+let apiSeriesR4: ApiSeries[] = [];
 let latestUpdate: string | null = null;
 try {
-  const [res1, res2, res3] = await Promise.all([
+  const [res1, res2, res3, res4] = await Promise.all([
     fetch('https://api.hockeygamebot.com/v1/playoffs/round/1'),
     fetch('https://api.hockeygamebot.com/v1/playoffs/round/2'),
     fetch('https://api.hockeygamebot.com/v1/playoffs/round/3'),
+    fetch('https://api.hockeygamebot.com/v1/playoffs/round/4'),
   ]);
   if (res1.ok) { const d = await res1.json(); apiSeries = d.series ?? []; latestUpdate = d.latest_update ?? null; }
   if (res2.ok) { const d = await res2.json(); apiSeriesR2 = d.series ?? []; latestUpdate = latestUpdate ?? d.latest_update ?? null; }
   if (res3.ok) { const d = await res3.json(); apiSeriesR3 = d.series ?? []; }
+  if (res4.ok) { const d = await res4.json(); apiSeriesR4 = d.series ?? []; latestUpdate = latestUpdate ?? d.latest_update ?? null; }
 } catch (_) {}
 
 function buildSeriesArray(raw: ApiSeries[]) {
@@ -92,10 +95,12 @@ function buildSeriesArray(raw: ApiSeries[]) {
 const SERIES    = buildSeriesArray(apiSeries);
 const SERIES_R2 = buildSeriesArray(apiSeriesR2);
 const SERIES_R3 = buildSeriesArray(apiSeriesR3);
+const SERIES_R4 = buildSeriesArray(apiSeriesR4);
+const scfSeries = SERIES_R4[0] ?? null;  // only one SCF series
 
 // Quick lookup: series by team pair (for bracket rendering)
 const seriesByTeams = new Map<string, typeof SERIES[0]>();
-[...SERIES, ...SERIES_R2, ...SERIES_R3].forEach(s => {
+[...SERIES, ...SERIES_R2, ...SERIES_R3, ...SERIES_R4].forEach(s => {
   seriesByTeams.set(`${s.a.abbr}-${s.b.abbr}`, s);
   seriesByTeams.set(`${s.b.abbr}-${s.a.abbr}`, s);
 });
@@ -181,6 +186,11 @@ SERIES_R2.forEach(s => {
   cupPct[s.a.abbr] = Math.round(s.a.winPct / 4);
   cupPct[s.b.abbr] = Math.round(s.b.winPct / 4);
 });
+// Override with R4 (SCF) win percentages when available — direct cup odds
+if (scfSeries) {
+  cupPct[scfSeries.a.abbr] = scfSeries.a.winPct;
+  cupPct[scfSeries.b.abbr] = scfSeries.b.winPct;
+}
 const cupRanked = Object.entries(cupPct)
   .map(([abbr, pct]) => ({ abbr, pct, color: TEAM_META[abbr]?.color ?? '#888' }))
   .sort((a, b) => b.pct - a.pct);
@@ -296,6 +306,10 @@ img { display: block; max-width: 100%; }
 .b-scf { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px 8px; background: var(--bg); }
 .b-scf-icon { font-size: 24px; line-height: 1; }
 .b-scf-lbl { font-family: var(--mono); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); text-align: center; }
+.b-scf-series { display: flex; flex-direction: column; width: 100%; gap: 1px; margin-top: 4px; }
+.b-scf-series .b-team { border-bottom: 1px solid var(--ink-06); padding: 6px 8px; width: 100%; }
+.b-scf-series .b-team:last-child { border-bottom: none; }
+.b-scf-pct { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; color: var(--ink-32); text-align: center; padding: 2px 0; width: 100%; }
 /* Footer model note */
 .bracket-foot { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; padding: 8px 20px 6px; text-align: right; }
 
@@ -725,6 +739,23 @@ img { display: block; max-width: 100%; }
         <div class="b-scf">
           <div class="b-scf-icon">🏆</div>
           <div class="b-scf-lbl">Stanley<br/>Cup<br/>Final</div>
+          {scfSeries && (
+            <div class="b-scf-series">
+              <div class={`b-team${scfSeries.is_complete && scfSeries.winner === scfSeries.a.abbr ? ' winner' : scfSeries.is_complete ? ' elim' : ''}`}
+                   style={`border-left-color:${scfSeries.a.color}`}>
+                <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${scfSeries.a.abbr}_light.svg`} alt={scfSeries.a.abbr} />
+                <span class="b-abbr">{scfSeries.a.abbr}</span>
+                <span class="b-wins">{scfSeries.games.filter((g: string | null) => g === scfSeries.a.abbr).length}</span>
+              </div>
+              <div class="b-scf-pct">{scfSeries.a.winPct}% · {scfSeries.b.winPct}%</div>
+              <div class={`b-team${scfSeries.is_complete && scfSeries.winner === scfSeries.b.abbr ? ' winner' : scfSeries.is_complete ? ' elim' : ''}`}
+                   style={`border-left-color:${scfSeries.b.color}`}>
+                <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${scfSeries.b.abbr}_light.svg`} alt={scfSeries.b.abbr} />
+                <span class="b-abbr">{scfSeries.b.abbr}</span>
+                <span class="b-wins">{scfSeries.games.filter((g: string | null) => g === scfSeries.b.abbr).length}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <!-- WEST (reads right → left) -->
@@ -796,7 +827,7 @@ img { display: block; max-width: 100%; }
         <div class="cup-strip">
           <div class="cup-strip-label">
             <span class="cup-strip-eyebrow">~Cup Win %</span>
-            <span class="cup-strip-note">estimated · assumes equal odds in ECF + SCF</span>
+            <span class="cup-strip-note">{scfSeries ? 'SCF teams use model odds · others estimated' : 'estimated · assumes equal odds in ECF + SCF'}</span>
           </div>
           <div class="cup-strip-teams">
             {cupRanked.map((t, i) => (
@@ -808,7 +839,7 @@ img { display: block; max-width: 100%; }
                   <span class="cup-pct" style={`color:${t.color}`}>{t.pct}%</span>
                 </div>
                 <div class="cup-bar-wrap">
-                  <div class="cup-bar-fill" style={`width:${t.pct * 4}%;background:${t.color}`}></div>
+                  <div class="cup-bar-fill" style={`width:${Math.min(t.pct * 4, 100)}%;background:${t.color}`}></div>
                 </div>
               </div>
             ))}
