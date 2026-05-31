@@ -1534,8 +1534,8 @@ table.lc tbody tr:hover { background: var(--ink-04); }
       return before.wp + frac * (after.wp - before.wp);
     }
 
-    // Goal dots — with jersey number overlay when available; tooltip via data-wpdot
-    const goalDots = (flow.goals || []).map(g => {
+    // Goal dots — overturned goals are skipped (no valid WP swing).
+    const goalDots = (flow.goals || []).filter(g => !g.overturned).map(g => {
       const gx = px(g.t).toFixed(1), gy = py(interpWp(g.t)).toFixed(1);
       const color = g.is_home ? homeColor : awayColor;
       const tip = JSON.stringify({ s: g.scorer||'', a: g.assists||[], h: !!g.is_home, t: g.t }).replace(/'/g,'&#39;');
@@ -1699,7 +1699,7 @@ table.lc tbody tr:hover { background: var(--ink-04); }
     if (tMax > 3600) periodZones.push({ x: cx(3600) + 3, label: 'OT' });
 
     function cumAt(pts, t) { let v = 0; for (const p of pts) { if (p.t > t) break; v = p.c; } return v; }
-    const xgGoalDots = (flow.goals || []).filter(g => g.t >= 0 && g.t <= tMax).map(g => {
+    const xgGoalDots = (flow.goals || []).filter(g => !g.overturned && g.t >= 0 && g.t <= tMax).map(g => {
       const gxc = cx(g.t).toFixed(1), gyc = cy(cumAt(g.is_home ? homeCum : awayCum, g.t)).toFixed(1);
       const color = g.is_home ? homeColor : awayColor;
       const tip   = JSON.stringify({ h: !!g.is_home, t: g.t, s: g.scorer||'' }).replace(/'/g,'&#39;');
@@ -1838,10 +1838,15 @@ table.lc tbody tr:hover { background: var(--ink-04); }
         }
       }
 
-      return `<tr>
+      const isOverturned = !!g.overturned;
+      const rowStyle = isOverturned ? ' style="opacity:0.45;text-decoration:line-through"' : '';
+      const overturnBadge = isOverturned
+        ? `<span style="font-family:var(--mono);font-size:9px;color:var(--red);letter-spacing:0.06em;text-decoration:none;display:inline-block;margin-left:4px">OVERTURNED</span>`
+        : '';
+      return `<tr${rowStyle}>
         <td><span style="font-family:var(--mono);font-size:11px;color:var(--ink-48)">${i + 1}</span></td>
         <td><span style="font-family:var(--mono);font-size:11px">${esc(timeLabel)}</span></td>
-        <td><span class="goal-team-dot" style="background:${color}"></span><span style="font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:0.08em">${esc(abbr)}</span></td>
+        <td><span class="goal-team-dot" style="background:${color}"></span><span style="font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:0.08em">${esc(abbr)}</span>${overturnBadge}</td>
         <td><span class="goal-scorer">${g.scorer ? `<a href="/stats/player/${playerSlug(g.scorer, g.scorer_id)}" class="player-link">${esc(g.scorer)}</a>` : '–'}</span></td>
         <td><span class="goal-assists">${(g.assists || []).length ? (g.assists.map((a, ai) => {
             const aid = (g.assist_ids || [])[ai];
@@ -1849,7 +1854,7 @@ table.lc tbody tr:hover { background: var(--ink-04); }
           }).join(', ')) : '–'}</span></td>
         <td>${strengthBadge(g.strength)}</td>
         <td><span class="goal-score">${esc(g.score || '')}</span></td>
-        <td>${swingHtml}</td>
+        <td>${isOverturned ? '<span style="color:var(--ink-32)">–</span>' : swingHtml}</td>
         <td>${videoHtml}</td>
       </tr>`;
     }).join('');
