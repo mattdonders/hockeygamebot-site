@@ -1610,55 +1610,66 @@ function hydrateLocalNextGame() {
  * Fails silently — if hgb-api is unreachable or returns an error, the site
  * falls back to the hardcoded `SERIES` array and loads normally.
  */
-async function loadModelData() {
-  try {
-    const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
-    if (!res.ok) return;
-    const data = await res.json();
+// Apply a round payload from the API to a SERIES array in-place.
+function applyRoundUpdate(arr: any[], data: any) {
+  for (const snap of (data.series ?? [])) {
+    let s = arr.find((x: any) => x.id === snap.series_id);
+    if (!s) {
+      s = arr.find((x: any) =>
+        (x.a.abbr === snap.team_a && x.b.abbr === snap.team_b) ||
+        (x.a.abbr === snap.team_b && x.b.abbr === snap.team_a)
+      );
+    }
+    if (!s) continue;
 
-    // Match by series_id first, then fall back to team pair — round 2+ matchups
-    // may have different ids than what we hardcoded but the same two teams.
-    for (const snap of (data.series ?? [])) {
-      let s = SERIES.find((x: any) => x.id === snap.series_id);
-      if (!s) {
-        s = SERIES.find((x: any) =>
-          (x.a.abbr === snap.team_a && x.b.abbr === snap.team_b) ||
-          (x.a.abbr === snap.team_b && x.b.abbr === snap.team_a)
-        );
-      }
-      if (!s) continue;
-
-      // Map API's team_a / team_b to our a / b by abbrev (API orders by Elo).
-      if (snap.team_a === s.a.abbr) {
-        s.a.dist = snap.dist_a;
-        s.b.dist = snap.dist_b;
-      } else if (snap.team_a === s.b.abbr) {
-        s.a.dist = snap.dist_b;
-        s.b.dist = snap.dist_a;
-      }
-
-      if (Array.isArray(snap.games)) s.games = snap.games;
-      s.is_complete = !!snap.is_complete;
-      s.winner = snap.winner ?? null;
-      s.winner_in = snap.winner_in ?? null;
-      if (snap.next_game_utc) s._nextGameUTC = snap.next_game_utc;
-      if (Number.isFinite(snap.win_pct_a) && Number.isFinite(snap.win_pct_b)) {
-        // Map to SERIES a/b same way as dist
-        if (snap.team_a === s.a.abbr) { s.a.winPct = snap.win_pct_a; s.b.winPct = snap.win_pct_b; }
-        else                           { s.a.winPct = snap.win_pct_b; s.b.winPct = snap.win_pct_a; }
-      }
+    // Map API's team_a / team_b to our a / b by abbrev (API orders by Elo).
+    if (snap.team_a === s.a.abbr) {
+      s.a.dist = snap.dist_a;
+      s.b.dist = snap.dist_b;
+    } else if (snap.team_a === s.b.abbr) {
+      s.a.dist = snap.dist_b;
+      s.b.dist = snap.dist_a;
     }
 
-    // Staleness indicator in page header
-    if (data.latest_update) {
-      const dt = new Date(data.latest_update);
+    if (Array.isArray(snap.games)) s.games = snap.games;
+    s.is_complete = !!snap.is_complete;
+    s.winner = snap.winner ?? null;
+    s.winner_in = snap.winner_in ?? null;
+    if (snap.next_game_utc) s._nextGameUTC = snap.next_game_utc;
+    if (Number.isFinite(snap.win_pct_a) && Number.isFinite(snap.win_pct_b)) {
+      if (snap.team_a === s.a.abbr) { s.a.winPct = snap.win_pct_a; s.b.winPct = snap.win_pct_b; }
+      else                           { s.a.winPct = snap.win_pct_b; s.b.winPct = snap.win_pct_a; }
+    }
+  }
+}
+
+async function loadModelData() {
+  try {
+    const BASE = 'https://api.hockeygamebot.com/v1/playoffs/round';
+    const results = await Promise.allSettled([
+      fetch(`${BASE}/1`).then(r => r.ok ? r.json() : null),
+      fetch(`${BASE}/2`).then(r => r.ok ? r.json() : null),
+      fetch(`${BASE}/3`).then(r => r.ok ? r.json() : null),
+      fetch(`${BASE}/4`).then(r => r.ok ? r.json() : null),
+    ]);
+
+    const [d1, d2, d3, d4] = results.map(r => r.status === 'fulfilled' ? r.value : null);
+
+    if (d1) applyRoundUpdate(SERIES,    d1);
+    if (d2) applyRoundUpdate(SERIES_R2, d2);
+    if (d3) applyRoundUpdate(SERIES_R3, d3);
+    if (d4) applyRoundUpdate(SERIES_R4, d4);
+
+    // Staleness indicator uses round 1 timestamp (most likely to have recent update).
+    if (d1?.latest_update) {
+      const dt = new Date(d1.latest_update);
       const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
       const date = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
       const strong = document.getElementById('page-meta-strong');
       if (strong) strong.textContent = `Updated ${date} · ${time} ET`;
     }
 
-    for (const s of SERIES) {
+    for (const s of [...SERIES, ...SERIES_R2, ...SERIES_R3, ...SERIES_R4]) {
       if ((s as any).tbd) continue;
       const card = document.querySelector<HTMLElement>(`.hgb-card[data-id="${s.id}"]`);
       if (card) rebuildCard(card, s);

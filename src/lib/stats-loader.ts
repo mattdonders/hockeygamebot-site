@@ -26,13 +26,37 @@ async function _fetchJSON(path: string) {
   return res.json();
 }
 
+// Safe fetch: catches network/HTTP errors and returns a fallback value instead of
+// letting the entire build fail. A warning is logged so the issue is visible in
+// CF Pages build logs. Pages that depend on this data will render with empty state.
+async function _safeFetchJSON(path: string, fallback: unknown): Promise<unknown> {
+  try {
+    return await _fetchJSON(path);
+  } catch (e: any) {
+    console.warn(
+      `[stats-loader] WARNING: ${path} fetch failed (${e?.message ?? e}). ` +
+      `Rendering with empty fallback — check api.hockeygamebot.com before deploying.`
+    );
+    return fallback;
+  }
+}
+
+// Hardcoded meta fallback satisfies StatsMetaSchema so build/parse don't crash.
+const _META_FALLBACK = {
+  schema_version: '0.0.0-offline',
+  season: '20252026',
+  generated_at: new Date(0).toISOString(),
+  player_count: 0,
+  pending_fields: [] as string[],
+};
+
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
 const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData] = await Promise.all([
-  _fetchJSON('players'),
-  _fetchJSON('leaderboards'),
-  _fetchJSON('player-games'),
-  _fetchJSON('meta'),
+  _safeFetchJSON('players',      []),
+  _safeFetchJSON('leaderboards', {}),
+  _safeFetchJSON('player-games', {}),
+  _safeFetchJSON('meta',         _META_FALLBACK),
   _fetchJSON('team-game-stats').catch(() => ({})),
   _fetchJSON('goalies').catch(() => []),
   _fetchJSON('lines').catch(() => []),
