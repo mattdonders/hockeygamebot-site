@@ -362,6 +362,14 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .onice-view-toggle[data-view="table"] .onice-toggle-table { display: none; }
 .onice-view-toggle[data-view="chart"] .onice-toggle-chart { display: none; }
 .onice-view-toggle[data-view="chart"] .onice-toggle-table { display: inline; }
+
+/* ── xG Situation Toggle ─────────────────────────────────────────────────── */
+.xg-sit-toggle { font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+.xg-sit-toggle:hover { border-color: var(--ink-48); color: var(--ink); }
+.xg-sit-toggle[data-sit="5v5"] .xg-5v5-label { opacity: 1; }
+.xg-sit-toggle[data-sit="5v5"] .xg-allsit-label { opacity: 0.4; }
+.xg-sit-toggle[data-sit="all"] .xg-5v5-label { opacity: 0.4; }
+.xg-sit-toggle[data-sit="all"] .xg-allsit-label { opacity: 1; }
 .onice-tab { font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; padding: 5px 14px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-56); cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
 .onice-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .onice-tab:hover:not(.active) { border-color: var(--ink-48); color: var(--ink); }
@@ -678,7 +686,13 @@ table.lc tbody tr:hover { background: var(--ink-04); }
       <div class="section" id="section-chart">
         <div class="section-head">
           <h2 class="section-title">Game <span class="accent">Charts</span></h2>
-          <div id="chart-section-meta" class="section-meta">HGB xG model · 5v5</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div id="chart-section-meta" class="section-meta">HGB xG model · 5v5</div>
+            <button class="xg-sit-toggle" id="xg-sit-toggle" data-sit="5v5">
+              <span class="xg-5v5-label">5V5</span>
+              <span class="xg-allsit-label">ALL SIT</span>
+            </button>
+          </div>
         </div>
         <div class="chart-wrap">
           <div style="position:relative">
@@ -1610,7 +1624,7 @@ table.lc tbody tr:hover { background: var(--ink-04); }
 
   // ── xG Step Chart (5v5, built from events endpoint) ─────────────────────────
 
-  function renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr) {
+  function renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, sitFilter = '5v5') {
     const svg    = document.getElementById('xg-chart');
     const noData = document.getElementById('xg-no-data');
 
@@ -1627,7 +1641,8 @@ table.lc tbody tr:hover { background: var(--ink-04); }
     const homeShots = [], awayShots = [];
     for (const ev of (eventsData?.events || [])) {
       if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'MISSED_SHOT' && ev.event_type !== 'GOAL') continue;
-      if (ev.payload?.situationCode !== '1551') continue;
+      const include = sitFilter === '5v5' ? (ev.payload?.situationCode === '1551') : true;
+      if (!include) continue;
       const xg = parseFloat(ev.payload?.xg);
       if (isNaN(xg) || xg <= 0) continue;
       const t = toGameSecs(ev.period, ev.payload?.timeInPeriod);
@@ -1712,7 +1727,7 @@ table.lc tbody tr:hover { background: var(--ink-04); }
 
     svg.innerHTML = `
       <text x="${PAD.l}" y="20" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="11" fill="rgba(13,13,20,0.42)">HOCKEYGAMEBOT</text>
-      <text x="${PAD.l}" y="36" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="16" fill="#E8002D">5V5 EXPECTED GOALS</text>
+      <text x="${PAD.l}" y="36" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="16" fill="#E8002D">${sitFilter === '5v5' ? '5V5' : 'ALL SIT'} EXPECTED GOALS</text>
       ${yTicks.map(v => {
         const y = cy(v).toFixed(1);
         return `<line x1="${PAD.l}" y1="${y}" x2="${PAD.l + cW}" y2="${y}" stroke="rgba(13,13,20,0.08)" stroke-width="${v === 0 ? 1.2 : 0.6}"/>
@@ -2994,6 +3009,29 @@ table.lc tbody tr:hover { background: var(--ink-04); }
       renderStats(flow, boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
+
+      // Wire up xG situation toggle
+      const xgSitToggle = document.getElementById('xg-sit-toggle');
+      let xgCurrentSit = '5v5';
+
+      if (xgSitToggle) {
+        xgSitToggle.addEventListener('click', () => {
+          xgCurrentSit = xgCurrentSit === '5v5' ? 'all' : '5v5';
+          xgSitToggle.dataset.sit = xgCurrentSit;
+
+          // Update meta text
+          const meta = document.getElementById('chart-section-meta');
+          if (meta) {
+            const isLive = state === 'live';
+            meta.textContent = xgCurrentSit === '5v5'
+              ? (isLive ? '5v5 · HGB xG model · live' : '5v5 · HGB xG model')
+              : (isLive ? 'All Sit · HGB xG model · live' : 'All Sit · HGB xG model');
+          }
+
+          // Re-render chart with new filter
+          renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, xgCurrentSit);
+        });
+      }
 
       // Wire up chart download buttons
       document.querySelectorAll('.chart-dl-btn[data-chart]').forEach(btn => {
