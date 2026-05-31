@@ -7,6 +7,7 @@ import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
 import StatusPill from '../../components/StatusPill.astro';
 import Badge from '../../components/Badge.astro';
+import ChipGroup from '../../components/ChipGroup.astro';
 import { loadPlayers, loadPlayerGames } from '../../lib/stats-loader';
 
 // Build impact map at build time:
@@ -363,13 +364,6 @@ table.ps tbody tr:hover { background: var(--ink-04); }
 .onice-view-toggle[data-view="chart"] .onice-toggle-chart { display: none; }
 .onice-view-toggle[data-view="chart"] .onice-toggle-table { display: inline; }
 
-/* ── xG Situation Toggle ─────────────────────────────────────────────────── */
-.xg-sit-toggle { font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
-.xg-sit-toggle:hover { border-color: var(--ink-48); color: var(--ink); }
-.xg-sit-toggle[data-sit="5v5"] .xg-5v5-label { opacity: 1; }
-.xg-sit-toggle[data-sit="5v5"] .xg-allsit-label { opacity: 0.4; }
-.xg-sit-toggle[data-sit="all"] .xg-5v5-label { opacity: 0.4; }
-.xg-sit-toggle[data-sit="all"] .xg-allsit-label { opacity: 1; }
 .onice-tab { font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; padding: 5px 14px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-56); cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
 .onice-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .onice-tab:hover:not(.active) { border-color: var(--ink-48); color: var(--ink); }
@@ -688,10 +682,14 @@ table.lc tbody tr:hover { background: var(--ink-04); }
           <h2 class="section-title">Game <span class="accent">Charts</span></h2>
           <div style="display:flex;align-items:center;gap:10px">
             <div id="chart-section-meta" class="section-meta">HGB xG model · 5v5</div>
-            <button class="xg-sit-toggle" id="xg-sit-toggle" data-sit="5v5">
-              <span class="xg-5v5-label">5V5</span>
-              <span class="xg-allsit-label">ALL SIT</span>
-            </button>
+            <ChipGroup
+              id="xg-sit-toggle"
+              name="xg-sit"
+              items={[
+                { label: '5V5',     value: '5v5', active: true },
+                { label: 'ALL SIT', value: 'all' },
+              ]}
+            />
           </div>
         </div>
         <div class="chart-wrap">
@@ -3010,28 +3008,27 @@ table.lc tbody tr:hover { background: var(--ink-04); }
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
 
-      // Wire up xG situation toggle
-      const xgSitToggle = document.getElementById('xg-sit-toggle');
+      // Wire up xG situation toggle (ChipGroup emits chip:changed)
       let xgCurrentSit = '5v5';
 
-      if (xgSitToggle) {
-        xgSitToggle.addEventListener('click', () => {
-          xgCurrentSit = xgCurrentSit === '5v5' ? 'all' : '5v5';
-          xgSitToggle.dataset.sit = xgCurrentSit;
+      document.addEventListener('chip:changed', (e: Event) => {
+        const ce = e as CustomEvent<{ name: string; value: string }>;
+        if (ce.detail.name !== 'xg-sit') return;
 
-          // Update meta text
-          const meta = document.getElementById('chart-section-meta');
-          if (meta) {
-            const isLive = state === 'live';
-            meta.textContent = xgCurrentSit === '5v5'
-              ? (isLive ? '5v5 · HGB xG model · live' : '5v5 · HGB xG model')
-              : (isLive ? 'All Sit · HGB xG model · live' : 'All Sit · HGB xG model');
-          }
+        xgCurrentSit = ce.detail.value;
 
-          // Re-render chart with new filter
-          renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, xgCurrentSit);
-        });
-      }
+        // Update meta text
+        const meta = document.getElementById('chart-section-meta');
+        if (meta) {
+          const isLive = state === 'live';
+          meta.textContent = xgCurrentSit === '5v5'
+            ? (isLive ? '5v5 · HGB xG model · live' : '5v5 · HGB xG model')
+            : (isLive ? 'All Sit · HGB xG model · live' : 'All Sit · HGB xG model');
+        }
+
+        // Re-render chart with new filter
+        renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, xgCurrentSit);
+      });
 
       // Wire up chart download buttons
       document.querySelectorAll('.chart-dl-btn[data-chart]').forEach(btn => {
