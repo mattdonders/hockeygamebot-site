@@ -1,3 +1,6 @@
+// Cloudflare Pages Function — compiled by CF Pages, not by astro check.
+// functions/ is excluded from tsconfig.json. For IDE type support, install
+// @cloudflare/workers-types and reference it here.
 interface Env {
   ASSETS: Fetcher;
 }

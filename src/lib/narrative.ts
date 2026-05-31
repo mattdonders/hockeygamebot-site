@@ -71,7 +71,7 @@ function leadingNumber(s: unknown): number {
 
 /** State derivation from the existing `state.label` display string. */
 function deriveState(game: NarrativeGame): 'reg' | 'ot' | 'so' {
-  if (typeof game.state === 'string') return game.state;
+  if (typeof game.state === 'string') return game.state as 'reg' | 'ot' | 'so';
   if (game.state?.kind) return game.state.kind;
   const label = game.state?.label?.toUpperCase?.() ?? '';
   if (label.includes('SO')) return 'so';
