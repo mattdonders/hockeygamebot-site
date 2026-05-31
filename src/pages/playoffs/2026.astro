@@ -92,10 +92,20 @@ function buildSeriesArray(raw: ApiSeries[]) {
   }).filter((x): x is NonNullable<typeof x> => x !== null);
 }
 
-const SERIES    = buildSeriesArray(apiSeries);
-const SERIES_R2 = buildSeriesArray(apiSeriesR2);
-const SERIES_R3 = buildSeriesArray(apiSeriesR3);
-const SERIES_R4 = buildSeriesArray(apiSeriesR4);
+function deduplicateSeries(arr: ReturnType<typeof buildSeriesArray>) {
+  const seen = new Set<string>();
+  return arr.filter(s => {
+    const key = [s.a.abbr, s.b.abbr].sort().join('-');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const SERIES    = deduplicateSeries(buildSeriesArray(apiSeries));
+const SERIES_R2 = deduplicateSeries(buildSeriesArray(apiSeriesR2));
+const SERIES_R3 = deduplicateSeries(buildSeriesArray(apiSeriesR3));
+const SERIES_R4 = deduplicateSeries(buildSeriesArray(apiSeriesR4));
 const scfSeries = SERIES_R4[0] ?? null;  // only one SCF series
 
 // Quick lookup: series by team pair (for bracket rendering)
@@ -135,6 +145,18 @@ SERIES.forEach(s => {
 // R2 series lookup by team pair
 function getR2Series(a: string, b: string) {
   return seriesByTeams.get(`${a}-${b}`) ?? seriesByTeams.get(`${b}-${a}`) ?? null;
+}
+
+// Bracket win-count helper: count wins from games[] with fallback to winner_in when games is empty
+function bracketWins(s: ReturnType<typeof buildSeriesArray>[0] | undefined, team: string): number {
+  if (!s) return 0;
+  const fromGames = s.games.filter(g => g === team).length;
+  if (fromGames > 0) return fromGames;
+  // Fallback: derive from winner + winner_in when games array is empty
+  if (s.is_complete && s.winner && s.winner_in) {
+    return s.winner === team ? 4 : s.winner_in - 4;
+  }
+  return 0;
 }
 
 // ── card helpers (server-side) ────────────────────────────────────────────────
@@ -284,7 +306,7 @@ img { display: block; max-width: 100%; }
 .mast-sub { font-family: var(--mono); font-size: 12px; color: var(--ink-48); margin-top: 10px; letter-spacing: 0.04em; }
 
 /* ── BRACKET ── */
-.bracket-wrap { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 0; margin-top: 20px; border-top: 1px solid var(--ink-10); }
+.bracket-wrap { display: grid; grid-template-columns: 1fr 110px 1fr; gap: 0; margin-top: 20px; border-top: 1px solid var(--ink-10); }
 .b-conf { display: flex; gap: 0; overflow: hidden; }
 .b-conf.west { flex-direction: row-reverse; }
 .b-col { display: flex; flex-direction: column; border-right: 1px solid var(--ink-06); min-width: 0; }
@@ -307,8 +329,11 @@ img { display: block; max-width: 100%; }
 .b-scf-icon { font-size: 24px; line-height: 1; }
 .b-scf-lbl { font-family: var(--mono); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); text-align: center; }
 .b-scf-series { display: flex; flex-direction: column; width: 100%; gap: 1px; margin-top: 4px; }
-.b-scf-series .b-team { border-bottom: 1px solid var(--ink-06); padding: 6px 8px; width: 100%; }
+.b-scf-series .b-team { border-bottom: 1px solid var(--ink-06); padding: 5px 6px; width: 100%; gap: 4px; }
 .b-scf-series .b-team:last-child { border-bottom: none; }
+.b-scf-series .b-logo { width: 16px; height: 16px; }
+.b-scf-series .b-abbr { font-size: 13px; }
+.b-scf-series .b-wins { font-size: 13px; }
 .b-scf-pct { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; color: var(--ink-32); text-align: center; padding: 2px 0; width: 100%; }
 /* Footer model note */
 .bracket-foot { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; padding: 8px 20px 6px; text-align: right; }
@@ -687,8 +712,8 @@ img { display: block; max-width: 100%; }
                   const s = seriesByTeams.get(`${ta}-${tb}`) ?? seriesByTeams.get(`${tb}-${ta}`);
                   const wonA = r1Winners.get(ta); const wonB = r1Winners.get(tb);
                   const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
-                  const winsA = s?.games.filter(g => g === ta).length ?? 0;
-                  const winsB = s?.games.filter(g => g === tb).length ?? 0;
+                  const winsA = bracketWins(s, ta);
+                  const winsB = bracketWins(s, tb);
                   return (<>
                     <div class={`b-team${wonA === true ? ' winner' : wonA === false ? ' elim' : ''}`} style={`border-left-color:${ma.color}`}>
                       <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
@@ -712,8 +737,8 @@ img { display: block; max-width: 100%; }
               const [ta, tb] = pair as [string,string];
               const s = getR2Series(ta, tb);
               const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
-              const winsA = s?.games.filter(g => g === ta).length ?? 0;
-              const winsB = s?.games.filter(g => g === tb).length ?? 0;
+              const winsA = bracketWins(s ?? undefined, ta);
+              const winsB = bracketWins(s ?? undefined, tb);
               return (<>
                 <div class="b-team" style={`border-left-color:${ma.color};flex:1`}>
                   <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
@@ -773,8 +798,8 @@ img { display: block; max-width: 100%; }
                   const s = seriesByTeams.get(`${ta}-${tb}`) ?? seriesByTeams.get(`${tb}-${ta}`);
                   const wonA = r1Winners.get(ta); const wonB = r1Winners.get(tb);
                   const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
-                  const winsA = s?.games.filter(g => g === ta).length ?? 0;
-                  const winsB = s?.games.filter(g => g === tb).length ?? 0;
+                  const winsA = bracketWins(s, ta);
+                  const winsB = bracketWins(s, tb);
                   return (<>
                     <div class={`b-team${wonA === true ? ' winner' : wonA === false ? ' elim' : ''}`} style={`border-left-color:${ma.color}`}>
                       <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
@@ -798,8 +823,8 @@ img { display: block; max-width: 100%; }
               const [ta, tb] = pair as [string,string];
               const s = getR2Series(ta, tb);
               const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
-              const winsA = s?.games.filter(g => g === ta).length ?? 0;
-              const winsB = s?.games.filter(g => g === tb).length ?? 0;
+              const winsA = bracketWins(s ?? undefined, ta);
+              const winsB = bracketWins(s ?? undefined, tb);
               return (<>
                 <div class="b-team" style={`border-left-color:${ma.color};flex:1`}>
                   <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
