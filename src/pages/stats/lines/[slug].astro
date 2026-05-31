@@ -5,7 +5,7 @@
 import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
-import { loadLines, loadPlayers } from '../../../lib/stats-loader';
+import { loadLines, loadPlayers, loadMeta } from '../../../lib/stats-loader';
 import { toLineSlug } from '../../../lib/line-slug';
 import type { LineRecord } from '../../../lib/stats-schemas';
 import type { PlayerSummary } from '../../../lib/stats-loader';
@@ -39,6 +39,28 @@ interface Props {
 }
 
 const { line, linePlayers } = Astro.props;
+
+// ── Rank context (for Verify links from anomaly detector) ──────────────────
+// Pool: all lines of the same type + game_type above a minimum TOI threshold.
+// Rank is by xGF% descending. Computed at build time — loadLines() is a
+// module-level cache, not a new fetch.
+const MIN_TOI_RANK  = line.type === 'F' ? 60 : 40;
+const _allLines     = loadLines();
+const _rankPool     = _allLines.filter(l =>
+  l.type      === line.type      &&
+  l.game_type === line.game_type &&
+  l.toi_min   >= MIN_TOI_RANK
+).sort((a, b) => (b.xgf_pct ?? 0) - (a.xgf_pct ?? 0));
+const _rankIdx      = _rankPool.findIndex(l =>
+  l.players === line.players && l.team === line.team && l.season === line.season
+);
+const rankPos       = _rankIdx >= 0 ? _rankIdx + 1 : null;
+const rankTotal     = _rankPool.length;
+const rankTopPct    = rankPos != null ? Math.ceil(rankPos / rankTotal * 100) : null;
+
+// ── Stats freshness ────────────────────────────────────────────────────────
+const _meta      = loadMeta();
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
 
 // ── Display values ─────────────────────────────────────────────────────────
 
@@ -294,6 +316,23 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
 .balance-bar { display: flex; height: 12px; margin-top: 8px; border-radius: 2px; overflow: hidden; font: 700 9px/12px 'JetBrains Mono', monospace; }
 
 /* ── Footer ──────────────────────────────────────────────────────────── */
+/* ── Insight Context block ── */
+.insight-block { background: var(--surface); border: 1px solid var(--ink-14); margin: 32px 0 0; padding: 20px 24px 22px; }
+.insight-header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 14px; }
+.insight-label { font-family: var(--mono); font-weight: 700; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink); }
+.insight-desc { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; }
+.insight-rows { display: grid; gap: 6px; }
+.insight-row { display: grid; grid-template-columns: 160px 1fr; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--ink-06); }
+.insight-row:last-child { border-bottom: none; }
+.ik { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.08em; white-space: nowrap; }
+.iv { font-family: var(--mono); font-size: 11px; color: var(--ink); letter-spacing: 0.04em; }
+.iv strong { color: var(--ink); font-weight: 700; }
+.iv.rank-highlight { color: var(--red); }
+@media (max-width: 640px) {
+  .insight-row { grid-template-columns: 1fr; gap: 2px; }
+  .iv { font-size: 12px; }
+}
+
 .foot { border-top: 1px solid var(--ink-14); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
 .foot-inner { max-width: 1280px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .foot-wordmark { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; }
@@ -395,6 +434,56 @@ html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
         </div>
       </div>
     ))}
+  </div>
+
+  <!-- Insight Context — evidence block for anomaly detector Verify links -->
+  <div class="insight-block">
+    <div class="insight-header">
+      <span class="insight-label">Insight Context</span>
+      <span class="insight-desc">Independent data backing any claim made about this line.</span>
+    </div>
+    <div class="insight-rows">
+      <div class="insight-row">
+        <span class="ik">Players</span>
+        <span class="iv">{line.players}</span>
+      </div>
+      <div class="insight-row">
+        <span class="ik">Team / Type</span>
+        <span class="iv">{line.team} · {lineTypeLabel}</span>
+      </div>
+      <div class="insight-row">
+        <span class="ik">Season</span>
+        <span class="iv">{seasonDisplay} {gameTypeLabel}</span>
+      </div>
+      <div class="insight-row">
+        <span class="ik">TOI / Games</span>
+        <span class="iv">{line.toi_min >= 60 ? `${Math.floor(line.toi_min)}m` : `${line.toi_min.toFixed(1)}m`} over {line.games} game{line.games !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="insight-row">
+        <span class="ik">xGF / xGA / xGF%</span>
+        <span class="iv">{line.xgf?.toFixed(2) ?? '—'} / {line.xga?.toFixed(2) ?? '—'} / {line.xgf_pct?.toFixed(1) ?? '—'}%</span>
+      </div>
+      <div class="insight-row">
+        <span class="ik">GF / GA</span>
+        <span class="iv">{line.gf ?? '—'} / {line.ga ?? '—'}</span>
+      </div>
+      {rankPos != null && (
+        <div class="insight-row">
+          <span class="ik">xGF% rank ({line.type === 'F' ? 'F-lines' : 'D-pairs'}, {MIN_TOI_RANK}+ min)</span>
+          <span class="iv rank-highlight"><strong>#{rankPos} of {rankTotal}</strong> · top {rankTopPct}%</span>
+        </div>
+      )}
+      <div class="insight-row">
+        <span class="ik">Min TOI threshold</span>
+        <span class="iv">{MIN_TOI_RANK} minutes</span>
+      </div>
+      {_statsDate && (
+        <div class="insight-row">
+          <span class="ik">Last updated</span>
+          <span class="iv">{_statsDate} · updated nightly</span>
+        </div>
+      )}
+    </div>
   </div>
 
   <!-- Stage 2: Stat Breakdown -->
