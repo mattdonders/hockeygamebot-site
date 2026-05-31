@@ -218,6 +218,53 @@ const initialColumns = [
       color: var(--ink); outline: none; width: 160px; }
     #name-search::placeholder { color: var(--ink-32); font-weight: 400; }
 
+    /* ── Mobile filter grouping ─────────────────────────────────────────── */
+    /* Desktop: wrapper divs are transparent — children flow into .controls  */
+    .filter-group { display: contents; }
+    .filter-toggle-row { display: none; }
+
+    @media (max-width: 768px) {
+      .controls { flex-direction: column; align-items: stretch; gap: 0; margin-bottom: 8px; }
+
+      .filter-group {
+        display: flex; flex-wrap: wrap; gap: 8px;
+        padding: 10px 0;
+      }
+      .filter-group--primary { padding-top: 12px; padding-bottom: 8px; }
+      .filter-group--secondary {
+        display: none;
+        border-top: 1px solid var(--ink-10);
+        padding-top: 12px;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .filter-group--secondary.is-open { display: flex; }
+      .filter-group--search { padding-top: 10px; }
+
+      .filter-toggle-row {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 7px 0;
+        border-top: 1px solid var(--ink-10);
+        border-bottom: 1px solid var(--ink-10);
+        gap: 12px;
+      }
+      .filter-summary {
+        font-family: var(--mono); font-size: 10px; color: var(--ink-48);
+        letter-spacing: 0.06em; flex: 1; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .filter-toggle-btn {
+        flex-shrink: 0;
+        font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+        text-transform: uppercase; white-space: nowrap;
+        background: none; border: 1px solid var(--ink-20); color: var(--ink-48);
+        cursor: pointer; padding: 5px 10px; display: flex; align-items: center; gap: 4px;
+      }
+      .filter-toggle-arrow { display: inline-block; font-size: 8px; transition: transform 0.15s; }
+      .filter-toggle-btn[aria-expanded="true"] .filter-toggle-arrow { transform: rotate(180deg); }
+
+    }
+
     /* ── Show-all row ── */
     .lb-more { padding: 14px 18px; border-top: 1px solid var(--ink-06); text-align: center; }
     .lb-more-btn {
@@ -310,70 +357,89 @@ const initialColumns = [
         <span class="dl-limit-note" id="dl-limit-note" style="display:none">Use Top 10/20/50 to export</span>
       </div>
     </div>
-    <div class="controls">
-      <ChipGroup
-        id="gametype-filter"
-        name="gametype"
-        items={[
-          { label: 'Regular Season', value: '2', active: true },
-          { label: 'Playoffs',       value: '3' },
-        ]}
-      />
-      <ChipGroup
-        id="view-filter"
-        name="view"
-        items={[
-          { label: 'Counting',   value: 'counting', active: true },
-          { label: 'Rates',      value: 'rates' },
-          { label: 'Advanced',   value: 'advanced' },
-          { label: 'On-Ice 5v5', value: 'onice' },
-        ]}
-      />
-      <ChipGroup
-        id="pos-filter"
-        name="pos"
-        items={[
-          { label: 'All',  value: 'all', active: true },
-          { label: 'Fwds', value: 'F' },
-          { label: 'Def',  value: 'D' },
-        ]}
-      />
-      <ChipGroup
-        id="display-filter"
-        name="display"
-        items={[
-          { label: 'Totals', value: 'totals', active: true },
-          { label: 'Per 60', value: 'per60' },
-        ]}
-      />
-      <ChipGroup
-        id="strength-filter"
-        name="strength"
-        items={[
-          { label: 'All', value: 'all', active: true },
-          { label: '5v5', value: '5v5' },
-          { label: 'PP',  value: 'pp' },
-          { label: 'PK',  value: 'pk' },
-        ]}
-      />
-      <select id="team-filter">
-        <option value="all">All Teams</option>
-      </select>
-      <div class="slider-wrap">
-        Min TOI: <span id="toi-label">—</span>
-        <input type="range" id="toi-slider" min="0" max="28" value="0" step="1">
+    <div class="controls" id="filter-controls">
+      <!-- Primary: season type + stat group — always visible on mobile -->
+      <div class="filter-group filter-group--primary">
+        <ChipGroup
+          id="gametype-filter"
+          name="gametype"
+          items={[
+            { label: 'Regular Season', value: '2', active: true },
+            { label: 'Playoffs',       value: '3' },
+          ]}
+        />
+        <ChipGroup
+          id="view-filter"
+          name="view"
+          items={[
+            { label: 'Counting',   value: 'counting', active: true },
+            { label: 'Rates',      value: 'rates' },
+            { label: 'Advanced',   value: 'advanced' },
+            { label: 'On-Ice 5v5', value: 'onice' },
+          ]}
+        />
       </div>
-      <ChipGroup
-        id="topn-filter"
-        name="topn"
-        items={[
-          { label: 'All',    value: '', active: true },
-          { label: 'Top 10', value: '10' },
-          { label: 'Top 20', value: '20' },
-          { label: 'Top 50', value: '50' },
-        ]}
-      />
-      <input type="search" id="name-search" placeholder="Search players…" autocomplete="off">
+
+      <!-- Mobile-only: active filter summary + More filters toggle -->
+      <div class="filter-toggle-row" role="button" aria-controls="filter-secondary">
+        <span class="filter-summary" id="filter-summary" aria-live="polite"></span>
+        <button class="filter-toggle-btn" id="filter-toggle-btn" type="button" aria-expanded="false" aria-controls="filter-secondary">
+          Filters <span class="filter-toggle-arrow">▾</span>
+        </button>
+      </div>
+
+      <!-- Secondary: collapsible on mobile, always visible on desktop -->
+      <div class="filter-group filter-group--secondary" id="filter-secondary">
+        <ChipGroup
+          id="pos-filter"
+          name="pos"
+          items={[
+            { label: 'All',  value: 'all', active: true },
+            { label: 'Fwds', value: 'F' },
+            { label: 'Def',  value: 'D' },
+          ]}
+        />
+        <ChipGroup
+          id="display-filter"
+          name="display"
+          items={[
+            { label: 'Totals', value: 'totals', active: true },
+            { label: 'Per 60', value: 'per60' },
+          ]}
+        />
+        <ChipGroup
+          id="strength-filter"
+          name="strength"
+          items={[
+            { label: 'All', value: 'all', active: true },
+            { label: '5v5', value: '5v5' },
+            { label: 'PP',  value: 'pp' },
+            { label: 'PK',  value: 'pk' },
+          ]}
+        />
+        <select id="team-filter">
+          <option value="all">All Teams</option>
+        </select>
+        <div class="slider-wrap">
+          Min TOI: <span id="toi-label">—</span>
+          <input type="range" id="toi-slider" min="0" max="28" value="0" step="1">
+        </div>
+        <ChipGroup
+          id="topn-filter"
+          name="topn"
+          items={[
+            { label: 'All',    value: '', active: true },
+            { label: 'Top 10', value: '10' },
+            { label: 'Top 20', value: '20' },
+            { label: 'Top 50', value: '50' },
+          ]}
+        />
+      </div>
+
+      <!-- Search: always visible -->
+      <div class="filter-group filter-group--search">
+        <input type="search" id="name-search" placeholder="Search players…" autocomplete="off">
+      </div>
     </div>
 
     <Table
@@ -813,6 +879,7 @@ const initialColumns = [
     const tooMany = topN == null && total > 20;
     if (exportBtn) { exportBtn.disabled = tooMany; exportBtn.style.opacity = tooMany ? '0.35' : ''; }
     if (dlNote) { dlNote.style.display = tooMany ? '' : 'none'; }
+    if (typeof updateFilterSummary === 'function') updateFilterSummary();
   }
 
   // ── Event handlers ─────────────────────────────────────────────────────
@@ -928,10 +995,39 @@ const initialColumns = [
     render();
   });
 
+  // ── Mobile filter toggle ───────────────────────────────────────────────
+  const filterToggleBtn = document.getElementById('filter-toggle-btn');
+  const filterSecondary = document.getElementById('filter-secondary');
+  if (filterToggleBtn && filterSecondary) {
+    filterToggleBtn.addEventListener('click', () => {
+      const isOpen = filterSecondary.classList.toggle('is-open');
+      filterToggleBtn.setAttribute('aria-expanded', String(isOpen));
+    });
+  }
+
+  // ── Active filter summary (mobile) ─────────────────────────────────────
+  function updateFilterSummary() {
+    const el = document.getElementById('filter-summary');
+    if (!el) return;
+    const parts = [];
+    if (gameType !== 2) parts.push('Playoffs');
+    const viewLabels = { rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice' };
+    if (viewTab !== 'counting') parts.push(viewLabels[viewTab] || viewTab);
+    if (posFilter !== 'all') parts.push(posFilter === 'F' ? 'Fwds' : 'Defs');
+    if (displayMode !== 'totals') parts.push('Per 60');
+    if (strengthMode !== 'all') parts.push(strengthMode.toUpperCase());
+    if (teamFilter !== 'all') parts.push(teamFilter);
+    if (minToi > 0) parts.push(minToi + '+ min TOI');
+    if (topN) parts.push('Top ' + topN);
+    if (searchQuery) parts.push('"' + searchQuery + '"');
+    el.textContent = parts.length ? parts.join(' · ') : 'All defaults';
+  }
+
   readUrl();
   syncUi();
   syncToiLabel();
   render();
+  updateFilterSummary();
 })();
 </script>
 
