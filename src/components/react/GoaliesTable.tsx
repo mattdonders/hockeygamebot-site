@@ -4,6 +4,8 @@ import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT
 export type GoalieRow = {
   goalie_id:   number;
   name:        string;
+  first_name:  string | null;
+  last_name:   string | null;
   team:        string;
   season:      string | null;
   gp:          number | null;
@@ -58,7 +60,9 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
           <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
+          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
+          </div>
         </div>
       ),
       sortType: 'string',

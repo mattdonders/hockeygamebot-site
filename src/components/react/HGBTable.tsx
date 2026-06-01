@@ -568,7 +568,7 @@ export default function HGBTable<T extends object>({
               >
                 {hg.headers.map(h => {
                   const colDef = columnDefs.find(c => c.id === h.id);
-                  const align = colDef?.align ?? (h.id === columnDefs[0]?.id ? 'left' : 'right');
+                  const align = colDef?.align ?? (h.id === columnDefs[0]?.id ? 'left' : 'center');
                   const isSorted = h.column.getIsSorted();
                   return (
                     <th
@@ -576,11 +576,11 @@ export default function HGBTable<T extends object>({
                       onClick={h.column.getToggleSortingHandler()}
                       style={{
                         ...MONO,
-                        fontSize: 9,
-                        letterSpacing: '0.16em',
+                        fontSize: 11,
+                        letterSpacing: '0.12em',
                         textTransform: 'uppercase',
                         color: isSorted ? INK : MUTED,
-                        fontWeight: isSorted ? 700 : 400,
+                        fontWeight: isSorted ? 700 : 500,
                         padding: isMobile ? '8px 8px' : '8px 10px',
                         textAlign: align,
                         cursor: 'pointer',
@@ -625,7 +625,7 @@ export default function HGBTable<T extends object>({
                 const cells = row.getVisibleCells().map(cell => {
                   const colDef = columnDefs.find(c => c.id === cell.column.id);
                   const isFirst = cell.column.id === columnDefs[0]?.id;
-                  const align = colDef?.align ?? (isFirst ? 'left' : 'right');
+                  const align = colDef?.align ?? (isFirst ? 'left' : 'center');
                   return (
                     <td
                       key={cell.id}
@@ -636,6 +636,7 @@ export default function HGBTable<T extends object>({
                         textAlign: align,
                         color: isFirst ? INK : 'rgba(13,13,20,0.72)',
                         whiteSpace: 'nowrap',
+                        borderRight: '1px solid rgba(13,13,20,0.05)',
                       }}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
