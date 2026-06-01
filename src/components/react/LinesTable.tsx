@@ -1,16 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef } from './HGBTable';
 import { toLineSlug } from '../../lib/line-slug';
+import type { LineData } from '../../lib/stats-loader';
 
-export type LineRow = {
-  players: string; player_ids: number[];
-  type: 'F' | 'D'; team: string; season: string;
-  game_type: number; toi_min: number; games: number;
-  xgf_pct: number | null; xgf: number | null; xga: number | null;
-  xgf_60: number | null; xga_60: number | null;
-  gf: number | null; ga: number | null; gf_pct: number | null;
-  game_log?: any[];
-};
+export type LineRow = LineData;
 
 type Props = { rows: LineRow[]; statsDate: string | null };
 
