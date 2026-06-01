@@ -16,7 +16,7 @@ The series is tighter than Carolina's underlying numbers suggest, and the gap co
 
 **What Carolina's numbers actually say**
 
-Carolina's process in these playoffs has been dominant. Their 59.8% all-situations xGF% and 60.4% 5v5 CF% are not flukes of schedule or matchup — they've faced Minnesota, Florida, and Montreal, and controlled play against all three. The Blake–Ehlers–Stankoven line at 63.4% 5v5 xGF% in 256 minutes together is the most-used forward trio in these playoffs. The Miller–Nystrom pairing at 71.9% 5v5 xGF% in 84 minutes is the best defensive pair in the bracket.
+Carolina's process in these playoffs has been dominant. Their 59.8% all-situations xGF% and 60.4% 5v5 CF% are not flukes of schedule or matchup — they swept Ottawa and Philadelphia, then took Montreal 4-1, and controlled play in all three series. The Blake–Ehlers–Stankoven line at 63.4% 5v5 xGF% in 256 minutes together is the most-used forward trio in these playoffs. The Miller–Nystrom pairing at 71.9% 5v5 xGF% in 84 minutes is the best defensive pair in the bracket.
 
 Jaccob Slavin's WAR is 0.23 — modest-looking until you understand he's neutralized every opponent's top center for thirteen games. His defensive RAPM is +0.178. It doesn't show up on a scoresheet. Carolina is built to suffocate: 60.4% 5v5 CF% and the deepest pair deployment in these playoffs.
 
