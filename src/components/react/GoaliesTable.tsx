@@ -69,7 +69,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     },
     {
       id: 'season', header: 'Season', accessor: r => r.season, align: 'center', width: 72, mobileHidden: true,
-      cell: v => { const s = v as string | null; return s ? `${s.slice(2,4)}-${s.slice(6,8)}` : '—'; },
+      cell: v => { const s = v as string | null; return s ? s.slice(2) : '—'; },
     },
     { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
     { id: 'gp',  header: 'GP',  accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },
