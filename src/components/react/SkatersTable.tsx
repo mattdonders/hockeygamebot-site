@@ -299,7 +299,6 @@ export default function SkatersTable({ rows, statsDate, currentSeason }: Props) 
       </div>
 
       <HGBTable
-        key={`${tab}-${gameType}-${strength}-${display}`}
         data={filtered}
         columns={columns}
         defaultSort={defaultSort}
