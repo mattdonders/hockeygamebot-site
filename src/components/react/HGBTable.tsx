@@ -58,6 +58,12 @@ const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
 // Standard logo size across all HGB tables. 28px = visible but not dominant.
 export const TEAM_LOGO_SIZE = 28;
+export const TEAM_LOGO_STYLE: React.CSSProperties = {
+  flexShrink: 0,
+  objectFit: 'contain',
+  transform: 'scale(1.15)',
+  filter: 'drop-shadow(rgba(0,0,0,0.25) 0px 1px 2px)',
+};
 // Table typography — change here to update all tables at once
 export const CELL_FONT_SIZE     = 12;  // JetBrains Mono data cells
 export const NAME_FONT_SIZE     = 14;  // Barlow player/goalie names
