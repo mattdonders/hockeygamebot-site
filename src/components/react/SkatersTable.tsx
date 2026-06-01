@@ -64,7 +64,7 @@ function getStrengthValue(r: SkaterRow, key: string, st: ReturnType<typeof getSt
 }
 
 function buildColumns(
-  tab: Tab, gameType: GameType, strength: Strength, display: Display, isDark: boolean
+  tab: Tab, gameType: GameType, strength: Strength, display: Display, isDark: boolean, currentSeason: string
 ): HGBColumnDef<SkaterRow>[] {
   const isPlayoff = gameType === 'playoffs';
   const isPer60   = display === 'per60';
@@ -84,7 +84,8 @@ function buildColumns(
       ),
       sortType: 'string',
     },
-    { id: 'season', header: 'Season', accessor: r => r.season ?? currentSeason, width: 68, mobileHidden: true, cell: v => { const s = v as string; return s ? s.slice(2) : '—'; } },
+    { id: 'season', header: 'Season', accessor: r => r.season ?? currentSeason, width: 68, mobileHidden: true,
+      cell: v => { const s = v as string; if (!s) return '—'; return s.includes('-') ? s.slice(2) : `${s.slice(2,4)}-${s.slice(6,8)}`; } },
     { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp', header: isPlayoff ? 'PO GP' : 'GP', accessor: r => isPlayoff ? r.po_gp : r.gp, width: 48, cell: v => v != null ? String(v) : '—' },
@@ -234,8 +235,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason }: Props) 
   }, [rows, minGP, pos, gameType, topN]);
 
   const columns = useMemo(
-    () => buildColumns(tab, gameType, strength, display, isDark),
-    [tab, gameType, strength, display, isDark],
+    () => buildColumns(tab, gameType, strength, display, isDark, currentSeason),
+    [tab, gameType, strength, display, isDark, currentSeason],
   );
 
   const tabDisabled = (t: Tab) => gameType === 'playoffs' && (t === 'rates' || t === 'advanced' || t === 'onice');
