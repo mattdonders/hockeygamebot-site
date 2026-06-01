@@ -3,7 +3,7 @@ import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoS
 
 // ── Row type (mirrors skaters.astro tableRows) ────────────────────────────────
 export type SkaterRow = {
-  slug: string; name: string; searchText: string; team: string;
+  slug: string; name: string; searchText: string; team: string; season?: string;
   pos: string; group: 'F' | 'D'; gp: number;
   // Counting
   goals: number; assists: number; points: number; sog: number; ixg: number; toi_pg: number;
@@ -30,7 +30,7 @@ type Pos      = 'all' | 'F' | 'D';
 type Strength = 'all' | '5v5' | 'pp' | 'pk';
 type Display  = 'totals'   | 'per60';
 
-type Props = { rows: SkaterRow[]; statsDate: string | null };
+type Props = { rows: SkaterRow[]; statsDate: string | null; currentSeason: string };
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const POS  = '#166534'; const NEG = '#991b1b';
@@ -73,20 +73,20 @@ function buildColumns(
   // Fixed columns
   const fixed: HGBColumnDef<SkaterRow>[] = [
     {
-      id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 200,
+      id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 190,
       cell: (_v, row) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div>
-            <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
-            <div style={{ ...MONO, fontSize: SUBLINE_FONT_SIZE, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>{row.team} · {row.pos}</div>
-          </div>
+          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
         </div>
       ),
       sortType: 'string',
     },
+    { id: 'season', header: 'Season', accessor: r => r.season ?? currentSeason, width: 68, mobileHidden: true, cell: v => { const s = v as string; return s ? s.slice(2) : '—'; } },
+    { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
+    { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp', header: isPlayoff ? 'PO GP' : 'GP', accessor: r => isPlayoff ? r.po_gp : r.gp, width: 48, cell: v => v != null ? String(v) : '—' },
   ];
 
@@ -201,7 +201,7 @@ function buildColumns(
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function SkatersTable({ rows, statsDate }: Props) {
+export default function SkatersTable({ rows, statsDate, currentSeason }: Props) {
   const [tab,      setTab]      = useState<Tab>('counting');
   const [gameType, setGameType] = useState<GameType>('regular');
   const [pos,      setPos]      = useState<Pos>('all');
@@ -252,51 +252,47 @@ export default function SkatersTable({ rows, statsDate }: Props) {
 
   return (
     <div>
-      {/* Toolbar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-        {/* Tab */}
+      {/* Toolbar — Row 1: view tabs + game type */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         {group(<>
           {(['counting','rates','advanced','onice'] as Tab[]).map(t =>
-            chip(tab === t, { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t], () => { setTab(t); if (tabDisabled(t)) return; }, tabDisabled(t))
+            chip(tab === t, { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t], () => { setTab(t); }, tabDisabled(t))
           )}
         </>)}
-        {/* Game type */}
         {group(<>
           {chip(gameType === 'regular',  'Reg Season', () => setGameType('regular'))}
           {chip(gameType === 'playoffs', 'Playoffs',   () => { setGameType('playoffs'); if (tab !== 'counting') setTab('counting'); })}
         </>)}
-        {/* Position */}
+        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'center' }}>
+          {filtered.length} skaters{statsDate ? ` · updated ${statsDate}` : ''}
+        </span>
+      </div>
+      {/* Toolbar — Row 2: position, strength, display, min GP, top-N */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         {group(<>
           {chip(pos === 'all', 'All',  () => setPos('all'))}
           {chip(pos === 'F',   'Fwds', () => setPos('F'))}
           {chip(pos === 'D',   'Def',  () => setPos('D'))}
         </>)}
-        {/* Strength */}
         {group(<>
           {(['all','5v5','pp','pk'] as Strength[]).map(s =>
             chip(strength === s, { all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s], () => setStrength(s), strDisabled(s))
           )}
         </>)}
-        {/* Display */}
         {group(<>
           {chip(display === 'totals', 'Totals', () => setDisplay('totals'))}
           {chip(display === 'per60',  'Per 60', () => setDisplay('per60'), gameType === 'playoffs')}
         </>)}
-        {/* Min GP */}
         <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 6 }}>
           Min GP
           <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
             style={{ ...MONO, fontSize: 11, width: 44, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent' }} />
         </label>
-        {/* Top-N */}
         {group(<>
           {([null,10,20,50] as (number|null)[]).map(n =>
             chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))
           )}
         </>)}
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'center' }}>
-          {filtered.length} skaters{statsDate ? ` · updated ${statsDate}` : ''}
-        </span>
       </div>
 
       <HGBTable
