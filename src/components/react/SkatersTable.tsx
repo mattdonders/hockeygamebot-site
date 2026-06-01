@@ -3,7 +3,7 @@ import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoS
 
 // ── Row type (mirrors skaters.astro tableRows) ────────────────────────────────
 export type SkaterRow = {
-  slug: string; name: string; searchText: string; team: string; season?: string;
+  slug: string; name: string; first_name: string; last_name: string; searchText: string; team: string; season?: string;
   pos: string; group: 'F' | 'D'; gp: number;
   // Counting
   goals: number; assists: number; points: number; sog: number; ixg: number; toi_pg: number;
@@ -79,7 +79,9 @@ function buildColumns(
           <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
+          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
+          </div>
         </div>
       ),
       sortType: 'string',
