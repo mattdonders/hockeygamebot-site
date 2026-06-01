@@ -153,8 +153,8 @@ export default function LinesTable({ rows, statsDate }: Props) {
         exportTitle="Lines & Pairs"
         exportChips={[
           gameType === '2' ? 'Reg Season' : 'Playoffs',
-          lineType === 'all' ? 'All Lines' : lineType === 'F' ? 'Forwards' : 'Defense',
-          fmtSeasonShort(season) || 'All Seasons',
+          season === 'all' ? 'All Seasons' : fmtSeasonShort(season),
+          lineType === 'all' ? 'Fwds + Def' : lineType === 'F' ? 'Forwards' : 'Defense',
           `Min ${minToi}m TOI`,
         ]}
         emptyMessage="No lines match the current filters. Try lowering the Min TOI."
