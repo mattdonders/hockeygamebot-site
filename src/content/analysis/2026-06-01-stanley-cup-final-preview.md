@@ -18,15 +18,15 @@ The series is tighter than Carolina's underlying numbers suggest, and the gap co
 
 Carolina's process in these playoffs has been dominant. Their 59.8% all-situations xGF% and 60.4% 5v5 CF% are not flukes of schedule or matchup — they swept Ottawa and Philadelphia, then took Montreal 4-1, and controlled play in all three series. The Blake–Ehlers–Stankoven line at 63.4% 5v5 xGF% in 256 minutes together is the most-used forward trio in these playoffs. The Miller–Nystrom pairing at 71.9% 5v5 xGF% in 84 minutes is the best defensive pair in the bracket.
 
-Jaccob Slavin's WAR is 0.23 — modest-looking until you understand he's neutralized every opponent's top center for thirteen games. His defensive RAPM is +0.178. It doesn't show up on a scoresheet. Carolina is built to suffocate: 60.4% 5v5 CF% and the deepest pair deployment in these playoffs.
+Jaccob Slavin has neutralized every opponent's top center for thirteen games without appearing on a scoresheet — that's his job, it's what makes the 60.4% CF% possible, and it's the kind of contribution that doesn't make a highlight reel. Carolina is built to suffocate.
 
 Frederik Andersen has a +14.59 playoff GSAx in 13 games, saving roughly 1.12 goals above expectation per game. His regular-season GSAx was -1.36 in 35 starts. The sample now has enough games behind it that dismissing it as noise is the less defensible position.
 
 **Why Vegas is actually in this**
 
-Vegas is 12-4 with a 52.6% 5v5 xGF%. That record-to-process gap exists because Carter Hart has a +6.22 playoff GSAx across 16 games, 0.39 goals above expectation per game, running well above his regular-season baseline of -1.49. The counterintuitive number: Vegas's 5v5 SF share is 47.9% with a 10.1% shooting percentage. Getting outshot and winning the goal battle has a shelf life.
+Vegas is 12-4 with a 52.6% 5v5 xGF%. That record-to-process gap exists because Carter Hart (+6.22 playoff GSAx, 0.39 goals above expectation per game) has been stopping pucks he shouldn't — running well above his regular-season baseline of -1.49 GSAx. The counterintuitive number: Vegas's 5v5 SF share is 47.9% with a 10.1% shooting percentage. Getting outshot and winning the goal battle has a shelf life.
 
-Eichel is the best player in this series by WAR margin. At 2.36 WAR and 18 points in 16 games, his offensive RAPM of +0.28 leads all skaters in this Final and it shows in the shot rates of everyone around him. Mitch Marner has 21 points and 1.78 WAR. Pavel Dorofeyev leads Vegas with 10 goals and 1.66 WAR — the name most casual fans still don't know entering this series.
+Eichel is controlling the ice at a level no other player in this Final is matching. He's improving the shot quality of everyone around him at a measurably higher rate than any skater on either side, and 18 points in 16 games is the counting-stat confirmation. Mitch Marner has 21 points. Pavel Dorofeyev — the name most casual fans still don't know entering this series — leads Vegas with 10 goals and has been their most consistent driver of play.
 
 **The goaltending question settles it**
 
@@ -34,4 +34,4 @@ When Andersen (+1.12 goals above expectation per game) meets Hart (+0.39), the g
 
 Vegas has Eichel and the Final experience. Any individual game is live. But the model sees the goaltending delta and the process delta, and it's pointing at Carolina at 54.9%.
 
-Playoff [lines data](/stats/lines?game_type=3) and [goalie GSAx leaderboard](/stats/goalies?game_type=3) are live. The [series page](/playoffs/2026) has updated prediction numbers after each game.
+Game 1 is Tuesday, June 2 at Lenovo Center in Raleigh. Playoff [lines data](/stats/lines?game_type=3) and [goalie GSAx leaderboard](/stats/goalies?game_type=3) are live. The [series page](/playoffs/2026) has updated prediction numbers after each game.
