@@ -1,4 +1,5 @@
 import { defineConfig } from 'astro/config';
+import react from '@astrojs/react';
 
 /**
  * Dev-only preview integration.
@@ -52,7 +53,7 @@ export default defineConfig({
     '/analytics/wowy':        '/stats/wowy',
     '/analytics/interactive': '/stats/interactive',
   },
-  integrations: [devOnlyRoutes],
+  integrations: [react(), devOnlyRoutes],
   vite: {
     server: {
       allowedHosts: ['cygnus'],
