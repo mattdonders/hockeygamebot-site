@@ -2,8 +2,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
-import Table from '../../components/Table.astro';
-import ChipGroup from '../../components/ChipGroup.astro';
+import GoaliesTable from '../../components/react/GoaliesTable';
 import { loadGoalies, loadMeta } from '../../lib/stats-loader';
 import { pickTeamColor } from '../../lib/team-colors';
 
@@ -179,40 +178,6 @@ const playoffLegendItems = [...playoffChartLines].sort((a, b) => b.final - a.fin
 
 const sgn = (v: number) => v >= 0 ? '+' : '';
 
-const fmt2Sign = (v: number | null | undefined): string =>
-  v == null ? '—' : `${sgn(v)}${v.toFixed(2)}`;
-
-const fmt2 = (v: number | null | undefined): string =>
-  v == null ? '—' : Number(v).toFixed(2);
-
-const fmt3 = (v: number | null | undefined): string =>
-  v == null ? '—' : Number(v).toFixed(3);
-
-const fmtVsExp = (v: number | null | undefined): string =>
-  v == null ? '—' : `${sgn(v)}${v.toFixed(2)}%`;
-
-const fmtCommas = (v: number | null | undefined): string =>
-  v == null ? '—' : Number(v).toLocaleString();
-
-const signColor = (v: number | null | undefined, _row: any, tok?: { pos: string; neg: string }): string | undefined => {
-  if (v == null) return undefined;
-  return v >= 0 ? tok?.pos : tok?.neg;
-};
-
-const columns = [
-  { key: '_rank', label: '#',      type: 'rank' as const, sortable: false },
-  { key: 'name',  label: 'Goalie', type: 'player' as const, sub: (r: any) => r.team ?? '' },
-  { key: 'games', label: 'GP',     type: 'number' as const, format: (v: any) => v == null ? '—' : String(v) },
-  { key: 'sa',    label: 'SA',     type: 'number' as const, format: fmtCommas },
-  { key: 'ga',    label: 'GA',     type: 'number' as const },
-  { key: 'xga',   label: 'xGA',    type: 'number' as const, format: fmt2 },
-  { key: 'gsax',  label: 'GSAx',   type: 'number' as const, format: fmt2Sign, color: signColor, bold: true },
-  { key: 'sv_pct',label: 'SV%',    type: 'number' as const, format: fmt3 },
-  { key: 'vs_exp',label: 'vs Exp', type: 'number' as const, format: fmtVsExp, color: signColor },
-];
-
-// Decorate rows with rank for SSR (Table will re-sort if user clicks header).
-const initialRows = tableRows.map((r, i) => ({ ...r, _rank: i + 1 }));
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -497,37 +462,17 @@ const initialRows = tableRows.map((r, i) => ({ ...r, _rank: i + 1 }));
   <!-- Floating tooltip -->
   <div id="ctip"><div class="ctip-name" id="ctip-name"></div><div class="ctip-val" id="ctip-val"></div></div>
 
-  <!-- ── Sortable table ── -->
+  <!-- ── Sortable table — React TanStack island ── -->
   <section class="lb-section">
     <div class="section-head">
-      <div>
-        <div class="section-title" id="lb-title">Season <span style="color:var(--red)">Leaderboard</span></div>
-        <ChipGroup
-          id="gametype-filter"
-          name="gametype"
-          className="gametype-chips"
-          items={[
-            { label: 'Regular Season', value: '2', active: true },
-            { label: 'Playoffs',       value: '3' },
-          ]}
-        />
-
-      </div>
-      <div style="display:flex;align-items:center;gap:12px">
-        <div class="section-meta" id="lb-meta">{tableRows.length} goalies · click any column to sort{_statsDate ? ` · updated ${_statsDate}` : ''}</div>
-      </div>
+      <div class="section-title">Season <span style="color:var(--red)">Leaderboard</span></div>
     </div>
 
-    <Table
-      columns={columns}
-      rows={initialRows}
-      rowHref={(r) => `/stats/goalies/${r.goalie_id}`}
-      defaultSort={{ column: 'gsax', direction: 'desc' }}
-      scrollable
-      maxHeight={760}
-      exportFilename="hgb-goalies.png"
-      exportTitle="Goalie GSAx"
-      ariaLabel="NHL goalie GSAx leaderboard"
+    <GoaliesTable
+      regularRows={tableRows}
+      playoffRows={playoffRows}
+      statsDate={_statsDate}
+      client:load
     />
 
     <!-- Methodology strip -->
@@ -553,164 +498,20 @@ const initialRows = tableRows.map((r, i) => ({ ...r, _rank: i + 1 }));
 
 <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · GOALIES GSAx</footer>
 
-<!-- Client-side dataset payloads — JS swaps tbody on game-type toggle -->
-<script type="application/json" id="goalies-data" set:html={JSON.stringify({ regular: tableRows, playoffs: playoffRows })}></script>
-
-<script is:inline src="/js/table-export.js"></script>
-
 <script>
-  // ── Game-type toggle: swap tbody contents in place, dispatch tbl:rows-changed
-  // Mirrors the pattern used in /stats/teams (TABLES.md §7).
-  (function() {
-    'use strict';
-
-    interface GoalieRow {
-      goalie_id: number;
-      name: string;
-      team: string;
-      sa: number;
-      ga: number;
-      xga: number;
-      gsax: number;
-      sv_pct: number | null;
-      vs_exp: number | null;
-      games: number | null;
-    }
-    interface Payload { regular: GoalieRow[]; playoffs: GoalieRow[]; }
-
-    const wrap = document.querySelector<HTMLElement>('.tbl-wrap[data-tbl-id]');
-    if (!wrap) return;
-    const tbody = wrap.querySelector<HTMLTableSectionElement>('tbody');
-    if (!tbody) return;
-
-    const dataEl = document.getElementById('goalies-data') as HTMLScriptElement | null;
-    if (!dataEl) return;
-    let payload: Payload;
-    try {
-      payload = JSON.parse(dataEl.textContent || '{}');
-    } catch (e) {
-      console.error('[goalies] failed to parse payload', e);
-      return;
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    let gameType: 'regular' | 'playoffs' =
-      (params.get('game_type') === '3' || params.get('season') === 'playoff') ? 'playoffs' : 'regular';
-
-    function writeUrl(): void {
-      const p = new URLSearchParams();
-      if (gameType === 'playoffs') p.set('game_type', '3');
-      const qs = p.toString();
-      history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
-    }
-
-    const sgn = (v: number) => v >= 0 ? '+' : '';
-    function esc(s: string): string {
-      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'} as Record<string, string>)[c]);
-    }
-
-    // Build a <tr> HTML string matching Table.astro's output shape.
-    function rowHtml(r: GoalieRow, rank: number): string {
-      const href = `/stats/goalies/${r.goalie_id}`;
-      const teamAbbr = esc(r.team || '');
-      const nameEsc = esc(r.name);
-      const gsaxColor = r.gsax >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
-      const veColor = r.vs_exp == null ? '' : (r.vs_exp >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)');
-
-      const cells: string[] = [];
-      // Rank
-      cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
-      // Player lockup
-      cells.push(
-        `<td class="tbl-td td-player align-left">` +
-        `<div class="td-player-inner">` +
-        (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
-        `<div class="td-player-meta">` +
-        `<span class="td-name">${nameEsc}</span>` +
-        (teamAbbr ? `<span class="td-sub">${teamAbbr}</span>` : '') +
-        `</div></div></td>`
-      );
-      // GP
-      cells.push(`<td class="tbl-td align-center type-number">${r.games == null ? '—' : String(r.games)}</td>`);
-      // SA
-      cells.push(`<td class="tbl-td align-center type-number">${r.sa == null ? '—' : Number(r.sa).toLocaleString()}</td>`);
-      // GA
-      cells.push(`<td class="tbl-td align-center type-number">${r.ga == null ? '—' : String(r.ga)}</td>`);
-      // xGA
-      cells.push(`<td class="tbl-td align-center type-number">${r.xga == null ? '—' : Number(r.xga).toFixed(2)}</td>`);
-      // GSAx (bold + color)
-      cells.push(`<td class="tbl-td align-center type-number bold" style="color:${gsaxColor}">${r.gsax == null ? '—' : sgn(r.gsax) + Number(r.gsax).toFixed(2)}</td>`);
-      // SV%
-      cells.push(`<td class="tbl-td align-center type-number">${r.sv_pct == null ? '—' : Number(r.sv_pct).toFixed(3)}</td>`);
-      // vs Exp (color)
-      const veStyle = veColor ? ` style="color:${veColor}"` : '';
-      cells.push(`<td class="tbl-td align-center type-number"${veStyle}>${r.vs_exp == null ? '—' : sgn(r.vs_exp) + Number(r.vs_exp).toFixed(2) + '%'}</td>`);
-
-      return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">${cells.join('')}</tr>`;
-    }
-
-    function activeRows(): GoalieRow[] {
-      const rows = gameType === 'playoffs' ? payload.playoffs : payload.regular;
-      return rows.slice().sort((a, b) => (b.gsax ?? 0) - (a.gsax ?? 0));
-    }
-
-    function renderTable(): void {
-      const rows = activeRows();
-      if (rows.length === 0) {
-        tbody!.innerHTML = `<tr class="tbl-empty"><td colspan="9">No playoff data yet — check back during the postseason</td></tr>`;
-      } else {
-        tbody!.innerHTML = rows.map((r, i) => rowHtml(r, i + 1)).join('');
-      }
-      const meta = document.getElementById('lb-meta');
-      if (meta) meta.textContent = `${rows.length} goalies · click any column to sort`;
-      wrap!.dispatchEvent(new CustomEvent('tbl:rows-changed'));
-    }
-
-    function syncToggle(): void {
-      document.querySelectorAll<HTMLButtonElement>('#gametype-filter button').forEach(btn => {
-        const isPlayoff = btn.dataset.gametype === '3';
-        const want = gameType === 'playoffs';
-        btn.classList.toggle('active', isPlayoff === want);
-      });
-      const mastStat = document.getElementById('mast-stat');
-      if (mastStat) {
-        mastStat.textContent = gameType === 'playoffs'
-          ? `${payload.playoffs.length} qualifying goalies · min 100 SA · 2025–26 playoffs`
-          : `${payload.regular.length} qualifying goalies · min 500 SA · 2025–26 regular season`;
-      }
-    }
-
-    function syncChart(): void {
-      const regWrap = document.getElementById('chart-wrap-reg');
-      const poWrap  = document.getElementById('chart-wrap-playoff');
-      const chartMeta = document.getElementById('chart-meta');
-      if (regWrap)  regWrap.style.display  = gameType === 'playoffs' ? 'none' : '';
-      if (poWrap)   poWrap.style.display   = gameType === 'playoffs' ? '' : 'none';
-      if (chartMeta) chartMeta.textContent = gameType === 'playoffs'
-        ? 'Top 12 goalies by |playoff GSAx| · postseason running total'
-        : 'Top 12 goalies by |GSAx| · season running total';
-    }
-
-    document.querySelectorAll<HTMLButtonElement>('#gametype-filter button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const gt = btn.dataset.gametype === '3' ? 'playoffs' : 'regular';
-        if (gt === gameType) return;
-        gameType = gt;
-        syncToggle();
-        syncChart();
-        writeUrl();
-        renderTable();
-      });
-    });
-
-    // Initial: if URL says playoffs, re-render. Otherwise, SSR is already
-    // the regular dataset — just sync the UI.
-    syncToggle();
-    syncChart();
-    if (gameType === 'playoffs') {
-      renderTable();
-    }
-  })();
+  // Sync chart visibility when React table toggles game type
+  document.addEventListener('hgb:goalie-game-type', (e: Event) => {
+    const t = (e as CustomEvent<string>).detail;
+    const isPlayoff = t === 'playoffs';
+    const regWrap   = document.getElementById('chart-wrap-reg');
+    const poWrap    = document.getElementById('chart-wrap-playoff');
+    const chartMeta = document.getElementById('chart-meta');
+    if (regWrap)    regWrap.style.display  = isPlayoff ? 'none' : '';
+    if (poWrap)     poWrap.style.display   = isPlayoff ? '' : 'none';
+    if (chartMeta)  chartMeta.textContent  = isPlayoff
+      ? 'Top 12 goalies by |playoff GSAx| · postseason running total'
+      : 'Top 12 goalies by |GSAx| · season running total';
+  });
 </script>
 
 <script>
