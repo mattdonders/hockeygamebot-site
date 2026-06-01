@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef } from './HGBTable';
 import { toLineSlug } from '../../lib/line-slug';
 import type { LineData } from '../../lib/stats-loader';
+import { fmtSeasonShort } from '../../lib/format-season';
 
 export type LineRow = LineData;
 
@@ -37,7 +38,7 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
   },
   { id: 'type',   header: 'Type',    accessor: r => r.type,   width: 48,  cell: v => <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, border: '1px solid rgba(13,13,20,0.2)', padding: '1px 5px' }}>{v as string}</span> },
   { id: 'team',   header: 'Team',    accessor: r => r.team,   width: 52 },
-  { id: 'season', header: 'Season',  accessor: r => r.season, width: 64,  cell: v => v ? (v as string).slice(2) : '—' },
+  { id: 'season', header: 'Season',  accessor: r => r.season, width: 64,  cell: v => fmtSeasonShort(v as string) },
   { id: 'games',  header: 'GP',      accessor: r => r.games,  width: 48 },
   { id: 'toi',    header: 'TOI',     accessor: r => r.toi_min, width: 68, cell: v => toMMSS(v as number) },
   {
@@ -111,7 +112,7 @@ export default function LinesTable({ rows, statsDate }: Props) {
           {chip(lineType === 'F',   'Fwds', () => setLineType('F'))}
           {chip(lineType === 'D',   'Def',  () => setLineType('D'))}
         </>)}
-        {sel(season, setSeason, allSeasons.map(s => ({ value: s, label: s === 'all' ? 'All Seasons' : s.slice(2) })))}
+        {sel(season, setSeason, allSeasons.map(s => ({ value: s, label: s === 'all' ? 'All Seasons' : fmtSeasonShort(s) })))}
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'center' }}>
           {filtered.length} lines{statsDate ? ` · updated ${statsDate}` : ''}
         </span>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, SUBLINE_FONT_SIZE, teamLogoSrc } from './HGBTable';
+import { fmtSeasonShort } from '../../lib/format-season';
 
 export type GoalieRow = {
   goalie_id:   number;
@@ -69,7 +70,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     },
     {
       id: 'season', header: 'Season', accessor: r => r.season, align: 'center', width: 72, mobileHidden: true,
-      cell: v => { const s = v as string | null; return s ? s.slice(2) : '—'; },
+      cell: v => fmtSeasonShort(v as string),
     },
     { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
     { id: 'gp',  header: 'GP',  accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },

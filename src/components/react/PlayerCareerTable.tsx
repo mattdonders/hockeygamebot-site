@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import { fmtSeasonLong } from '../../lib/format-season';
 import {
   useReactTable,
   getCoreRowModel,
@@ -47,9 +48,7 @@ const MUTED = 'rgba(13,13,20,0.48)';
 const POS = '#137333';
 const NEG = '#991b1b';
 
-function fmtSeason(s: string): string {
-  return s.length === 8 ? `${s.slice(0, 4)}–${s.slice(6, 8)}` : s;
-}
+const fmtSeason = fmtSeasonLong;
 
 function fmtToi5v5(sec: number, gp: number): string {
   const avg = gp > 0 ? sec / gp : 0;

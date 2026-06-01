@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
+import { fmtSeasonShort } from '../../lib/format-season';
 
 export interface TeamRow {
   team_abbrev: string;
@@ -49,10 +50,7 @@ type Props = {
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 
-function fmtSeason(s: string) {
-  // Input format: "2025-26" → display as "25-26"
-  return s ? s.slice(2) : '—';
-}
+const fmtSeason = fmtSeasonShort;
 function fmtPct(v: number | null) {
   // Values stored as decimals (0.5679 = 56.79%)
   return v != null ? `${(Number(v) * 100).toFixed(1)}%` : '—';
