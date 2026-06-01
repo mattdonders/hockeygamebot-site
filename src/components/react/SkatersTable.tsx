@@ -307,6 +307,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason }: Props) 
         rowHref={r => `/stats/player/${r.slug}`}
         exportFilename="hgb-skaters.png"
         emptyMessage="No skaters match the current filters."
+        virtualize
       />
     </div>
   );

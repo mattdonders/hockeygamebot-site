@@ -7,7 +7,8 @@
  * NO color scaling — that's a separate concern kept in per-page components.
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import { useVirtualizer, useWindowVirtualizer } from '@tanstack/react-virtual';
 import {
   useReactTable,
   getCoreRowModel,
@@ -50,6 +51,8 @@ export type HGBTableProps<T> = {
   exportFilename?: string;
   maxHeight?: number;
   emptyMessage?: string;
+  /** Enables TanStack Virtual. With maxHeight: container-scroll virtualizer. Without: window virtualizer. */
+  virtualize?: boolean;
 };
 
 // ── Style constants ──────────────────────────────────────────────────────────
@@ -310,6 +313,7 @@ export default function HGBTable<T extends object>({
   exportFilename,
   maxHeight,
   emptyMessage = 'No results found.',
+  virtualize = false,
 }: HGBTableProps<T>) {
   const isMobile = useIsMobile();
 
@@ -318,8 +322,21 @@ export default function HGBTable<T extends object>({
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.desc }] : [],
   );
 
-  // Global search (separate from declarative filters)
+  // Global search: input updates immediately; debounced value drives the filter/render
+  const [searchInput, setSearchInput] = useState('');
   const [globalSearch, setGlobalSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setGlobalSearch(searchInput), 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Virtualizer refs
+  const scrollRef = useRef<HTMLDivElement>(null);     // container-scroll mode
+  const parentRef = useRef<HTMLDivElement>(null);     // window-scroll mode
+  const parentOffsetRef = useRef(0);
+  useLayoutEffect(() => {
+    parentOffsetRef.current = parentRef.current?.offsetTop ?? 0;
+  }, []);
 
   // Declarative filter state
   const [filterState, setFilterState] = useState<FilterState>(() =>
@@ -390,6 +407,29 @@ export default function HGBTable<T extends object>({
     getFilteredRowModel: getFilteredRowModel(),
   });
 
+  const tableRows = table.getRowModel().rows;
+
+  // Both virtualizers always called (React hook rules).
+  // Only one is active based on virtualize + maxHeight.
+  const containerVirt = useVirtualizer({
+    count: virtualize && !!maxHeight ? tableRows.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 44,
+    overscan: 8,
+  });
+
+  const windowVirt = useWindowVirtualizer({
+    count: virtualize && !maxHeight ? tableRows.length : 0,
+    estimateSize: () => 44,
+    overscan: 8,
+    scrollMargin: parentOffsetRef.current,
+  });
+
+  const virt = virtualize ? (maxHeight ? containerVirt : windowVirt) : null;
+  const virtItems = virt?.getVirtualItems() ?? null;
+  const virtTotalSize = virt?.getTotalSize() ?? 0;
+  const visibleColCount = table.getVisibleLeafColumns().length;
+
   const updateFilter = useCallback((key: string, value: string | number) => {
     setFilterState(prev => ({ ...prev, [key]: value }));
   }, []);
@@ -406,7 +446,7 @@ export default function HGBTable<T extends object>({
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ ...BODY, color: INK }}>
+    <div ref={parentRef} style={{ ...BODY, color: INK }}>
 
       {/* Toolbar */}
       <div
@@ -423,8 +463,8 @@ export default function HGBTable<T extends object>({
         {/* Global search */}
         {globalSearchField && (
           <SearchInput
-            value={globalSearch}
-            onChange={setGlobalSearch}
+            value={searchInput}
+            onChange={setSearchInput}
             placeholder={searchPlaceholder}
             isMobile={isMobile}
           />
@@ -544,10 +584,17 @@ export default function HGBTable<T extends object>({
 
       {/* Table */}
       <div
+        ref={virtualize && maxHeight ? scrollRef : undefined}
         style={{
           overflowX: 'auto',
           WebkitOverflowScrolling: 'touch',
-          ...(maxHeight ? { maxHeight, overflowY: 'auto' } : {}),
+          // Virtual + maxHeight: fixed height scroll container for useVirtualizer
+          // Non-virtual + maxHeight: maxHeight so it shrinks when rows are few
+          ...(maxHeight
+            ? virtualize
+              ? { height: maxHeight, overflowY: 'auto' }
+              : { maxHeight, overflowY: 'auto' }
+            : {}),
         }}
       >
         <table
@@ -598,84 +645,88 @@ export default function HGBTable<T extends object>({
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.length === 0 ? (
+            {tableRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={table.getVisibleLeafColumns().length}
-                  style={{
-                    ...MONO,
-                    fontSize: 11,
-                    color: MUTED,
-                    textAlign: 'center',
-                    padding: '32px 16px',
-                  }}
+                  colSpan={visibleColCount}
+                  style={{ ...MONO, fontSize: 11, color: MUTED, textAlign: 'center', padding: '32px 16px' }}
                 >
                   {emptyMessage}
                 </td>
               </tr>
-            ) : (
-              table.getRowModel().rows.map((row, i) => {
-                const href = rowHref ? rowHref(row.original) : undefined;
-                const rowStyle: React.CSSProperties = {
-                  borderBottom: '1px solid rgba(13,13,20,0.05)',
-                  background: i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)',
-                  cursor: href ? 'pointer' : 'default',
-                };
-
-                const cells = row.getVisibleCells().map(cell => {
-                  const colDef = columnDefs.find(c => c.id === cell.column.id);
-                  const isFirst = cell.column.id === columnDefs[0]?.id;
-                  const align = colDef?.align ?? (isFirst ? 'left' : 'center');
-                  return (
-                    <td
-                      key={cell.id}
-                      style={{
-                        ...MONO,
-                        fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE,
-                        padding: isMobile ? '10px 8px' : '10px 10px',
-                        textAlign: align,
-                        color: isFirst ? INK : 'rgba(13,13,20,0.72)',
-                        whiteSpace: 'nowrap',
-                        borderRight: '1px solid rgba(13,13,20,0.03)',
-                      }}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  );
-                });
-
-                if (href) {
+            ) : virtItems ? (
+              // ── Virtual rows ───────────────────────────────────────────────
+              <>
+                {virtItems[0]?.start > 0 && (
+                  <tr><td colSpan={visibleColCount} style={{ height: virtItems[0].start, padding: 0, border: 0 }} /></tr>
+                )}
+                {virtItems.map(vr => {
+                  const row = tableRows[vr.index];
+                  const href = rowHref ? rowHref(row.original) : undefined;
+                  const bg = vr.index % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
+                  const rowStyle: React.CSSProperties = {
+                    borderBottom: '1px solid rgba(13,13,20,0.05)',
+                    background: bg,
+                    cursor: href ? 'pointer' : 'default',
+                    height: vr.size,
+                  };
                   return (
                     <tr
                       key={row.id}
+                      data-index={vr.index}
+                      ref={virt?.measureElement}
                       style={rowStyle}
-                      onClick={() => { window.location.href = href; }}
-                      onMouseEnter={e => {
-                        (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)';
-                      }}
-                      onMouseLeave={e => {
-                        (e.currentTarget as HTMLElement).style.background =
-                          i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
-                      }}
+                      onClick={href ? () => { window.location.href = href; } : undefined}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
                     >
-                      {cells}
+                      {row.getVisibleCells().map(cell => {
+                        const colDef = columnDefs.find(c => c.id === cell.column.id);
+                        const isFirst = cell.column.id === columnDefs[0]?.id;
+                        const align = colDef?.align ?? (isFirst ? 'left' : 'center');
+                        return (
+                          <td key={cell.id} style={{ ...MONO, fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: align, color: isFirst ? INK : 'rgba(13,13,20,0.72)', whiteSpace: 'nowrap', borderRight: '1px solid rgba(13,13,20,0.03)' }}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
-                }
-
+                })}
+                {(() => {
+                  const last = virtItems[virtItems.length - 1];
+                  const bottom = last ? virtTotalSize - last.end : 0;
+                  return bottom > 0 ? <tr><td colSpan={visibleColCount} style={{ height: bottom, padding: 0, border: 0 }} /></tr> : null;
+                })()}
+              </>
+            ) : (
+              // ── Normal rows ────────────────────────────────────────────────
+              tableRows.map((row, i) => {
+                const href = rowHref ? rowHref(row.original) : undefined;
+                const bg = i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
+                const rowStyle: React.CSSProperties = {
+                  borderBottom: '1px solid rgba(13,13,20,0.05)',
+                  background: bg,
+                  cursor: href ? 'pointer' : 'default',
+                };
                 return (
                   <tr
                     key={row.id}
                     style={rowStyle}
-                    onMouseEnter={e => {
-                      (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)';
-                    }}
-                    onMouseLeave={e => {
-                      (e.currentTarget as HTMLElement).style.background =
-                        i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
-                    }}
+                    onClick={href ? () => { window.location.href = href; } : undefined}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
                   >
-                    {cells}
+                    {row.getVisibleCells().map(cell => {
+                      const colDef = columnDefs.find(c => c.id === cell.column.id);
+                      const isFirst = cell.column.id === columnDefs[0]?.id;
+                      const align = colDef?.align ?? (isFirst ? 'left' : 'center');
+                      return (
+                        <td key={cell.id} style={{ ...MONO, fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: align, color: isFirst ? INK : 'rgba(13,13,20,0.72)', whiteSpace: 'nowrap', borderRight: '1px solid rgba(13,13,20,0.03)' }}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })

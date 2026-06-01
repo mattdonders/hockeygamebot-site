@@ -135,8 +135,8 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       ]}
         rowHref={r => `/stats/goalies/${r.goalie_id}`}
         exportFilename="hgb-goalies.png"
-        maxHeight={760}
         emptyMessage="No goalie data for this selection."
+        virtualize
       />
     </div>
   );

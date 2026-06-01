@@ -107,8 +107,8 @@ export default function ImpactTable({ rows, statsDate }: Props) {
         searchPlaceholder="Search players or team…"
         rowHref={r => `/stats/player/${r.slug}`}
         exportFilename="hgb-impact.png"
-        maxHeight={700}
         emptyMessage="No impact data for this selection."
+        virtualize
       />
     </div>
   );

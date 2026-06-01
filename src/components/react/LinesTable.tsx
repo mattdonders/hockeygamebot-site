@@ -15,16 +15,21 @@ function fmt1(v: number | null)   { return v != null ? Number(v).toFixed(1) : '�
 function fmt2(v: number | null)   { return v != null ? Number(v).toFixed(2) : '—'; }
 function toMMSS(min: number) { const m = Math.floor(min), s = Math.round((min - m) * 60); return `${m}:${String(s).padStart(2, '0')}`; }
 
+function lastNames(players: string | undefined): string {
+  if (!players) return '';
+  return players.split(' – ').map(p => p.replace(/^[A-Z]\.\s+/, '').trim()).join(' – ');
+}
+
 const COLUMNS: HGBColumnDef<LineRow>[] = [
   {
-    id: 'players', header: 'Line / Pair', accessor: r => r.players, align: 'left', width: 260,
+    id: 'players', header: 'Line / Pair', accessor: r => r.players ?? '', align: 'left', width: 220,
     cell: (_v, row) => {
       const slug = toLineSlug(row);
       return (
         <a href={`/stats/lines/${slug}`}
            title={row.players}
-           style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: 13, color: 'inherit', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }}>
-          {row.players}
+           style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: 13, color: 'inherit', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+          {lastNames(row.players)}
         </a>
       );
     },
@@ -140,8 +145,8 @@ export default function LinesTable({ rows, statsDate }: Props) {
         searchPlaceholder="Search lines or team…"
         rowHref={r => `/stats/lines/${toLineSlug(r)}`}
         exportFilename="hgb-lines.png"
-        maxHeight={700}
         emptyMessage="No lines match the current filters. Try lowering the Min TOI."
+        virtualize
       />
     </div>
   );
