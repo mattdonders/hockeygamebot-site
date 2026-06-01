@@ -125,8 +125,8 @@ export default function PlayerCareerTable({ seasons }: Props) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <img
                 src={teamLogoSrc(abbr)}
-                width={TEAM_LOGO_SIZE * 0.75}
-                height={TEAM_LOGO_SIZE * 0.75}
+                width={TEAM_LOGO_SIZE}
+                height={TEAM_LOGO_SIZE}
                 style={TEAM_LOGO_STYLE}
                 alt={abbr}
               />

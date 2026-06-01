@@ -147,8 +147,8 @@ export default function PlayerGameLogTable({ games }: Props) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
               <img
                 src={teamLogoSrc(row.opp_abbrev)}
-                width={TEAM_LOGO_SIZE * 0.7}
-                height={TEAM_LOGO_SIZE * 0.7}
+                width={TEAM_LOGO_SIZE}
+                height={TEAM_LOGO_SIZE}
                 style={TEAM_LOGO_STYLE}
                 alt={row.opp_abbrev}
               />
@@ -213,9 +213,7 @@ export default function PlayerGameLogTable({ games }: Props) {
         id: 'points',
         header: 'PTS',
         accessorFn: (r) => r.points,
-        cell: (info) => (
-          <span style={{ fontWeight: 700 }}>{info.getValue<number>()}</span>
-        ),
+        cell: (info) => <span>{info.getValue<number>()}</span>,
       },
       {
         id: 'gs',
@@ -278,9 +276,7 @@ export default function PlayerGameLogTable({ games }: Props) {
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          padding: '10px 0',
-          borderBottom: '1px solid rgba(13,13,20,0.1)',
-          marginBottom: 12,
+          padding: '0 0 12px 0',
         }}
       >
         <input
@@ -299,16 +295,6 @@ export default function PlayerGameLogTable({ games }: Props) {
             width: isMobile ? 130 : 180,
           }}
         />
-        <span
-          style={{
-            ...MONO,
-            fontSize: 10,
-            color: 'rgba(13,13,20,0.32)',
-            marginLeft: 'auto',
-          }}
-        >
-          {filteredRows.length} game{filteredRows.length !== 1 ? 's' : ''}{!isMobile ? ' · click header to sort' : ''}
-        </span>
       </div>
 
       {/* Table */}
