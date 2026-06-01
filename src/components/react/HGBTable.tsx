@@ -58,6 +58,10 @@ const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
 // Standard logo size across all HGB tables. 28px = visible but not dominant.
 export const TEAM_LOGO_SIZE = 28;
+// Table typography — change here to update all tables at once
+export const CELL_FONT_SIZE     = 12;  // JetBrains Mono data cells
+export const NAME_FONT_SIZE     = 14;  // Barlow player/goalie names
+export const SUBLINE_FONT_SIZE  = 11;  // Mono sub-line (team abbrev etc)
 
 const INK = '#0d0d14';
 const BG = '#EFEEE8';
@@ -542,7 +546,7 @@ export default function HGBTable<T extends object>({
           style={{
             width: '100%',
             borderCollapse: 'collapse',
-            fontSize: 12,
+            fontSize: CELL_FONT_SIZE,
             background: '#fff',
             border: BORDER,
             minWidth: isMobile ? 'unset' : 600,
@@ -619,7 +623,7 @@ export default function HGBTable<T extends object>({
                       key={cell.id}
                       style={{
                         ...MONO,
-                        fontSize: isMobile ? 12 : 11,
+                        fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE,
                         padding: isMobile ? '8px 8px' : '7px 10px',
                         textAlign: align,
                         color: isFirst ? INK : 'rgba(13,13,20,0.72)',

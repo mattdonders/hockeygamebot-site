@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE } from './HGBTable';
+import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, NAME_FONT_SIZE, SUBLINE_FONT_SIZE } from './HGBTable';
 
 export type GoalieRow = {
   goalie_id: number;
@@ -44,8 +44,8 @@ const COLUMNS: HGBColumnDef<GoalieRow>[] = [
           alt={row.team}
         />
         <div>
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: 13 }}>{row.name}</div>
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>{row.team}</div>
+          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
+          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: SUBLINE_FONT_SIZE, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>{row.team}</div>
         </div>
       </div>
     ),
