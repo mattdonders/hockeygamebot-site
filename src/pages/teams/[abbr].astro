@@ -6,7 +6,10 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
-import Table from '../../components/Table.astro';
+import TeamSkatersTable from '../../components/react/TeamSkatersTable';
+import TeamGameLogTable from '../../components/react/TeamGameLogTable';
+import GoaliesTable from '../../components/react/GoaliesTable';
+import type { GoalieRow } from '../../components/react/GoaliesTable';
 import { loadPlayers, loadAllTeamGames, loadTeamPlayerGames, loadGoalies, loadMeta } from '../../lib/stats-loader';
 import { pickTeamColor } from '../../lib/team-colors';
 
@@ -119,53 +122,34 @@ const seasonRecord = (() => {
   return teamGames.length ? `${w}-${l}-${ot}` : recordLabel;
 })();
 
-// ── Column schemas for the three tables on this page ────────────────────────
-// Per TABLES.md §13 — Table.astro is the canonical wrapper for all three.
-
-const playerColumns = [
-  { key: '_rank', label: '#',      type: 'rank' as const, sortable: false },
-  { key: 'name',  label: 'Player', type: 'player' as const, sub: (r: any) => `${r.pos} · ${r.gp} GP` },
-  { key: 'pos',   label: 'Pos',    type: 'position' as const, sortable: true },
-  { key: 'gp',    label: 'GP',     type: 'number' as const },
-  { key: 'war',   label: 'WAR',    type: 'number' as const },
-  { key: 'g60',   label: 'G/60',   type: 'number' as const },
-  { key: 'a60',   label: 'A1/60',  type: 'number' as const },
-  { key: 'x60',   label: 'xG/60',  type: 'number' as const },
-  { key: 'fin',   label: 'Fin',    type: 'number' as const },
-  { key: 'imp',   label: 'Impact', type: 'number' as const, bold: true },
-];
-
-const goalieColumns = [
-  { key: 'name', label: 'Name', type: 'label' as const },
-  { key: 'gp',   label: 'GP',   type: 'number' as const },
-  { key: 'gsax', label: 'GSAx', type: 'number' as const, bold: true,
-    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
-    color: (v: any, _r: any, tok?: { pos: string; neg: string }) => v == null ? undefined : (v >= 0 ? tok?.pos : tok?.neg),
-  },
-  { key: 'sv_pct', label: 'SV%', type: 'number' as const,
-    format: (v: any) => v == null ? '—' : (v * 100).toFixed(2) + '%' },
-  { key: 'sa',   label: 'SA',   type: 'number' as const },
-];
-
-const goalieRows = teamGoalies.map(g => ({
-  goalie_id: g.goalie_id,
-  name:    g.name,
-  gp:      g.gp ?? null,
-  gsax:    g.gsax,
-  sv_pct:  g.sv_pct,
-  sa:      g.sa,
+// Map GoalieRecord -> GoalieRow for the GoaliesTable component
+const goalieRows: GoalieRow[] = teamGoalies.map(g => ({
+  goalie_id:  g.goalie_id,
+  name:       g.name,
+  first_name: g.first_name || null,
+  last_name:  g.last_name || null,
+  team:       g.team_abbrev,
+  season:     g.season ?? null,
+  gp:         g.gp ?? null,
+  toi_sec:    g.toi_sec ?? null,
+  sa:         g.sa,
+  saves:      g.saves ?? null,
+  ga:         g.ga,
+  xga:        g.xga,
+  gsax:       g.gsax,
+  gsax_per60: g.gsax_per60 ?? null,
+  sv_pct:     g.sv_pct,
+  xsv_pct:    g.xsv_pct ?? null,
+  dsv_pct:    g.dsv_pct ?? null,
+  gaa:        g.gaa ?? null,
+  vs_exp:     null,
+  games:      null,
 }));
 
-const gameLogColumns = [
-  { key: 'date',    label: 'Date',   type: 'label' as const },
-  { key: 'opp',     label: 'Opp',    type: 'label' as const },
-  { key: 'result',  label: 'Result', type: 'label' as const },
-  { key: 'gf',      label: 'GF',     type: 'number' as const },
-  { key: 'ga',      label: 'GA',     type: 'number' as const },
-  { key: 'xgf_pct', label: 'xGF%',   type: 'number' as const, bold: true },
-  { key: 'xgf',     label: 'xGF',    type: 'number' as const },
-  { key: 'xga',     label: 'xGA',    type: 'number' as const },
-];
+// URL param for initial opp filter (used to pre-set React components)
+// Note: this is a static page; we read from JS at runtime in the script block.
+// We just pass empty string as default — JS will dispatch the event post-hydration.
+const initialOpp = '';
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -315,7 +299,7 @@ const gameLogColumns = [
     .ov-label { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em;
       text-transform: uppercase; color: var(--ink-32); margin-top: 4px; }
 
-    /* ── Player table ── */
+    /* ── Section card chrome ── */
     .table-card { background: var(--surface); border: 1px solid var(--ink-14); }
     .table-head { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
       display: flex; align-items: baseline; justify-content: space-between; }
@@ -323,31 +307,13 @@ const gameLogColumns = [
       letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); }
     .table-eyebrow .accent { color: var(--red); }
 
-    /* When Table.astro lives inside .table-card / .gl-card we drop the
-       wrapper's own border since the card already provides one. */
-    .table-card .tbl-wrap,
-    .gl-card .tbl-wrap { border: none; }
-
-    /* Game log title row + percentile sub-line for player rows. The .sp/.pe/
-       .pg/.pa/.pl helpers are page-specific affordances (percentile rank in
-       Impact column). */
-    .sp { display: block; font-family: var(--mono); font-size: 9px;
-      font-variant-numeric: tabular-nums; line-height: 1.2; }
-    .pe { color: #00c078; }
-    .pg { color: #60a5fa; }
-    .pa { color: var(--ink-32); }
-    .pl { color: var(--red); opacity: 0.65; }
+    /* React component padding inside cards */
+    .react-table-wrap { padding: 16px 18px; }
 
     /* Game log card chrome */
     .gl-card { background: var(--surface); border: 1px solid var(--ink-14); }
     .gl-head { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
       display: flex; align-items: baseline; justify-content: space-between; }
-
-    .tbl-more { border-top: 1px solid var(--ink-14); padding: 12px 18px; text-align: center; }
-    .tbl-more button { background: none; border: 1px solid var(--ink-20); padding: 5px 20px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; }
-    .tbl-more button:hover { border-color: var(--ink); color: var(--ink); }
-    .gl-empty { padding: 32px 18px; text-align: center; font-family: var(--mono);
-      font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
 
     /* ── Follow section ── */
     .follow-section { background: var(--ink); padding: 48px 0; border-top: 2px solid var(--ink); }
@@ -378,10 +344,6 @@ const gameLogColumns = [
       transition: border-color 0.12s, color 0.12s; flex-shrink: 0;
     }
     .export-btn:hover { border-color: var(--ink); color: var(--ink); }
-
-    /* Goalie empty-state (Table.astro handles non-empty rendering) */
-    .gt-empty { padding: 32px 18px; text-align: center; font-family: var(--mono);
-      font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
 
     /* ── Lines link card ── */
     .link-card {
@@ -509,42 +471,43 @@ const gameLogColumns = [
       </div>
     </div>
 
-    <!-- PLAYER TABLE -->
+    <!-- PLAYER TABLE (React) -->
     <div class="table-card">
       <div class="table-head">
         <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;Skaters</span>
         <span class="filter-meta" id="table-meta">season stats{_statsDate ? ` · updated ${_statsDate}` : ''}</span>
       </div>
-      <Table
-        columns={playerColumns}
-        rows={[]}
-        defaultSort={{ column: 'imp', direction: 'desc' }}
-        sticky={false}
-        ariaLabel={`${abbr} skater stats`}
-      />
-      <div id="player-more-row" class="tbl-more" style="display:none">
-        <button id="player-show-all-btn">Show all players</button>
+      <div class="react-table-wrap">
+        <TeamSkatersTable
+          players={teamPlayers}
+          playerGameMap={playerGameMap}
+          initialOpp={initialOpp}
+          client:load
+        />
       </div>
     </div>
 
-    <!-- GOALIES SECTION -->
+    <!-- GOALIES SECTION (React) -->
     <div class="table-card">
       <div class="table-head">
         <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;Goalies</span>
         <span class="filter-meta">{teamGoalies.length} goalie{teamGoalies.length !== 1 ? 's' : ''} · 2025–26</span>
       </div>
-      {teamGoalies.length === 0 ? (
-        <div class="gt-empty">No goalie data available.</div>
-      ) : (
-        <Table
-          columns={goalieColumns}
-          rows={goalieRows}
-          rowHref={(r) => `/stats/goalies/${r.goalie_id}`}
-          defaultSort={{ column: 'sa', direction: 'desc' }}
-          sticky={false}
-          ariaLabel={`${abbr} goalie stats`}
-        />
-      )}
+      <div class="react-table-wrap">
+        {goalieRows.length === 0 ? (
+          <div style="padding: 32px 0; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em;">
+            No goalie data available.
+          </div>
+        ) : (
+          <GoaliesTable
+            regularRows={goalieRows}
+            playoffRows={[]}
+            statsDate={_statsDate}
+            teams={[abbr]}
+            client:load
+          />
+        )}
+      </div>
     </div>
 
     <!-- LINES LINK CARD -->
@@ -556,20 +519,20 @@ const gameLogColumns = [
       <div class="link-card-arrow">→</div>
     </a>
 
-    <!-- GAME LOG -->
+    <!-- GAME LOG (React) -->
     <div class="gl-card">
       <div class="gl-head">
-        <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;<span id="gl-title">Last 10 Games</span></span>
-        <span class="filter-meta" id="gl-meta"></span>
+        <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;Game Log</span>
+        <span class="filter-meta">{teamGames.length} games · 2025–26</span>
       </div>
-      <Table
-        columns={gameLogColumns}
-        rows={[]}
-        sticky={false}
-        ariaLabel={`${abbr} game log`}
-        loadingMessage="Loading game log…"
-        isLoading
-      />
+      <div class="react-table-wrap">
+        <TeamGameLogTable
+          rows={teamGames}
+          teamNames={TEAM_NAMES}
+          initialOpp={initialOpp}
+          client:load
+        />
+      </div>
     </div>
 
   </div>
@@ -603,44 +566,12 @@ const gameLogColumns = [
 </html>
 
 <script is:inline src="/js/table-export.js"></script>
-<script define:vars={{ teamPlayers, playerGameMap, teamGames, teamAbbr: abbr, teamName: name, TEAM_NAMES,
-  initXgf: allXgf, initXga: allXga }}>
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function sgn(n) { return n >= 0 ? '+' : ''; }
-function pctCls(p) {
-  if (p == null) return 'pa';
-  return p >= 90 ? 'pe' : p >= 70 ? 'pg' : p >= 40 ? 'pa' : 'pl';
-}
-function ordinal(p) {
-  if (p == null) return '—';
-  const s = (p % 100 >= 11 && p % 100 <= 13) ? 'th'
-    : p % 10 === 1 ? 'st' : p % 10 === 2 ? 'nd' : p % 10 === 3 ? 'rd' : 'th';
-  return `${p}${s}`;
-}
-function statCell(val, pct, signed) {
-  if (val == null) return `<span class="sv nil">—</span>`;
-  const cls = signed ? (val >= 0 ? ' pos' : ' neg') : '';
-  const v = signed ? `${sgn(val)}${val.toFixed(2)}` : val.toFixed(2);
-  return `<span class="sv${cls}">${v}</span><span class="sp ${pctCls(pct)}">${ordinal(pct)}</span>`;
-}
-function countCell(n) {
-  return `<span class="sv">${n}</span>`;
-}
-function fmt2(n) { return n != null ? n.toFixed(2) : '—'; }
-function fmtDate(d) {
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const [, mm, dd] = d.split('-');
-  return `${months[parseInt(mm) - 1]} ${parseInt(dd)}`;
-}
+<script define:vars={{ teamGames, teamAbbr: abbr, teamName: name, TEAM_NAMES,
+  initXgf: allXgf, initXga: allXga, teamPlayersCount: teamPlayers.length }}>
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let activeOpp     = '';   // '' = all opponents
-let sortKey       = 'imp';  // HGB Impact default — WAR has RAPM collinearity artifacts for linemates
-let sortAsc       = false;
-let playerShowAll = false;
+let activeOpp = '';
 
 // Track current KPI values for PNG export
 let kpiState = {
@@ -669,6 +600,10 @@ if (urlOpp && opps.includes(urlOpp)) {
   activeOpp = urlOpp;
   sel.value = urlOpp;
   sel.classList.add('active');
+  // Dispatch after a tick to ensure React components are mounted
+  setTimeout(() => {
+    document.dispatchEvent(new CustomEvent('hgb:team-opp-filter', { detail: urlOpp }));
+  }, 100);
 }
 
 // ── Overview card update ──────────────────────────────────────────────────────
@@ -700,201 +635,6 @@ function updateOverview() {
   kpiState = { record, gf, ga, xgf, xga, xgfPct, filterLabel };
 }
 
-// ── Player table ──────────────────────────────────────────────────────────────
-
-function buildPlayerRows() {
-  if (!activeOpp) {
-    // Season view: use pre-computed PlayerRecord values
-    return teamPlayers.map(p => ({
-      slug:    p.slug,
-      name:    p.display_name,
-      team:    p.team_abbrev,
-      pos:     p.pos,
-      war:     p.rapm != null ? +(p.rapm * 60).toFixed(2) : null,
-      war_p:   null,  // percentile not available per-team
-      gp:      p.gp,
-      g60:     +p.rates_per_60.goals.toFixed(2),
-      g60_p:   Math.round(p.percentiles_vs_pos.goals),
-      a60:     +p.rates_per_60.a1.toFixed(2),
-      a60_p:   Math.round(p.percentiles_vs_pos.a1),
-      x60:     +p.rates_per_60.ixg.toFixed(2),
-      x60_p:   Math.round(p.percentiles_vs_pos.ixg),
-      fin:     +p.rates_per_60.finishing.toFixed(2),
-      fin_p:   Math.round(p.percentiles_vs_pos.finishing),
-      imp:     +p.avg_gs_display.toFixed(2),
-      imp_p:   Math.round(p.gs_pct),
-      mode:    'season',
-    }));
-  }
-
-  // Opponent-filtered view: aggregate from game logs
-  return teamPlayers.map(p => {
-    const games = (playerGameMap[p.player_id] ?? []).filter(g => g.opp_abbrev === activeOpp);
-    if (!games.length) return null;
-    const g   = games.reduce((s, x) => s + x.goals, 0);
-    const a   = games.reduce((s, x) => s + x.assists, 0);
-    const toi = games.reduce((s, x) => s + (x.toi_sec ?? 0), 0);
-    const ixg = games.reduce((s, x) => s + (x.ixg ?? 0), 0);
-    const imp = games.reduce((s, x) => s + x.gs_display, 0) / games.length;
-    const toi60 = toi / 3600 || null;
-    return {
-      slug: p.slug,
-      name: p.display_name,
-      team: p.team_abbrev,
-      pos:  p.pos,
-      war:  p.rapm != null ? +(p.rapm * 60).toFixed(2) : null,
-      war_p: null,
-      gp:   games.length,
-      g60:  toi60 ? +(g / toi60).toFixed(2) : null,
-      g60_p: null,
-      a60:  toi60 ? +(a / toi60).toFixed(2) : null,
-      a60_p: null,
-      x60:  toi60 ? +(ixg / toi60).toFixed(2) : null,
-      x60_p: null,
-      fin:  null,
-      fin_p: null,
-      imp:  +imp.toFixed(2),
-      imp_p: null,
-      rawG: g, rawA: a,
-      mode: 'opp',
-    };
-  }).filter(Boolean);
-}
-
-// Locate the player + game-log table wraps by their containing card.
-// The component renders multiple .tbl-wrap on the page; we pick by parent.
-const playerWrap  = document.querySelector('.table-card .tbl-wrap');
-const playerTbody = playerWrap?.querySelector('tbody');
-const glWrap      = document.querySelector('.gl-card .tbl-wrap');
-const glTbody     = glWrap?.querySelector('tbody');
-
-function escHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-function renderPlayerTable() {
-  if (!playerWrap || !playerTbody) return;
-  const rows = buildPlayerRows();
-  rows.sort((a, b) => {
-    const av = a[sortKey] ?? -Infinity;
-    const bv = b[sortKey] ?? -Infinity;
-    return bv - av;
-  });
-  const moreRow = document.getElementById('player-more-row');
-  const isOpp   = activeOpp !== '';
-  const PLAYER_LIMIT = 10;
-  const shown = (!isOpp && !playerShowAll) ? rows.slice(0, PLAYER_LIMIT) : rows;
-
-  if (!rows.length) {
-    playerTbody.innerHTML = `<tr class="tbl-empty"><td colspan="10">No qualifying players vs this opponent.</td></tr>`;
-    if (moreRow) moreRow.style.display = 'none';
-    playerWrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
-    return;
-  }
-
-  if (moreRow) {
-    const hasMore = !isOpp && rows.length > PLAYER_LIMIT;
-    moreRow.style.display = hasMore && !playerShowAll ? '' : 'none';
-    const btn = document.getElementById('player-show-all-btn');
-    if (btn) btn.textContent = `Show all ${rows.length} players`;
-  }
-
-  playerTbody.innerHTML = shown.map((r, i) => {
-    const teamAbbr = escHtml(r.team || '');
-    const nameEsc = escHtml(r.name);
-    const subText = `${r.pos} · ${r.gp} GP${isOpp ? ' vs ' + activeOpp : ''}`;
-    const href = `/stats/player/${r.slug}`;
-    const warVal = r.war != null
-      ? `<span style="color:${r.war >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)'};font-weight:700">${sgn(r.war)}${r.war.toFixed(2)}</span>${isOpp ? '<div style="font-family:var(--mono);font-size:9px;color:var(--ink-32)">season</div>' : ''}`
-      : '<span style="color:var(--ink-32)">—</span>';
-    const g60Cell = isOpp && r.rawG != null ? String(r.rawG) : (r.g60 != null ? r.g60.toFixed(2) : '—');
-    const a60Cell = isOpp && r.rawA != null ? String(r.rawA) : (r.a60 != null ? r.a60.toFixed(2) : '—');
-    const x60Cell = r.x60 != null ? r.x60.toFixed(2) : '—';
-    const finCell = isOpp
-      ? (r.x60 != null ? r.x60.toFixed(2) : '—')
-      : (r.fin != null ? `<span style="color:${r.fin >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)'};font-weight:700">${sgn(r.fin)}${r.fin.toFixed(2)}</span>` : '—');
-    const impCell = r.imp != null
-      ? `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.2"><span>${r.imp.toFixed(2)}</span>${r.imp_p != null ? `<span class="sp ${pctCls(r.imp_p)}" style="font-family:var(--mono);font-size:9px">${ordinal(r.imp_p)}</span>` : ''}</div>`
-      : '—';
-    return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">
-      <td class="tbl-td td-rk align-right">${String(i + 1).padStart(2, '0')}</td>
-      <td class="tbl-td td-player align-left">
-        <div class="td-player-inner">
-          ${teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : ''}
-          <div class="td-player-meta">
-            <span class="td-name">${nameEsc}</span>
-            <span class="td-sub">${escHtml(subText)}</span>
-          </div>
-        </div>
-      </td>
-      <td class="tbl-td align-center"><span class="pos-badge">${escHtml(r.pos)}</span></td>
-      <td class="tbl-td align-center type-number">${r.gp ?? '—'}</td>
-      <td class="tbl-td align-center type-number">${warVal}</td>
-      <td class="tbl-td align-center type-number">${g60Cell}</td>
-      <td class="tbl-td align-center type-number">${a60Cell}</td>
-      <td class="tbl-td align-center type-number">${x60Cell}</td>
-      <td class="tbl-td align-center type-number">${finCell}</td>
-      <td class="tbl-td align-center type-number bold">${impCell}</td>
-    </tr>`;
-  }).join('');
-
-  playerWrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
-
-  document.getElementById('table-meta').textContent = isOpp
-    ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp} · ${rows.length} players`
-    : `season · ${rows.length} players`;
-}
-
-// Show all button
-document.getElementById('player-show-all-btn')?.addEventListener('click', () => {
-  playerShowAll = true;
-  renderPlayerTable();
-});
-
-// ── Game log ──────────────────────────────────────────────────────────────────
-
-function renderGameLog() {
-  if (!glWrap || !glTbody) return;
-  const all   = activeOpp ? teamGames.filter(g => g.opp_abbrev === activeOpp) : [...teamGames].reverse().slice(0, 10);
-  const title = document.getElementById('gl-title');
-  title.textContent = activeOpp
-    ? `vs ${TEAM_NAMES[activeOpp] ?? activeOpp}`
-    : `Last ${all.length} Games`;
-
-  if (!all.length) {
-    glTbody.innerHTML = `<tr class="tbl-empty"><td colspan="8">No games found.</td></tr>`;
-    glWrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
-    return;
-  }
-
-  glTbody.innerHTML = all.map(g => {
-    const xgfPct = g.xgf_5v5 + g.xga_5v5 > 0
-      ? ((g.xgf_5v5 / (g.xgf_5v5 + g.xga_5v5)) * 100).toFixed(1) + '%' : '—';
-    const resColor = g.result === 'W' ? 'var(--stats-pos)' : g.result === 'OT' ? 'var(--ink-48)' : 'var(--stats-neg)';
-    const ha = g.is_home ? 'vs' : '@';
-    const dateText = fmtDate(g.game_date);
-    const opp = `${ha} ${g.opp_abbrev}`;
-    const result = `${g.result} ${g.gf}–${g.ga}`;
-    const href = g.game_id ? `/games/${g.game_id}` : '';
-    const trAttrs = href ? `class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link"` : 'class="tbl-tr"';
-    return `<tr ${trAttrs}>
-      <td class="tbl-td type-label align-left">${escHtml(dateText)}</td>
-      <td class="tbl-td type-label align-left">${escHtml(opp)}</td>
-      <td class="tbl-td type-label align-left" style="color:${resColor};font-weight:700">${escHtml(result)}</td>
-      <td class="tbl-td align-center type-number">${g.gf}</td>
-      <td class="tbl-td align-center type-number">${g.ga}</td>
-      <td class="tbl-td align-center type-number bold">${xgfPct}</td>
-      <td class="tbl-td align-center type-number">${g.xgf_5v5.toFixed(2)}</td>
-      <td class="tbl-td align-center type-number">${g.xga_5v5.toFixed(2)}</td>
-    </tr>`;
-  }).join('');
-
-  glWrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
-
-  document.getElementById('gl-meta').textContent = activeOpp
-    ? `${all.length} games` : '';
-}
-
 // ── Sample warning ────────────────────────────────────────────────────────────
 
 function updateSampleWarning() {
@@ -918,18 +658,17 @@ function updateSampleWarning() {
 function updateFilterMeta() {
   const games = activeOpp ? teamGames.filter(g => g.opp_abbrev === activeOpp) : teamGames;
   document.getElementById('filter-meta').textContent =
-    `${teamPlayers.length} players · ${games.length} games`;
+    `${teamPlayersCount} players · ${games.length} games`;
 }
 
 // ── Opponent change ───────────────────────────────────────────────────────────
 
 function applyFilter() {
-  playerShowAll = false; // reset when opponent filter changes
   updateOverview();
-  renderPlayerTable();
-  renderGameLog();
   updateSampleWarning();
   updateFilterMeta();
+  // Notify React components of filter change
+  document.dispatchEvent(new CustomEvent('hgb:team-opp-filter', { detail: activeOpp }));
 }
 
 sel.addEventListener('change', () => {
