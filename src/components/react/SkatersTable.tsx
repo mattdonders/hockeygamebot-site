@@ -121,6 +121,7 @@ function buildColumns(
       id: key,
       header: label,
       width: 60,
+      exportText: (v: any) => v != null ? fmt(v) : '—',
       accessor: (r: SkaterRow) => {
         const poMap: Record<string, keyof SkaterRow> = { goals: 'po_goals', assists: 'po_assists', points: 'po_points', sog: 'po_sog', ixg: 'po_ixg', toi_pg: 'po_toi_pg' };
         if (isPlayoff && poMap[key]) return (r as any)[poMap[key]] ?? null;
@@ -143,11 +144,11 @@ function buildColumns(
 
   else if (tab === 'rates') {
     tabCols = [
-      { id: 'g60',  header: 'G/60',   accessor: r => r.g60,  width: 64, cell: v => f2(v as any) },
-      { id: 'a60',  header: 'A/60',   accessor: r => r.a60,  width: 64, cell: v => f2(v as any) },
-      { id: 'p60',  header: 'P/60',   accessor: r => r.p60,  width: 64, cell: v => <strong>{f2(v as any)}</strong> },
-      { id: 'x60',  header: 'ixG/60', accessor: r => r.x60,  width: 64, cell: v => f2(v as any) },
-      { id: 'toi_pg', header: 'TOI/G', accessor: r => r.toi_pg, width: 60, cell: v => v != null ? Number(v).toFixed(1) : '—' },
+      { id: 'g60',  header: 'G/60',   accessor: r => r.g60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'a60',  header: 'A/60',   accessor: r => r.a60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'p60',  header: 'P/60',   accessor: r => r.p60,  width: 64, cell: v => <strong>{f2(v as any)}</strong>, exportText: v => f2(v as any) },
+      { id: 'x60',  header: 'ixG/60', accessor: r => r.x60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'toi_pg', header: 'TOI/G', accessor: r => r.toi_pg, width: 60, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
     ];
   }
 
@@ -161,6 +162,7 @@ function buildColumns(
             <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{r.imp_p}th</span>
           </div>
         ),
+        exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
       },
       {
         id: 'war', header: 'WAR', accessor: r => r.war, width: 80,
@@ -170,6 +172,7 @@ function buildColumns(
               <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{r.war_p}th</span>
             </div>
           : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
       },
       {
         id: 'fin', header: 'Finishing', accessor: r => r.fin, width: 80,
@@ -179,9 +182,11 @@ function buildColumns(
             <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{r.fin_p}th</span>
           </div>
         ),
+        exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
       },
       { id: 'rapm', header: 'RAPM/60', accessor: r => r.rapm, width: 80,
-        cell: v => v != null ? <span style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f3(v as any)}</span> : '—' },
+        cell: v => v != null ? <span style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f3(v as any)}</span> : '—',
+        exportText: v => v != null ? `${sgn(v as number)}${f3(v as any)}` : '—' },
     ];
   }
 
@@ -194,11 +199,12 @@ function buildColumns(
           const col = n >= 55 ? POS : n <= 45 ? NEG : undefined;
           return <strong style={{ color: col }}>{n.toFixed(1)}%</strong>;
         },
+        exportText: v => v != null ? `${(v as number).toFixed(1)}%` : '—',
       },
-      { id: 'xgf60', header: 'xGF/60', accessor: r => r.xgf60, width: 72, cell: v => f2(v as any) },
-      { id: 'xga60', header: 'xGA/60', accessor: r => r.xga60, width: 72, cell: v => f2(v as any) },
-      { id: 'sc60',  header: 'SC/60',  accessor: r => r.sc60,  width: 68, cell: v => f2(v as any), mobileHidden: true },
-      { id: 'hdc60', header: 'HDC/60', accessor: r => r.hdc60, width: 68, cell: v => f2(v as any), mobileHidden: true },
+      { id: 'xgf60', header: 'xGF/60', accessor: r => r.xgf60, width: 72, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'xga60', header: 'xGA/60', accessor: r => r.xga60, width: 72, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'sc60',  header: 'SC/60',  accessor: r => r.sc60,  width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
+      { id: 'hdc60', header: 'HDC/60', accessor: r => r.hdc60, width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
     ];
   }
 

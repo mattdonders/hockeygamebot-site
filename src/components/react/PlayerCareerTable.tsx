@@ -6,7 +6,7 @@
  * No filters needed — always small (~10-15 rows).
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { fmtSeasonLong } from '../../lib/format-season';
 import {
   useReactTable,
@@ -41,10 +41,14 @@ type Props = {
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
-const INK = '#0d0d14';
-const BG = '#EFEEE8';
-const BORDER = '1px solid rgba(13,13,20,0.14)';
-const MUTED = 'rgba(13,13,20,0.48)';
+const INK_LIGHT = '#0d0d14';
+const INK_DARK  = '#EFEEE8';
+const BG_LIGHT  = '#EFEEE8';
+const BG_DARK   = '#1A1A26';
+const BORDER_LIGHT = '1px solid rgba(13,13,20,0.14)';
+const BORDER_DARK  = '1px solid rgba(239,238,232,0.12)';
+const MUTED_LIGHT  = 'rgba(13,13,20,0.48)';
+const MUTED_DARK   = 'rgba(239,238,232,0.48)';
 const POS = '#137333';
 const NEG = '#991b1b';
 
@@ -77,6 +81,21 @@ const CURRENT_SEASON = '20252026';
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function PlayerCareerTable({ seasons }: Props) {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
+
+  const INK    = isDark ? INK_DARK  : INK_LIGHT;
+  const BG     = isDark ? BG_DARK   : BG_LIGHT;
+  const BORDER = isDark ? BORDER_DARK  : BORDER_LIGHT;
+  const MUTED  = isDark ? MUTED_DARK   : MUTED_LIGHT;
+  const SURFACE = isDark ? '#1A1A26' : '#fff';
+
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'season', desc: true },
   ]);
@@ -195,7 +214,7 @@ export default function PlayerCareerTable({ seasons }: Props) {
           width: '100%',
           borderCollapse: 'collapse',
           fontSize: 12,
-          background: '#fff',
+          background: SURFACE,
           border: BORDER,
         }}
       >
@@ -237,7 +256,7 @@ export default function PlayerCareerTable({ seasons }: Props) {
               key={row.id}
               style={{
                 borderBottom: '1px solid rgba(13,13,20,0.05)',
-                background: i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)',
+                background: i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)'),
               }}
             >
               {row.getVisibleCells().map((cell, ci) => (

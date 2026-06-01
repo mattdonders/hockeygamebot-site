@@ -25,13 +25,18 @@ import type { GameLogEntry } from '../../lib/stats-loader';
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
-const INK = '#0d0d14';
-const BG = '#EFEEE8';
-const BORDER = '1px solid rgba(13,13,20,0.14)';
-const MUTED = 'rgba(13,13,20,0.48)';
+// Dark mode resolved at runtime — see useEffect in component
+function ink(dark: boolean)    { return dark ? '#EFEEE8' : '#0d0d14'; }
+function surface(dark: boolean){ return dark ? '#1A1A26' : '#fff'; }
+function bg(dark: boolean)     { return dark ? '#14141E' : '#EFEEE8'; }
+function border(dark: boolean) { return dark ? '1px solid rgba(239,238,232,0.12)' : '1px solid rgba(13,13,20,0.14)'; }
+function muted(dark: boolean)  { return dark ? 'rgba(239,238,232,0.48)' : 'rgba(13,13,20,0.48)'; }
+function rowBg(dark: boolean, even: boolean) {
+  return even ? surface(dark) : (dark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)');
+}
+const OT_COLOR = 'rgba(13,13,20,0.48)';
 const POS = '#137333';
 const NEG = '#991b1b';
-const OT_COLOR = 'rgba(13,13,20,0.48)';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -84,6 +89,14 @@ type Props = {
 
 export default function PlayerGameLogTable({ games }: Props) {
   const isMobile = useIsMobile();
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
 
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'game_date', desc: true },
@@ -171,9 +184,9 @@ export default function PlayerGameLogTable({ games }: Props) {
                 fontSize: 10,
                 letterSpacing: '0.08em',
                 padding: '2px 6px',
-                border: BORDER,
+                border: border(isDark),
                 background: isHome ? 'rgba(13,13,20,0.06)' : 'transparent',
-                color: isHome ? INK : MUTED,
+                color: isHome ? ink(isDark) : muted(isDark),
               }}
             >
               {isHome ? 'H' : 'A'}
@@ -268,7 +281,7 @@ export default function PlayerGameLogTable({ games }: Props) {
   });
 
   return (
-    <div style={{ ...BODY, color: INK }}>
+    <div style={{ ...BODY, color: ink(isDark) }}>
 
       {/* Search bar */}
       <div
@@ -288,10 +301,10 @@ export default function PlayerGameLogTable({ games }: Props) {
             ...MONO,
             fontSize: 11,
             padding: '5px 10px',
-            border: BORDER,
-            background: '#fff',
+            border: border(isDark),
+            background: surface(isDark),
             outline: 'none',
-            color: INK,
+            color: ink(isDark),
             width: isMobile ? 130 : 180,
           }}
         />
@@ -304,14 +317,14 @@ export default function PlayerGameLogTable({ games }: Props) {
             width: '100%',
             borderCollapse: 'collapse',
             fontSize: 12,
-            background: '#fff',
-            border: BORDER,
+            background: surface(isDark),
+            border: border(isDark),
             minWidth: isMobile ? 'unset' : 520,
           }}
         >
           <thead>
             {table.getHeaderGroups().map(hg => (
-              <tr key={hg.id} style={{ borderBottom: BORDER, background: BG }}>
+              <tr key={hg.id} style={{ borderBottom: border(isDark), background: bg(isDark) }}>
                 {hg.headers.map((h, hi) => {
                   const isSorted = h.column.getIsSorted();
                   const canSort = h.column.getCanSort();
@@ -324,7 +337,7 @@ export default function PlayerGameLogTable({ games }: Props) {
                         fontSize: 11,
                         letterSpacing: '0.12em',
                         textTransform: 'uppercase',
-                        color: isSorted ? INK : MUTED,
+                        color: isSorted ? ink(isDark) : muted(isDark),
                         fontWeight: isSorted ? 700 : 500,
                         padding: '8px 10px',
                         textAlign: hi === 0 ? 'left' : 'center',
@@ -333,7 +346,7 @@ export default function PlayerGameLogTable({ games }: Props) {
                         whiteSpace: 'nowrap',
                         position: 'sticky',
                         top: 0,
-                        background: BG,
+                        background: bg(isDark),
                         zIndex: 1,
                       }}
                     >
@@ -353,7 +366,7 @@ export default function PlayerGameLogTable({ games }: Props) {
                   style={{
                     ...MONO,
                     fontSize: 11,
-                    color: MUTED,
+                    color: muted(isDark),
                     textAlign: 'center',
                     padding: '32px 16px',
                   }}
@@ -364,9 +377,11 @@ export default function PlayerGameLogTable({ games }: Props) {
             ) : (
               table.getRowModel().rows.map((row, i) => {
                 const href = row.original.game_id ? `/games/${row.original.game_id}` : undefined;
+                const evenBg = rowBg(isDark, true);
+                const oddBg  = rowBg(isDark, false);
                 const rowStyle: React.CSSProperties = {
-                  borderBottom: '1px solid rgba(13,13,20,0.05)',
-                  background: i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)',
+                  borderBottom: isDark ? '1px solid rgba(239,238,232,0.05)' : '1px solid rgba(13,13,20,0.05)',
+                  background: i % 2 === 0 ? evenBg : oddBg,
                   cursor: href ? 'pointer' : 'default',
                 };
                 return (
@@ -375,11 +390,10 @@ export default function PlayerGameLogTable({ games }: Props) {
                     style={rowStyle}
                     onClick={href ? () => { window.location.href = href; } : undefined}
                     onMouseEnter={e => {
-                      (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)';
+                      (e.currentTarget as HTMLElement).style.background = isDark ? 'rgba(239,238,232,0.06)' : 'rgba(13,13,20,0.04)';
                     }}
                     onMouseLeave={e => {
-                      (e.currentTarget as HTMLElement).style.background =
-                        i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
+                      (e.currentTarget as HTMLElement).style.background = i % 2 === 0 ? evenBg : oddBg;
                     }}
                   >
                     {row.getVisibleCells().map((cell, ci) => (
