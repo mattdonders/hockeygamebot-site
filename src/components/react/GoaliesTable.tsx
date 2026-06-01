@@ -5,6 +5,7 @@ export type GoalieRow = {
   goalie_id:   number;
   name:        string;
   team:        string;
+  season:      string | null;
   gp:          number | null;
   toi_sec:     number | null;
   sa:          number;
@@ -57,14 +58,16 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
           <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div>
-            <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
-            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: SUBLINE_FONT_SIZE, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>{row.team}</div>
-          </div>
+          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
         </div>
       ),
       sortType: 'string',
     },
+    {
+      id: 'season', header: 'Season', accessor: r => r.season, align: 'center', width: 72, mobileHidden: true,
+      cell: v => { const s = v as string | null; return s ? `${s.slice(2,4)}-${s.slice(6,8)}` : '—'; },
+    },
+    { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
     { id: 'gp',  header: 'GP',  accessor: r => r.gp,  align: 'right', width: 48, cell: v => v != null ? String(v) : '—' },
     {
       id: 'toi', header: 'TOI', accessor: r => r.toi_sec, align: 'right', width: 72, mobileHidden: true,
