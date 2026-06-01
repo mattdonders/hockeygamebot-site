@@ -8,4 +8,6 @@ interface Window {
   HGB_GAME_CARDS: Record<string, any>;
   HGB_Table: { replaceColumns?: (...args: any[]) => void } | undefined;
   openModal: (id: string, extra?: any) => void;
+  copyTweet: (btn: HTMLButtonElement, text: string) => void;
+  copyPayload: (btn: HTMLButtonElement, insightId: string) => void;
 }
