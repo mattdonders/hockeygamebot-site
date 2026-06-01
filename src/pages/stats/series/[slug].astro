@@ -6,7 +6,7 @@
 import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
-import { loadLines, loadPlayers, loadMeta } from '../../../lib/stats-loader';
+import { loadLines, loadPlayers, loadMeta, loadAllTeamGames } from '../../../lib/stats-loader';
 import { toLineSlug } from '../../../lib/line-slug';
 
 type SeriesData = {
@@ -145,6 +145,24 @@ function teamXgSummary(team: string) {
 const summA = teamXgSummary(series.team_a);
 const summB = teamXgSummary(series.team_b);
 
+// ── This-series stats: game_type=3 games vs the specific opponent ──────────
+const allTeamGames = loadAllTeamGames();
+function seriesMatchupStats(team: string, opp: string) {
+  const games = (allTeamGames[team] ?? []).filter(g =>
+    g.opp_abbrev === opp && (g as any).game_type === 3
+  );
+  if (!games.length) return null;
+  const xgf = games.reduce((s, g) => s + g.xgf_5v5, 0);
+  const xga = games.reduce((s, g) => s + g.xga_5v5, 0);
+  const gf  = games.reduce((s, g) => s + g.gf, 0);
+  const ga  = games.reduce((s, g) => s + g.ga, 0);
+  const xgfPct = xgf + xga > 0 ? (xgf / (xgf + xga)) * 100 : null;
+  return { xgf: +xgf.toFixed(2), xga: +xga.toFixed(2), xgfPct: xgfPct ? +xgfPct.toFixed(1) : null, gf, ga, games: games.length };
+}
+const seriesSummA = seriesMatchupStats(series.team_a, series.team_b);
+const seriesSummB = seriesMatchupStats(series.team_b, series.team_a);
+const hasSeriesData = !!(seriesSummA || seriesSummB);
+
 function toMMSS(min: number): string {
   const m = Math.floor(min), s = Math.round((min - m) * 60);
   return `${m}:${String(s).padStart(2, '0')}`;
@@ -211,6 +229,17 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
     .section-label { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.20em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 12px; display: block; }
 
     /* ── Team comparison table ── */
+    /* ── Scope toggle ── */
+    .scope-toggle { display: inline-flex; border: 1px solid var(--ink-14); margin-bottom: 12px; }
+    .scope-btn { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; padding: 6px 14px; border: none; border-right: 1px solid var(--ink-14); background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.1s, color 0.1s; }
+    .scope-btn:last-child { border-right: none; }
+    .scope-btn.active { background: var(--ink); color: var(--bg); }
+    .scope-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .scope-view { display: none; }
+    .scope-view.active { display: block; }
+    .no-series-data { font-family: var(--mono); font-size: 11px; color: var(--ink-32); padding: 20px; text-align: center; background: var(--surface); border: 1px solid var(--ink-14); letter-spacing: 0.04em; }
+    .scope-note { font-family: var(--mono); font-size: 10px; color: var(--ink-32); margin-top: 8px; }
+
     .compare-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 2px; background: var(--ink-10); border: 1px solid var(--ink-14); }
     .cg-header { padding: 10px 16px; background: var(--surface); text-align: center; font-family: var(--display); font-weight: 800; font-size: 20px; text-transform: uppercase; letter-spacing: 0.04em; }
     .cg-label { padding: 10px 14px; background: var(--surface); text-align: center; font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-48); }
@@ -314,36 +343,83 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
     </div>
   )}
 
-  <!-- TEAM COMPARISON -->
+  <!-- TEAM COMPARISON — scope toggle -->
   {(summA || summB) && (
-    <div class="section">
-      <span class="section-label">5v5 Expected Goals — Season Aggregate</span>
-      <div class="compare-grid">
-        <div class="cg-header">{series.team_a}</div>
-        <div class="cg-label">Metric</div>
-        <div class="cg-header">{series.team_b}</div>
+    <div class="section" id="compare-section">
+      <span class="section-label">5v5 Expected Goals</span>
 
-        <div class={`cg-val ${summA && summB && summA.xgf > summB.xgf ? 'better' : ''}`}>{fmt2(summA?.xgf)}</div>
-        <div class="cg-label">xGF</div>
-        <div class={`cg-val ${summA && summB && summB.xgf > summA.xgf ? 'better' : ''}`}>{fmt2(summB?.xgf)}</div>
-
-        <div class={`cg-val ${summA && summB && summA.xga < summB.xga ? 'better' : summA && summB && summA.xga > summB.xga ? 'worse' : ''}`}>{fmt2(summA?.xga)}</div>
-        <div class="cg-label">xGA</div>
-        <div class={`cg-val ${summA && summB && summB.xga < summA.xga ? 'better' : summA && summB && summB.xga > summA.xga ? 'worse' : ''}`}>{fmt2(summB?.xga)}</div>
-
-        <div class={`cg-val ${summA && summB && (summA.xgfPct ?? 0) > (summB.xgfPct ?? 0) ? 'better' : summA && summB && (summA.xgfPct ?? 0) < (summB.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(summA?.xgfPct)}</div>
-        <div class="cg-label">xGF%</div>
-        <div class={`cg-val ${summA && summB && (summB.xgfPct ?? 0) > (summA.xgfPct ?? 0) ? 'better' : summA && summB && (summB.xgfPct ?? 0) < (summA.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(summB?.xgfPct)}</div>
-
-        <div class="cg-val">{summA?.gf ?? '—'}</div>
-        <div class="cg-label">GF</div>
-        <div class="cg-val">{summB?.gf ?? '—'}</div>
-
-        <div class="cg-val">{summA?.ga ?? '—'}</div>
-        <div class="cg-label">GA</div>
-        <div class="cg-val">{summB?.ga ?? '—'}</div>
+      <div class="scope-toggle" role="group" aria-label="Data scope">
+        <button class="scope-btn active" data-scope="playoffs" type="button">All Playoffs</button>
+        <button class="scope-btn" data-scope="series" type="button" disabled={!hasSeriesData || undefined}>
+          {hasSeriesData ? 'This Series' : 'This Series — No games yet'}
+        </button>
       </div>
-      <p style="font-family:var(--mono);font-size:10px;color:var(--ink-32);margin-top:8px">5v5 aggregated from playoff line data (min 30 min TOI) · {seasonLabel} postseason</p>
+
+      {/* ALL PLAYOFFS view */}
+      <div class="scope-view active" data-scope-view="playoffs">
+        <div class="compare-grid">
+          <div class="cg-header">{series.team_a}</div>
+          <div class="cg-label">Metric</div>
+          <div class="cg-header">{series.team_b}</div>
+
+          <div class={`cg-val ${summA && summB && summA.xgf > summB.xgf ? 'better' : ''}`}>{fmt2(summA?.xgf)}</div>
+          <div class="cg-label">xGF</div>
+          <div class={`cg-val ${summA && summB && summB.xgf > summA.xgf ? 'better' : ''}`}>{fmt2(summB?.xgf)}</div>
+
+          <div class={`cg-val ${summA && summB && summA.xga < summB.xga ? 'better' : summA && summB && summA.xga > summB.xga ? 'worse' : ''}`}>{fmt2(summA?.xga)}</div>
+          <div class="cg-label">xGA</div>
+          <div class={`cg-val ${summA && summB && summB.xga < summA.xga ? 'better' : summA && summB && summB.xga > summA.xga ? 'worse' : ''}`}>{fmt2(summB?.xga)}</div>
+
+          <div class={`cg-val ${summA && summB && (summA.xgfPct ?? 0) > (summB.xgfPct ?? 0) ? 'better' : summA && summB && (summA.xgfPct ?? 0) < (summB.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(summA?.xgfPct)}</div>
+          <div class="cg-label">xGF%</div>
+          <div class={`cg-val ${summA && summB && (summB.xgfPct ?? 0) > (summA.xgfPct ?? 0) ? 'better' : summA && summB && (summB.xgfPct ?? 0) < (summA.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(summB?.xgfPct)}</div>
+
+          <div class="cg-val">{summA?.gf ?? '—'}</div>
+          <div class="cg-label">GF</div>
+          <div class="cg-val">{summB?.gf ?? '—'}</div>
+
+          <div class="cg-val">{summA?.ga ?? '—'}</div>
+          <div class="cg-label">GA</div>
+          <div class="cg-val">{summB?.ga ?? '—'}</div>
+        </div>
+        <p class="scope-note">Entire {seasonLabel} playoff run · 5v5 aggregated from playoff line data (min 30 min TOI)</p>
+      </div>
+
+      {/* THIS SERIES view */}
+      <div class="scope-view" data-scope-view="series">
+        {hasSeriesData ? (
+          <>
+            <div class="compare-grid">
+              <div class="cg-header">{series.team_a}</div>
+              <div class="cg-label">Metric</div>
+              <div class="cg-header">{series.team_b}</div>
+
+              <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummA.xgf > seriesSummB.xgf ? 'better' : ''}`}>{fmt2(seriesSummA?.xgf)}</div>
+              <div class="cg-label">xGF</div>
+              <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummB.xgf > seriesSummA.xgf ? 'better' : ''}`}>{fmt2(seriesSummB?.xgf)}</div>
+
+              <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummA.xga < seriesSummB.xga ? 'better' : seriesSummA && seriesSummB && seriesSummA.xga > seriesSummB.xga ? 'worse' : ''}`}>{fmt2(seriesSummA?.xga)}</div>
+              <div class="cg-label">xGA</div>
+              <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummB.xga < seriesSummA.xga ? 'better' : seriesSummA && seriesSummB && seriesSummB.xga > seriesSummA.xga ? 'worse' : ''}`}>{fmt2(seriesSummB?.xga)}</div>
+
+              <div class={`cg-val ${seriesSummA && seriesSummB && (seriesSummA.xgfPct ?? 0) > (seriesSummB.xgfPct ?? 0) ? 'better' : seriesSummA && seriesSummB && (seriesSummA.xgfPct ?? 0) < (seriesSummB.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(seriesSummA?.xgfPct)}</div>
+              <div class="cg-label">xGF%</div>
+              <div class={`cg-val ${seriesSummA && seriesSummB && (seriesSummB.xgfPct ?? 0) > (seriesSummA.xgfPct ?? 0) ? 'better' : seriesSummA && seriesSummB && (seriesSummB.xgfPct ?? 0) < (seriesSummA.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(seriesSummB?.xgfPct)}</div>
+
+              <div class="cg-val">{seriesSummA?.gf ?? '—'}</div>
+              <div class="cg-label">GF</div>
+              <div class="cg-val">{seriesSummB?.gf ?? '—'}</div>
+
+              <div class="cg-val">{seriesSummA?.ga ?? '—'}</div>
+              <div class="cg-label">GA</div>
+              <div class="cg-val">{seriesSummB?.ga ?? '—'}</div>
+            </div>
+            <p class="scope-note">{seriesSummA?.games ?? seriesSummB?.games ?? 0} game{(seriesSummA?.games ?? 0) !== 1 ? 's' : ''} in this series · team-level 5v5 only · line data reflects full playoff run</p>
+          </>
+        ) : (
+          <div class="no-series-data">No games played in this series yet</div>
+        )}
+      </div>
     </div>
   )}
 
@@ -459,5 +535,18 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
   </div>
 
 </div>
+
+<script>
+document.querySelectorAll<HTMLButtonElement>('.scope-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const scope = btn.dataset.scope ?? 'playoffs';
+    document.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll<HTMLElement>('.scope-view').forEach(v => {
+      v.classList.toggle('active', v.dataset.scopeView === scope);
+    });
+  });
+});
+</script>
 </body>
 </html>
