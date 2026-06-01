@@ -14,7 +14,7 @@ const POS = '#166534'; const NEG = '#991b1b';
 function fmtPct(v: number | null) { return v != null ? `${Number(v).toFixed(1)}%` : '—'; }
 function fmt1(v: number | null)   { return v != null ? Number(v).toFixed(1) : '—'; }
 function fmt2(v: number | null)   { return v != null ? Number(v).toFixed(2) : '—'; }
-function toMMSS(min: number) { const m = Math.floor(min), s = Math.round((min - m) * 60); return `${m}:${String(s).padStart(2, '0')}`; }
+function toMMSS(min: number) { const t = Math.round(min * 60); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; }
 
 function lastNames(players: string | undefined): string {
   if (!players) return '';
@@ -147,8 +147,7 @@ export default function LinesTable({ rows, statsDate }: Props) {
         defaultSort={{ id: 'xgf_pct', desc: true }}
         globalSearchField={r => `${r.players} ${r.team}`.toLowerCase()}
         searchPlaceholder="Search lines or team…"
-        rowHref={r => `/stats/lines/${toLineSlug(r)}`}
-        exportFilename="hgb-lines.png"
+        exportFilename="hgb-lines"
         emptyMessage="No lines match the current filters. Try lowering the Min TOI."
         virtualize
       />

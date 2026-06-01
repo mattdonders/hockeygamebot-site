@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE, SUBLINE_FONT_SIZE } from './HGBTable';
+import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
 
 // ── Row type (mirrors skaters.astro tableRows) ────────────────────────────────
@@ -230,12 +230,22 @@ export default function SkatersTable({ rows, statsDate, currentSeason }: Props) 
   }, [tab, gameType, display]);
 
   const filtered = useMemo(() => {
-    let r = rows.filter(x => x.gp >= minGP);
+    const gpField = gameType === 'playoffs' ? 'po_gp' : 'gp';
+    let r = rows.filter(x => (x[gpField] ?? 0) >= minGP);
     if (pos !== 'all') r = r.filter(x => x.group === pos);
     if (gameType === 'playoffs') r = r.filter(x => x.po_gp != null && x.po_gp > 0);
-    if (topN) r = r.slice(0, topN);
+    // topN applied after HGBTable sorting via a post-sort slice — but since we
+    // can't hook into HGBTable's sort, sort here by the defaultSort column first
+    if (topN) {
+      const sortId = defaultSort.id;
+      r = [...r].sort((a, b) => {
+        const av = (a as any)[sortId] ?? -Infinity;
+        const bv = (b as any)[sortId] ?? -Infinity;
+        return bv - av; // desc
+      }).slice(0, topN);
+    }
     return r;
-  }, [rows, minGP, pos, gameType, topN]);
+  }, [rows, minGP, pos, gameType, topN, defaultSort.id]);
 
   const columns = useMemo(
     () => buildColumns(tab, gameType, strength, display, isDark, currentSeason),
@@ -306,7 +316,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason }: Props) 
         globalSearchField={r => r.searchText}
         searchPlaceholder="Search players or team…"
         rowHref={r => `/stats/player/${r.slug}`}
-        exportFilename="hgb-skaters.png"
+        exportFilename="hgb-skaters"
         emptyMessage="No skaters match the current filters."
         virtualize
       />

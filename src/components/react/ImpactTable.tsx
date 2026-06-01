@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
 
 export type ImpactRow = {
@@ -47,7 +47,7 @@ export default function ImpactTable({ rows, statsDate }: Props) {
 
   const filtered = pos === 'all' ? rows : rows.filter(r => r.group === pos);
 
-  const COLUMNS: HGBColumnDef<ImpactRow>[] = [
+  const COLUMNS = useMemo<HGBColumnDef<ImpactRow>[]>(() => [
     {
       id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 200,
       cell: (_v, row) => (
@@ -76,9 +76,10 @@ export default function ImpactTable({ rows, statsDate }: Props) {
       cell: (_v, row) => <Sparkline values={row.l10} />,
       sortType: 'number',
     },
-    { id: 'best',  header: 'Best',  accessor: r => r.best,  width: 60, cell: v => `+${Number(v).toFixed(2)}` },
+    { id: 'best',  header: 'Best',  accessor: r => r.best,  width: 60, cell: v => { const n = Number(v); return `${n >= 0 ? '+' : ''}${n.toFixed(2)}`; } },
     { id: 'worst', header: 'Worst', accessor: r => r.worst, width: 60, cell: v => Number(v).toFixed(2) },
-  ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [isDark]);
 
   const chip = (active: boolean, label: string, onClick: () => void) => (
     <button onClick={onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: 'pointer', background: active ? '#0d0d14' : 'transparent', color: active ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
@@ -106,7 +107,7 @@ export default function ImpactTable({ rows, statsDate }: Props) {
         globalSearchField={r => `${r.name} ${r.team}`.toLowerCase()}
         searchPlaceholder="Search players or team…"
         rowHref={r => `/stats/player/${r.slug}`}
-        exportFilename="hgb-impact.png"
+        exportFilename="hgb-impact"
         emptyMessage="No impact data for this selection."
         virtualize
       />

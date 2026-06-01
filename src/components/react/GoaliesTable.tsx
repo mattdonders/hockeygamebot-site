@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, SUBLINE_FONT_SIZE, teamLogoSrc } from './HGBTable';
+import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, teamLogoSrc } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
 
 export type GoalieRow = {
@@ -76,7 +76,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     { id: 'gp',  header: 'GP',  accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },
     {
       id: 'toi', header: 'TOI', accessor: r => r.toi_sec, align: 'center', width: 72, mobileHidden: true,
-      cell: v => { if (v == null) return '—'; const m = Math.floor(Number(v)/60); const s = Math.round(Number(v)%60); return `${m}:${String(s).padStart(2,'0')}`; },
+      cell: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
     },
     { id: 'sa', header: 'SA', accessor: r => r.sa, align: 'center', width: 60, cell: v => v != null ? Number(v).toLocaleString() : '—' },
     { id: 'ga', header: 'GA', accessor: r => r.ga, align: 'center', width: 52 },
@@ -135,7 +135,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         },
       ]}
         rowHref={r => `/stats/goalies/${r.goalie_id}`}
-        exportFilename="hgb-goalies.png"
+        exportFilename="hgb-goalies"
         emptyMessage="No goalie data for this selection."
         virtualize
       />

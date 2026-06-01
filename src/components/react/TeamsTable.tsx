@@ -77,8 +77,8 @@ function computeRow(t: TeamRow, strength: Strength, display: Display) {
   const gaRaw    = is5v5 ? t.ga_5v5 : t.ga;
   const xgfRaw   = is5v5 ? t.xgf_5v5 : t.xgf_all;
   const xgaRaw   = is5v5 ? t.xga_5v5 : t.xga_all;
-  const gf_pct   = is5v5 ? t.gf_pct_5v5  : (gfRaw + gaRaw > 0 ? gfRaw / (gfRaw + gaRaw) * 100 : null);
-  const xgf_pct  = is5v5 ? t.xgf_pct_5v5 : (xgfRaw + xgaRaw > 0 ? xgfRaw / (xgfRaw + xgaRaw) * 100 : null);
+  const gf_pct   = is5v5 ? t.gf_pct_5v5  : (gfRaw + gaRaw > 0 ? gfRaw / (gfRaw + gaRaw) : null);
+  const xgf_pct  = is5v5 ? t.xgf_pct_5v5 : (xgfRaw + xgaRaw > 0 ? xgfRaw / (xgfRaw + xgaRaw) : null);
   const cf_pct   = is5v5 ? t.sf_pct_5v5  : null;
 
   return {
@@ -113,12 +113,11 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
     return () => obs.disconnect();
   }, []);
 
-  const baseRows = (gameType === 'regular' ? regularRows : playoffRows)
-    .filter(t => !season || t.season === season);
-
   const rows = useMemo(
-    () => baseRows.map(t => computeRow(t, strength, display)),
-    [baseRows, strength, display],
+    () => (gameType === 'regular' ? regularRows : playoffRows)
+      .filter(t => !season || t.season === season)
+      .map(t => computeRow(t, strength, display)),
+    [gameType, regularRows, playoffRows, season, strength, display],
   );
 
   // Dynamic columns based on display label and strength
@@ -214,7 +213,7 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
         defaultSort={{ id: 'xgf_pct', desc: true }}
         globalSearchField={r => `${r.team_abbrev} ${r.team_name_full} ${r.team_name_city} ${r.team_name_nickname}`.toLowerCase()}
         searchPlaceholder="Search teams…"
-        exportFilename="hgb-teams.png"
+        exportFilename="hgb-teams"
         emptyMessage="No team data for this selection."
       />
     </div>

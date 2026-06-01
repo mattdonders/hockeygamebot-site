@@ -135,26 +135,28 @@ function applyFilters<T>(rows: T[], filters: HGBFilter[], filterState: FilterSta
 
 // ── CSV export ───────────────────────────────────────────────────────────────
 
+function csvCell(v: unknown): string {
+  if (v == null) return '';
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+
 function exportCSV<T>(
   rows: T[],
   columns: HGBColumnDef<T>[],
   filename: string,
 ) {
-  const headers = columns.map(c => c.header).join(',');
+  const base = filename.replace(/\.[^.]+$/, ''); // strip any extension
+  const headers = columns.map(c => csvCell(c.header)).join(',');
   const body = rows.map(row =>
-    columns.map(c => {
-      const v = c.accessor(row);
-      if (v === null || v === undefined) return '';
-      const s = String(v);
-      return s.includes(',') ? `"${s}"` : s;
-    }).join(',')
+    columns.map(c => csvCell(c.accessor(row))).join(',')
   ).join('\n');
 
   const blob = new Blob([`${headers}\n${body}`], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${filename}.csv`;
+  a.download = `${base}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -318,10 +320,16 @@ export default function HGBTable<T extends object>({
 }: HGBTableProps<T>) {
   const isMobile = useIsMobile();
 
-  // Sorting state
+  // Sorting state — reactive: reset when defaultSort changes (e.g. tab switches in SkatersTable)
   const [sorting, setSorting] = useState<SortingState>(
     defaultSort ? [{ id: defaultSort.id, desc: defaultSort.desc }] : [],
   );
+  useEffect(() => {
+    if (!defaultSort) return;
+    if (!columnDefs.some(c => c.id === defaultSort.id)) return;
+    setSorting([{ id: defaultSort.id, desc: defaultSort.desc }]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultSort?.id, defaultSort?.desc]);
 
   // Global search: input updates immediately; debounced value drives the filter/render
   const [searchInput, setSearchInput] = useState('');
@@ -418,14 +426,19 @@ export default function HGBTable<T extends object>({
   const virtTotalSize = virtualize ? virt.getTotalSize() : 0;
   const visibleColCount = table.getVisibleLeafColumns().length;
 
+  // Scroll to top whenever data, sort, or search changes
+  useEffect(() => {
+    if (virtualize && scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [virtualize, sorting, globalSearch, filterState, data]);
+
   const updateFilter = useCallback((key: string, value: string | number) => {
     setFilterState(prev => ({ ...prev, [key]: value }));
   }, []);
 
   const handleExport = useCallback(() => {
     if (!exportFilename) return;
-    exportCSV(filteredData, columnDefs, exportFilename);
-  }, [filteredData, columnDefs, exportFilename]);
+    exportCSV(tableRows.map(r => r.original), columnDefs, exportFilename);
+  }, [tableRows, columnDefs, exportFilename]);
 
   const toggleColumn = useCallback((id: string) => {
     setUserVisibility(prev => ({ ...prev, [id]: !(prev[id] ?? true) }));
@@ -606,6 +619,7 @@ export default function HGBTable<T extends object>({
                   return (
                     <th
                       key={h.id}
+                      aria-sort={isSorted === 'asc' ? 'ascending' : isSorted === 'desc' ? 'descending' : 'none'}
                       onClick={h.column.getToggleSortingHandler()}
                       style={{
                         ...MONO,
@@ -619,6 +633,10 @@ export default function HGBTable<T extends object>({
                         cursor: 'pointer',
                         userSelect: 'none',
                         whiteSpace: 'nowrap',
+                        position: 'sticky',
+                        top: 0,
+                        background: BG,
+                        zIndex: 2,
                         ...(colDef?.width ? { width: colDef.width } : {}),
                       }}
                     >
@@ -662,7 +680,10 @@ export default function HGBTable<T extends object>({
                       data-index={vr.index}
                       ref={virt.measureElement}
                       style={rowStyle}
+                      role={href ? 'link' : undefined}
+                      tabIndex={href ? 0 : undefined}
                       onClick={href ? () => { window.location.href = href; } : undefined}
+                      onKeyDown={href ? e => { if (e.key === 'Enter' || e.key === ' ') window.location.href = href; } : undefined}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
                     >
@@ -699,7 +720,10 @@ export default function HGBTable<T extends object>({
                   <tr
                     key={row.id}
                     style={rowStyle}
+                    role={href ? 'link' : undefined}
+                    tabIndex={href ? 0 : undefined}
                     onClick={href ? () => { window.location.href = href; } : undefined}
+                    onKeyDown={href ? e => { if (e.key === 'Enter' || e.key === ' ') window.location.href = href; } : undefined}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
                   >
