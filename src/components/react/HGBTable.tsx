@@ -624,7 +624,7 @@ export default function HGBTable<T extends object>({
                       style={{
                         ...MONO,
                         fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE,
-                        padding: isMobile ? '8px 8px' : '7px 10px',
+                        padding: isMobile ? '10px 8px' : '10px 10px',
                         textAlign: align,
                         color: isFirst ? INK : 'rgba(13,13,20,0.72)',
                         whiteSpace: 'nowrap',
