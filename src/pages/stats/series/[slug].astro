@@ -212,26 +212,13 @@ const hasSeriesData = !!(seriesSummA || seriesSummB);
 
 // ── Series shot map ────────────────────────────────────────────────────────
 // API shape: [x, y, is_goal, shot_type, team_abbrev, game_number]
-// Full-rink view: team_a perspective — their shots FOR on right, shots AGAINST on left.
-// x is normalized via Math.abs() so all shots appear in the correct half-rink.
-type RawShot = [number, number, number, string, string, number];
-let shotSvgA = '', shotSvgB = '';
-try {
-  const shotRes = await fetch(
-    `https://api.hockeygamebot.com/v1/series/${series.series_id}/shots`
-  );
-  if (shotRes.ok) {
-    const shotData = await shotRes.json();
-    const rawShots: RawShot[] = shotData.shots ?? [];
-    // Convert to [x, y, xg, is_goal] — API doesn't supply xg per shot so use 1 as placeholder
-    const toFullRink = (s: RawShot): FullRinkShot => [Math.abs(s[0]), s[1], 1, s[2]];
-    const sfA = rawShots.filter(s => s[4] === series.team_a).map(toFullRink);
-    const saA = rawShots.filter(s => s[4] === series.team_b).map(toFullRink);
-    if (sfA.length || saA.length) {
-      shotSvgA = buildSeriesShotMapSVG(sfA, saA).svg;
-    }
-  }
-} catch (_) { /* shot map is optional — page renders without it */ }
+// Shot map is loaded client-side to avoid fetching for every series at build time.
+// The API endpoint reads ~4,600 D1 rows per call; with 30+ series pages × frequent
+// deploys that was 6M+ rows/day. Client-side load means we only fetch when the user
+// actually views the page.
+const shotMapSeriesId = series.series_id;
+const shotMapTeamA    = series.team_a;
+const shotMapTeamB    = series.team_b;
 
 function toMMSS(min: number): string {
   const m = Math.floor(min), s = Math.round((min - m) * 60);
@@ -630,14 +617,17 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
     </div>
   </div>
 
-  <!-- SHOT MAP -->
-  {shotSvgA && (
-    <div class="section">
-      <span class="section-label">Shot Map — {series.team_a} for · {series.team_b} against · {seasonLabel} Playoff Run</span>
-      <div style="background:var(--surface);border:1px solid var(--ink-14);padding:8px" set:html={shotSvgA} />
-      <p style="font-family:var(--mono);font-size:10px;color:var(--ink-32);margin-top:8px">Solid = goal · Open = shot · Blue = {series.team_a} · Red = {series.team_b} · Entire {seasonLabel} playoff run</p>
+  <!-- SHOT MAP — loaded client-side to avoid D1 reads at build time -->
+  <div class="section" id="shot-map-section"
+       data-series-id={shotMapSeriesId}
+       data-team-a={shotMapTeamA}
+       data-team-b={shotMapTeamB}>
+    <span class="section-label">Shot Map — {series.team_a} for · {series.team_b} against · {seasonLabel} Playoff Run</span>
+    <div id="shot-map-container" style="background:var(--surface);border:1px solid var(--ink-14);padding:8px;min-height:60px;display:flex;align-items:center;justify-content:center;color:var(--ink-32);font-size:12px">
+      Loading shot map…
     </div>
-  )}
+    <p style="font-family:var(--mono);font-size:10px;color:var(--ink-32);margin-top:8px">Solid = goal · Open = shot · Blue = {series.team_a} · Red = {series.team_b} · Entire {seasonLabel} playoff run</p>
+  </div>
 
   <!-- TOP SKATERS (sorted by playoff P, HGB Rating for context) -->
   <div class="section">
@@ -686,6 +676,33 @@ document.querySelectorAll<HTMLButtonElement>('.scope-btn').forEach(btn => {
     });
   });
 });
+
+// Load shot map client-side — kept out of Astro build to avoid D1 reads per deploy
+(async () => {
+  const section = document.getElementById('shot-map-section');
+  const container = document.getElementById('shot-map-container');
+  if (!section || !container) return;
+  const seriesId = section.dataset.seriesId;
+  const teamA = section.dataset.teamA;
+  if (!seriesId || !teamA) return;
+  try {
+    const res = await fetch(`https://api.hockeygamebot.com/v1/series/${seriesId}/shots`);
+    if (!res.ok) { container.textContent = ''; return; }
+    const data = await res.json();
+    if (!data.shots?.length) { container.textContent = ''; return; }
+    // Simple dot plot — dots per shot colored by team
+    const W = 400, H = 200;
+    const dots = data.shots.map(([x, y, isGoal, , team]: [number,number,number,string,string]) => {
+      const nx = Math.round((Math.abs(x) / 100) * W);
+      const ny = Math.round(((y + 42.5) / 85) * H);
+      const color = team === teamA ? '#4A9EFF' : '#FF4A4A';
+      const r = isGoal ? 4 : 2;
+      const fill = isGoal ? color : 'none';
+      return `<circle cx="${nx}" cy="${ny}" r="${r}" stroke="${color}" stroke-width="1" fill="${fill}" opacity="0.7"/>`;
+    }).join('');
+    container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;max-width:100%">${dots}</svg>`;
+  } catch (_) { container.textContent = ''; }
+})();
 </script>
 </body>
 </html>
