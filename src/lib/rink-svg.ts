@@ -106,6 +106,48 @@ export function buildPlayerShotMapSVG(
 // sf = shots for (attacking right), sa = shots against (defending, shown left).
 // Each shot: [x, y, xg, is_goal]  (x/y in NHL feet from centre ice)
 
+// ── Full rink base (rink only, no shots) for React canvas overlay ────────────
+export function buildFullRinkBaseSVG(): string {
+  const W = 390, H = 170, CX2 = 195;
+  const fFor  = (x: number) => CX2 + (x / 100) * 182;
+  const fAga  = (x: number) => CX2 - (x / 100) * 182;
+  const fy2   = (y: number) => ((y + 42.5) / 85) * 164 + 3;
+  const cY = fy2(0).toFixed(1);
+  const cYm = (fy2(0) - 20).toFixed(1), cYp = (fy2(0) + 20).toFixed(1);
+  const foY1 = fy2(-22).toFixed(1), foY2 = fy2(22).toFixed(1);
+  const fBL = fFor(25).toFixed(1), fGL = fFor(89).toFixed(1), fEB = fFor(100).toFixed(1), fFo = fFor(69).toFixed(1);
+  const aBL = fAga(25).toFixed(1), aGL = fAga(89).toFixed(1), aEB = fAga(100).toFixed(1), aFo = fAga(69).toFixed(1);
+  const p: string[] = [];
+  p.push(`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" width="100%" style="display:block">`);
+  // Background
+  p.push(`<rect x="0" y="0" width="${W}" height="${H}" rx="6" fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" stroke-width="1.2"/>`);
+  // Center line + circle
+  p.push(`<line x1="${CX2}" y1="2" x2="${CX2}" y2="${H-2}" stroke="rgba(13,13,20,0.22)" stroke-width="1.5"/>`);
+  p.push(`<circle cx="${CX2}" cy="${cY}" r="21" fill="none" stroke="rgba(13,13,20,0.15)" stroke-width="1"/>`);
+  p.push(`<circle cx="${CX2}" cy="${cY}" r="2.5" fill="rgba(13,13,20,0.22)"/>`);
+  // FOR side (right)
+  p.push(`<line x1="${fBL}" y1="2" x2="${fBL}" y2="${H-2}" stroke="rgba(20,100,200,0.55)" stroke-width="2.5"/>`);
+  p.push(`<line x1="${fGL}" y1="2" x2="${fGL}" y2="${H-2}" stroke="rgba(232,0,45,0.50)" stroke-width="1.5"/>`);
+  p.push(`<path d="M${fGL},${cYm} A20,20 0 0,0 ${fGL},${cYp}" fill="rgba(20,100,200,0.09)" stroke="rgba(20,100,200,0.32)" stroke-width="1"/>`);
+  p.push(`<circle cx="${fFo}" cy="${foY1}" r="18" fill="none" stroke="rgba(232,0,45,0.20)" stroke-width="1"/>`);
+  p.push(`<circle cx="${fFo}" cy="${foY2}" r="18" fill="none" stroke="rgba(232,0,45,0.20)" stroke-width="1"/>`);
+  p.push(`<circle cx="${fFo}" cy="${foY1}" r="2" fill="rgba(232,0,45,0.32)"/>`);
+  p.push(`<circle cx="${fFo}" cy="${foY2}" r="2" fill="rgba(232,0,45,0.32)"/>`);
+  // AGAINST side (left)
+  p.push(`<line x1="${aBL}" y1="2" x2="${aBL}" y2="${H-2}" stroke="rgba(232,0,45,0.45)" stroke-width="2.5"/>`);
+  p.push(`<line x1="${aGL}" y1="2" x2="${aGL}" y2="${H-2}" stroke="rgba(232,0,45,0.50)" stroke-width="1.5"/>`);
+  p.push(`<path d="M${aGL},${cYm} A20,20 0 0,1 ${aGL},${cYp}" fill="rgba(232,0,45,0.07)" stroke="rgba(232,0,45,0.28)" stroke-width="1"/>`);
+  p.push(`<circle cx="${aFo}" cy="${foY1}" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>`);
+  p.push(`<circle cx="${aFo}" cy="${foY2}" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>`);
+  p.push(`<circle cx="${aFo}" cy="${foY1}" r="2" fill="rgba(232,0,45,0.28)"/>`);
+  p.push(`<circle cx="${aFo}" cy="${foY2}" r="2" fill="rgba(232,0,45,0.28)"/>`);
+  // Labels
+  p.push(`<text x="${(CX2-80)}" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(232,0,45,0.55)" text-anchor="middle" letter-spacing="0.10em">← AGAINST</text>`);
+  p.push(`<text x="${(CX2+80)}" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(20,100,200,0.55)" text-anchor="middle" letter-spacing="0.10em">FOR →</text>`);
+  p.push(`</svg>`);
+  return p.join('');
+}
+
 export type FullRinkShot = [number, number, number, number]; // x, y, xg, is_goal
 
 function fxAga(x: number): number { return CX - (x / 100) * 182; }
