@@ -50,10 +50,12 @@ type Props = {
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 
 function fmtSeason(s: string) {
-  return s ? `${s.slice(2,4)}-${s.slice(6,8)}` : '—';
+  // Input format: "2025-26" → display as "25-26"
+  return s ? s.slice(2) : '—';
 }
 function fmtPct(v: number | null) {
-  return v != null ? `${Number(v).toFixed(1)}%` : '—';
+  // Values stored as decimals (0.5679 = 56.79%)
+  return v != null ? `${(Number(v) * 100).toFixed(1)}%` : '—';
 }
 function fmtFloat1(v: number | null) {
   return v != null ? Number(v).toFixed(1) : '—';
@@ -63,7 +65,8 @@ function fmtFloat2(v: number | null) {
 }
 function pctColor(v: number | null): string | undefined {
   if (v == null) return undefined;
-  return v >= 50 ? '#166534' : v < 50 ? '#991b1b' : undefined;
+  // v is decimal (0.5679 etc.)
+  return v > 0.5 ? '#166534' : v < 0.5 ? '#991b1b' : undefined;
 }
 
 // Compute derived display values based on current strength + display toggles
@@ -96,9 +99,11 @@ function computeRow(t: TeamRow, strength: Strength, display: Display) {
 }
 
 export default function TeamsTable({ regularRows, playoffRows, statsDate, availableSeasons }: Props) {
+  const latestSeason = availableSeasons[availableSeasons.length - 1] ?? '';
   const [gameType, setGameType] = useState<GameType>('regular');
   const [strength, setStrength] = useState<Strength>('5v5');
   const [display,  setDisplay]  = useState<Display>('totals');
+  const [season,   setSeason]   = useState<string>(latestSeason);
   const [isDark,   setIsDark]   = useState(false);
 
   useEffect(() => {
@@ -109,7 +114,8 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
     return () => obs.disconnect();
   }, []);
 
-  const baseRows = gameType === 'regular' ? regularRows : playoffRows;
+  const baseRows = (gameType === 'regular' ? regularRows : playoffRows)
+    .filter(t => !season || t.season === season);
 
   const rows = useMemo(
     () => baseRows.map(t => computeRow(t, strength, display)),
@@ -157,8 +163,11 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
     { id: 'ga_display',  header: gaLabel,  accessor: r => r.ga_display,  width: 64, cell: v => display === 'per60' ? fmtFloat2(v as number | null) : String(v ?? '—') },
     { id: 'xgf_display', header: xgfLabel, accessor: r => r.xgf_display, width: 68, cell: v => fmtFloat1(v as number | null) },
     { id: 'xga_display', header: xgaLabel, accessor: r => r.xga_display, width: 68, cell: v => fmtFloat1(v as number | null) },
-    { id: 'pp_pct', header: 'PP%', accessor: r => r.pp_pct, width: 60, cell: v => fmtPct(v as number | null), mobileHidden: true },
-    { id: 'pk_pct', header: 'PK%', accessor: r => r.pk_pct, width: 60, cell: v => fmtPct(v as number | null), mobileHidden: true },
+    // PP/PK only shown in all-situations mode
+    ...(strength === 'all' ? [
+      { id: 'pp_pct' as const, header: 'PP%', accessor: (r: any) => r.pp_pct, width: 60, mobileHidden: true, cell: (v: any) => fmtPct(v) },
+      { id: 'pk_pct' as const, header: 'PK%', accessor: (r: any) => r.pk_pct, width: 60, mobileHidden: true, cell: (v: any) => fmtPct(v) },
+    ] : []),
   ], [isDark, strength, display, gfLabel, gaLabel, xgfLabel, xgaLabel]);
 
   const toggleBtn = (active: boolean, label: string, onClick: () => void) => (
@@ -188,6 +197,13 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
           {toggleBtn(display === 'totals', 'Totals', () => setDisplay('totals'))}
           {toggleBtn(display === 'per60',  'Per 60', () => setDisplay('per60'))}
         </>)}
+        {/* Season selector */}
+        <select value={season} onChange={e => setSeason(e.target.value)}
+          style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: '#0d0d14', cursor: 'pointer' }}>
+          {[...availableSeasons].reverse().map(s => (
+            <option key={s} value={s}>{fmtSeason(s)}</option>
+          ))}
+        </select>
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
           {rows.length} teams{statsDate ? ` · updated ${statsDate}` : ''}
         </span>
