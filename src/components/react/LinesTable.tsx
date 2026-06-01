@@ -61,7 +61,10 @@ const MAX_TEAMS = 3;
 export default function LinesTable({ rows, statsDate }: Props) {
   const [gameType,      setGameType]      = useState<'2' | '3'>('2');
   const [lineType,      setLineType]      = useState<'all' | 'F' | 'D'>('all');
-  const [season,        setSeason]        = useState<string>('all');
+  const [season,        setSeason]        = useState<string>(() => {
+    const seasons = [...new Set(rows.map(r => r.season))].sort().reverse();
+    return seasons[0] ?? 'all';
+  });
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
   const [minToi,        setMinToi]        = useState(150);
 
