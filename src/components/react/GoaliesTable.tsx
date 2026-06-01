@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import HGBTable, { type HGBColumnDef } from './HGBTable';
+import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE } from './HGBTable';
 
 export type GoalieRow = {
   goalie_id: number;
@@ -38,7 +38,7 @@ const COLUMNS: HGBColumnDef<GoalieRow>[] = [
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <img
           src={`https://assets.nhle.com/logos/nhl/svg/${row.team}_light.svg`}
-          width={24} height={24}
+          width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
           style={{ flexShrink: 0 }}
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
           alt={row.team}
