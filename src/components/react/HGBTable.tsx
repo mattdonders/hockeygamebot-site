@@ -44,6 +44,7 @@ export type HGBTableProps<T> = {
   columns: HGBColumnDef<T>[];
   defaultSort?: { id: string; desc: boolean };
   globalSearchField?: (row: T) => string;
+  searchPlaceholder?: string;
   filters?: HGBFilter[];
   rowHref?: (row: T) => string;
   exportFilename?: string;
@@ -289,6 +290,7 @@ export default function HGBTable<T extends object>({
   columns: columnDefs,
   defaultSort,
   globalSearchField,
+  searchPlaceholder,
   filters = [],
   rowHref,
   exportFilename,
@@ -409,6 +411,7 @@ export default function HGBTable<T extends object>({
           <SearchInput
             value={globalSearch}
             onChange={setGlobalSearch}
+            placeholder={searchPlaceholder}
             isMobile={isMobile}
           />
         )}

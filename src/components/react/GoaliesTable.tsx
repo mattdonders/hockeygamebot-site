@@ -18,6 +18,7 @@ type Props = {
   regularRows: GoalieRow[];
   playoffRows: GoalieRow[];
   statsDate: string | null;
+  teams: string[]; // sorted distinct team abbreviations
 };
 
 const signed = (v: number | null) =>
@@ -119,7 +120,7 @@ const COLUMNS: HGBColumnDef<GoalieRow>[] = [
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 
-export default function GoaliesTable({ regularRows, playoffRows, statsDate }: Props) {
+export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams }: Props) {
   const [gameType, setGameType] = useState<'regular' | 'playoffs'>('regular');
   const activeRows = gameType === 'regular' ? regularRows : playoffRows;
 
@@ -151,9 +152,18 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate }: Pr
         columns={COLUMNS}
         defaultSort={{ id: 'gsax', desc: true }}
         globalSearchField={r => `${r.name} ${r.team}`.toLowerCase()}
-        filters={[
-          { type: 'search', placeholder: 'Search goalies…', field: r => `${r.name} ${r.team}`.toLowerCase() },
-        ]}
+      searchPlaceholder="Search by name or team…"
+      filters={[
+        {
+          type: 'select',
+          label: 'Team',
+          field: r => r.team,
+          options: [
+            { label: 'All Teams', value: '' },
+            ...teams.map(t => ({ label: t, value: t })),
+          ],
+        },
+      ]}
         rowHref={r => `/stats/goalies/${r.goalie_id}`}
         exportFilename="hgb-goalies.png"
         maxHeight={760}
