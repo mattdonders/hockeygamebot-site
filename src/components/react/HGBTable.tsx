@@ -58,6 +58,10 @@ const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
 // Standard logo size across all HGB tables. 28px = visible but not dominant.
 export const TEAM_LOGO_SIZE = 28;
+/** Returns the local logo path for a team, respecting current color scheme. */
+export function teamLogoSrc(abbr: string, isDark = false): string {
+  return `/logos/nhl/${abbr}_${isDark ? 'dark' : 'light'}.svg`;
+}
 export const TEAM_LOGO_STYLE: React.CSSProperties = {
   flexShrink: 0,
   objectFit: 'contain',

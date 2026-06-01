@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, SUBLINE_FONT_SIZE } from './HGBTable';
+import React, { useState, useEffect, useMemo } from 'react';
+import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, SUBLINE_FONT_SIZE, teamLogoSrc } from './HGBTable';
 
 export type GoalieRow = {
   goalie_id: number;
@@ -27,103 +27,51 @@ const signed = (v: number | null) =>
 const gsaxColor = (v: number | null) =>
   v == null ? undefined : v >= 0 ? '#166534' : '#991b1b';
 
-const COLUMNS: HGBColumnDef<GoalieRow>[] = [
-  {
-    id: 'name',
-    header: 'Goalie',
-    accessor: r => r.name,
-    align: 'left',
-    width: 180,
-    cell: (_v, row) => (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <img
-          src={`https://assets.nhle.com/logos/nhl/svg/${row.team}_light.svg`}
-          width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
-          style={TEAM_LOGO_STYLE}
-          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          alt={row.team}
-        />
-        <div>
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
-          <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: SUBLINE_FONT_SIZE, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>{row.team}</div>
-        </div>
-      </div>
-    ),
-    sortType: 'string',
-  },
-  {
-    id: 'games',
-    header: 'GP',
-    accessor: r => r.games,
-    align: 'right',
-    width: 52,
-    cell: v => v != null ? String(v) : '—',
-  },
-  {
-    id: 'sa',
-    header: 'SA',
-    accessor: r => r.sa,
-    align: 'right',
-    width: 60,
-    cell: v => v != null ? Number(v).toLocaleString() : '—',
-  },
-  {
-    id: 'ga',
-    header: 'GA',
-    accessor: r => r.ga,
-    align: 'right',
-    width: 52,
-  },
-  {
-    id: 'xga',
-    header: 'xGA',
-    accessor: r => r.xga,
-    align: 'right',
-    width: 64,
-    cell: v => v != null ? Number(v).toFixed(2) : '—',
-  },
-  {
-    id: 'gsax',
-    header: 'GSAx',
-    accessor: r => r.gsax,
-    align: 'right',
-    width: 72,
-    cell: v => (
-      <strong style={{ color: gsaxColor(v as number | null), fontVariantNumeric: 'tabular-nums' }}>
-        {signed(v as number | null)}
-      </strong>
-    ),
-  },
-  {
-    id: 'sv_pct',
-    header: 'SV%',
-    accessor: r => r.sv_pct,
-    align: 'right',
-    width: 64,
-    cell: v => v != null ? Number(v).toFixed(3) : '—',
-    mobileHidden: true,
-  },
-  {
-    id: 'vs_exp',
-    header: 'vs Exp',
-    accessor: r => r.vs_exp,
-    align: 'right',
-    width: 72,
-    cell: v => {
-      const n = v as number | null;
-      return n != null
-        ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{signed(n)}%</span>
-        : '—';
-    },
-    mobileHidden: true,
-  },
-];
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 
 export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams }: Props) {
   const [gameType, setGameType] = useState<'regular' | 'playoffs'>('regular');
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
   const activeRows = gameType === 'regular' ? regularRows : playoffRows;
+
+  const COLUMNS = useMemo<HGBColumnDef<GoalieRow>[]>(() => [
+    {
+      id: 'name', header: 'Goalie', accessor: r => r.name, align: 'left', width: 180,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
+            style={TEAM_LOGO_STYLE} alt={row.team}
+            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          <div>
+            <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{row.name}</div>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: SUBLINE_FONT_SIZE, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>{row.team}</div>
+          </div>
+        </div>
+      ),
+      sortType: 'string',
+    },
+    { id: 'games', header: 'GP', accessor: r => r.games, align: 'right', width: 52, cell: v => v != null ? String(v) : '—' },
+    { id: 'sa', header: 'SA', accessor: r => r.sa, align: 'right', width: 60, cell: v => v != null ? Number(v).toLocaleString() : '—' },
+    { id: 'ga', header: 'GA', accessor: r => r.ga, align: 'right', width: 52 },
+    { id: 'xga', header: 'xGA', accessor: r => r.xga, align: 'right', width: 64, cell: v => v != null ? Number(v).toFixed(2) : '—' },
+    {
+      id: 'gsax', header: 'GSAx', accessor: r => r.gsax, align: 'right', width: 72,
+      cell: v => <strong style={{ color: gsaxColor(v as number | null), fontVariantNumeric: 'tabular-nums' }}>{signed(v as number | null)}</strong>,
+    },
+    { id: 'sv_pct', header: 'SV%', accessor: r => r.sv_pct, align: 'right', width: 64, cell: v => v != null ? Number(v).toFixed(3) : '—', mobileHidden: true },
+    {
+      id: 'vs_exp', header: 'vs Exp', accessor: r => r.vs_exp, align: 'right', width: 72, mobileHidden: true,
+      cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{signed(n)}%</span> : '—'; },
+    },
+  ], [isDark]);
 
   // Notify vanilla chart section when game type changes
   const switchGameType = (t: 'regular' | 'playoffs') => {
