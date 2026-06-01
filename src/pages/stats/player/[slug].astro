@@ -2,8 +2,9 @@
 import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
-import Table from '../../../components/Table.astro';
 import ChipGroup from '../../../components/ChipGroup.astro';
+import PlayerCareerTable from '../../../components/react/PlayerCareerTable';
+import PlayerGameLogTable from '../../../components/react/PlayerGameLogTable';
 import { loadPlayers, loadPlayerGames, loadPlayerShots, loadMeta, type GameLogEntry, type PlayerSummary, type PlayerShot } from '../../../lib/stats-loader';
 import { buildPlayerShotMapSVG } from '../../../lib/rink-svg';
 import { pickTeamColor } from '../../../lib/team-colors';
@@ -176,105 +177,8 @@ const pctBars = [
   ...(player.qot != null ? [{ label: 'Mate Quality', key: 'qot', val: player.qot, grad: 'linear-gradient(90deg,#e8f0fe,#4285f4)' }] : []),
 ];
 
-// ── Table.astro column schemas for the two tables on this page ──────────────
-// Defined in the frontmatter (real TypeScript) because inline {...} template
-// expressions don't accept TS type annotations (Astro gotcha — see
-// Table.astro JSDoc).
-
-const CURRENT_SEASON = '20252026';
-const fmtSeason = (s: string) => s.length === 8 ? `${s.slice(0,4)}–${s.slice(6,8)}` : s;
-const fmtToi5v5 = (sec: number, gp: number) => {
-  const avg = gp > 0 ? sec / gp : 0;
-  const m = Math.floor(avg / 60);
-  const s = Math.round(avg % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
-
-const careerSorted = [...(player.career_seasons ?? [])].sort((a, b) => b.season.localeCompare(a.season));
-const careerRows = careerSorted.map(row => ({
-  season:     row.season,
-  season_fmt: fmtSeason(row.season),
-  team:       row.team,
-  gp:         row.gp,
-  toi_gp:     fmtToi5v5(row.toi_5v5_sec, row.gp),
-  gf_pct:     row.gf_pct,
-  xgf_pct:    row.xgf_pct,
-  is_current: row.season === CURRENT_SEASON,
-}));
-
-const pctColorCb = (v: number | null, _r: any, tok?: { pos: string; neg: string }) => {
-  if (v == null) return undefined;
-  if (v >= 55) return tok?.pos;
-  if (v <= 45) return tok?.neg;
-  return undefined;
-};
-
-const careerColumns = [
-  { key: 'season_fmt', label: 'Season', type: 'label' as const, bold: true },
-  { key: 'team',       label: 'Team',   type: 'team' as const },
-  { key: 'gp',         label: 'GP',     type: 'number' as const },
-  { key: 'toi_gp',     label: 'TOI/GP', type: 'number' as const },
-  { key: 'gf_pct',     label: 'GF%',    type: 'number' as const, bold: true,
-    format: (v: any) => v == null ? '—' : Number(v).toFixed(1) + '%',
-    color: pctColorCb },
-  { key: 'xgf_pct',    label: 'xGF%',   type: 'number' as const, bold: true,
-    format: (v: any) => v == null ? '—' : Number(v).toFixed(1) + '%',
-    color: pctColorCb },
-];
-
-const _hasToi = recentGames.some(x => x.toi_sec != null);
-const _hasIxg = recentGames.some(x => x.ixg != null);
-const fmtToiCb = (v: any) => {
-  if (v == null) return '—';
-  const sec = Number(v);
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
-const signedColor = (v: any, _r: any, tok?: { pos: string; neg: string }) => {
-  if (v == null) return undefined;
-  return v >= 0 ? tok?.pos : tok?.neg;
-};
-const resultColor = (_v: any, row: any): string | undefined => {
-  if (row.result_w) return 'var(--stats-pos)';
-  if (row.result_ot) return 'var(--ink-48)';
-  return 'var(--stats-neg)';
-};
-
-const gameLogRows = recentGames.map(g => {
-  const win    = g.team_score > g.opp_score;
-  const result = win ? 'W' : (g.team_score < g.opp_score ? 'L' : 'OT');
-  const vs     = g.is_home ? 'vs' : '@';
-  return {
-    game_id:    g.game_id,
-    date:       fmtDate(g.game_date),
-    opp:        `${vs} ${g.opp_abbrev}`,
-    result:     `${result} ${g.team_score}–${g.opp_score}`,
-    result_w:   win,
-    result_ot:  result === 'OT',
-    goals:      g.goals,
-    assists:    g.assists,
-    points:     g.goals + g.assists,
-    toi_sec:    g.toi_sec,
-    ixg:        g.ixg,
-    gs_display: g.gs_display,
-  };
-});
-
-// Per-60 transform on counting stats REMOVED — game log stays as totals always.
-const gameLogColumns = [
-  { key: 'date',    label: 'Date',   type: 'label' as const },
-  { key: 'opp',     label: 'Opp',    type: 'label' as const },
-  { key: 'result',  label: 'Result', type: 'label' as const, color: resultColor, bold: true },
-  { key: 'goals',   label: 'G',      type: 'number' as const },
-  { key: 'assists', label: 'A',      type: 'number' as const },
-  { key: 'points',  label: 'PTS',    type: 'number' as const, bold: true },
-  ...(_hasToi ? [{ key: 'toi_sec', label: 'TOI', type: 'number' as const, format: fmtToiCb }] : []),
-  ...(_hasIxg ? [{ key: 'ixg',     label: 'xG',  type: 'number' as const, format: (v: any) => v == null ? '—' : Number(v).toFixed(2) }] : []),
-  { key: 'gs_display', label: 'Impact', type: 'number' as const, bold: true,
-    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
-    color: signedColor },
-];
+// Career seasons are passed directly to PlayerCareerTable (React component).
+// Game log is passed directly to PlayerGameLogTable (React component).
 ---
 <!doctype html>
 <html lang="en">
@@ -769,12 +673,10 @@ const gameLogColumns = [
             <span class="card-eyebrow">Career Stats &nbsp;<span class="accent">Season by Season</span></span>
             <span class="card-meta">5v5 · min 600 TOI</span>
           </div>
-          <Table
-            columns={careerColumns}
-            rows={careerRows}
-            defaultSort={{ column: 'season_fmt', direction: 'desc' }}
-            sticky={false}
-            ariaLabel="Career season-by-season stats"
+          <PlayerCareerTable
+            client:load
+            seasons={player.career_seasons ?? []}
+            playerTeam={player.team_abbrev}
           />
         </div>
       )}
@@ -1040,14 +942,10 @@ const gameLogColumns = [
           <span class="card-eyebrow">Game log &nbsp;<span class="accent">2025–26</span></span>
           <span class="card-meta">{recentGames.length} games · newest first</span>
         </div>
-        <Table
-          columns={gameLogColumns}
-          rows={gameLogRows}
-          rowHref={(r) => r.game_id ? `/games/${r.game_id}` : undefined}
-          sticky={false}
-          scrollable
-          maxHeight={400}
-          ariaLabel="Game log"
+        <PlayerGameLogTable
+          client:load
+          games={recentGames}
+          playerTeam={player.team_abbrev}
         />
       </div>
 
