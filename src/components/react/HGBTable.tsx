@@ -7,8 +7,8 @@
  * NO color scaling — that's a separate concern kept in per-page components.
  */
 
-import React, { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
-import { useVirtualizer, useWindowVirtualizer } from '@tanstack/react-virtual';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   useReactTable,
   getCoreRowModel,
@@ -49,9 +49,10 @@ export type HGBTableProps<T> = {
   filters?: HGBFilter[];
   rowHref?: (row: T) => string;
   exportFilename?: string;
-  maxHeight?: number;
+  maxHeight?: number | string;
   emptyMessage?: string;
-  /** Enables TanStack Virtual. With maxHeight: container-scroll virtualizer. Without: window virtualizer. */
+  /** Enables TanStack Virtual row rendering. Requires a fixed-height scroll container.
+   *  With maxHeight: uses that height. Without: defaults to calc(100vh - 300px). */
   virtualize?: boolean;
 };
 
@@ -330,13 +331,8 @@ export default function HGBTable<T extends object>({
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // Virtualizer refs
-  const scrollRef = useRef<HTMLDivElement>(null);     // container-scroll mode
-  const parentRef = useRef<HTMLDivElement>(null);     // window-scroll mode
-  const parentOffsetRef = useRef(0);
-  useLayoutEffect(() => {
-    parentOffsetRef.current = parentRef.current?.offsetTop ?? 0;
-  }, []);
+  // Virtualizer ref — single scroll container for all virtual tables
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Declarative filter state
   const [filterState, setFilterState] = useState<FilterState>(() =>
@@ -409,25 +405,17 @@ export default function HGBTable<T extends object>({
 
   const tableRows = table.getRowModel().rows;
 
-  // Both virtualizers always called (React hook rules).
-  // Only one is active based on virtualize + maxHeight.
-  const containerVirt = useVirtualizer({
-    count: virtualize && !!maxHeight ? tableRows.length : 0,
+  // Single virtualizer — always uses a fixed-height scroll container.
+  // No maxHeight + virtualize=true → defaults to calc(100vh - 300px).
+  const virt = useVirtualizer({
+    count: virtualize ? tableRows.length : 0,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 44,
     overscan: 8,
   });
 
-  const windowVirt = useWindowVirtualizer({
-    count: virtualize && !maxHeight ? tableRows.length : 0,
-    estimateSize: () => 44,
-    overscan: 8,
-    scrollMargin: parentOffsetRef.current,
-  });
-
-  const virt = virtualize ? (maxHeight ? containerVirt : windowVirt) : null;
-  const virtItems = virt?.getVirtualItems() ?? null;
-  const virtTotalSize = virt?.getTotalSize() ?? 0;
+  const virtItems = virtualize ? virt.getVirtualItems() : null;
+  const virtTotalSize = virtualize ? virt.getTotalSize() : 0;
   const visibleColCount = table.getVisibleLeafColumns().length;
 
   const updateFilter = useCallback((key: string, value: string | number) => {
@@ -446,7 +434,7 @@ export default function HGBTable<T extends object>({
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div ref={parentRef} style={{ ...BODY, color: INK }}>
+    <div style={{ ...BODY, color: INK }}>
 
       {/* Toolbar */}
       <div
@@ -584,17 +572,15 @@ export default function HGBTable<T extends object>({
 
       {/* Table */}
       <div
-        ref={virtualize && maxHeight ? scrollRef : undefined}
+        ref={virtualize ? scrollRef : undefined}
         style={{
           overflowX: 'auto',
           WebkitOverflowScrolling: 'touch',
-          // Virtual + maxHeight: fixed height scroll container for useVirtualizer
-          // Non-virtual + maxHeight: maxHeight so it shrinks when rows are few
-          ...(maxHeight
-            ? virtualize
-              ? { height: maxHeight, overflowY: 'auto' }
-              : { maxHeight, overflowY: 'auto' }
-            : {}),
+          ...(virtualize
+            ? { height: maxHeight ?? 'calc(100vh - 300px)', overflowY: 'auto' }
+            : maxHeight
+              ? { maxHeight, overflowY: 'auto' }
+              : {}),
         }}
       >
         <table
@@ -674,7 +660,7 @@ export default function HGBTable<T extends object>({
                     <tr
                       key={row.id}
                       data-index={vr.index}
-                      ref={virt?.measureElement}
+                      ref={virt.measureElement}
                       style={rowStyle}
                       onClick={href ? () => { window.location.href = href; } : undefined}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
