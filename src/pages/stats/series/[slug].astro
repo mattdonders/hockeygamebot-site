@@ -6,7 +6,7 @@
 import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
-import { loadLines, loadPlayers, loadMeta, loadAllTeamGames } from '../../../lib/stats-loader';
+import { loadLines, loadPlayers, loadMeta } from '../../../lib/stats-loader';
 import { toLineSlug } from '../../../lib/line-slug';
 
 type SeriesData = {
@@ -92,12 +92,12 @@ const seriesLines = allLines.filter(l =>
 const seriesPlayers = allPlayers.filter(p => teams.includes(p.team_abbrev));
 const topSkaters = (t: string) => seriesPlayers
   .filter(p => p.team_abbrev === t && p.gp >= 3)
-  .sort((a, b) => (b.hgb_war ?? 0) - (a.hgb_war ?? 0))
+  .sort((a, b) => ((b.goals ?? 0) + (b.assists ?? 0)) - ((a.goals ?? 0) + (a.assists ?? 0)))
   .slice(0, 5);
 
 // Pre-compute row data in frontmatter to avoid nested block-body maps in JSX
 type LineRow = { players: string; slug: string; toi: string; xgfPct: string; xgfCls: string; gfga: string };
-type PlayerRow = { name: string; slug: string; pos: string; gp: number; war: string; rating: string };
+type PlayerRow = { name: string; slug: string; pos: string; gp: number; goals: number; assists: number; rating: string };
 
 function lineRows(t: string, type: 'F' | 'D'): LineRow[] {
   const ls = seriesLines.filter(l => l.type === type && l.team === t).sort((a, b) => b.toi_min - a.toi_min).slice(0, type === 'F' ? 4 : 3);
@@ -145,7 +145,8 @@ function playerRows(t: string): PlayerRow[] {
     slug:   p.slug,
     pos:    p.pos,
     gp:     p.gp,
-    war:    p.hgb_war != null ? (p.hgb_war >= 0 ? '+' : '') + p.hgb_war.toFixed(2) : '—',
+    goals:   p.goals ?? 0,
+    assists: p.assists ?? 0,
     rating: p.hgb_rating_percentile != null ? p.hgb_rating_percentile + '%' : '—',
   }));
 }
@@ -179,22 +180,26 @@ function teamXgSummary(team: string) {
 const summA = teamXgSummary(series.team_a);
 const summB = teamXgSummary(series.team_b);
 
-// ── This-series stats: game_type=3 games vs the specific opponent ──────────
-const allTeamGames = loadAllTeamGames();
-function seriesMatchupStats(team: string, opp: string) {
-  const games = (allTeamGames[team] ?? []).filter(g =>
-    g.opp_abbrev === opp && (g as any).game_type === 3
-  );
-  if (!games.length) return null;
-  const xgf = games.reduce((s, g) => s + g.xgf_5v5, 0);
-  const xga = games.reduce((s, g) => s + g.xga_5v5, 0);
-  const gf  = games.reduce((s, g) => s + g.gf, 0);
-  const ga  = games.reduce((s, g) => s + g.ga, 0);
+// ── This-series stats: derived from line game_log (additive — no double-count)
+// xGF, xGA, GF, GA are each credited to the specific line on ice, so summing
+// across all lines per team gives the correct team totals.
+function seriesTeamFromLines(team: string, opp: string) {
+  const teamLines = allLines.filter(l => l.team === team && l.game_type === 3);
+  let xgf = 0, xga = 0, gf = 0, ga = 0;
+  const gameIds = new Set<string>();
+  for (const line of teamLines) {
+    for (const g of (line.game_log ?? [])) {
+      if (g.game_type !== 3 || g.opp_abbrev !== opp) continue;
+      xgf += g.xgf; xga += g.xga; gf += g.gf; ga += g.ga;
+      gameIds.add(g.game_id);
+    }
+  }
+  if (!gameIds.size) return null;
   const xgfPct = xgf + xga > 0 ? (xgf / (xgf + xga)) * 100 : null;
-  return { xgf: +xgf.toFixed(2), xga: +xga.toFixed(2), xgfPct: xgfPct ? +xgfPct.toFixed(1) : null, gf, ga, games: games.length };
+  return { xgf: +xgf.toFixed(2), xga: +xga.toFixed(2), xgfPct: xgfPct ? +xgfPct.toFixed(1) : null, gf, ga, games: gameIds.size };
 }
-const seriesSummA = seriesMatchupStats(series.team_a, series.team_b);
-const seriesSummB = seriesMatchupStats(series.team_b, series.team_a);
+const seriesSummA = seriesTeamFromLines(series.team_a, series.team_b);
+const seriesSummB = seriesTeamFromLines(series.team_b, series.team_a);
 const hasSeriesData = !!(seriesSummA || seriesSummB);
 
 function toMMSS(min: number): string {
@@ -569,22 +574,23 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
     </div>
   </div>
 
-  <!-- TOP SKATERS -->
+  <!-- TOP SKATERS (sorted by playoff P, HGB Rating for context) -->
   <div class="section">
-    <span class="section-label">Top Skaters by HGB WAR — {seasonLabel} (min 3 GP)</span>
+    <span class="section-label">Top Skaters — {seasonLabel} Playoffs by Points (min 3 GP)</span>
     <div class="two-col">
       {[{ team: series.team_a, rows: skatersA }, { team: series.team_b, rows: skatersB }].map(({ team, rows }) => (
         <div class="team-block">
           <div class="team-label">{team}</div>
           {rows.length > 0 ? (
             <table class="player-table">
-              <thead><tr><th>Player</th><th>GP</th><th>WAR</th><th>Rating</th></tr></thead>
+              <thead><tr><th>Player</th><th>GP</th><th>G</th><th>A</th><th>Rating</th></tr></thead>
               <tbody>
                 {rows.map(r => (
                   <tr>
                     <td><a href={`/stats/player/${r.slug}`}>{r.name}</a><span class="pos-badge">{r.pos}</span></td>
                     <td>{r.gp}</td>
-                    <td>{r.war}</td>
+                    <td>{r.goals}</td>
+                    <td>{r.assists}</td>
                     <td>{r.rating}</td>
                   </tr>
                 ))}
