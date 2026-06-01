@@ -373,7 +373,7 @@ export default function HGBTable<T extends object>({
         size: col.width,
         cell: col.cell
           ? (info: any) => col.cell!(info.getValue(), info.row.original)
-          : undefined,
+          : (info: any) => { const v = info.getValue(); return v != null ? String(v) : '—'; },
         sortingFn: col.sortType === 'string' ? 'alphanumeric' : 'basic',
       })),
     [columnDefs],
