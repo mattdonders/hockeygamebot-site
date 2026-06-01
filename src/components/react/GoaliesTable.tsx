@@ -38,7 +38,8 @@ const COLUMNS: HGBColumnDef<GoalieRow>[] = [
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <img
           src={`https://assets.nhle.com/logos/nhl/svg/${row.team}_light.svg`}
-          width={18} height={18}
+          width={24} height={24}
+          style={{ flexShrink: 0 }}
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
           alt={row.team}
         />
@@ -158,10 +159,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
           type: 'select',
           label: 'Team',
           field: r => r.team,
-          options: [
-            { label: 'All Teams', value: '' },
-            ...teams.map(t => ({ label: t, value: t })),
-          ],
+          options: teams.map(t => ({ label: t, value: t })),
         },
       ]}
         rowHref={r => `/stats/goalies/${r.goalie_id}`}
