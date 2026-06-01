@@ -269,7 +269,7 @@ export default function PlayerSearch({
             padding: '11px 40px 11px 16px',
             fontSize: 14,
             fontWeight: 500,
-            background: 'var(--bg, #EFEEE8)',
+            background: '#fff',
             color: INK,
             border: focused ? BORDER_FOCUS : BORDER_IDLE,
             outline: 'none',
@@ -385,7 +385,9 @@ export default function PlayerSearch({
                           whiteSpace: 'nowrap',
                         }}
                       >
-                        {player.display_name}
+                        {player.first_name && player.last_name
+                          ? `${player.first_name} ${player.last_name}`
+                          : player.display_name}
                       </span>
                       <span
                         style={{
