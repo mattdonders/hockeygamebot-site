@@ -52,7 +52,7 @@ const _META_FALLBACK = {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData, seriesStatsData] = await Promise.all([
   _safeFetchJSON('players',      []),
   _safeFetchJSON('leaderboards', {}),
   _safeFetchJSON('player-games', {}),
@@ -62,6 +62,7 @@ const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsDa
   _fetchJSON('lines').catch(() => []),
   _fetchJSON('player-shots').catch(() => ({})),
   _fetchJSON('player-career').catch(() => ({})),
+  _fetchJSON('series-stats').catch(() => ({ series: [], rounds: [] })),
 ]);
 
 const VALIDATED_PLAYERS_RAW  = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
@@ -245,4 +246,8 @@ export function loadGoalies(): GoalieData[] {
 
 export function loadLines(): LineData[] {
   return VALIDATED_LINES;
+}
+
+export function loadSeriesStats(): { series: any[]; rounds: any[] } {
+  return (seriesStatsData as any) ?? { series: [], rounds: [] };
 }

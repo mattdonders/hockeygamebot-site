@@ -6,7 +6,7 @@
 import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
-import { loadLines, loadPlayers, loadMeta } from '../../../lib/stats-loader';
+import { loadLines, loadPlayers, loadMeta, loadSeriesStats } from '../../../lib/stats-loader';
 import { toLineSlug } from '../../../lib/line-slug';
 import { buildSeriesShotMapSVG, type FullRinkShot } from '../../../lib/rink-svg';
 
@@ -80,9 +80,10 @@ const _statsDate = (() => {
     : null;
 })();
 
-// ── Lines and players for these two teams (playoff only) ───────────────────
-const allLines   = loadLines();
-const allPlayers = loadPlayers();
+// ── Lines, players, and series stats for these two teams ──────────────────
+const allLines      = loadLines();
+const allPlayers    = loadPlayers();
+const allSeriesStats = loadSeriesStats();
 
 const teams = [series.team_a, series.team_b];
 
@@ -183,26 +184,30 @@ function teamXgSummary(team: string) {
 const summA = teamXgSummary(series.team_a);
 const summB = teamXgSummary(series.team_b);
 
-// ── This-series stats: derived from F-line game_log only.
-// Each 5v5 shift credits xGF to exactly one F-line combo (C(3,3)=1) and one
-// D-pair. Using F-lines only avoids the 2x double-count from summing both.
-function seriesTeamFromLines(team: string, opp: string) {
-  const teamLines = allLines.filter(l => l.team === team && l.game_type === 3 && l.type === 'F');
-  let xgf = 0, xga = 0, gf = 0, ga = 0;
-  const gameIds = new Set<string>();
-  for (const line of teamLines) {
-    for (const g of (line.game_log ?? [])) {
-      if (g.game_type !== 3 || g.opp_abbrev !== opp) continue;
-      xgf += g.xgf; xga += g.xga; gf += g.gf; ga += g.ga;
-      gameIds.add(g.game_id);
-    }
-  }
-  if (!gameIds.size) return null;
+// ── This-series stats: read from series_stats.json (correct, pipeline-computed).
+// game_log was removed from lines.json (too large). series_stats.json has per-team
+// xgf_5v5/xga_5v5 computed from player_game_features — the authoritative source.
+const _matchedSeries = allSeriesStats.series.find((s: any) =>
+  s.season === series.season &&
+  s.round  === series.round  &&
+  series.team_a in s.teams   &&
+  series.team_b in s.teams
+);
+function _seriesTeamSumm(team: string) {
+  if (!_matchedSeries) return null;
+  const t = _matchedSeries.teams[team];
+  if (!t) return null;
+  const xgf = t.xgf_5v5 ?? 0, xga = t.xga_5v5 ?? 0;
   const xgfPct = xgf + xga > 0 ? (xgf / (xgf + xga)) * 100 : null;
-  return { xgf: +xgf.toFixed(2), xga: +xga.toFixed(2), xgfPct: xgfPct ? +xgfPct.toFixed(1) : null, gf, ga, games: gameIds.size };
+  return {
+    xgf: +xgf.toFixed(2), xga: +xga.toFixed(2),
+    xgfPct: xgfPct ? +xgfPct.toFixed(1) : null,
+    gf: t.gf ?? 0, ga: t.ga ?? 0,
+    games: _matchedSeries.games_played ?? 0,
+  };
 }
-const seriesSummA = seriesTeamFromLines(series.team_a, series.team_b);
-const seriesSummB = seriesTeamFromLines(series.team_b, series.team_a);
+const seriesSummA = _seriesTeamSumm(series.team_a);
+const seriesSummB = _seriesTeamSumm(series.team_b);
 const hasSeriesData = !!(seriesSummA || seriesSummB);
 
 // ── Series shot map ────────────────────────────────────────────────────────
