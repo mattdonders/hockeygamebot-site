@@ -111,6 +111,34 @@ function lineRows(t: string, type: 'F' | 'D'): LineRow[] {
   }));
 }
 
+// Series-specific line rows: filter game_log to game_type=3 vs this opponent
+function seriesLineRows(t: string, type: 'F' | 'D', opp: string): LineRow[] {
+  const ls = allLines.filter(l => l.type === type && l.team === t && l.game_type === 3);
+  return ls
+    .map(l => {
+      const games = (l.game_log ?? []).filter(g => g.game_type === 3 && g.opp_abbrev === opp);
+      if (!games.length) return null;
+      const toi = games.reduce((s, g) => s + g.toi_min, 0);
+      const xgf = games.reduce((s, g) => s + g.xgf, 0);
+      const xga = games.reduce((s, g) => s + g.xga, 0);
+      const gf  = games.reduce((s, g) => s + g.gf, 0);
+      const ga  = games.reduce((s, g) => s + g.ga, 0);
+      const xgfPct = xgf + xga > 0 ? (xgf / (xgf + xga)) * 100 : null;
+      return { l, toi, xgf, xga, xgfPct, gf, ga };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => b.toi - a.toi)
+    .slice(0, type === 'F' ? 4 : 3)
+    .map(({ l, toi, xgfPct, gf, ga }) => ({
+      players: l.players,
+      slug:    toLineSlug(l),
+      toi:     toMMSS(toi),
+      xgfPct:  xgfPct != null ? xgfPct.toFixed(1) + '%' : '—',
+      xgfCls:  (xgfPct ?? 50) >= 55 ? 'xgf-pos' : (xgfPct ?? 50) <= 45 ? 'xgf-neg' : '',
+      gfga:    `${gf}/${ga}`,
+    }));
+}
+
 function playerRows(t: string): PlayerRow[] {
   return topSkaters(t).map(p => ({
     name:   p.display_name,
@@ -126,6 +154,12 @@ const fLinesA   = lineRows(series.team_a, 'F');
 const fLinesB   = lineRows(series.team_b, 'F');
 const dPairsA   = lineRows(series.team_a, 'D');
 const dPairsB   = lineRows(series.team_b, 'D');
+// Series-specific (filtered to games_type=3 vs this opponent)
+const sfLinesA  = seriesLineRows(series.team_a, 'F', series.team_b);
+const sfLinesB  = seriesLineRows(series.team_b, 'F', series.team_a);
+const sdPairsA  = seriesLineRows(series.team_a, 'D', series.team_b);
+const sdPairsB  = seriesLineRows(series.team_b, 'D', series.team_a);
+const hasSeriesLines = sfLinesA.length > 0 || sfLinesB.length > 0;
 const skatersA  = playerRows(series.team_a);
 const skatersB  = playerRows(series.team_b);
 
@@ -425,55 +459,113 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
 
   <!-- FORWARD LINES -->
   <div class="section">
-    <span class="section-label">Top Forward Lines — {seasonLabel} Playoffs (by TOI)</span>
-    <div class="two-col">
-      {[{ team: series.team_a, rows: fLinesA }, { team: series.team_b, rows: fLinesB }].map(({ team, rows }) => (
-        <div class="team-block">
-          <div class="team-label">{team}</div>
-          {rows.length > 0 ? (
-            <table class="line-table">
-              <thead><tr><th>Line</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr>
-                    <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
-                    <td>{r.toi}</td>
-                    <td class={r.xgfCls}>{r.xgfPct}</td>
-                    <td>{r.gfga}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No playoff line data yet</p>}
+    <div class="scope-view active" data-scope-view="playoffs">
+      <span class="section-label">Top Forward Lines — Entire {seasonLabel} Playoff Run (by TOI)</span>
+      <div class="two-col">
+        {[{ team: series.team_a, rows: fLinesA }, { team: series.team_b, rows: fLinesB }].map(({ team, rows }) => (
+          <div class="team-block">
+            <div class="team-label">{team}</div>
+            {rows.length > 0 ? (
+              <table class="line-table">
+                <thead><tr><th>Line</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr>
+                      <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
+                      <td>{r.toi}</td>
+                      <td class={r.xgfCls}>{r.xgfPct}</td>
+                      <td>{r.gfga}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No playoff line data yet</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+    <div class="scope-view" data-scope-view="series">
+      <span class="section-label">Top Forward Lines — This Series (by TOI)</span>
+      {hasSeriesLines ? (
+        <div class="two-col">
+          {[{ team: series.team_a, rows: sfLinesA }, { team: series.team_b, rows: sfLinesB }].map(({ team, rows }) => (
+            <div class="team-block">
+              <div class="team-label">{team}</div>
+              {rows.length > 0 ? (
+                <table class="line-table">
+                  <thead><tr><th>Line</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
+                  <tbody>
+                    {rows.map(r => (
+                      <tr>
+                        <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
+                        <td>{r.toi}</td>
+                        <td class={r.xgfCls}>{r.xgfPct}</td>
+                        <td>{r.gfga}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No line data for this matchup yet</p>}
+            </div>
+          ))}
         </div>
-      ))}
+      ) : <div class="no-series-data">No games played in this series yet</div>}
     </div>
   </div>
 
   <!-- DEFENSIVE PAIRS -->
   <div class="section">
-    <span class="section-label">Top Defensive Pairs — {seasonLabel} Playoffs (by TOI)</span>
-    <div class="two-col">
-      {[{ team: series.team_a, rows: dPairsA }, { team: series.team_b, rows: dPairsB }].map(({ team, rows }) => (
-        <div class="team-block">
-          <div class="team-label">{team}</div>
-          {rows.length > 0 ? (
-            <table class="line-table">
-              <thead><tr><th>Pair</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr>
-                    <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
-                    <td>{r.toi}</td>
-                    <td class={r.xgfCls}>{r.xgfPct}</td>
-                    <td>{r.gfga}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No playoff pair data yet</p>}
+    <div class="scope-view active" data-scope-view="playoffs">
+      <span class="section-label">Top Defensive Pairs — Entire {seasonLabel} Playoff Run (by TOI)</span>
+      <div class="two-col">
+        {[{ team: series.team_a, rows: dPairsA }, { team: series.team_b, rows: dPairsB }].map(({ team, rows }) => (
+          <div class="team-block">
+            <div class="team-label">{team}</div>
+            {rows.length > 0 ? (
+              <table class="line-table">
+                <thead><tr><th>Pair</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr>
+                      <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
+                      <td>{r.toi}</td>
+                      <td class={r.xgfCls}>{r.xgfPct}</td>
+                      <td>{r.gfga}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No playoff pair data yet</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+    <div class="scope-view" data-scope-view="series">
+      <span class="section-label">Top Defensive Pairs — This Series (by TOI)</span>
+      {hasSeriesLines ? (
+        <div class="two-col">
+          {[{ team: series.team_a, rows: sdPairsA }, { team: series.team_b, rows: sdPairsB }].map(({ team, rows }) => (
+            <div class="team-block">
+              <div class="team-label">{team}</div>
+              {rows.length > 0 ? (
+                <table class="line-table">
+                  <thead><tr><th>Pair</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
+                  <tbody>
+                    {rows.map(r => (
+                      <tr>
+                        <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
+                        <td>{r.toi}</td>
+                        <td class={r.xgfCls}>{r.xgfPct}</td>
+                        <td>{r.gfga}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No pair data for this matchup yet</p>}
+            </div>
+          ))}
         </div>
-      ))}
+      ) : <div class="no-series-data">No games played in this series yet</div>}
     </div>
   </div>
 
