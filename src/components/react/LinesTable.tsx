@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import HGBTable, { type HGBColumnDef } from './HGBTable';
 import { toLineSlug } from '../../lib/line-slug';
 import type { LineData } from '../../lib/stats-loader';
@@ -63,13 +63,19 @@ const MAX_TEAMS = 3;
 
 export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }: Props) {
   const [gameType,      setGameType]      = useState<'2' | '3'>(isPlayoffSeason ? '3' : '2');
+
   const [lineType,      setLineType]      = useState<'all' | 'F' | 'D'>('all');
   const [season,        setSeason]        = useState<string>(() => {
     const seasons = [...new Set(rows.map(r => r.season))].sort().reverse();
     return seasons[0] ?? 'all';
   });
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
-  const [minToi,        setMinToi]        = useState(150);
+  const [minToi,        setMinToi]        = useState(isPlayoffSeason ? 30 : 150);
+
+  // Reset minToi when switching game types
+  useEffect(() => {
+    setMinToi(gameType === '3' ? 30 : 150);
+  }, [gameType]);
 
   // Derived lists
   const allTeams   = useMemo(() => [...new Set(rows.map(r => r.team))].sort(), [rows]);

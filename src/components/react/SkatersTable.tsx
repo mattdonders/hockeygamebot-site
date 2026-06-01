@@ -219,7 +219,12 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const [strength, setStrength] = useState<Strength>('all');
   const [display,  setDisplay]  = useState<Display>('totals');
   const [topN,     setTopN]     = useState<number | null>(null);
-  const [minGP,    setMinGP]    = useState(20);
+  const [minGP,    setMinGP]    = useState(isPlayoffSeason ? 1 : 20);
+
+  // Reset minGP when switching game types
+  useEffect(() => {
+    setMinGP(gameType === 'playoffs' ? 1 : 20);
+  }, [gameType]);
   const [isDark,   setIsDark]   = useState(false);
 
   useEffect(() => {
