@@ -55,6 +55,9 @@ export default defineConfig({
   },
   integrations: [react(), devOnlyRoutes],
   vite: {
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+    },
     server: {
       allowedHosts: ['cygnus'],
     },
