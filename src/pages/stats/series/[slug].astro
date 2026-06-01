@@ -165,9 +165,11 @@ const hasSeriesLines = sfLinesA.length > 0 || sfLinesB.length > 0;
 const skatersA  = playerRows(series.team_a);
 const skatersB  = playerRows(series.team_b);
 
-// 5v5 aggregate for each team from playoff lines
+// 5v5 aggregate for each team from playoff F-lines only.
+// F-lines and D-pairs both accumulate the same shift xGF from rapm_shifts,
+// so summing both would double-count every shot. F-lines are the canonical source.
 function teamXgSummary(team: string) {
-  const tlines = seriesLines.filter(l => l.team === team);
+  const tlines = seriesLines.filter(l => l.team === team && l.type === 'F');
   if (!tlines.length) return null;
   const xgf = tlines.reduce((s, l) => s + (l.xgf ?? 0), 0);
   const xga = tlines.reduce((s, l) => s + (l.xga ?? 0), 0);
@@ -181,11 +183,11 @@ function teamXgSummary(team: string) {
 const summA = teamXgSummary(series.team_a);
 const summB = teamXgSummary(series.team_b);
 
-// ── This-series stats: derived from line game_log (additive — no double-count)
-// xGF, xGA, GF, GA are each credited to the specific line on ice, so summing
-// across all lines per team gives the correct team totals.
+// ── This-series stats: derived from F-line game_log only.
+// Each 5v5 shift credits xGF to exactly one F-line combo (C(3,3)=1) and one
+// D-pair. Using F-lines only avoids the 2x double-count from summing both.
 function seriesTeamFromLines(team: string, opp: string) {
-  const teamLines = allLines.filter(l => l.team === team && l.game_type === 3);
+  const teamLines = allLines.filter(l => l.team === team && l.game_type === 3 && l.type === 'F');
   let xgf = 0, xga = 0, gf = 0, ga = 0;
   const gameIds = new Set<string>();
   for (const line of teamLines) {
