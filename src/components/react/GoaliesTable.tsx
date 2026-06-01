@@ -30,6 +30,8 @@ type Props = {
   playoffRows: GoalieRow[];
   statsDate: string | null;
   teams: string[]; // sorted distinct team abbreviations
+  compact?: boolean; // disables virtualization for small embedded contexts (e.g. team page)
+  defaultGameType?: 'regular' | 'playoffs';
 };
 
 const signed = (v: number | null) =>
@@ -41,8 +43,8 @@ const gsaxColor = (v: number | null) =>
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 
-export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams }: Props) {
-  const [gameType, setGameType] = useState<'regular' | 'playoffs'>('regular');
+export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams, compact = false, defaultGameType = 'regular' }: Props) {
+  const [gameType, setGameType] = useState<'regular' | 'playoffs'>(defaultGameType);
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
     const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
@@ -141,7 +143,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         exportTitle="Goalies"
         exportChips={[gameType === 'regular' ? 'Reg Season' : 'Playoffs']}
         emptyMessage="No goalie data for this selection."
-        virtualize
+        {...(!compact && { virtualize: true })}
       />
     </div>
   );

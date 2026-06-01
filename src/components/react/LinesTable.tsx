@@ -6,7 +6,7 @@ import { fmtSeasonShort } from '../../lib/format-season';
 
 export type LineRow = LineData;
 
-type Props = { rows: LineRow[]; statsDate: string | null };
+type Props = { rows: LineRow[]; statsDate: string | null; isPlayoffSeason?: boolean };
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const POS = '#166534'; const NEG = '#991b1b';
@@ -61,8 +61,8 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
 
 const MAX_TEAMS = 3;
 
-export default function LinesTable({ rows, statsDate }: Props) {
-  const [gameType,      setGameType]      = useState<'2' | '3'>('2');
+export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }: Props) {
+  const [gameType,      setGameType]      = useState<'2' | '3'>(isPlayoffSeason ? '3' : '2');
   const [lineType,      setLineType]      = useState<'all' | 'F' | 'D'>('all');
   const [season,        setSeason]        = useState<string>(() => {
     const seasons = [...new Set(rows.map(r => r.season))].sort().reverse();

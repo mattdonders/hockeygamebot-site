@@ -31,7 +31,7 @@ type Pos      = 'all' | 'F' | 'D';
 type Strength = 'all' | '5v5' | 'pp' | 'pk';
 type Display  = 'totals'   | 'per60';
 
-type Props = { rows: SkaterRow[]; statsDate: string | null; currentSeason: string };
+type Props = { rows: SkaterRow[]; statsDate: string | null; currentSeason: string; isPlayoffSeason?: boolean };
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const POS  = '#166534'; const NEG = '#991b1b';
@@ -212,9 +212,9 @@ function buildColumns(
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function SkatersTable({ rows, statsDate, currentSeason }: Props) {
+export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoffSeason = false }: Props) {
   const [tab,      setTab]      = useState<Tab>('counting');
-  const [gameType, setGameType] = useState<GameType>('regular');
+  const [gameType, setGameType] = useState<GameType>(isPlayoffSeason ? 'playoffs' : 'regular');
   const [pos,      setPos]      = useState<Pos>('all');
   const [strength, setStrength] = useState<Strength>('all');
   const [display,  setDisplay]  = useState<Display>('totals');

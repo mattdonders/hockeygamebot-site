@@ -251,3 +251,11 @@ export function loadLines(): LineData[] {
 export function loadSeriesStats(): { series: any[]; rounds: any[] } {
   return (seriesStatsData as any) ?? { series: [], rounds: [] };
 }
+
+/** Returns true when enough players have playoff data to indicate playoffs are active.
+ *  Used to default table game-type toggles to 'playoffs' during postseason. */
+export function loadIsPlayoffSeason(): boolean {
+  const players = VALIDATED_PLAYERS_RAW;
+  const withPo = players.filter(p => (p as any).playoff_gp != null && (p as any).playoff_gp >= 1).length;
+  return withPo >= 50; // at least 50 players with playoff games = postseason is underway
+}
