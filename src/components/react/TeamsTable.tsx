@@ -99,7 +99,8 @@ function computeRow(t: TeamRow, strength: Strength, display: Display) {
 }
 
 export default function TeamsTable({ regularRows, playoffRows, statsDate, availableSeasons }: Props) {
-  const latestSeason = availableSeasons[availableSeasons.length - 1] ?? '';
+  const sortedSeasons = [...availableSeasons].sort().reverse(); // latest first
+  const latestSeason = sortedSeasons[0] ?? '';
   const [gameType, setGameType] = useState<GameType>('regular');
   const [strength, setStrength] = useState<Strength>('5v5');
   const [display,  setDisplay]  = useState<Display>('totals');
@@ -200,7 +201,7 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
         {/* Season selector */}
         <select value={season} onChange={e => setSeason(e.target.value)}
           style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: '#0d0d14', cursor: 'pointer' }}>
-          {[...availableSeasons].reverse().map(s => (
+          {sortedSeasons.map(s => (
             <option key={s} value={s}>{fmtSeason(s)}</option>
           ))}
         </select>
