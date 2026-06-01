@@ -636,7 +636,7 @@ export default function HGBTable<T extends object>({
                         textAlign: align,
                         color: isFirst ? INK : 'rgba(13,13,20,0.72)',
                         whiteSpace: 'nowrap',
-                        borderRight: '1px solid rgba(13,13,20,0.05)',
+                        borderRight: '1px solid rgba(13,13,20,0.03)',
                       }}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
