@@ -2,16 +2,23 @@ import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, SUBLINE_FONT_SIZE, teamLogoSrc } from './HGBTable';
 
 export type GoalieRow = {
-  goalie_id: number;
-  name: string;
-  team: string;
-  sa: number;
-  ga: number;
-  xga: number;
-  gsax: number;
-  sv_pct: number | null;
-  vs_exp: number | null;
-  games: number | null;
+  goalie_id:   number;
+  name:        string;
+  team:        string;
+  gp:          number | null;
+  toi_sec:     number | null;
+  sa:          number;
+  saves:       number | null;
+  ga:          number;
+  xga:         number;
+  gsax:        number;
+  gsax_per60:  number | null;
+  sv_pct:      number | null;
+  xsv_pct:     number | null;
+  dsv_pct:     number | null;
+  gaa:         number | null;
+  vs_exp:      number | null;
+  games:       number | null;
 };
 
 type Props = {
@@ -58,18 +65,27 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       ),
       sortType: 'string',
     },
-    { id: 'games', header: 'GP', accessor: r => r.games, align: 'right', width: 52, cell: v => v != null ? String(v) : '—' },
+    { id: 'gp',  header: 'GP',  accessor: r => r.gp,  align: 'right', width: 48, cell: v => v != null ? String(v) : '—' },
+    {
+      id: 'toi', header: 'TOI', accessor: r => r.toi_sec, align: 'right', width: 72, mobileHidden: true,
+      cell: v => { if (v == null) return '—'; const m = Math.floor(Number(v)/60); const s = Math.round(Number(v)%60); return `${m}:${String(s).padStart(2,'0')}`; },
+    },
     { id: 'sa', header: 'SA', accessor: r => r.sa, align: 'right', width: 60, cell: v => v != null ? Number(v).toLocaleString() : '—' },
     { id: 'ga', header: 'GA', accessor: r => r.ga, align: 'right', width: 52 },
-    { id: 'xga', header: 'xGA', accessor: r => r.xga, align: 'right', width: 64, cell: v => v != null ? Number(v).toFixed(2) : '—' },
+    { id: 'gaa', header: 'GAA', accessor: r => r.gaa, align: 'right', width: 60, cell: v => v != null ? Number(v).toFixed(2) : '—', mobileHidden: true },
+    { id: 'xga', header: 'xGA', accessor: r => r.xga, align: 'right', width: 64, cell: v => v != null ? Number(v).toFixed(2) : '—', mobileHidden: true },
     {
       id: 'gsax', header: 'GSAx', accessor: r => r.gsax, align: 'right', width: 72,
       cell: v => <strong style={{ color: gsaxColor(v as number | null), fontVariantNumeric: 'tabular-nums' }}>{signed(v as number | null)}</strong>,
     },
-    { id: 'sv_pct', header: 'SV%', accessor: r => r.sv_pct, align: 'right', width: 64, cell: v => v != null ? Number(v).toFixed(3) : '—', mobileHidden: true },
+    { id: 'gsax_per60', header: 'GSAx/60', accessor: r => r.gsax_per60, align: 'right', width: 80, mobileHidden: true,
+      cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{signed(n)}</span> : '—'; },
+    },
+    { id: 'sv_pct', header: 'SV%', accessor: r => r.sv_pct, align: 'right', width: 64, cell: v => v != null ? Number(v).toFixed(3) : '—' },
+    { id: 'xsv_pct', header: 'xSV%', accessor: r => r.xsv_pct, align: 'right', width: 64, cell: v => v != null ? Number(v).toFixed(3) : '—', mobileHidden: true },
     {
-      id: 'vs_exp', header: 'vs Exp', accessor: r => r.vs_exp, align: 'right', width: 72, mobileHidden: true,
-      cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{signed(n)}%</span> : '—'; },
+      id: 'dsv_pct', header: 'dSV%', accessor: r => r.dsv_pct, align: 'right', width: 68, mobileHidden: true,
+      cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{n >= 0 ? '+' : ''}{Number(n).toFixed(3)}</span> : '—'; },
     },
   ], [isDark]);
 
