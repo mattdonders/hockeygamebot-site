@@ -2,10 +2,12 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
-import Table from '../../components/Table.astro';
-import { loadPlayers, loadPlayerGames } from '../../lib/stats-loader';
+import ImpactTable from '../../components/react/ImpactTable';
+import { loadPlayers, loadMeta, loadPlayerGames } from '../../lib/stats-loader';
 
 const allPlayers = loadPlayers().filter(p => p.gp >= 20);
+const _meta = loadMeta();
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
 
 type ImpactRow = {
   id: number; slug: string; name: string;
@@ -22,6 +24,7 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
   const allGs = games.map(g => g.gs_display);
   return {
     id: p.player_id, slug: p.slug, name: p.display_name,
+    first_name: p.first_name, last_name: p.last_name,
     team: p.team_abbrev, pos: p.pos, group: p.pos_group, gp: p.gp,
     avg: +p.avg_gs_display.toFixed(2),
     l10: last10, l10a,
@@ -175,29 +178,9 @@ const columns = [
   <section class="lb-section">
     <div class="lb-head">
       <div class="lb-title">Season <span style="color:var(--red)">Impact</span></div>
-      <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap">
-        <div class="lb-filters" id="pos-filter">
-          <button class="lb-tab active" data-pos="all">All</button>
-          <button class="lb-tab" data-pos="F">Forwards</button>
-          <button class="lb-tab" data-pos="D">Defence</button>
-        </div>
-        <div class="lb-meta" id="lb-count">{tableRows.length} skaters · click any column to sort</div>
-      </div>
     </div>
 
-    <Table
-      columns={columns}
-      rows={[]}
-      defaultSort={{ column: 'avg', direction: 'desc' }}
-      scrollable
-      maxHeight={760}
-      isLoading
-      ariaLabel="HGB Impact leaderboard"
-    />
-    <div id="impact-pager" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--ink-06);background:var(--surface)">
-      <div style="font-family:var(--mono);font-size:10px;color:var(--ink-32);letter-spacing:0.06em" id="pager-info"></div>
-      <div style="display:flex;gap:4px" id="pager-btns"></div>
-    </div>
+    <ImpactTable rows={tableRows} statsDate={_statsDate} client:load />
 
     <div class="lb-method">
       <div class="lb-method-grid">
@@ -220,149 +203,6 @@ const columns = [
 
 <footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · HGB IMPACT v2</footer>
 
-<script type="application/json" id="impact-data" set:html={JSON.stringify(tableRows)}></script>
-
-<script>
-(function() {
-  'use strict';
-  const dataEl = document.getElementById('impact-data');
-  if (!dataEl) return;
-  const tableRows = JSON.parse(dataEl.textContent || '[]');
-
-  const sgn = v => v >= 0 ? '+' : '';
-  const fmt  = v => v != null ? `${sgn(v)}${v.toFixed(2)}` : '—';
-  const GS_MIN = -5, GS_MAX = 12;
-
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
-
-  function sparkSvg(vals) {
-    if (!vals || !vals.length) return '<span style="color:var(--ink-20)">—</span>';
-    const W = 72, H = 22, PAD = 2;
-    const n = vals.length;
-    const xs = i => (n > 1 ? PAD + (i / (n - 1)) * (W - 2 * PAD) : W / 2).toFixed(1);
-    const ys = v => (PAD + (H - 2 * PAD) - ((v - GS_MIN) / (GS_MAX - GS_MIN)) * (H - 2 * PAD)).toFixed(1);
-    const zero = ys(0);
-    const path = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${xs(i)},${ys(v)}`).join(' ');
-    const l10a = vals.reduce((s, v) => s + v, 0) / vals.length;
-    const c = l10a >= 0 ? '#1a7a3e' : '#E8002D';
-    const lx = xs(n - 1), ly = ys(vals[n - 1]);
-    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;overflow:visible">
-      <line x1="${PAD}" y1="${zero}" x2="${W - PAD}" y2="${zero}" stroke="rgba(13,13,20,0.12)" stroke-width="1"/>
-      <path d="${path}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-      <circle cx="${lx}" cy="${ly}" r="2.5" fill="${c}"/>
-    </svg>`;
-  }
-
-  let sortKey = 'avg';
-  let sortAsc = false;
-  let posFilter = 'all';
-  let currentPage = 0;
-  const PAGE_SIZE = 50;
-
-  function filtered() {
-    return tableRows.filter(r => posFilter === 'all' || r.group === posFilter);
-  }
-  function sorted(rows) {
-    return [...rows].sort((a, b) => {
-      const av = a[sortKey] ?? -Infinity;
-      const bv = b[sortKey] ?? -Infinity;
-      if (typeof av === 'string') return bv.localeCompare(av);
-      return bv - av;
-    });
-  }
-
-  function rowHtml(r, rank) {
-    const href = `/stats/player/${r.slug}`;
-    const teamAbbr = esc(r.team || '');
-    const nameEsc = esc(r.name);
-    const subText = `${r.team} · ${r.pos}`;
-    const avgColor = r.avg >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)';
-    const l10Color = r.l10a == null ? '' : (r.l10a >= 0 ? 'var(--stats-pos)' : 'var(--stats-neg)');
-
-    const cells = [];
-    cells.push(`<td class="tbl-td td-rk align-right">${String(rank).padStart(2, '0')}</td>`);
-    cells.push(
-      `<td class="tbl-td td-player align-left">` +
-      `<div class="td-player-inner">` +
-      (teamAbbr ? `<img class="td-logo" src="https://assets.nhle.com/logos/nhl/svg/${teamAbbr}_light.svg" width="22" height="22" alt="${teamAbbr}" loading="lazy" onerror="this.style.display='none'" />` : '') +
-      `<div class="td-player-meta">` +
-      `<span class="td-name">${nameEsc}</span>` +
-      `<span class="td-sub">${esc(subText)}</span>` +
-      `</div></div></td>`
-    );
-    cells.push(`<td class="tbl-td align-center"><span class="pos-badge">${esc(r.pos)}</span></td>`);
-    cells.push(`<td class="tbl-td align-center type-number">${r.gp ?? '—'}</td>`);
-    cells.push(`<td class="tbl-td align-center type-number bold" style="color:${avgColor}">${fmt(r.avg)}</td>`);
-    const l10Style = l10Color ? ` style="color:${l10Color}"` : '';
-    cells.push(`<td class="tbl-td align-center type-number"${l10Style}>${r.l10a == null ? '—' : fmt(r.l10a)}</td>`);
-    cells.push(`<td class="tbl-td td-spark">${sparkSvg(r.l10)}</td>`);
-    cells.push(`<td class="tbl-td align-center type-number" style="color:var(--stats-pos)">${sgn(r.best)}${Number(r.best).toFixed(2)}</td>`);
-    cells.push(`<td class="tbl-td align-center type-number" style="color:var(--stats-neg)">${sgn(r.worst)}${Number(r.worst).toFixed(2)}</td>`);
-
-    return `<tr class="tbl-tr clickable" tabindex="0" data-href="${href}" role="link">${cells.join('')}</tr>`;
-  }
-
-  function renderPager(total, page) {
-    const pages = Math.ceil(total / PAGE_SIZE);
-    const info  = document.getElementById('pager-info');
-    const btns  = document.getElementById('pager-btns');
-    const from  = page * PAGE_SIZE + 1, to = Math.min((page + 1) * PAGE_SIZE, total);
-    if (info) info.textContent = `${from}–${to} OF ${total} SKATERS`;
-    if (!btns) return;
-    const btnStyle = (active) =>
-      `font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.08em;padding:4px 10px;border:1px solid ${active ? 'var(--ink)' : 'var(--ink-14)'};background:${active ? 'var(--ink)' : 'transparent'};color:${active ? 'var(--bg)' : 'var(--ink-48)'};cursor:pointer`;
-    let html = `<button style="${btnStyle(false)}" id="pg-prev" ${page === 0 ? 'disabled' : ''}>← Prev</button>`;
-    for (let p = 0; p < pages; p++) {
-      if (pages <= 8 || Math.abs(p - page) <= 1 || p === 0 || p === pages - 1) {
-        html += `<button style="${btnStyle(p === page)}" data-page="${p}">${p + 1}</button>`;
-      } else if (Math.abs(p - page) === 2) {
-        html += `<span style="font-family:var(--mono);font-size:10px;color:var(--ink-32);padding:0 4px">…</span>`;
-      }
-    }
-    html += `<button style="${btnStyle(false)}" id="pg-next" ${page >= pages - 1 ? 'disabled' : ''}>Next →</button>`;
-    btns.innerHTML = html;
-    btns.querySelectorAll<HTMLElement>('[data-page]').forEach(b => {
-      b.addEventListener('click', () => { currentPage = parseInt(b.dataset.page!); renderTable(); });
-    });
-    document.getElementById('pg-prev')?.addEventListener('click', () => { currentPage = Math.max(0, page - 1); renderTable(); });
-    document.getElementById('pg-next')?.addEventListener('click', () => { currentPage = Math.min(pages - 1, page + 1); renderTable(); });
-  }
-
-  const wrap = document.querySelector('.tbl-wrap[data-tbl-id]');
-  const tbody = wrap ? wrap.querySelector('tbody') : null;
-
-  function renderTable() {
-    if (!wrap || !tbody) return;
-    const allRows = sorted(filtered());
-    const start = currentPage * PAGE_SIZE;
-    const rows  = allRows.slice(start, start + PAGE_SIZE);
-
-    if (rows.length === 0) {
-      tbody.innerHTML = `<tr class="tbl-empty"><td colspan="9">No data available</td></tr>`;
-    } else {
-      tbody.innerHTML = rows.map((r, i) => rowHtml(r, start + i + 1)).join('');
-    }
-    wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
-
-    renderPager(allRows.length, currentPage);
-    const countEl = document.getElementById('lb-count');
-    if (countEl) countEl.textContent = `${allRows.length} skater${allRows.length !== 1 ? 's' : ''} · click any column to sort`;
-  }
-
-  document.querySelectorAll<HTMLElement>('.lb-tab[data-pos]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      posFilter = btn.dataset.pos;
-      document.querySelectorAll<HTMLElement>('.lb-tab[data-pos]').forEach(b => b.classList.toggle('active', b.dataset.pos === posFilter));
-      currentPage = 0;
-      renderTable();
-    });
-  });
-
-  renderTable();
-})();
-</script>
 
 </body>
 </html>
