@@ -39,9 +39,9 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
   },
   { id: 'type',   header: 'Type',    accessor: r => r.type,   width: 48,  cell: v => <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, border: '1px solid rgba(13,13,20,0.2)', padding: '1px 5px' }}>{v as string}</span> },
   { id: 'team',   header: 'Team',    accessor: r => r.team,   width: 52 },
-  { id: 'season', header: 'Season',  accessor: r => r.season, width: 64,  cell: v => fmtSeasonShort(v as string) },
+  { id: 'season', header: 'Season',  accessor: r => r.season, width: 64,  cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')) },
   { id: 'games',  header: 'GP',      accessor: r => r.games,  width: 48 },
-  { id: 'toi',    header: 'TOI',     accessor: r => r.toi_min, width: 68, cell: v => toMMSS(v as number) },
+  { id: 'toi',    header: 'TOI',     accessor: r => r.toi_min, width: 68, cell: v => toMMSS(v as number), exportText: v => toMMSS(Number(v)) },
   {
     id: 'xgf_pct', header: 'xGF%', accessor: r => r.xgf_pct, width: 72,
     cell: v => {
@@ -49,11 +49,12 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
       const col = n != null ? (n >= 55 ? POS : n <= 45 ? NEG : undefined) : undefined;
       return <strong style={{ color: col, fontVariantNumeric: 'tabular-nums' }}>{fmtPct(n)}</strong>;
     },
+    exportText: v => fmtPct(v as number | null),
   },
-  { id: 'xgf',    header: 'xGF',    accessor: r => r.xgf,    width: 60,  cell: v => fmt2(v as any) },
-  { id: 'xga',    header: 'xGA',    accessor: r => r.xga,    width: 60,  cell: v => fmt2(v as any) },
-  { id: 'xgf_60', header: 'xGF/60', accessor: r => r.xgf_60, width: 72,  cell: v => fmt2(v as any), mobileHidden: true },
-  { id: 'xga_60', header: 'xGA/60', accessor: r => r.xga_60, width: 72,  cell: v => fmt2(v as any), mobileHidden: true },
+  { id: 'xgf',    header: 'xGF',    accessor: r => r.xgf,    width: 60,  cell: v => fmt2(v as any), exportText: v => fmt2(v as any) },
+  { id: 'xga',    header: 'xGA',    accessor: r => r.xga,    width: 60,  cell: v => fmt2(v as any), exportText: v => fmt2(v as any) },
+  { id: 'xgf_60', header: 'xGF/60', accessor: r => r.xgf_60, width: 72,  cell: v => fmt2(v as any), exportText: v => fmt2(v as any), mobileHidden: true },
+  { id: 'xga_60', header: 'xGA/60', accessor: r => r.xga_60, width: 72,  cell: v => fmt2(v as any), exportText: v => fmt2(v as any), mobileHidden: true },
   { id: 'gf',     header: 'GF',     accessor: r => r.gf,     width: 48,  mobileHidden: true },
   { id: 'ga',     header: 'GA',     accessor: r => r.ga,     width: 48,  mobileHidden: true },
 ];

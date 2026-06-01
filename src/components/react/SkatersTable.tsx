@@ -89,7 +89,7 @@ function buildColumns(
       sortType: 'string',
     },
     { id: 'season', header: 'Season', accessor: r => r.season ?? currentSeason, width: 68, mobileHidden: true,
-      cell: v => fmtSeasonShort(v as string) },
+      cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')) },
     { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp', header: isPlayoff ? 'PO GP' : 'GP', accessor: r => isPlayoff ? r.po_gp : r.gp, width: 48, cell: v => v != null ? String(v) : '—' },

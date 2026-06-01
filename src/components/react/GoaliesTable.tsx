@@ -71,13 +71,14 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     },
     {
       id: 'season', header: 'Season', accessor: r => r.season, align: 'center', width: 72, mobileHidden: true,
-      cell: v => fmtSeasonShort(v as string),
+      cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')),
     },
     { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
     { id: 'gp',  header: 'GP',  accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },
     {
       id: 'toi', header: 'TOI', accessor: r => r.toi_sec, align: 'center', width: 72, mobileHidden: true,
       cell: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
+      exportText: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
     },
     { id: 'sa', header: 'SA', accessor: r => r.sa, align: 'center', width: 60, cell: v => v != null ? Number(v).toLocaleString() : '—' },
     { id: 'ga', header: 'GA', accessor: r => r.ga, align: 'center', width: 52 },
