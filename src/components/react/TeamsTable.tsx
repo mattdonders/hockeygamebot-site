@@ -140,6 +140,7 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
           </div>
         </div>
       ),
+      exportText: (_v, row) => `${row.team_name_city} ${row.team_name_nickname}`,
       sortType: 'string',
     },
     { id: 'season', header: 'Season', accessor: r => r.season, width: 70, cell: v => fmtSeason(v as string) },
@@ -214,6 +215,13 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
         globalSearchField={r => `${r.team_abbrev} ${r.team_name_full} ${r.team_name_city} ${r.team_name_nickname}`.toLowerCase()}
         searchPlaceholder="Search teams…"
         exportFilename="hgb-teams"
+        exportTitle="Teams"
+        exportChips={[
+          gameType === 'regular' ? 'Reg Season' : 'Playoffs',
+          strength === '5v5' ? '5v5' : 'All Situations',
+          display === 'totals' ? 'Totals' : 'Per 60',
+          fmtSeason(season),
+        ]}
         emptyMessage="No team data for this selection."
       />
     </div>

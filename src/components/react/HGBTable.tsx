@@ -27,6 +27,8 @@ export type HGBColumnDef<T> = {
   header: string;
   accessor: (row: T) => string | number | null;
   cell?: (value: string | number | null, row: T) => React.ReactNode;
+  /** Plain-text renderer for PNG canvas export. Falls back to String(accessor(row)). */
+  exportText?: (value: string | number | null, row: T) => string;
   sortType?: 'number' | 'string';
   align?: 'left' | 'right' | 'center';
   width?: number;
@@ -54,6 +56,10 @@ export type HGBTableProps<T> = {
   /** Enables TanStack Virtual row rendering. Requires a fixed-height scroll container.
    *  With maxHeight: uses that height. Without: defaults to calc(100vh - 300px). */
   virtualize?: boolean;
+  /** Big Barlow title shown in the PNG export header. If omitted, PNG button is hidden. */
+  exportTitle?: string;
+  /** Active filter labels shown as chips in PNG export (e.g. ["REG SEASON", "FORWARDS"]). */
+  exportChips?: string[];
 };
 
 // ── Style constants ──────────────────────────────────────────────────────────
@@ -317,6 +323,8 @@ export default function HGBTable<T extends object>({
   maxHeight,
   emptyMessage = 'No results found.',
   virtualize = false,
+  exportTitle,
+  exportChips = [],
 }: HGBTableProps<T>) {
   const isMobile = useIsMobile();
 
@@ -440,6 +448,50 @@ export default function HGBTable<T extends object>({
     exportCSV(tableRows.map(r => r.original), columnDefs, exportFilename);
   }, [tableRows, columnDefs, exportFilename]);
 
+  const handleExportPng = useCallback(() => {
+    if (!exportTitle) return;
+    const HGB = (window as any).HGB_Export;
+    if (!HGB?.downloadTablePng) {
+      console.warn('HGB_Export not loaded — add <script src="/js/table-export.js"> to the page.');
+      return;
+    }
+    const visibleCols = table.getVisibleLeafColumns();
+    // Pre-format rows as plain string objects keyed by column id
+    const rows = tableRows.map(row =>
+      Object.fromEntries(
+        visibleCols.map(col => {
+          const def = columnDefs.find(c => c.id === col.id);
+          if (!def) return [col.id, ''];
+          const val = def.accessor(row.original);
+          const text = def.exportText
+            ? def.exportText(val, row.original)
+            : val != null ? String(val) : '—';
+          return [def.id, text];
+        })
+      )
+    );
+    const columns = visibleCols.map(col => {
+      const def = columnDefs.find(c => c.id === col.id);
+      if (!def) return null;
+      const isFirst = def.id === columnDefs[0]?.id;
+      return {
+        label: def.header,
+        key: def.id,
+        width: def.width ?? 80,
+        align: def.align ?? (isFirst ? 'left' : 'center'),
+        fontFamily: isFirst ? 'body' : 'mono',
+      };
+    }).filter(Boolean);
+
+    HGB.downloadTablePng({
+      title: exportTitle,
+      filterChips: exportChips,
+      rows,
+      columns,
+      filename: (exportFilename ?? exportTitle).replace(/\.[^.]+$/, '').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '.png',
+    });
+  }, [table, tableRows, columnDefs, exportTitle, exportChips, exportFilename]);
+
   const toggleColumn = useCallback((id: string) => {
     setUserVisibility(prev => ({ ...prev, [id]: !(prev[id] ?? true) }));
   }, []);
@@ -550,24 +602,20 @@ export default function HGBTable<T extends object>({
           </div>
         )}
 
-        {/* Export button */}
-        {exportFilename && !isMobile && (
-          <button
-            onClick={handleExport}
-            style={{
-              ...MONO,
-              fontSize: 10,
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              padding: '5px 10px',
-              border: '1px solid rgba(13,13,20,0.2)',
-              background: 'transparent',
-              color: MUTED,
-              cursor: 'pointer',
-            }}
-          >
-            ↓ CSV
-          </button>
+        {/* Export buttons */}
+        {!isMobile && (exportFilename || exportTitle) && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            {exportFilename && (
+              <button onClick={handleExport} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                ↓ CSV
+              </button>
+            )}
+            {exportTitle && (
+              <button onClick={handleExportPng} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                ↓ PNG
+              </button>
+            )}
+          </div>
         )}
 
         {/* Row count */}

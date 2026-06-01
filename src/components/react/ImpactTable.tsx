@@ -60,6 +60,7 @@ export default function ImpactTable({ rows, statsDate }: Props) {
           </div>
         </div>
       ),
+      exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
       sortType: 'string',
     },
     { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
@@ -108,6 +109,8 @@ export default function ImpactTable({ rows, statsDate }: Props) {
         searchPlaceholder="Search players or team…"
         rowHref={r => `/stats/player/${r.slug}`}
         exportFilename="hgb-impact"
+        exportTitle="HGB Impact"
+        exportChips={[pos === 'all' ? 'All Positions' : pos === 'F' ? 'Forwards' : 'Defense', '2025-26']}
         emptyMessage="No impact data for this selection."
         virtualize
       />

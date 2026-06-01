@@ -34,6 +34,7 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
         </a>
       );
     },
+    exportText: (_v, row) => lastNames(row.players),
     sortType: 'string',
   },
   { id: 'type',   header: 'Type',    accessor: r => r.type,   width: 48,  cell: v => <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, border: '1px solid rgba(13,13,20,0.2)', padding: '1px 5px' }}>{v as string}</span> },
@@ -148,6 +149,13 @@ export default function LinesTable({ rows, statsDate }: Props) {
         globalSearchField={r => `${r.players} ${r.team}`.toLowerCase()}
         searchPlaceholder="Search lines or team…"
         exportFilename="hgb-lines"
+        exportTitle="Lines & Pairs"
+        exportChips={[
+          gameType === '2' ? 'Reg Season' : 'Playoffs',
+          lineType === 'all' ? 'All Lines' : lineType === 'F' ? 'Forwards' : 'Defense',
+          fmtSeasonShort(season) || 'All Seasons',
+          `Min ${minToi}m TOI`,
+        ]}
         emptyMessage="No lines match the current filters. Try lowering the Min TOI."
         virtualize
       />

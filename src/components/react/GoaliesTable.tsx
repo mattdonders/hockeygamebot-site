@@ -66,6 +66,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
           </div>
         </div>
       ),
+      exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
       sortType: 'string',
     },
     {
@@ -136,6 +137,8 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       ]}
         rowHref={r => `/stats/goalies/${r.goalie_id}`}
         exportFilename="hgb-goalies"
+        exportTitle="Goalies"
+        exportChips={[gameType === 'regular' ? 'Reg Season' : 'Playoffs']}
         emptyMessage="No goalie data for this selection."
         virtualize
       />

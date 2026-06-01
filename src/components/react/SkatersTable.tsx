@@ -85,6 +85,7 @@ function buildColumns(
           </div>
         </div>
       ),
+      exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
       sortType: 'string',
     },
     { id: 'season', header: 'Season', accessor: r => r.season ?? currentSeason, width: 68, mobileHidden: true,
@@ -317,6 +318,15 @@ export default function SkatersTable({ rows, statsDate, currentSeason }: Props) 
         searchPlaceholder="Search players or team…"
         rowHref={r => `/stats/player/${r.slug}`}
         exportFilename="hgb-skaters"
+        exportTitle="Skaters"
+        exportChips={[
+          gameType === 'regular' ? 'Reg Season' : 'Playoffs',
+          tab.charAt(0).toUpperCase() + tab.slice(1),
+          pos !== 'all' ? (pos === 'F' ? 'Forwards' : 'Defense') : 'All Positions',
+          strength !== 'all' ? strength.toUpperCase() : 'All Strengths',
+          `Min ${minGP} GP`,
+          ...(topN ? [`Top ${topN}`] : []),
+        ]}
         emptyMessage="No skaters match the current filters."
         virtualize
       />
