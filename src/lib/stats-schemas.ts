@@ -359,7 +359,7 @@ export const StatsMetaSchema = z.object({
    */
   schema_version: z.string().min(1),
 
-  season: z.string().regex(/^\d{8}$/),
+  season: z.string(), // format: "2025-26" (was "20252026")
   generated_at: z.string(),
   source_sha256: z.string().optional(),
   player_count: z.number().int().nonnegative(),
