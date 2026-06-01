@@ -5,6 +5,21 @@ import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
 import Table from '../../components/Table.astro';
+import PlayerSearch from '../../components/react/PlayerSearch';
+import type { PlayerSearchItem } from '../../components/react/PlayerSearch';
+import { loadPlayers } from '../../lib/stats-loader';
+
+const searchPlayers: PlayerSearchItem[] = loadPlayers().map(p => ({
+  display_name: p.display_name,
+  first_name:   p.first_name ?? '',
+  last_name:    p.last_name  ?? '',
+  team_abbrev:  p.team_abbrev,
+  pos:          p.pos,
+  gp:           p.gp,
+  slug:         p.slug,
+  search_text:  `${p.display_name} ${p.last_name} ${p.team_abbrev}`.toLowerCase(),
+  player_id:    p.player_id,
+} as PlayerSearchItem & { player_id: number }));
 
 // 4 fixed rows. SSR with empty rows; client fills via tbl:rows-changed.
 const columns = [
@@ -198,18 +213,24 @@ a { color: inherit; text-decoration: none; }
       <div class="picker-row">
         <div class="picker-group">
           <span class="picker-label">Player A</span>
-          <div class="autocomplete-wrap" id="wrap-a">
-            <input type="text" id="input-a" placeholder="Search player..." autocomplete="off" />
-            <div class="autocomplete-dropdown" id="dropdown-a"></div>
-          </div>
+          <PlayerSearch
+            players={searchPlayers}
+            placeholder="Search player A…"
+            dispatchEvent="hgb:wowy-a"
+            maxResults={8}
+            client:load
+          />
         </div>
         <div class="picker-vs">&amp;</div>
         <div class="picker-group">
           <span class="picker-label">Player B</span>
-          <div class="autocomplete-wrap" id="wrap-b">
-            <input type="text" id="input-b" placeholder="Search player..." autocomplete="off" />
-            <div class="autocomplete-dropdown" id="dropdown-b"></div>
-          </div>
+          <PlayerSearch
+            players={searchPlayers}
+            placeholder="Search player B…"
+            dispatchEvent="hgb:wowy-b"
+            maxResults={8}
+            client:load
+          />
         </div>
         <div class="season-wrap">
           <span class="picker-label">Season</span>
@@ -286,47 +307,6 @@ a { color: inherit; text-decoration: none; }
     return Object.values(playerIndex)
       .filter(p => p.name.toLowerCase().includes(q))
       .slice(0, 20);
-  }
-
-  function makeAutocomplete(inputEl, dropdownEl, onSelect) {
-    let activeIdx = -1;
-    function showDropdown(items) {
-      dropdownEl.innerHTML = '';
-      activeIdx = -1;
-      if (!items.length) { dropdownEl.classList.remove('open'); return; }
-      items.forEach((p) => {
-        const div = document.createElement('div');
-        div.className = 'autocomplete-item';
-        div.innerHTML = `<span>${esc(p.name)}</span>`;
-        div.addEventListener('mousedown', e => { e.preventDefault(); onSelect(p); });
-        dropdownEl.appendChild(div);
-      });
-      dropdownEl.classList.add('open');
-    }
-    inputEl.addEventListener('input', () => {
-      inputEl.classList.remove('selected');
-      const matches = matchPlayers(inputEl.value);
-      showDropdown(matches);
-    });
-    inputEl.addEventListener('keydown', e => {
-      const items = dropdownEl.querySelectorAll('.autocomplete-item');
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        activeIdx = Math.min(activeIdx + 1, items.length - 1);
-        items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        activeIdx = Math.max(activeIdx - 1, 0);
-        items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
-      } else if (e.key === 'Enter') {
-        if (activeIdx >= 0 && items[activeIdx]) items[activeIdx].dispatchEvent(new MouseEvent('mousedown'));
-      } else if (e.key === 'Escape') {
-        dropdownEl.classList.remove('open');
-      }
-    });
-    inputEl.addEventListener('blur', () => {
-      setTimeout(() => dropdownEl.classList.remove('open'), 150);
-    });
   }
 
   function findPairs(idA, idB) {
@@ -474,42 +454,23 @@ a { color: inherit; text-decoration: none; }
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('main-content').style.display = 'block';
 
-    const inputA = document.getElementById('input-a');
-    const inputB = document.getElementById('input-b');
-    const dropA  = document.getElementById('dropdown-a');
-    const dropB  = document.getElementById('dropdown-b');
+    // React PlayerSearch islands dispatch these events on player select/clear
+    document.addEventListener('hgb:wowy-a', (e) => {
+      const p = e.detail;
+      selectedA = p ? { id: p.player_id ?? p.id, name: p.display_name ?? p.name } : null;
+      renderResult();
+    });
+    document.addEventListener('hgb:wowy-b', (e) => {
+      const p = e.detail;
+      selectedB = p ? { id: p.player_id ?? p.id, name: p.display_name ?? p.name } : null;
+      renderResult();
+    });
 
-    makeAutocomplete(inputA, dropA, p => {
-      selectedA = p;
-      inputA.value = p.name;
-      inputA.classList.add('selected');
-      dropA.classList.remove('open');
-      renderResult();
-    });
-    makeAutocomplete(inputB, dropB, p => {
-      selectedB = p;
-      inputB.value = p.name;
-      inputB.classList.add('selected');
-      dropB.classList.remove('open');
-      renderResult();
-    });
     document.getElementById('season-filter').addEventListener('change', e => {
       seasonFilter = e.target.value;
       renderResult();
     });
-    inputA.addEventListener('input', () => { if (selectedA) { selectedA = null; renderResult(); } });
-    inputB.addEventListener('input', () => { if (selectedB) { selectedB = null; renderResult(); } });
 
-    const urlPid = new URLSearchParams(window.location.search).get('player');
-    if (urlPid) {
-      const pid = parseInt(urlPid, 10);
-      const match = Object.values(playerIndex).find(p => p.id === pid);
-      if (match) {
-        selectedA = match;
-        inputA.value = match.name;
-        inputA.classList.add('selected');
-      }
-    }
     renderResult();
   }
   init();

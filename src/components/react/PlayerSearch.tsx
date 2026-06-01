@@ -40,15 +40,20 @@ export type PlayerSearchProps = {
   onSelect?: (player: PlayerSearchItem) => void;
   navigateTo?: boolean;   // if true, Enter/click navigates to /stats/player/{slug}
   maxResults?: number;    // default 8
+  /** Fires document.dispatchEvent(new CustomEvent(dispatchEvent, { detail: player })) on select.
+   *  Lets vanilla JS listeners react without passing a function across the island boundary. */
+  dispatchEvent?: string;
+  /** Pre-select a player by player_id on mount (e.g. from URL params). */
+  initialPlayerId?: number;
 };
 
 // ── Style constants ───────────────────────────────────────────────────────────
 
 const INK          = '#0d0d14';
-const BORDER       = '1px solid rgba(13,13,20,0.14)';
+const BORDER_IDLE  = '1.5px solid rgba(13,13,20,0.20)';
+const BORDER_FOCUS = '1.5px solid #0d0d14';
 const MUTED        = 'rgba(13,13,20,0.48)';
-const HOVER_BG     = 'rgba(13,13,20,0.04)';
-const SELECTED_BG  = 'rgba(13,13,20,0.08)';
+const SELECTED_BG  = 'rgba(13,13,20,0.06)';
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
 
@@ -105,11 +110,14 @@ export default function PlayerSearch({
   onSelect,
   navigateTo = false,
   maxResults = 8,
+  dispatchEvent: dispatchEventName,
+  initialPlayerId,
 }: PlayerSearchProps) {
-  const [query, setQuery]       = useState('');
-  const [results, setResults]   = useState<PlayerSearchItem[]>([]);
-  const [open, setOpen]         = useState(false);
+  const [query, setQuery]         = useState('');
+  const [results, setResults]     = useState<PlayerSearchItem[]>([]);
+  const [open, setOpen]           = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [focused, setFocused]     = useState(false);
 
   const inputRef    = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +125,15 @@ export default function PlayerSearch({
 
   const uid = useId();
   const listboxId = `player-search-listbox-${uid}`;
+
+  // ── Pre-select from initialPlayerId (e.g. URL param) ───────────────────────
+
+  useEffect(() => {
+    if (!initialPlayerId) return;
+    const match = players.find(p => (p as any).player_id === initialPlayerId);
+    if (match) handleSelect(match);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPlayerId]);
 
   // ── Compute results when query changes ──────────────────────────────────────
 
@@ -159,16 +176,19 @@ export default function PlayerSearch({
 
   const handleSelect = useCallback(
     (player: PlayerSearchItem) => {
-      setQuery('');
+      setQuery(player.display_name); // show selected name in input
       setOpen(false);
       setActiveIdx(-1);
       inputRef.current?.blur();
       onSelect?.(player);
+      if (dispatchEventName) {
+        document.dispatchEvent(new CustomEvent(dispatchEventName, { detail: player }));
+      }
       if (navigateTo) {
         window.location.href = `/stats/player/${player.slug}`;
       }
     },
-    [onSelect, navigateTo],
+    [onSelect, navigateTo, dispatchEventName],
   );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -224,30 +244,7 @@ export default function PlayerSearch({
       aria-owns={listboxId}
     >
       {/* Input row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          background: '#fff',
-          border: BORDER,
-          gap: 0,
-        }}
-      >
-        {/* Search icon */}
-        <span
-          aria-hidden="true"
-          style={{
-            ...MONO,
-            padding: '8px 8px 8px 12px',
-            fontSize: 12,
-            color: MUTED,
-            userSelect: 'none',
-            lineHeight: 1,
-          }}
-        >
-          ⌕
-        </span>
-
+      <div style={{ position: 'relative' }}>
         <input
           ref={inputRef}
           type="text"
@@ -256,49 +253,49 @@ export default function PlayerSearch({
           aria-controls={listboxId}
           aria-activedescendant={activeDescendant}
           value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={() => {
-            if (results.length > 0) setOpen(true);
+          onChange={e => {
+            setQuery(e.target.value);
+            if (e.target.value === '') { setResults([]); setOpen(false); }
           }}
+          onKeyDown={handleKeyDown}
+          onFocus={() => { setFocused(true); if (results.length > 0) setOpen(true); }}
+          onBlur={() => setFocused(false)}
           placeholder={placeholder}
           autoComplete="off"
           spellCheck={false}
           style={{
-            ...MONO,
-            flex: 1,
-            border: 'none',
-            outline: 'none',
-            background: 'transparent',
-            fontSize: 12,
-            padding: '8px 4px',
+            ...BODY,
+            width: '100%',
+            padding: '11px 40px 11px 16px',
+            fontSize: 14,
+            fontWeight: 500,
+            background: 'var(--bg, #EFEEE8)',
             color: INK,
-            minWidth: 0,
+            border: focused ? BORDER_FOCUS : BORDER_IDLE,
+            outline: 'none',
+            transition: 'border-color 0.15s',
+            boxSizing: 'border-box',
           }}
         />
-
-        {/* Clear button */}
-        {query.length > 0 && (
-          <button
-            type="button"
-            onClick={handleClear}
-            aria-label="Clear search"
-            style={{
-              ...MONO,
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer',
-              padding: '8px 12px',
-              fontSize: 14,
-              color: MUTED,
-              lineHeight: 1,
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            ×
-          </button>
-        )}
+        {/* Right icon: × to clear if has value, ↗ to navigate, ↵ otherwise */}
+        <span
+          aria-hidden="true"
+          onClick={query.length > 0 ? handleClear : undefined}
+          style={{
+            position: 'absolute',
+            right: 14,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            ...MONO,
+            fontSize: 13,
+            color: MUTED,
+            cursor: query.length > 0 ? 'pointer' : 'default',
+            userSelect: 'none',
+            lineHeight: 1,
+          }}
+        >
+          {query.length > 0 ? '×' : navigateTo ? '↗' : '↵'}
+        </span>
       </div>
 
       {/* Dropdown */}
@@ -315,7 +312,7 @@ export default function PlayerSearch({
             right: 0,
             zIndex: 100,
             background: '#fff',
-            border: BORDER,
+            border: '2px solid #0d0d14',
             boxShadow: '0 4px 12px rgba(13,13,20,0.10)',
             maxHeight: `${maxResults * 52}px`,
             overflowY: 'auto',
