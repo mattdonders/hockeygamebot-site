@@ -477,16 +477,20 @@ export default function HGBTable<T extends object>({
         })
       )
     );
+    const currentSort = sorting[0];
     const columns = visibleCols.map(col => {
       const def = columnDefs.find(c => c.id === col.id);
       if (!def) return null;
       const isFirst = def.id === columnDefs[0]?.id;
+      const isSorted = currentSort?.id === col.id;
       return {
         label: def.header,
         key: def.id,
         width: def.width ?? 80,
         align: def.align ?? (isFirst ? 'left' : 'center'),
         fontFamily: isFirst ? 'body' : 'mono',
+        sorted: isSorted,
+        sortDir: isSorted ? (currentSort.desc ? 'desc' : 'asc') : null,
       };
     }).filter(Boolean);
 

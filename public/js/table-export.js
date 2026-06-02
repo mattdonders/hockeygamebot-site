@@ -126,15 +126,15 @@
     }
   }
 
-  function _drawHeader(ctx, text, x, cy, colWidth, align) {
+  function _drawHeader(ctx, text, x, cy, colWidth, align, sorted, sortDir) {
     ctx.font = '700 10px "Barlow Condensed", sans-serif';
-    ctx.fillStyle = TOKENS.ink48;
+    ctx.fillStyle = sorted ? TOKENS.ink : TOKENS.ink48;
     ctx.textBaseline = 'middle';
 
     const pad = 8;
-    const label = text.toUpperCase();
+    const arrow = sorted ? (sortDir === 'desc' ? ' ↓' : ' ↑') : '';
+    const label = text.toUpperCase() + arrow;
 
-    // Name/player columns stay left; everything else centers (matches site th { text-align: center })
     if (align === 'left') {
       ctx.textAlign = 'left';
       ctx.fillText(label, x + pad, cy);
@@ -260,7 +260,7 @@
 
     let colX = PAD;
     for (const col of columns) {
-      _drawHeader(ctx, col.label, colX, y + HEADER_H / 2, col.width, col.align);
+      _drawHeader(ctx, col.label, colX, y + HEADER_H / 2, col.width, col.align, col.sorted, col.sortDir);
       colX += col.width;
     }
 
