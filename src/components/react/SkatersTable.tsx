@@ -176,19 +176,6 @@ function buildColumns(
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
       },
       {
-        id: 'fin', header: 'Finishing', accessor: r => r.fin, width: 80,
-        cell: (v, r) => (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
-            <span style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f2(v as any)}</span>
-            <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{r.fin_p}th</span>
-          </div>
-        ),
-        exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
-      },
-      { id: 'rapm', header: 'RAPM/60', accessor: r => r.rapm, width: 80,
-        cell: v => v != null ? <span style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f3(v as any)}</span> : '—',
-        exportText: v => v != null ? `${sgn(v as number)}${f3(v as any)}` : '—' },
-      {
         id: 'rating', header: 'Rating', accessor: r => r.rating, width: 80,
         cell: (v, r) => v != null
           ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
