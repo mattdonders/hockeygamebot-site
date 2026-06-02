@@ -12,6 +12,7 @@ export type SkaterRow = {
   g60: number; a60: number; p60: number; x60: number; sog60: number;
   // Advanced
   war: number | null; war_p: number; fin: number; fin_p: number; imp: number; imp_p: number; rapm: number | null;
+  rating: number | null; rating_p: number | null;
   // On-ice 5v5
   xgf_pct: number; xgf60: number; xga60: number; sc60: number; hdc60: number;
   // Strength splits
@@ -187,6 +188,17 @@ function buildColumns(
       { id: 'rapm', header: 'RAPM/60', accessor: r => r.rapm, width: 80,
         cell: v => v != null ? <span style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f3(v as any)}</span> : '—',
         exportText: v => v != null ? `${sgn(v as number)}${f3(v as any)}` : '—' },
+      {
+        id: 'rating', header: 'Rating', accessor: r => r.rating, width: 80,
+        cell: (v, r) => v != null
+          ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+              <strong style={{ color: (v as number) >= 0 ? POS : NEG, fontVariantNumeric: 'tabular-nums' }}>{sgn(v as number)}{f2(v as any)}</strong>
+              {r.rating_p != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{r.rating_p}th</span>}
+            </div>
+          : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
+        mobileHidden: true,
+      },
     ];
   }
 
