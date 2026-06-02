@@ -52,7 +52,7 @@ const _META_FALLBACK = {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData, seriesStatsData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData, seriesStatsData, seriesRecordsData] = await Promise.all([
   _safeFetchJSON('players',      []),
   _safeFetchJSON('leaderboards', {}),
   _safeFetchJSON('player-games', {}),
@@ -63,6 +63,7 @@ const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsDa
   _fetchJSON('player-shots').catch(() => ({})),
   _fetchJSON('player-career').catch(() => ({})),
   _fetchJSON('series-stats').catch(() => ({ series: [], rounds: [] })),
+  _fetchJSON('series-records').catch(() => ({ series: [], total_series: 0 })),
 ]);
 
 const VALIDATED_PLAYERS_RAW  = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
@@ -250,6 +251,10 @@ export function loadLines(): LineData[] {
 
 export function loadSeriesStats(): { series: any[]; rounds: any[] } {
   return (seriesStatsData as any) ?? { series: [], rounds: [] };
+}
+
+export function loadSeriesRecords(): { series: any[]; total_series: number; scope?: string; generated_at?: string } {
+  return (seriesRecordsData as any) ?? { series: [], total_series: 0 };
 }
 
 /** Returns true when enough players have playoff data to indicate playoffs are active.
