@@ -2565,9 +2565,7 @@ const pctBars = [
       if (!R || R.ev_xgf60_z == null) throw new Error('No RAPM data for this player');
 
       const BG = '#EFEEE8', SURFACE = '#FFFFFF';
-      const HERO_BG = '#0D0D14', HERO_INK = '#EFEEE8';
-      const RED = D.teamColor || '#CC0000';
-      const RED_LIGHT = 'rgba(200,0,0,0.22)';
+      const RED = '#CC0000', RED_LIGHT = 'rgba(200,0,0,0.22)';
       const MUTED = 'rgba(13,13,20,0.45)', GRID = 'rgba(13,13,20,0.09)';
       const SCALE = 2, W = 780;
       const PAD = 36, LABEL_W = 76, VAL_W = 58;
@@ -2588,7 +2586,7 @@ const pctBars = [
         { label: 'xGF/60', z: R.pp_xgf60_z },
       ].filter(r => r.z != null);
 
-      const HERO_H = 100, ACCENT_W = 5;
+      const HERO_H = 86; // 52 name row + 34 chip row, matches Rating Card
       const EV_H = SEC_H + evRows.length * ROW_H + AXIS_H;
       const PP_H = ppRows.length > 0 ? SEC_H + ppRows.length * ROW_H + AXIS_H + 20 : 0;
       const H = HERO_H + EV_H + PP_H + 28;
@@ -2598,37 +2596,47 @@ const pctBars = [
       const ctx = canvas.getContext('2d');
       ctx.scale(SCALE, SCALE);
 
+      const TEAM_C = D.teamColor || '#CC0000';
+      const TEAM_NAMES_R = { ANA:'ANAHEIM DUCKS',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SJS:'SAN JOSE SHARKS',SEA:'SEATTLE KRAKEN',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
+      const teamFull = TEAM_NAMES_R[D.team] || D.team;
+
       // ── Background ──
       ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
 
-      // ── Dark hero ──
-      ctx.fillStyle = HERO_BG; ctx.fillRect(0, 0, W, HERO_H);
-      ctx.fillStyle = RED; ctx.fillRect(0, 0, ACCENT_W, HERO_H); // left accent bar
+      // ── Hero: white band + 4px team accent (matches Rating Card) ──
+      ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, HERO_H);
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, 4, HERO_H);
 
-      // Logo (dark version on dark bg)
-      try {
-        const logoUrl = `/logos/nhl/${D.team}_dark.svg`;
-        const img = new Image(); img.src = logoUrl;
-        await new Promise(r => { img.onload = r; img.onerror = r; });
-        ctx.drawImage(img, PAD + ACCENT_W + 12, (HERO_H - 56) / 2, 56, 56);
-      } catch {}
-
+      // Name row
       const fn = D.firstName && D.lastName ? `${D.firstName} ${D.lastName}` : (D.firstName || '');
-      const nameX = PAD + ACCENT_W + 12 + 64;
-      ctx.textAlign = 'left'; ctx.fillStyle = HERO_INK;
-      ctx.font = '700 26px "Barlow", sans-serif';
-      ctx.fillText(fn, nameX, HERO_H / 2 - 2);
-      ctx.font = '700 13px "Barlow Condensed", sans-serif'; ctx.fillStyle = RED;
-      ctx.fillText(`${D.team} · ${D.pos}`, nameX, HERO_H / 2 + 18);
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = '#0D0D14'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(fn.toUpperCase(), PAD, HERO_H / 2 - 12);
 
-      // Right branding
-      ctx.textAlign = 'right';
-      ctx.font = '500 10px "JetBrains Mono", monospace'; ctx.fillStyle = 'rgba(239,238,232,0.35)';
-      ctx.fillText('HOCKEYGAMEBOT ANALYTICS', W - PAD, HERO_H / 2 - 14);
-      ctx.font = '800 16px "Barlow Condensed", sans-serif'; ctx.fillStyle = HERO_INK;
-      ctx.fillText('EV & PP RAPM', W - PAD, HERO_H / 2 + 6);
-      ctx.font = '500 10px "JetBrains Mono", monospace'; ctx.fillStyle = 'rgba(239,238,232,0.35)';
-      ctx.fillText('2025–26 · Standardized', W - PAD, HERO_H / 2 + 22);
+      // Chips row
+      const chipH = 18, chipY0 = HERO_H / 2 + 4;
+      const chips = [teamFull, D.posLabel ? D.posLabel.toUpperCase() : D.pos, '2025-26'];
+      let cx2 = PAD;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      chips.forEach((chip, ci) => {
+        const tw = ctx.measureText(chip).width, cw = tw + 18;
+        rrect(ctx, cx2, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci === 0 ? TEAM_C : '#0D0D14'; ctx.fill();
+        ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chip, cx2 + 9, chipY0 + chipH / 2);
+        cx2 += cw + 8;
+      });
+      // RAPM label pill right-aligned
+      const rapmLabel = 'EV & PP RAPM';
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      const rtw = ctx.measureText(rapmLabel).width, rcw = rtw + 18;
+      rrect(ctx, W - PAD - rcw, chipY0, rcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(rapmLabel, W - PAD - rcw + 9, chipY0 + chipH / 2);
+
+      // Bottom border
+      ctx.fillStyle = 'rgba(13,13,20,0.08)'; ctx.fillRect(0, HERO_H - 1, W, 1);
 
       function drawSection(label, rows, toi, yStart) {
         // Section header
