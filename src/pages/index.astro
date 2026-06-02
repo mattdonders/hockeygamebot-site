@@ -2457,10 +2457,18 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     const allGames = (histData?.games ?? []).filter(g => g.status === 'final');
     if (!allGames.length) return;
 
-    // Filter to current season (game_id starts with '2025' for 2025-26).
-    // Note: g.date is the DB update date from backfill, not the actual game date —
-    // use game_id prefix until the API exposes a proper game_date field.
-    const recent = allGames.filter(g => String(g.game_id || '').startsWith('2025'));
+    // g.date is the DB backfill update date, not the actual game date (game_date is null).
+    // During playoffs: show playoff games only (game_id prefix '202503').
+    // During regular season: show last 5 games of current season ('202502').
+    // If team didn't make playoffs and regular season is over (no games in last ~30 days),
+    // hide the section entirely.
+    const playoffGames = allGames.filter(g => String(g.game_id || '').startsWith('202503'));
+    const regularGames = allGames.filter(g => String(g.game_id || '').startsWith('202502'));
+    // In June: if there are playoff games for this team, show those. Otherwise hide.
+    const isPlayoffMonth = new Date().getMonth() >= 3 && new Date().getMonth() <= 6; // Apr-Jul
+    const recent = playoffGames.length > 0 ? playoffGames.slice(0, 10)
+                 : isPlayoffMonth ? [] // regular season over, team eliminated, hide
+                 : regularGames.slice(0, 5);
     if (!recent.length) return;
 
     // Don't show during live or post-game state
