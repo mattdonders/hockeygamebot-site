@@ -116,6 +116,7 @@ export default function PlayerCareerTable({ seasons }: Props) {
       {
         id: 'season',
         header: 'Season',
+        size: 90,
         accessorFn: (r) => r.season ?? '', // sort key (raw "20252026")
         cell: (info) => {
           const row = info.row.original;
@@ -136,6 +137,7 @@ export default function PlayerCareerTable({ seasons }: Props) {
       {
         id: 'team',
         header: 'Team',
+        size: 100,
         accessorFn: (r) => r.team ?? '',
         cell: (info) => {
           const abbr = info.getValue<string>();
@@ -240,6 +242,7 @@ export default function PlayerCareerTable({ seasons }: Props) {
                       cursor: canSort ? 'pointer' : 'default',
                       userSelect: 'none',
                       whiteSpace: 'nowrap',
+                      ...(h.column.getSize() !== 150 ? { width: h.column.getSize() } : {}),
                     }}
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
