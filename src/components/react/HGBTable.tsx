@@ -726,7 +726,6 @@ export default function HGBTable<T extends object>({
                     <tr
                       key={row.id}
                       data-index={vr.index}
-                      ref={virt.measureElement}
                       style={rowStyle}
                       role={href ? 'link' : undefined}
                       tabIndex={href ? 0 : undefined}
