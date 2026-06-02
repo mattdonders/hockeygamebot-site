@@ -617,12 +617,12 @@ export default function HGBTable<T extends object>({
         {!isMobile && (exportFilename || exportTitle) && (
           <div style={{ display: 'flex', gap: 4 }}>
             {exportFilename && (
-              <button onClick={handleExport} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+              <button id={hideToolbar ? `__hgb-csv-${exportFilename}` : undefined} onClick={handleExport} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
                 ↓ CSV
               </button>
             )}
             {exportTitle && (
-              <button onClick={handleExportPng} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+              <button id={hideToolbar ? `__hgb-png-${exportFilename}` : undefined} onClick={handleExportPng} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
                 ↓ PNG
               </button>
             )}

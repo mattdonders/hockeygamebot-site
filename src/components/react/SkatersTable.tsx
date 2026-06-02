@@ -317,8 +317,10 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           {filtered.length} skaters
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button id="skaters-csv-btn" style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ CSV</button>
-          <button id="skaters-png-btn" style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ PNG</button>
+          <button onClick={() => (document.getElementById('__hgb-csv-hgb-skaters') as HTMLElement)?.click()}
+            style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ CSV</button>
+          <button onClick={() => (document.getElementById('__hgb-png-hgb-skaters') as HTMLElement)?.click()}
+            style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ PNG</button>
         </div>
         <button onClick={() => setFiltersOpen(o => !o)} style={{ ...MONO, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
           Filters <span style={{ fontSize: 8 }}>{filtersOpen ? '▲' : '▼'}</span>
@@ -469,6 +471,16 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         defaultSort={defaultSort}
         rowHref={r => `/stats/player/${r.slug}`}
         emptyMessage="No skaters match the current filters."
+        exportFilename="hgb-skaters"
+        exportTitle="Skaters"
+        exportChips={[
+          gameType === 'regular' ? 'Reg Season' : 'Playoffs',
+          tab.charAt(0).toUpperCase() + tab.slice(1),
+          pos !== 'all' ? (pos === 'F' ? 'Forwards' : 'Defense') : 'All Positions',
+          strength !== 'all' ? strength.toUpperCase() : 'All Strengths',
+          `Min ${minGP} GP`,
+          ...(topN ? [`Top ${topN}`] : []),
+        ]}
         hideToolbar
         virtualize
       />
