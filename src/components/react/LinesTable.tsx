@@ -14,7 +14,7 @@ const POS = '#166534'; const NEG = '#991b1b';
 function fmtPct(v: number | null) { return v != null ? `${Number(v).toFixed(1)}%` : '—'; }
 function fmt1(v: number | null)   { return v != null ? Number(v).toFixed(1) : '—'; }
 function fmt2(v: number | null)   { return v != null ? Number(v).toFixed(2) : '—'; }
-function toMMSS(min: number) { const t = Math.round(min * 60); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; }
+function toMMSS(min: number | null | undefined) { if (min == null || !Number.isFinite(Number(min))) return '—'; const t = Math.round(Number(min) * 60); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; }
 
 function lastNames(players: string | undefined): string {
   if (!players) return '';

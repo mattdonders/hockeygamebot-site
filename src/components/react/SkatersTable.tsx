@@ -245,6 +245,17 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     return { id: sortMap[tab], desc: true };
   }, [tab, gameType, display]);
 
+  // Rows that pass all filters except playerFilter — used as search candidates
+  const filteredForSearch = useMemo(() => {
+    const gpField = gameType === 'playoffs' ? 'po_gp' : 'gp';
+    let r = rows.filter(x => (x[gpField] ?? 0) >= minGP);
+    if (minToi > 0) r = r.filter(x => ((x.toi_ev_sec + x.toi_pp_sec + x.toi_pk_sec) / 60) >= minToi);
+    if (teamFilter.length > 0) r = r.filter(x => teamFilter.includes(x.team));
+    if (pos !== 'all') r = r.filter(x => x.group === pos);
+    if (gameType === 'playoffs') r = r.filter(x => x.po_gp != null && x.po_gp > 0);
+    return r;
+  }, [rows, minGP, minToi, teamFilter, pos, gameType]);
+
   const filtered = useMemo(() => {
     const gpField = gameType === 'playoffs' ? 'po_gp' : 'gp';
     let r = rows.filter(x => (x[gpField] ?? 0) >= minGP);
@@ -323,7 +334,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             {label('Game Type')}
             {group(<>
               {chip(gameType === 'regular',  'Reg Season', () => setGameType('regular'))}
-              {chip(gameType === 'playoffs', 'Playoffs',   () => { setGameType('playoffs'); if (tab !== 'counting') setTab('counting'); })}
+              {chip(gameType === 'playoffs', 'Playoffs',   () => { setGameType('playoffs'); setDisplay('totals'); if (tab !== 'counting') setTab('counting'); })}
             </>)}
           </div>
           <div>
@@ -402,7 +413,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 />
                 {playerDropOpen && playerSearch.trim().length >= 2 && (() => {
                   const q = playerSearch.toLowerCase();
-                  const matches = filtered.filter(r => !playerFilter.includes(r.slug) && r.searchText.includes(q)).slice(0, 8);
+                  const matches = filteredForSearch.filter(r => !playerFilter.includes(r.slug) && r.searchText.includes(q)).slice(0, 8);
                   if (!matches.length) return null;
                   return (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '2px solid #0d0d14', boxShadow: '0 4px 12px rgba(13,13,20,0.12)', minWidth: 220 }}>
