@@ -56,11 +56,11 @@ export default function ImpactTable({ rows, statsDate }: Props) {
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
           <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-            {row.name}
+            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
           </div>
         </div>
       ),
-      exportText: (_v, row) => row.name,
+      exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
       sortType: 'string',
     },
     { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
