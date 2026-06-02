@@ -102,6 +102,16 @@ export const PlayerRecordSchema = z.object({
   hgb_rating_confidence:  z.enum(['full', 'limited', 'limited_sample']).optional(),
   hgb_rating_off_pct:     z.number().nullable().optional(),
   hgb_rating_def_pct:     z.number().nullable().optional(),
+  // RAPM z-score fields for the RAPM card (added 2026-06-02)
+  rapm_ev_gf60_z:   z.number().nullable().optional(),
+  rapm_ev_xgf60_z:  z.number().nullable().optional(),
+  rapm_ev_cf60_z:   z.number().nullable().optional(),
+  rapm_ev_xga60_z:  z.number().nullable().optional(),
+  rapm_ev_ca60_z:   z.number().nullable().optional(),
+  rapm_pp_xgf60_z:  z.number().nullable().optional(),
+  rapm_pp_cf60_z:   z.number().nullable().optional(),
+  rapm_ev_toi:      z.number().nullable().optional(),
+  rapm_pp_toi:      z.number().nullable().optional(),
   // 3-year weighted counting stats (JFresh-style 60/25/15 blend). Additive —
   // raw blended per-60 values plus position-group percentile ranks. Surfaced
   // by the Season / Rating·3yr toggle on the player page Rate Stats card.
