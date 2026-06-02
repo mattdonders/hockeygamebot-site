@@ -110,6 +110,7 @@ export const PlayerRecordSchema = z.object({
   rapm_ev_ca60_z:   z.number().nullable().optional(),
   rapm_pp_xgf60_z:  z.number().nullable().optional(),
   rapm_pp_cf60_z:   z.number().nullable().optional(),
+  rapm_pp_gf60_z:   z.number().nullable().optional(),
   rapm_ev_toi:      z.number().nullable().optional(),
   rapm_pp_toi:      z.number().nullable().optional(),
   // 3-year weighted counting stats (JFresh-style 60/25/15 blend). Additive —
