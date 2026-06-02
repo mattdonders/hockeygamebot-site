@@ -642,6 +642,14 @@ export default function HGBTable<T extends object>({
         </span>
       </div>}
 
+      {/* Hidden export triggers — always in DOM so external callers can proxy-click them */}
+      {hideToolbar && (exportFilename || exportTitle) && (
+        <div style={{ display: 'none' }}>
+          {exportFilename && <button id={`__hgb-csv-${exportFilename}`} onClick={handleExport} />}
+          {exportTitle && <button id={`__hgb-png-${exportFilename}`} onClick={handleExportPng} />}
+        </div>
+      )}
+
       {/* Table */}
       <div
         ref={virtualize ? scrollRef : undefined}
