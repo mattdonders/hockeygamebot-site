@@ -960,6 +960,9 @@ const pctBars = [
       <button disabled class="cta-btn" style={`width:100%;cursor:not-allowed;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:700;opacity:0.35;`} title="Coming soon">
         Player Card
       </button>
+      <button id="download-rapm-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:1px solid ${teamColor};margin-bottom:8px;background:#0D0D14;color:${teamColor};font-weight:700;`}>
+        RAPM Card →
+      </button>
       <button disabled class="cta-btn" style="width:100%;cursor:not-allowed;border:1px solid rgba(255,255,255,0.15);margin-bottom:8px;background:#0D0D14;color:rgba(255,255,255,0.25);opacity:0.5;" title="Coming soon">
         Expanded Card
       </button>
@@ -1089,6 +1092,16 @@ const pctBars = [
     headshotUrl: headshotUrl,
     playerId:    player.player_id,
     slug:        player.slug,
+    rapm: {
+      ev_gf60_z:   (player as any).rapm_ev_gf60_z   ?? null,
+      ev_xgf60_z:  (player as any).rapm_ev_xgf60_z  ?? null,
+      ev_cf60_z:   (player as any).rapm_ev_cf60_z   ?? null,
+      ev_xga60_z:  (player as any).rapm_ev_xga60_z  ?? null,
+      ev_ca60_z:   (player as any).rapm_ev_ca60_z   ?? null,
+      pp_xgf60_z:  (player as any).rapm_pp_xgf60_z  ?? null,
+      ev_toi:      (player as any).rapm_ev_toi       ?? null,
+      pp_toi:      (player as any).rapm_pp_toi       ?? null,
+    },
   }
 }}>
   // ── Player card download ────────────────────────────────────────────────
@@ -2522,6 +2535,145 @@ const pctBars = [
       }, 'image/png');
     }
 
+    // ── RAPM z-score horizontal bar card ─────────────────────────────────────
+    async function drawRapmCard() {
+      const R = D.rapm;
+      if (!R || R.ev_xgf60_z == null) throw new Error('No RAPM data for this player');
+
+      const BG = '#EFEEE8', SURFACE = '#FFFFFF', INK = '#0D0D14';
+      const RED = '#CC0000', RED_LIGHT = 'rgba(200,0,0,0.22)';
+      const MUTED = 'rgba(13,13,20,0.40)', GRID = 'rgba(13,13,20,0.10)';
+      const SCALE = 2, W = 760;
+      const PAD = 36, LABEL_W = 70, VAL_W = 52;
+      const CHART_L = PAD + LABEL_W, CHART_R = W - PAD - VAL_W;
+      const CHART_W = CHART_R - CHART_L;
+      const Z_MAX = 3, ZERO_X = CHART_L + CHART_W / 2;
+      const PX_PER_Z = CHART_W / (Z_MAX * 2);
+      const ROW_H = 46, AXIS_H = 28, SEC_H = 28;
+
+      const evRows = [
+        { label: 'GF/60',  z: R.ev_gf60_z  },
+        { label: 'xGF/60', z: R.ev_xgf60_z },
+        { label: 'xGA/60', z: R.ev_xga60_z },
+        { label: 'CF/60',  z: R.ev_cf60_z  },
+        { label: 'CA/60',  z: R.ev_ca60_z  },
+      ].filter(r => r.z != null);
+      const ppRows = [
+        { label: 'xGF/60', z: R.pp_xgf60_z },
+      ].filter(r => r.z != null);
+
+      const HDR_H = 78, SEP_H = 4;
+      const EV_H = SEC_H + evRows.length * ROW_H + AXIS_H;
+      const PP_H = ppRows.length > 0 ? SEC_H + ppRows.length * ROW_H + AXIS_H + 16 : 0;
+      const H = HDR_H + SEP_H + EV_H + PP_H + 24;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+
+      // ── Header ──
+      // Logo
+      try {
+        const logoUrl = `/logos/nhl/${D.team}_light.svg`;
+        const img = new Image(); img.src = logoUrl;
+        await new Promise(r => { img.onload = r; img.onerror = r; });
+        ctx.drawImage(img, PAD, 16, 44, 44);
+      } catch {}
+
+      // Name + team
+      const fn = D.firstName && D.lastName ? `${D.firstName} ${D.lastName}` : (D.firstName || '');
+      ctx.font = '700 22px "Barlow", sans-serif'; ctx.fillStyle = INK; ctx.textAlign = 'left';
+      ctx.fillText(fn, PAD + 52, 34);
+      ctx.font = '700 12px "Barlow Condensed", sans-serif'; ctx.fillStyle = RED;
+      ctx.fillText(`${D.team} · ${D.pos}`, PAD + 52, 52);
+
+      // Right header
+      ctx.textAlign = 'right';
+      ctx.font = '500 9px "Barlow Condensed", sans-serif'; ctx.fillStyle = MUTED;
+      ctx.fillText('HOCKEYGAMEBOT ANALYTICS', W - PAD, 28);
+      ctx.font = '700 13px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+      ctx.fillText('EV & PP RAPM', W - PAD, 44);
+      ctx.font = '500 9px "Barlow Condensed", sans-serif'; ctx.fillStyle = MUTED;
+      ctx.fillText('2025–26 · Standardized', W - PAD, 58);
+
+      // Red separator
+      ctx.fillStyle = RED; ctx.fillRect(0, HDR_H, W, SEP_H);
+
+      function drawSection(label, rows, toi, yStart) {
+        // Section header
+        ctx.textAlign = 'left';
+        ctx.font = '700 10px "Barlow Condensed", sans-serif'; ctx.fillStyle = RED;
+        ctx.fillText(label.toUpperCase(), PAD, yStart + 18);
+        if (toi != null) {
+          ctx.textAlign = 'right'; ctx.fillStyle = MUTED;
+          ctx.font = '500 9px "Barlow Condensed", sans-serif';
+          ctx.fillText(`${label === 'Even Strength' ? 'EV' : 'PP'} TOI: ${toi.toFixed(1)} min`, W - PAD, yStart + 18);
+        }
+
+        const chartTop = yStart + SEC_H;
+
+        // Grid background + lines
+        ctx.fillStyle = SURFACE;
+        ctx.fillRect(CHART_L, chartTop, CHART_W, rows.length * ROW_H);
+        [-3,-2,-1,0,1,2,3].forEach(v => {
+          const x = Math.round(ZERO_X + v * PX_PER_Z) + 0.5;
+          ctx.beginPath(); ctx.strokeStyle = v === 0 ? 'rgba(13,13,20,0.25)' : GRID;
+          ctx.lineWidth = v === 0 ? 1.5 : 1;
+          if (v === 0) { ctx.setLineDash([4, 3]); } else { ctx.setLineDash([]); }
+          ctx.moveTo(x, chartTop); ctx.lineTo(x, chartTop + rows.length * ROW_H);
+          ctx.stroke(); ctx.setLineDash([]);
+        });
+
+        // Row separators
+        rows.forEach((_, i) => {
+          if (i > 0) {
+            ctx.fillStyle = GRID;
+            ctx.fillRect(CHART_L, chartTop + i * ROW_H, CHART_W, 1);
+          }
+        });
+
+        // Bars + labels + values
+        rows.forEach((r, i) => {
+          const cy = chartTop + i * ROW_H + ROW_H / 2;
+          const z = Math.max(-3, Math.min(3, r.z));
+          const barW = Math.abs(z) * PX_PER_Z;
+          const barX = z >= 0 ? ZERO_X : ZERO_X - barW;
+          const barH = ROW_H * 0.45;
+
+          ctx.fillStyle = z >= 0 ? RED : RED_LIGHT;
+          ctx.fillRect(barX, cy - barH / 2, barW, barH);
+
+          // Metric label
+          ctx.textAlign = 'right'; ctx.fillStyle = MUTED;
+          ctx.font = '500 10px "Barlow Condensed", sans-serif';
+          ctx.fillText(r.label, CHART_L - 8, cy + 4);
+
+          // Value
+          const sign = r.z >= 0 ? '+' : '';
+          ctx.textAlign = 'left'; ctx.fillStyle = r.z >= 0 ? RED : MUTED;
+          ctx.font = `700 11px "Barlow Condensed", sans-serif`;
+          ctx.fillText(`${sign}${r.z.toFixed(2)}`, CHART_R + 8, cy + 4);
+        });
+
+        // Axis numbers
+        const axisY = chartTop + rows.length * ROW_H + 16;
+        ctx.font = '400 9px "Barlow Condensed", sans-serif'; ctx.fillStyle = MUTED; ctx.textAlign = 'center';
+        [-3,-2,-1,0,1,2,3].forEach(v => {
+          ctx.fillText(String(v), ZERO_X + v * PX_PER_Z, axisY);
+        });
+      }
+
+      let y = HDR_H + SEP_H + 6;
+      drawSection('Even Strength', evRows, R.ev_toi, y);
+      y += SEC_H + evRows.length * ROW_H + AXIS_H + 16;
+      if (ppRows.length > 0) drawSection('Power Play', ppRows, R.pp_toi, y);
+
+      return canvas;
+    }
+
     function bindCardBtn(id, label, drawFn, filename, sizeLabel = '560px · 2× retina PNG') {
       const b = document.getElementById(id);
       if (!b) return;
@@ -2547,6 +2699,7 @@ const pctBars = [
     bindCardBtn('download-expanded-btn', 'Expanded Card →',    drawLandscapeCard,     `hgb_${D.slug}_expanded_25-26.png`, '900px · 2× retina PNG');
     bindCardBtn('download-edge-btn',     'NHL EDGE Card →',    drawEdgeCard,          `hgb_${D.slug}_edge_25-26.png`);
     bindCardBtn('download-rating-card-btn', 'Rating Card →',   drawRatingCard,        `hgb_rating_${D.slug}_25-26.png`, '520×720px · 2× retina PNG');
+    bindCardBtn('download-rapm-card-btn',   'RAPM Card →',     drawRapmCard,          `hgb_rapm_${D.slug}_25-26.png`,   '760px · 2× retina PNG');
   })();
 </script>
 
