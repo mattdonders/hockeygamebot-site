@@ -237,7 +237,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
 
   // Derived data
   const defaultSort = useMemo(() => {
-    const sortMap: Record<Tab, string> = { counting: gameType === 'playoffs' ? 'po_points' : display === 'per60' ? 'p60' : 'points', rates: 'p60', advanced: 'imp', onice: 'xgf_pct' };
+    const sortMap: Record<Tab, string> = { counting: display === 'per60' ? 'p60' : 'points', rates: 'p60', advanced: 'imp', onice: 'xgf_pct' };
     return { id: sortMap[tab], desc: true };
   }, [tab, gameType, display]);
 
@@ -282,7 +282,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         {group(<>
           {(['counting','rates','advanced','onice'] as Tab[]).map(t =>
-            chip(tab === t, { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t], () => { setTab(t); }, tabDisabled(t))
+            <span key={t}>{chip(tab === t, { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t], () => { setTab(t); }, tabDisabled(t))}</span>
           )}
         </>)}
         {group(<>
@@ -302,7 +302,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         </>)}
         {group(<>
           {(['all','5v5','pp','pk'] as Strength[]).map(s =>
-            chip(strength === s, { all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s], () => setStrength(s), strDisabled(s))
+            <span key={s}>{chip(strength === s, { all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s], () => setStrength(s), strDisabled(s))}</span>
           )}
         </>)}
         {group(<>
@@ -316,7 +316,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         </label>
         {group(<>
           {([null,10,20,50] as (number|null)[]).map(n =>
-            chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))
+            <span key={String(n)}>{chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))}</span>
           )}
         </>)}
       </div>
