@@ -2564,16 +2564,18 @@ const pctBars = [
       const R = D.rapm;
       if (!R || R.ev_xgf60_z == null) throw new Error('No RAPM data for this player');
 
-      const BG = '#EFEEE8', SURFACE = '#FFFFFF', INK = '#0D0D14';
-      const RED = '#CC0000', RED_LIGHT = 'rgba(200,0,0,0.22)';
-      const MUTED = 'rgba(13,13,20,0.40)', GRID = 'rgba(13,13,20,0.10)';
-      const SCALE = 2, W = 760;
-      const PAD = 36, LABEL_W = 70, VAL_W = 52;
+      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const HERO_BG = '#0D0D14', HERO_INK = '#EFEEE8';
+      const RED = D.teamColor || '#CC0000';
+      const RED_LIGHT = 'rgba(200,0,0,0.22)';
+      const MUTED = 'rgba(13,13,20,0.45)', GRID = 'rgba(13,13,20,0.09)';
+      const SCALE = 2, W = 780;
+      const PAD = 36, LABEL_W = 76, VAL_W = 58;
       const CHART_L = PAD + LABEL_W, CHART_R = W - PAD - VAL_W;
       const CHART_W = CHART_R - CHART_L;
       const Z_MAX = 3, ZERO_X = CHART_L + CHART_W / 2;
       const PX_PER_Z = CHART_W / (Z_MAX * 2);
-      const ROW_H = 46, AXIS_H = 28, SEC_H = 28;
+      const ROW_H = 52, AXIS_H = 32, SEC_H = 36;
 
       const evRows = [
         { label: 'GF/60',  z: R.ev_gf60_z  },
@@ -2586,77 +2588,75 @@ const pctBars = [
         { label: 'xGF/60', z: R.pp_xgf60_z },
       ].filter(r => r.z != null);
 
-      const HDR_H = 78, SEP_H = 4;
+      const HERO_H = 100, ACCENT_W = 5;
       const EV_H = SEC_H + evRows.length * ROW_H + AXIS_H;
-      const PP_H = ppRows.length > 0 ? SEC_H + ppRows.length * ROW_H + AXIS_H + 16 : 0;
-      const H = HDR_H + SEP_H + EV_H + PP_H + 24;
+      const PP_H = ppRows.length > 0 ? SEC_H + ppRows.length * ROW_H + AXIS_H + 20 : 0;
+      const H = HERO_H + EV_H + PP_H + 28;
 
       const canvas = document.createElement('canvas');
       canvas.width = W * SCALE; canvas.height = H * SCALE;
       const ctx = canvas.getContext('2d');
       ctx.scale(SCALE, SCALE);
 
+      // ── Background ──
       ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
 
-      // ── Header ──
-      // Logo
+      // ── Dark hero ──
+      ctx.fillStyle = HERO_BG; ctx.fillRect(0, 0, W, HERO_H);
+      ctx.fillStyle = RED; ctx.fillRect(0, 0, ACCENT_W, HERO_H); // left accent bar
+
+      // Logo (dark version on dark bg)
       try {
-        const logoUrl = `/logos/nhl/${D.team}_light.svg`;
+        const logoUrl = `/logos/nhl/${D.team}_dark.svg`;
         const img = new Image(); img.src = logoUrl;
         await new Promise(r => { img.onload = r; img.onerror = r; });
-        ctx.drawImage(img, PAD, 16, 44, 44);
+        ctx.drawImage(img, PAD + ACCENT_W + 12, (HERO_H - 56) / 2, 56, 56);
       } catch {}
 
-      // Name + team
       const fn = D.firstName && D.lastName ? `${D.firstName} ${D.lastName}` : (D.firstName || '');
-      ctx.font = '700 22px "Barlow", sans-serif'; ctx.fillStyle = INK; ctx.textAlign = 'left';
-      ctx.fillText(fn, PAD + 52, 34);
-      ctx.font = '700 12px "Barlow Condensed", sans-serif'; ctx.fillStyle = RED;
-      ctx.fillText(`${D.team} · ${D.pos}`, PAD + 52, 52);
+      const nameX = PAD + ACCENT_W + 12 + 64;
+      ctx.textAlign = 'left'; ctx.fillStyle = HERO_INK;
+      ctx.font = '700 26px "Barlow", sans-serif';
+      ctx.fillText(fn, nameX, HERO_H / 2 - 2);
+      ctx.font = '700 13px "Barlow Condensed", sans-serif'; ctx.fillStyle = RED;
+      ctx.fillText(`${D.team} · ${D.pos}`, nameX, HERO_H / 2 + 18);
 
-      // Right header
+      // Right branding
       ctx.textAlign = 'right';
-      ctx.font = '500 9px "Barlow Condensed", sans-serif'; ctx.fillStyle = MUTED;
-      ctx.fillText('HOCKEYGAMEBOT ANALYTICS', W - PAD, 28);
-      ctx.font = '700 13px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
-      ctx.fillText('EV & PP RAPM', W - PAD, 44);
-      ctx.font = '500 9px "Barlow Condensed", sans-serif'; ctx.fillStyle = MUTED;
-      ctx.fillText('2025–26 · Standardized', W - PAD, 58);
-
-      // Red separator
-      ctx.fillStyle = RED; ctx.fillRect(0, HDR_H, W, SEP_H);
+      ctx.font = '500 10px "JetBrains Mono", monospace'; ctx.fillStyle = 'rgba(239,238,232,0.35)';
+      ctx.fillText('HOCKEYGAMEBOT ANALYTICS', W - PAD, HERO_H / 2 - 14);
+      ctx.font = '800 16px "Barlow Condensed", sans-serif'; ctx.fillStyle = HERO_INK;
+      ctx.fillText('EV & PP RAPM', W - PAD, HERO_H / 2 + 6);
+      ctx.font = '500 10px "JetBrains Mono", monospace'; ctx.fillStyle = 'rgba(239,238,232,0.35)';
+      ctx.fillText('2025–26 · Standardized', W - PAD, HERO_H / 2 + 22);
 
       function drawSection(label, rows, toi, yStart) {
         // Section header
         ctx.textAlign = 'left';
-        ctx.font = '700 10px "Barlow Condensed", sans-serif'; ctx.fillStyle = RED;
-        ctx.fillText(label.toUpperCase(), PAD, yStart + 18);
+        ctx.font = '800 13px "Barlow Condensed", sans-serif'; ctx.fillStyle = RED;
+        ctx.fillText(label.toUpperCase(), PAD, yStart + 24);
         if (toi != null) {
-          ctx.textAlign = 'right'; ctx.fillStyle = MUTED;
-          ctx.font = '500 9px "Barlow Condensed", sans-serif';
-          ctx.fillText(`${label === 'Even Strength' ? 'EV' : 'PP'} TOI: ${toi.toFixed(1)} min`, W - PAD, yStart + 18);
+          ctx.textAlign = 'right';
+          ctx.font = '400 10px "JetBrains Mono", monospace'; ctx.fillStyle = MUTED;
+          ctx.fillText(`${label === 'Even Strength' ? 'EV' : 'PP'} TOI: ${toi.toFixed(1)} min`, W - PAD, yStart + 24);
         }
 
         const chartTop = yStart + SEC_H;
 
-        // Grid background + lines
-        ctx.fillStyle = SURFACE;
-        ctx.fillRect(CHART_L, chartTop, CHART_W, rows.length * ROW_H);
+        // Chart bg + gridlines
+        ctx.fillStyle = SURFACE; ctx.fillRect(CHART_L, chartTop, CHART_W, rows.length * ROW_H);
         [-3,-2,-1,0,1,2,3].forEach(v => {
           const x = Math.round(ZERO_X + v * PX_PER_Z) + 0.5;
-          ctx.beginPath(); ctx.strokeStyle = v === 0 ? 'rgba(13,13,20,0.25)' : GRID;
+          ctx.beginPath(); ctx.strokeStyle = v === 0 ? 'rgba(13,13,20,0.22)' : GRID;
           ctx.lineWidth = v === 0 ? 1.5 : 1;
-          if (v === 0) { ctx.setLineDash([4, 3]); } else { ctx.setLineDash([]); }
+          ctx.setLineDash(v === 0 ? [5, 4] : []);
           ctx.moveTo(x, chartTop); ctx.lineTo(x, chartTop + rows.length * ROW_H);
           ctx.stroke(); ctx.setLineDash([]);
         });
 
         // Row separators
         rows.forEach((_, i) => {
-          if (i > 0) {
-            ctx.fillStyle = GRID;
-            ctx.fillRect(CHART_L, chartTop + i * ROW_H, CHART_W, 1);
-          }
+          if (i > 0) { ctx.fillStyle = GRID; ctx.fillRect(CHART_L, chartTop + i * ROW_H, CHART_W, 1); }
         });
 
         // Bars + labels + values
@@ -2665,26 +2665,27 @@ const pctBars = [
           const z = Math.max(-3, Math.min(3, r.z));
           const barW = Math.abs(z) * PX_PER_Z;
           const barX = z >= 0 ? ZERO_X : ZERO_X - barW;
-          const barH = ROW_H * 0.45;
+          const barH = ROW_H * 0.42;
 
           ctx.fillStyle = z >= 0 ? RED : RED_LIGHT;
           ctx.fillRect(barX, cy - barH / 2, barW, barH);
 
-          // Metric label
+          // Metric label — Barlow Condensed at ≥12px, JetBrains Mono only for tiny text
           ctx.textAlign = 'right'; ctx.fillStyle = MUTED;
-          ctx.font = '500 10px "Barlow Condensed", sans-serif';
-          ctx.fillText(r.label, CHART_L - 8, cy + 4);
+          ctx.font = '600 12px "Barlow Condensed", sans-serif';
+          ctx.fillText(r.label, CHART_L - 10, cy + 5);
 
-          // Value
+          // Value — bold, larger
           const sign = r.z >= 0 ? '+' : '';
-          ctx.textAlign = 'left'; ctx.fillStyle = r.z >= 0 ? RED : MUTED;
-          ctx.font = `700 11px "Barlow Condensed", sans-serif`;
-          ctx.fillText(`${sign}${r.z.toFixed(2)}`, CHART_R + 8, cy + 4);
+          ctx.textAlign = 'left';
+          ctx.fillStyle = r.z >= 0 ? RED : MUTED;
+          ctx.font = '700 13px "Barlow Condensed", sans-serif';
+          ctx.fillText(`${sign}${r.z.toFixed(2)}`, CHART_R + 10, cy + 5);
         });
 
-        // Axis numbers
-        const axisY = chartTop + rows.length * ROW_H + 16;
-        ctx.font = '400 9px "Barlow Condensed", sans-serif'; ctx.fillStyle = MUTED; ctx.textAlign = 'center';
+        // Axis numbers — JetBrains Mono (numeric data, small)
+        const axisY = chartTop + rows.length * ROW_H + 20;
+        ctx.font = '400 10px "JetBrains Mono", monospace'; ctx.fillStyle = MUTED; ctx.textAlign = 'center';
         [-3,-2,-1,0,1,2,3].forEach(v => {
           ctx.fillText(String(v), ZERO_X + v * PX_PER_Z, axisY);
         });
