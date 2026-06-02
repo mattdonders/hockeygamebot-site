@@ -256,11 +256,13 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     // topN applied after HGBTable sorting via a post-sort slice — but since we
     // can't hook into HGBTable's sort, sort here by the defaultSort column first
     if (topN) {
-      const sortId = defaultSort.id;
+      // In playoff mode, column IDs map to po_* fields (same mapping as buildColumns poMap)
+      const poMap: Record<string, string> = { goals: 'po_goals', assists: 'po_assists', points: 'po_points', sog: 'po_sog', ixg: 'po_ixg', toi_pg: 'po_toi_pg' };
+      const sortField = gameType === 'playoffs' && poMap[defaultSort.id] ? poMap[defaultSort.id] : defaultSort.id;
       r = [...r].sort((a, b) => {
-        const av = (a as any)[sortId] ?? -Infinity;
-        const bv = (b as any)[sortId] ?? -Infinity;
-        return bv - av; // desc
+        const av = (a as any)[sortField] ?? -Infinity;
+        const bv = (b as any)[sortField] ?? -Infinity;
+        return bv - av;
       }).slice(0, topN);
     }
     return r;
