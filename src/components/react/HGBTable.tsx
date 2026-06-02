@@ -59,6 +59,8 @@ export type HGBTableProps<T> = {
   /** Enables TanStack Virtual row rendering. Requires a fixed-height scroll container.
    *  With maxHeight: uses that height. Without: defaults to calc(100vh - 300px). */
   virtualize?: boolean;
+  /** Hides the built-in toolbar (search, row count, exports). Use when the parent renders its own toolbar. */
+  hideToolbar?: boolean;
   /** Big Barlow title shown in the PNG export header. If omitted, PNG button is hidden. */
   exportTitle?: string;
   /** Active filter labels shown as chips in PNG export (e.g. ["REG SEASON", "FORWARDS"]). */
@@ -326,6 +328,7 @@ export default function HGBTable<T extends object>({
   maxHeight,
   emptyMessage = 'No results found.',
   virtualize = false,
+  hideToolbar = false,
   exportTitle,
   exportChips = [],
 }: HGBTableProps<T>) {
@@ -506,7 +509,7 @@ export default function HGBTable<T extends object>({
     <div style={{ ...BODY, color: INK }}>
 
       {/* Toolbar */}
-      <div
+      {!hideToolbar && <div
         style={{
           display: 'flex',
           gap: 8,
@@ -633,7 +636,7 @@ export default function HGBTable<T extends object>({
         >
           {filteredData.length} rows{!isMobile ? ' · click header to sort' : ''}
         </span>
-      </div>
+      </div>}
 
       {/* Table */}
       <div

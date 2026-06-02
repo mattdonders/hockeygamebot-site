@@ -92,7 +92,7 @@ function buildColumns(
       cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')) },
     { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
-    { id: 'gp', header: isPlayoff ? 'PO GP' : 'GP', accessor: r => isPlayoff ? r.po_gp : r.gp, width: 48, cell: v => v != null ? String(v) : '—' },
+    { id: 'gp', header: 'GP', accessor: r => isPlayoff ? r.po_gp : r.gp, width: 48, cell: v => v != null ? String(v) : '—' },
   ];
 
   // Tab-specific columns
@@ -109,11 +109,11 @@ function buildColumns(
           { key: 'toi_pg',label: 'TOI/G',            fmt: f2 },
         ]
       : [
-          { key: 'goals',   label: prefix + (isPlayoff ? 'PO G'   : 'G'),   fmt: (v: any) => String(v ?? '—') },
-          { key: 'assists', label: prefix + (isPlayoff ? 'PO A'   : 'A'),   fmt: (v: any) => String(v ?? '—') },
-          { key: 'points',  label: prefix + (isPlayoff ? 'PO P'   : 'P'),   fmt: (v: any) => String(v ?? '—'), bold: true },
-          { key: 'sog',     label: prefix + (isPlayoff ? 'PO SOG' : 'SOG'), fmt: (v: any) => String(v ?? '—') },
-          { key: 'ixg',     label: prefix + (isPlayoff ? 'PO ixG' : 'ixG'), fmt: f2 },
+          { key: 'goals',   label: prefix + 'G',   fmt: (v: any) => String(v ?? '—') },
+          { key: 'assists', label: prefix + 'A',   fmt: (v: any) => String(v ?? '—') },
+          { key: 'points',  label: prefix + 'P',   fmt: (v: any) => String(v ?? '—'), bold: true },
+          { key: 'sog',     label: prefix + 'SOG', fmt: (v: any) => String(v ?? '—') },
+          { key: 'ixg',     label: prefix + 'ixG', fmt: f2 },
           { key: 'toi_pg',  label: 'TOI/G',                                  fmt: (v: any) => v != null ? Number(v).toFixed(1) : '—' },
         ];
 
@@ -218,8 +218,13 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const [pos,      setPos]      = useState<Pos>('all');
   const [strength, setStrength] = useState<Strength>('all');
   const [display,  setDisplay]  = useState<Display>('totals');
-  const [topN,     setTopN]     = useState<number | null>(null);
-  const [minGP,    setMinGP]    = useState(isPlayoffSeason ? 1 : 20);
+  const [topN,         setTopN]         = useState<number | null>(null);
+  const [minGP,        setMinGP]        = useState(isPlayoffSeason ? 1 : 20);
+  const [minToi,       setMinToi]       = useState(0); // total TOI in minutes
+  const [playerFilter, setPlayerFilter] = useState<string[]>([]); // slugs of selected players
+  const [teamFilter,   setTeamFilter]   = useState<string[]>([]);
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [playerDropOpen, setPlayerDropOpen] = useState(false);
 
   // Reset minGP when switching game types
   useEffect(() => {
@@ -244,6 +249,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const filtered = useMemo(() => {
     const gpField = gameType === 'playoffs' ? 'po_gp' : 'gp';
     let r = rows.filter(x => (x[gpField] ?? 0) >= minGP);
+    if (minToi > 0) r = r.filter(x => ((x.toi_ev_sec + x.toi_pp_sec + x.toi_pk_sec) / 60) >= minToi);
+    if (playerFilter.length > 0) r = r.filter(x => playerFilter.includes(x.slug));
+    if (teamFilter.length > 0) r = r.filter(x => teamFilter.includes(x.team));
     if (pos !== 'all') r = r.filter(x => x.group === pos);
     if (gameType === 'playoffs') r = r.filter(x => x.po_gp != null && x.po_gp > 0);
     // topN applied after HGBTable sorting via a post-sort slice — but since we
@@ -257,90 +265,206 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
       }).slice(0, topN);
     }
     return r;
-  }, [rows, minGP, pos, gameType, topN, defaultSort.id]);
+  }, [rows, minGP, minToi, playerFilter, teamFilter, pos, gameType, topN, defaultSort.id]);
 
   const columns = useMemo(
     () => buildColumns(tab, gameType, strength, display, isDark, currentSeason),
     [tab, gameType, strength, display, isDark, currentSeason],
   );
 
-  const tabDisabled = (t: Tab) => gameType === 'playoffs' && (t === 'rates' || t === 'advanced' || t === 'onice');
+  const tabDisabled = (_t: Tab) => false; // all tabs available; advanced/onice show season context in playoff mode
   const strDisabled = (s: Strength) => tab === 'advanced' || tab === 'onice';
 
+  const [filtersOpen,  setFiltersOpen]  = useState(true);
+
   const chip = (active: boolean, label: string, onClick: () => void, disabled = false) => (
-    <button onClick={disabled ? undefined : onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: disabled ? 'not-allowed' : 'pointer', background: active ? '#0d0d14' : 'transparent', color: active ? '#EFEEE8' : disabled ? 'rgba(13,13,20,0.2)' : 'rgba(13,13,20,0.48)', opacity: disabled ? 0.5 : 1 }}>
+    <button onClick={disabled ? undefined : onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: disabled ? 'not-allowed' : 'pointer', background: active ? '#0d0d14' : '#fff', color: active ? '#EFEEE8' : disabled ? 'rgba(13,13,20,0.2)' : 'rgba(13,13,20,0.48)', opacity: disabled ? 0.5 : 1 }}>
       {label}
     </button>
   );
   const group = (children: React.ReactNode) => (
     <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>{children}</div>
   );
+  const label = (text: string) => (
+    <div style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
+      {text}
+    </div>
+  );
 
   return (
     <div>
-      {/* Toolbar — Row 1: view tabs + game type */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+      {/* Zone 1 — always visible: stat tabs + meta + filter toggle */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
         {group(<>
           {(['counting','rates','advanced','onice'] as Tab[]).map(t =>
             <span key={t}>{chip(tab === t, { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t], () => { setTab(t); }, tabDisabled(t))}</span>
           )}
         </>)}
-        {group(<>
-          {chip(gameType === 'regular',  'Reg Season', () => setGameType('regular'))}
-          {chip(gameType === 'playoffs', 'Playoffs',   () => { setGameType('playoffs'); if (tab !== 'counting') setTab('counting'); })}
-        </>)}
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'center' }}>
-          {filtered.length} skaters{statsDate ? ` · updated ${statsDate}` : ''}
+        <div style={{ flex: 1 }} />
+        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
+          {filtered.length} skaters
         </span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button id="skaters-csv-btn" style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ CSV</button>
+          <button id="skaters-png-btn" style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ PNG</button>
+        </div>
+        <button onClick={() => setFiltersOpen(o => !o)} style={{ ...MONO, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
+          Filters <span style={{ fontSize: 8 }}>{filtersOpen ? '▲' : '▼'}</span>
+        </button>
       </div>
-      {/* Toolbar — Row 2: position, strength, display, min GP, top-N */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-        {group(<>
-          {chip(pos === 'all', 'All',  () => setPos('all'))}
-          {chip(pos === 'F',   'Fwds', () => setPos('F'))}
-          {chip(pos === 'D',   'Def',  () => setPos('D'))}
-        </>)}
-        {group(<>
-          {(['all','5v5','pp','pk'] as Strength[]).map(s =>
-            <span key={s}>{chip(strength === s, { all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s], () => setStrength(s), strDisabled(s))}</span>
-          )}
-        </>)}
-        {group(<>
-          {chip(display === 'totals', 'Totals', () => setDisplay('totals'))}
-          {chip(display === 'per60',  'Per 60', () => setDisplay('per60'), gameType === 'playoffs')}
-        </>)}
-        <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          Min GP
-          <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-            style={{ ...MONO, fontSize: 11, width: 44, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent' }} />
-        </label>
-        {group(<>
-          {([null,10,20,50] as (number|null)[]).map(n =>
-            <span key={String(n)}>{chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))}</span>
-          )}
-        </>)}
-      </div>
+
+      {/* Zone 2 — collapsible filter panel */}
+      {filtersOpen && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 12 }}>
+          <div>
+            {label('Game Type')}
+            {group(<>
+              {chip(gameType === 'regular',  'Reg Season', () => setGameType('regular'))}
+              {chip(gameType === 'playoffs', 'Playoffs',   () => { setGameType('playoffs'); if (tab !== 'counting') setTab('counting'); })}
+            </>)}
+          </div>
+          <div>
+            {label('Season')}
+            <select value={currentSeason} disabled style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'default', opacity: 1 }}>
+              <option>{currentSeason.includes('-') ? currentSeason.slice(2) : `${currentSeason.slice(2,4)}-${currentSeason.slice(6)}`}</option>
+            </select>
+          </div>
+          <div>
+            {label('Position')}
+            {group(<>
+              {chip(pos === 'all', 'All',  () => setPos('all'))}
+              {chip(pos === 'F',   'Fwds', () => setPos('F'))}
+              {chip(pos === 'D',   'Def',  () => setPos('D'))}
+            </>)}
+          </div>
+          <div>
+            {label('Strength')}
+            {group(<>
+              {(['all','5v5','pp','pk'] as Strength[]).map(s =>
+                <span key={s}>{chip(strength === s, { all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s], () => setStrength(s), strDisabled(s))}</span>
+              )}
+            </>)}
+          </div>
+          <div>
+            {label('Display')}
+            {group(<>
+              {chip(display === 'totals', 'Totals', () => setDisplay('totals'))}
+              {chip(display === 'per60',  'Per 60', () => setDisplay('per60'), gameType === 'playoffs')}
+            </>)}
+          </div>
+          <div>
+            {label('Scope')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                Min GP
+                <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
+                  style={{ ...MONO, fontSize: 11, width: 40, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+              </label>
+              <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                Min TOI
+                <input type="number" value={minToi} min={0} max={2000} step={10} onChange={e => setMinToi(Number(e.target.value))}
+                  style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+                <span style={{ color: 'rgba(13,13,20,0.32)' }}>min</span>
+              </label>
+              {group(<>
+                {([null,10,20,50] as (number|null)[]).map(n =>
+                  <span key={String(n)}>{chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))}</span>
+                )}
+              </>)}
+            </div>
+          </div>
+
+          {/* PLAYERS — search-to-add multi-select */}
+          <div style={{ position: 'relative' }}>
+            {label('Players')}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+              {playerFilter.map(slug => {
+                const p = rows.find(r => r.slug === slug);
+                return (
+                  <button key={slug} onClick={() => setPlayerFilter(f => f.filter(s => s !== slug))}
+                    style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                    {p?.name ?? slug} ×
+                  </button>
+                );
+              })}
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  placeholder="Search players…"
+                  value={playerSearch}
+                  onChange={e => { setPlayerSearch(e.target.value); setPlayerDropOpen(true); }}
+                  onFocus={() => setPlayerDropOpen(true)}
+                  onBlur={() => setTimeout(() => setPlayerDropOpen(false), 150)}
+                  style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', outline: 'none', width: 220 }}
+                />
+                {playerDropOpen && playerSearch.trim().length >= 2 && (() => {
+                  const q = playerSearch.toLowerCase();
+                  const matches = filtered.filter(r => !playerFilter.includes(r.slug) && r.searchText.includes(q)).slice(0, 8);
+                  if (!matches.length) return null;
+                  return (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '2px solid #0d0d14', boxShadow: '0 4px 12px rgba(13,13,20,0.12)', minWidth: 220 }}>
+                      {matches.map(r => (
+                        <button key={r.slug} type="button"
+                          onMouseDown={e => { e.preventDefault(); setPlayerFilter(f => [...f, r.slug]); setPlayerSearch(''); setPlayerDropOpen(false); }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', borderBottom: '1px solid rgba(13,13,20,0.06)', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontFamily: "'Barlow', sans-serif" }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(13,13,20,0.04)'; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                        >
+                          <span style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: 13 }}>{r.first_name && r.last_name ? `${r.first_name} ${r.last_name}` : r.name}</span>
+                          <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{r.team} · {r.pos}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+              {playerFilter.length > 0 && (
+                <button onClick={() => setPlayerFilter([])} style={{ ...MONO, fontSize: 10, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* TEAM — multi-chip */}
+          <div>
+            {label('Team')}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+              {teamFilter.map(t => (
+                <button key={t} onClick={() => setTeamFilter(f => f.filter(x => x !== t))}
+                  style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                  {t} ×
+                </button>
+              ))}
+              <select value="" onChange={e => { const v = e.target.value; if (v && !teamFilter.includes(v)) setTeamFilter(f => [...f, v]); e.target.value = ''; }}
+                style={{ ...MONO, fontSize: 10, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                <option value="">Add team…</option>
+                {[...new Set(rows.map(r => r.team))].sort().filter(t => !teamFilter.includes(t)).map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+              {teamFilter.length > 0 && (
+                <button onClick={() => setTeamFilter([])} style={{ ...MONO, fontSize: 10, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Clear</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <HGBTable
         data={filtered}
         columns={columns}
         defaultSort={defaultSort}
-        globalSearchField={r => r.searchText}
-        searchPlaceholder="Search players or team…"
         rowHref={r => `/stats/player/${r.slug}`}
-        exportFilename="hgb-skaters"
-        exportTitle="Skaters"
-        exportChips={[
-          gameType === 'regular' ? 'Reg Season' : 'Playoffs',
-          tab.charAt(0).toUpperCase() + tab.slice(1),
-          pos !== 'all' ? (pos === 'F' ? 'Forwards' : 'Defense') : 'All Positions',
-          strength !== 'all' ? strength.toUpperCase() : 'All Strengths',
-          `Min ${minGP} GP`,
-          ...(topN ? [`Top ${topN}`] : []),
-        ]}
         emptyMessage="No skaters match the current filters."
+        hideToolbar
         virtualize
       />
+      {statsDate && (
+        <p style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.32)', marginTop: 6, letterSpacing: '0.06em' }}>
+          Updated {statsDate} · 5v5 data via HGB Analytics
+        </p>
+      )}
     </div>
   );
 }
