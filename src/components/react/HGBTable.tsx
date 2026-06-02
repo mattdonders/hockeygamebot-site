@@ -7,7 +7,7 @@
  * NO color scaling — that's a separate concern kept in per-page components.
  */
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, useDeferredValue } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   useReactTable,
@@ -35,6 +35,9 @@ export type HGBColumnDef<T> = {
   mobileHidden?: boolean;
   defaultHidden?: boolean;
 };
+
+// Stable empty array so `filters = []` default doesn't create a new ref every render
+const _EMPTY_FILTERS: HGBFilter[] = [];
 
 export type HGBFilter =
   | { type: 'search'; placeholder?: string; field: (row: any) => string }
@@ -317,7 +320,7 @@ export default function HGBTable<T extends object>({
   defaultSort,
   globalSearchField,
   searchPlaceholder,
-  filters = [],
+  filters = _EMPTY_FILTERS,
   rowHref,
   exportFilename,
   maxHeight,
@@ -339,13 +342,10 @@ export default function HGBTable<T extends object>({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultSort?.id, defaultSort?.desc]);
 
-  // Global search: input updates immediately; debounced value drives the filter/render
+  // Global search: input updates immediately (high priority), filtering defers (low priority).
+  // useDeferredValue lets React interrupt expensive re-renders when new keystrokes arrive.
   const [searchInput, setSearchInput] = useState('');
-  const [globalSearch, setGlobalSearch] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => setGlobalSearch(searchInput), 250);
-    return () => clearTimeout(t);
-  }, [searchInput]);
+  const globalSearch = useDeferredValue(searchInput);
 
   // Virtualizer ref — single scroll container for all virtual tables
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -430,14 +430,18 @@ export default function HGBTable<T extends object>({
     overscan: 8,
   });
 
+  // Padding-spacer approach: two sentinel <tr> rows bookend the virtual items.
+  // This keeps <tbody> as a normal table-row-group (no display:block/flex tricks)
+  // so the browser layout engine never loops measuring unstable heights.
   const virtItems = virtualize ? virt.getVirtualItems() : null;
   const virtTotalSize = virtualize ? virt.getTotalSize() : 0;
+  const paddingTop = virtItems && virtItems.length > 0 ? virtItems[0].start : 0;
+  const paddingBottom =
+    virtItems && virtItems.length > 0
+      ? virtTotalSize - virtItems[virtItems.length - 1].end
+      : 0;
   const visibleColCount = table.getVisibleLeafColumns().length;
 
-  // Scroll to top whenever data, sort, or search changes
-  useEffect(() => {
-    if (virtualize && scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [virtualize, sorting, globalSearch, filterState, data]);
 
   const updateFilter = useCallback((key: string, value: string | number) => {
     setFilterState(prev => ({ ...prev, [key]: value }));
@@ -707,26 +711,30 @@ export default function HGBTable<T extends object>({
                 </td>
               </tr>
             ) : virtItems ? (
-              // ── Virtual rows ───────────────────────────────────────────────
+              // ── Virtual rows — padding-spacer approach.
+              // <tbody> stays as a normal table-row-group (no display:block/flex).
+              // Two sentinel <tr> elements create space above and below the visible window.
+              // This avoids the measurement loop that occurs when tbody height changes
+              // cause scroll events which re-trigger the virtualizer.
               <>
-                {virtItems[0]?.start > 0 && (
-                  <tr><td colSpan={visibleColCount} style={{ height: virtItems[0].start, padding: 0, border: 0 }} /></tr>
+                {paddingTop > 0 && (
+                  <tr aria-hidden="true">
+                    <td colSpan={visibleColCount} style={{ height: paddingTop, padding: 0, border: 'none' }} />
+                  </tr>
                 )}
                 {virtItems.map(vr => {
                   const row = tableRows[vr.index];
                   const href = rowHref ? rowHref(row.original) : undefined;
                   const bg = vr.index % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
-                  const rowStyle: React.CSSProperties = {
-                    borderBottom: '1px solid rgba(13,13,20,0.05)',
-                    background: bg,
-                    cursor: href ? 'pointer' : 'default',
-                    height: vr.size,
-                  };
                   return (
                     <tr
                       key={row.id}
-                      data-index={vr.index}
-                      style={rowStyle}
+                      style={{
+                        height: vr.size,
+                        borderBottom: '1px solid rgba(13,13,20,0.05)',
+                        background: bg,
+                        cursor: href ? 'pointer' : 'default',
+                      }}
                       role={href ? 'link' : undefined}
                       tabIndex={href ? 0 : undefined}
                       onClick={href ? () => { window.location.href = href; } : undefined}
@@ -747,11 +755,11 @@ export default function HGBTable<T extends object>({
                     </tr>
                   );
                 })}
-                {(() => {
-                  const last = virtItems[virtItems.length - 1];
-                  const bottom = last ? virtTotalSize - last.end : 0;
-                  return bottom > 0 ? <tr><td colSpan={visibleColCount} style={{ height: bottom, padding: 0, border: 0 }} /></tr> : null;
-                })()}
+                {paddingBottom > 0 && (
+                  <tr aria-hidden="true">
+                    <td colSpan={visibleColCount} style={{ height: paddingBottom, padding: 0, border: 'none' }} />
+                  </tr>
+                )}
               </>
             ) : (
               // ── Normal rows ────────────────────────────────────────────────

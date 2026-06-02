@@ -64,11 +64,11 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
           <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
+            {row.name}
           </div>
         </div>
       ),
-      exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
+      exportText: (_v, row) => row.name,
       sortType: 'string',
     },
     {

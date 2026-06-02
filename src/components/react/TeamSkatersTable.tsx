@@ -91,7 +91,7 @@ export default function TeamSkatersTable({ players, playerGameMap, initialOpp = 
       // Season view: use pre-computed PlayerRecord values
       return players.map(p => ({
         slug:   p.slug,
-        name:   p.first_name && p.last_name ? `${p.first_name} ${p.last_name}` : p.display_name,
+        name:   p.display_name,
         team:   p.team_abbrev,
         pos:    p.pos,
         gp:     p.gp,
