@@ -1780,14 +1780,15 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       </div>`;
 
       // Series win probability bar — assumes 50/50 per game from current state
-      const aSerWP = calcSeriesWinProb(aW, hW);
-      const aSerWPpct = Math.round(aSerWP * 100);
-      const hSerWPpct = 100 - aSerWPpct;
+      // Use model win % if DE has added series_win_pct_away/home to scoreboard game object,
+      // otherwise fall back to naive binomial (50/50 at 0-0).
+      const aSerWPpct = g.series_win_pct_away ?? Math.round(calcSeriesWinProb(aW, hW) * 100);
+      const hSerWPpct = g.series_win_pct_home ?? (100 - aSerWPpct);
       sideSeries += `<div class="gh-series-wp">
         <div class="gh-series-wp-lbl">
-          <b data-series-wp="away" data-teams="${a}-${h}" style="color:${aSerWPpct >= 50 ? ac : 'var(--ink-48)'}">${a} ${aSerWPpct}%</b>
+          <b style="color:${aSerWPpct >= 50 ? ac : 'var(--ink-48)'}">${a} ${aSerWPpct}%</b>
           <span style="color:var(--ink-32)">Series odds</span>
-          <b data-series-wp="home" data-teams="${a}-${h}" style="color:${hSerWPpct >= 50 ? hc : 'var(--ink-48)'}">${h} ${hSerWPpct}%</b>
+          <b style="color:${hSerWPpct >= 50 ? hc : 'var(--ink-48)'}">${h} ${hSerWPpct}%</b>
         </div>
         <div class="gh-series-wp-bar" style="background:linear-gradient(to right,${ac} ${aSerWPpct}%,${hc} ${aSerWPpct}%)"></div>
       </div>`;
@@ -2413,43 +2414,15 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       else if (replayDate) url = `https://api.hockeygamebot.com/v1/scoreboard?date=${replayDate}`;
       else url = 'https://api.hockeygamebot.com/v1/scoreboard';
       const r = await fetch(url, { cache: 'no-store' });
-      if (r.ok) { const d = await r.json(); render(d, tonight); patchSeriesWinPct(); return; }
+      if (r.ok) { const d = await r.json(); render(d, tonight); return; }
     } catch {}
-    if (initData) { render(initData, tonight); patchSeriesWinPct(); }
+    if (initData) render(initData, tonight);
   }
 
   fetchAndRender();
   // Disable polling for mock mode and historical replay — data is static
   if (!mockState && !replayDate) setInterval(fetchAndRender, 30000);
 
-  // ── Patch series win % with model predictions (calcSeriesWinProb is naive 50/50) ──
-  // Called after each render so model % replace the 50/50 binomial values.
-  let _seriesPredictions = null;
-  async function patchSeriesWinPct() {
-    try {
-      if (!_seriesPredictions) {
-        const r = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/4', { cache: 'no-store' });
-        if (r.ok) _seriesPredictions = await r.json();
-      }
-      if (!_seriesPredictions) return;
-      for (const s of (_seriesPredictions.series ?? [])) {
-        if (s.is_complete) continue;
-        const key = `${s.team_a}-${s.team_b}`;
-        const keyRev = `${s.team_b}-${s.team_a}`;
-        document.querySelectorAll(`[data-series-wp]`).forEach(el => {
-          const teams = el.dataset.teams;
-          if (teams !== key && teams !== keyRev) return;
-          const isReversed = teams === keyRev;
-          const isAway = el.dataset.seriesWp === 'away';
-          const pct = isReversed
-            ? (isAway ? s.win_pct_b : s.win_pct_a)
-            : (isAway ? s.win_pct_a : s.win_pct_b);
-          const abbr = el.textContent.split(' ')[0];
-          el.textContent = `${abbr} ${pct}%`;
-        });
-      }
-    } catch {}
-  }
 
   // ── Prefs + tracked teams (all users — prefs improve YG section; results for logged-in) ──
   (async function loadPrefsAndTrackedTeams() {
