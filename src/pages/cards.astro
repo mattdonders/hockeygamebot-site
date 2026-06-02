@@ -1,0 +1,450 @@
+---
+import Nav from '../components/Nav.astro';
+import ThemeScript from '../components/ThemeScript.astro';
+import Fonts from '../components/Fonts.astro';
+import PlayerSearch from '../components/react/PlayerSearch';
+import type { PlayerSearchItem } from '../components/react/PlayerSearch';
+import { loadPlayers } from '../lib/stats-loader';
+import { pickTeamColor } from '../lib/team-colors';
+
+const allPlayers = loadPlayers();
+const searchPlayers: (PlayerSearchItem & { player_id: number })[] = allPlayers.map(p => ({
+  display_name: p.display_name,
+  first_name:   p.first_name ?? '',
+  last_name:    p.last_name  ?? '',
+  team_abbrev:  p.team_abbrev,
+  pos:          p.pos,
+  gp:           p.gp,
+  slug:         p.slug,
+  search_text:  `${p.display_name} ${p.last_name} ${p.team_abbrev}`.toLowerCase(),
+  player_id:    p.player_id,
+}));
+
+// Compact player map for client-side card generation
+// Only includes fields needed by the canvas draw functions
+const playerMap = Object.fromEntries(allPlayers.map(p => [p.slug, {
+  slug: p.slug, player_id: p.player_id,
+  firstName: p.first_name ?? '', lastName: p.last_name ?? '',
+  pos: p.pos, posLabel: p.pos_group === 'D' ? 'Defense' : 'Forward',
+  team: p.team_abbrev,
+  teamColor: pickTeamColor(p.team_abbrev),
+  gp: p.gp, toiAvgSec: p.toi_avg_sec,
+  war: p.war ?? null, warPct: null,
+  hgb_rating: p.hgb_rating ?? null,
+  hgb_rating_percentile: p.hgb_rating_percentile ?? null,
+  hgb_rating_confidence: p.hgb_rating_confidence ?? 'full',
+  impact: p.avg_gs_centered, impactPct: p.percentiles_vs_pos.game_score,
+  avgGsDisplay: p.avg_gs_display,
+  penDrawn: p.penalties_drawn ?? 0, penTaken: p.penalties_taken ?? 0,
+  ratesG: p.rates_per_60.goals, ratesA1: p.rates_per_60.a1, ratesXg: p.rates_per_60.ixg,
+  finishing: p.rates_per_60.finishing,
+  hgb_rating_off_pct: (p as any).hgb_rating_off_pct ?? null,
+  hgb_rating_def_pct: (p as any).hgb_rating_def_pct ?? null,
+  hgb_rating_n_prior: (p as any).hgb_rating_components?.n_prior_seasons ?? null,
+  percentiles: p.percentiles_vs_pos,
+  headshotUrl: `https://assets.nhle.com/mugs/nhl/60x60/${p.player_id}.png`,
+  rapm: {
+    ev_gf60_z:  (p as any).rapm_ev_gf60_z  ?? null,
+    ev_xgf60_z: (p as any).rapm_ev_xgf60_z ?? null,
+    ev_cf60_z:  (p as any).rapm_ev_cf60_z  ?? null,
+    ev_xga60_z: (p as any).rapm_ev_xga60_z ?? null,
+    ev_ca60_z:  (p as any).rapm_ev_ca60_z  ?? null,
+    pp_xgf60_z: (p as any).rapm_pp_xgf60_z ?? null,
+    ev_toi:     (p as any).rapm_ev_toi      ?? null,
+    pp_toi:     (p as any).rapm_pp_toi      ?? null,
+  },
+}]));
+---
+<!doctype html>
+<html lang="en">
+<head>
+<ThemeScript />
+<Fonts />
+<meta charset="utf-8" />
+<title>Card Generator · HockeyGameBot Analytics</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="Generate shareable analytics cards for any NHL player — Rating Card, RAPM profile, side-by-side comparison." />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="apple-touch-icon" href="/favicon-180x180.png" />
+<style is:global>
+:root {
+  --bg:#EFEEE8;--bg-2:#E4E3DC;--surface:#FFFFFF;--ink:#0d0d14;--red:#E8002D;
+  --ink-06:rgba(13,13,20,0.06);--ink-10:rgba(13,13,20,0.10);--ink-14:rgba(13,13,20,0.14);
+  --ink-20:rgba(13,13,20,0.20);--ink-32:rgba(13,13,20,0.32);--ink-48:rgba(13,13,20,0.48);
+  --ink-72:rgba(13,13,20,0.72);--display:"Barlow Condensed",sans-serif;
+  --body:"Barlow",sans-serif;--mono:"JetBrains Mono",monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--body);-webkit-font-smoothing:antialiased;min-height:100vh;}
+a{color:inherit;text-decoration:none;}
+
+.mast{border-bottom:2px solid var(--ink);padding:36px 32px 32px;}
+.mast-inner{max-width:1100px;margin:0 auto;}
+.mast-eyebrow{font-family:var(--display);font-weight:700;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:var(--ink-48);display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+.mast-eyebrow .pip{width:5px;height:5px;background:var(--red);border-radius:50%;}
+.mast-headline{font-family:var(--display);font-weight:800;font-size:clamp(36px,5vw,56px);text-transform:uppercase;line-height:1;}
+.mast-dek{font-size:13px;color:var(--ink-48);margin-top:10px;}
+
+.wrap{max-width:1100px;margin:0 auto;padding:0 32px 80px;}
+
+.gen-layout{display:grid;grid-template-columns:280px 1fr;gap:24px;padding-top:32px;}
+@media(max-width:720px){.gen-layout{grid-template-columns:1fr;}}
+
+.control-panel{background:var(--surface);border:1px solid var(--ink-14);align-self:start;}
+.panel-section{padding:18px 20px;border-bottom:1px solid var(--ink-06);}
+.panel-section:last-child{border-bottom:0;}
+.panel-label{display:block;font-family:var(--display);font-weight:700;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--ink-48);margin-bottom:10px;}
+
+.type-tabs{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid var(--ink-14);}
+.type-tab{padding:9px 4px;font-family:var(--display);font-weight:700;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;background:transparent;color:var(--ink-48);border:none;border-right:1px solid var(--ink-14);cursor:pointer;transition:all 0.1s;}
+.type-tab:last-child{border-right:0;}
+.type-tab.active{background:var(--ink);color:var(--surface);}
+.type-tab:not(.active):hover{background:var(--bg-2);color:var(--ink);}
+
+.compare-players{display:none;flex-direction:column;gap:16px;}
+.compare-players.visible{display:flex;}
+.compare-vs{text-align:center;font-family:var(--display);font-weight:800;font-size:20px;color:var(--ink-32);}
+
+.gen-btn{width:100%;padding:12px;font-family:var(--display);font-weight:800;font-size:14px;letter-spacing:0.08em;text-transform:uppercase;background:var(--ink);color:var(--surface);border:none;cursor:pointer;transition:opacity 0.1s;}
+.gen-btn:disabled{opacity:0.3;cursor:not-allowed;}
+.gen-btn:not(:disabled):hover{opacity:0.85;}
+
+.beta-notice{font-family:var(--mono);font-size:9.5px;color:var(--ink-32);letter-spacing:0.06em;padding-top:12px;text-align:center;}
+
+.output-panel{background:var(--surface);border:1px solid var(--ink-14);min-height:400px;display:flex;flex-direction:column;}
+.output-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--ink-06);font-family:var(--display);font-weight:700;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;}
+.output-tag{font-family:var(--mono);font-size:10px;color:var(--ink-32);}
+.output-body{flex:1;display:flex;align-items:center;justify-content:center;padding:32px;}
+.empty-state{text-align:center;}
+.empty-icon{font-family:var(--display);font-weight:800;font-size:48px;color:var(--ink-10);letter-spacing:0.04em;margin-bottom:12px;}
+.empty-label{font-family:var(--mono);font-size:11px;color:var(--ink-32);letter-spacing:0.06em;}
+.loading-state{text-align:center;}
+.spinner{width:24px;height:24px;border:2px solid var(--ink-10);border-top-color:var(--red);border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 16px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-label{font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;}
+.loading-sub{font-family:var(--mono);font-size:10px;color:var(--ink-32);}
+.error-label{font-family:var(--display);font-weight:800;font-size:16px;color:var(--red);margin-bottom:8px;}
+.error-msg{font-family:var(--mono);font-size:11px;color:var(--ink-48);}
+.result-state{width:100%;}
+.result-img{width:100%;height:auto;display:block;border:1px solid var(--ink-06);}
+.result-actions{display:flex;gap:10px;margin-top:12px;}
+.dl-btn{font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:0.1em;text-transform:uppercase;padding:8px 18px;background:var(--ink);color:var(--surface);}
+.result-meta{font-family:var(--mono);font-size:9.5px;color:var(--ink-32);margin-top:8px;}
+</style>
+</head>
+<body>
+<Nav currentPath="/cards" />
+
+<header class="mast">
+  <div class="mast-inner">
+    <div class="mast-eyebrow"><span class="pip"></span>HockeyGameBot Analytics</div>
+    <h1 class="mast-headline">Card Generator</h1>
+    <p class="mast-dek">Generate shareable analytics cards for any NHL player · 2025–26 season</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="gen-layout">
+
+    <!-- Control panel -->
+    <div class="control-panel">
+      <div class="panel-section">
+        <span class="panel-label">Card Type</span>
+        <div class="type-tabs">
+          <button class="type-tab active" data-type="rating">Rating</button>
+          <button class="type-tab" data-type="rapm">RAPM</button>
+          <button class="type-tab" data-type="compare">Compare</button>
+        </div>
+      </div>
+
+      <!-- Single player search -->
+      <div class="panel-section" id="singlePlayerSection">
+        <span class="panel-label">Player</span>
+        <PlayerSearch
+          players={searchPlayers}
+          placeholder="Search players…"
+          dispatchEvent="hgb:cards-player"
+          client:load
+        />
+      </div>
+
+      <!-- Compare players -->
+      <div class="panel-section" id="compareSection" style="display:none">
+        <div class="compare-players visible">
+          <div class="compare-slot">
+            <span class="panel-label">Player A</span>
+            <PlayerSearch
+              players={searchPlayers}
+              placeholder="Search player A…"
+              dispatchEvent="hgb:cards-player-a"
+              client:load
+            />
+          </div>
+          <div class="compare-vs">vs</div>
+          <div class="compare-slot">
+            <span class="panel-label">Player B</span>
+            <PlayerSearch
+              players={searchPlayers}
+              placeholder="Search player B…"
+              dispatchEvent="hgb:cards-player-b"
+              client:load
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <button class="gen-btn" id="generateBtn" disabled>Generate Card</button>
+        <p class="beta-notice">Canvas-rendered · 2× retina PNG · hockeygamebot.com</p>
+      </div>
+    </div>
+
+    <!-- Output panel -->
+    <div class="output-panel">
+      <div class="output-header">
+        <span>Output</span>
+        <span class="output-tag" id="outputTag">—</span>
+      </div>
+      <div class="output-body" id="outputBody">
+        <div class="empty-state">
+          <div class="empty-icon">PNG</div>
+          <div class="empty-label">Select a player and click Generate</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script define:vars={{ playerMap }}>
+// ── State ────────────────────────────────────────────────────────────────────
+let _cardType = 'rating';
+let _playerSlug  = null;
+let _playerSlugA = null;
+let _playerSlugB = null;
+
+// ── DOM ──────────────────────────────────────────────────────────────────────
+const generateBtn       = document.getElementById('generateBtn');
+const outputBody        = document.getElementById('outputBody');
+const outputTag         = document.getElementById('outputTag');
+const singlePlayerSec   = document.getElementById('singlePlayerSection');
+const compareSection    = document.getElementById('compareSection');
+
+// ── Tab wiring ───────────────────────────────────────────────────────────────
+document.querySelectorAll('.type-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.type-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    _cardType = btn.dataset.type;
+    if (_cardType === 'compare') {
+      singlePlayerSec.style.display = 'none';
+      compareSection.style.display = '';
+    } else {
+      singlePlayerSec.style.display = '';
+      compareSection.style.display = 'none';
+    }
+    updateBtn();
+  });
+});
+
+// ── Player select events ─────────────────────────────────────────────────────
+document.addEventListener('hgb:cards-player', e => { _playerSlug = e.detail?.slug ?? null; updateBtn(); });
+document.addEventListener('hgb:cards-player-a', e => { _playerSlugA = e.detail?.slug ?? null; updateBtn(); });
+document.addEventListener('hgb:cards-player-b', e => { _playerSlugB = e.detail?.slug ?? null; updateBtn(); });
+
+function updateBtn() {
+  if (_cardType === 'compare') {
+    generateBtn.disabled = !_playerSlugA || !_playerSlugB || _playerSlugA === _playerSlugB;
+  } else {
+    generateBtn.disabled = !_playerSlug;
+  }
+}
+
+// ── Output helpers ────────────────────────────────────────────────────────────
+function showLoading(label) {
+  outputBody.innerHTML = `<div class="loading-state"><div class="spinner"></div><div class="loading-label">Drawing…</div></div>`;
+  outputTag.textContent = label;
+}
+function showError(msg) {
+  outputBody.innerHTML = `<div class="error-label">Failed</div><div class="error-msg">${msg}</div>`;
+  outputTag.textContent = 'Error';
+}
+function showResult(canvas, label, filename) {
+  const dataUrl = canvas.toDataURL('image/png');
+  outputBody.innerHTML = `
+    <div class="result-state">
+      <img class="result-img" src="${dataUrl}" alt="${label}" />
+      <div class="result-actions">
+        <a class="dl-btn" href="${dataUrl}" download="${filename}">↓ Download PNG</a>
+      </div>
+      <div class="result-meta">${filename}</div>
+    </div>`;
+  outputTag.textContent = label;
+}
+
+// ── Canvas helpers ────────────────────────────────────────────────────────────
+function rrect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) { ctx.roundRect(x, y, w, h, r); }
+  else { ctx.rect(x, y, w, h); }
+}
+function loadImg(src) {
+  return new Promise(res => {
+    const img = new Image(); img.crossOrigin = 'anonymous';
+    img.onload = () => res(img); img.onerror = () => res(null);
+    img.src = src;
+  });
+}
+
+// ── drawRapmCard(D) ───────────────────────────────────────────────────────────
+async function drawRapmCard(D) {
+  const R = D.rapm;
+  if (!R || R.ev_xgf60_z == null) throw new Error('No RAPM data for this player');
+  const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+  const TEAM_C = D.teamColor || '#CC0000';
+  const RED = '#CC0000', RED_LIGHT = 'rgba(200,0,0,0.22)';
+  const MUTED = 'rgba(13,13,20,0.45)', GRID = 'rgba(13,13,20,0.09)';
+  const SCALE = 2, W = 780;
+  const PAD = 36, LABEL_W = 76, VAL_W = 58;
+  const CHART_L = PAD + LABEL_W, CHART_R = W - PAD - VAL_W;
+  const CHART_W = CHART_R - CHART_L;
+  const Z_MAX = 3, ZERO_X = CHART_L + CHART_W / 2;
+  const PX_PER_Z = CHART_W / (Z_MAX * 2);
+  const ROW_H = 52, AXIS_H = 32, SEC_H = 36;
+  const evRows = [
+    { label: 'GF/60',  z: R.ev_gf60_z  },
+    { label: 'xGF/60', z: R.ev_xgf60_z },
+    { label: 'xGA/60', z: R.ev_xga60_z },
+    { label: 'CF/60',  z: R.ev_cf60_z  },
+    { label: 'CA/60',  z: R.ev_ca60_z  },
+  ].filter(r => r.z != null);
+  const ppRows = [{ label: 'xGF/60', z: R.pp_xgf60_z }].filter(r => r.z != null);
+  const HERO_H = 86;
+  const EV_H = SEC_H + evRows.length * ROW_H + AXIS_H;
+  const PP_H = ppRows.length > 0 ? SEC_H + ppRows.length * ROW_H + AXIS_H + 20 : 0;
+  const H = HERO_H + EV_H + PP_H + 28;
+  const canvas = document.createElement('canvas');
+  canvas.width = W * SCALE; canvas.height = H * SCALE;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+  // Hero
+  ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, HERO_H);
+  ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, 4, HERO_H);
+  const fn = `${D.firstName} ${D.lastName}`;
+  ctx.font = '800 24px "Barlow Condensed",sans-serif';
+  ctx.fillStyle = '#0D0D14'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.fillText(fn.toUpperCase(), PAD, HERO_H / 2 - 12);
+  const TEAM_NAMES = {ANA:'ANAHEIM DUCKS',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SJS:'SAN JOSE SHARKS',SEA:'SEATTLE KRAKEN',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS'};
+  const chipH = 18, chipY0 = HERO_H / 2 + 4;
+  const chips = [TEAM_NAMES[D.team] || D.team, D.posLabel.toUpperCase(), '2025-26'];
+  let cx2 = PAD;
+  ctx.font = '700 9px "Barlow Condensed",sans-serif';
+  chips.forEach((chip, ci) => {
+    const tw = ctx.measureText(chip).width, cw = tw + 18;
+    rrect(ctx, cx2, chipY0, cw, chipH, 3);
+    ctx.fillStyle = ci === 0 ? TEAM_C : '#0D0D14'; ctx.fill();
+    ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText(chip, cx2 + 9, chipY0 + chipH / 2);
+    cx2 += cw + 8;
+  });
+  const rapmLabel = 'EV & PP RAPM';
+  const rtw = ctx.measureText(rapmLabel).width, rcw = rtw + 18;
+  rrect(ctx, W - PAD - rcw, chipY0, rcw, chipH, 3);
+  ctx.fillStyle = RED; ctx.fill();
+  ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.fillText(rapmLabel, W - PAD - rcw + 9, chipY0 + chipH / 2);
+  ctx.fillStyle = 'rgba(13,13,20,0.08)'; ctx.fillRect(0, HERO_H - 1, W, 1);
+  function drawSection(label, rows, toi, yStart) {
+    ctx.textAlign = 'left';
+    ctx.font = '800 13px "Barlow Condensed",sans-serif'; ctx.fillStyle = RED;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(label.toUpperCase(), PAD, yStart + 24);
+    if (toi != null) {
+      ctx.textAlign = 'right'; ctx.fillStyle = MUTED;
+      ctx.font = '400 10px "JetBrains Mono",monospace';
+      ctx.fillText(`${label === 'Even Strength' ? 'EV' : 'PP'} TOI: ${toi.toFixed(1)} min`, W - PAD, yStart + 24);
+    }
+    const chartTop = yStart + SEC_H;
+    ctx.fillStyle = SURFACE; ctx.fillRect(CHART_L, chartTop, CHART_W, rows.length * ROW_H);
+    [-3,-2,-1,0,1,2,3].forEach(v => {
+      const x = Math.round(ZERO_X + v * PX_PER_Z) + 0.5;
+      ctx.beginPath(); ctx.strokeStyle = v === 0 ? 'rgba(13,13,20,0.22)' : GRID;
+      ctx.lineWidth = v === 0 ? 1.5 : 1;
+      ctx.setLineDash(v === 0 ? [5,4] : []);
+      ctx.moveTo(x, chartTop); ctx.lineTo(x, chartTop + rows.length * ROW_H);
+      ctx.stroke(); ctx.setLineDash([]);
+    });
+    rows.forEach((_, i) => {
+      if (i > 0) { ctx.fillStyle = GRID; ctx.fillRect(CHART_L, chartTop + i * ROW_H, CHART_W, 1); }
+    });
+    rows.forEach((r, i) => {
+      const cy = chartTop + i * ROW_H + ROW_H / 2;
+      const z = Math.max(-3, Math.min(3, r.z));
+      const barW = Math.abs(z) * PX_PER_Z;
+      const barX = z >= 0 ? ZERO_X : ZERO_X - barW;
+      ctx.fillStyle = z >= 0 ? RED : RED_LIGHT;
+      ctx.fillRect(barX, cy - ROW_H * 0.21, barW, ROW_H * 0.42);
+      ctx.textAlign = 'right'; ctx.fillStyle = MUTED;
+      ctx.font = '600 12px "Barlow Condensed",sans-serif'; ctx.textBaseline = 'middle';
+      ctx.fillText(r.label, CHART_L - 10, cy);
+      const sign = r.z >= 0 ? '+' : '';
+      ctx.textAlign = 'left'; ctx.fillStyle = r.z >= 0 ? RED : MUTED;
+      ctx.font = '700 13px "Barlow Condensed",sans-serif';
+      ctx.fillText(`${sign}${r.z.toFixed(2)}`, CHART_R + 10, cy);
+    });
+    const axisY = chartTop + rows.length * ROW_H + 20;
+    ctx.font = '400 10px "JetBrains Mono",monospace'; ctx.fillStyle = MUTED; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    [-3,-2,-1,0,1,2,3].forEach(v => { ctx.fillText(String(v), ZERO_X + v * PX_PER_Z, axisY); });
+  }
+  let y = HERO_H + 6;
+  drawSection('Even Strength', evRows, R.ev_toi, y);
+  y += SEC_H + evRows.length * ROW_H + AXIS_H + 16;
+  if (ppRows.length > 0) drawSection('Power Play', ppRows, R.pp_toi, y);
+  return canvas;
+}
+
+// ── Generate ─────────────────────────────────────────────────────────────────
+generateBtn.addEventListener('click', async () => {
+  generateBtn.disabled = true;
+  if (document.fonts?.ready) await document.fonts.ready;
+
+  try {
+    if (_cardType === 'rapm') {
+      const D = playerMap[_playerSlug];
+      if (!D) throw new Error('Player data not found');
+      showLoading(`RAPM · ${D.firstName} ${D.lastName}`);
+      const canvas = await drawRapmCard(D);
+      showResult(canvas, `${D.firstName} ${D.lastName} · RAPM`, `hgb_rapm_${D.slug}_25-26.png`);
+
+    } else if (_cardType === 'rating') {
+      outputBody.innerHTML = `<div class="empty-state"><div class="empty-label">Rating Card coming soon on this page — available on each player profile now</div></div>`;
+      outputTag.textContent = 'Soon';
+
+    } else if (_cardType === 'compare') {
+      const A = playerMap[_playerSlugA];
+      const B = playerMap[_playerSlugB];
+      if (!A || !B) throw new Error('Player data not found');
+      showLoading(`${A.firstName} ${A.lastName} vs ${B.firstName} ${B.lastName}`);
+      const [canvasA, canvasB] = await Promise.all([drawRapmCard(A), drawRapmCard(B)]);
+      // Combine side by side
+      const SCALE = 2;
+      const combined = document.createElement('canvas');
+      combined.width = canvasA.width + canvasB.width + 4 * SCALE;
+      combined.height = Math.max(canvasA.height, canvasB.height);
+      const ctx = combined.getContext('2d');
+      ctx.fillStyle = '#EFEEE8'; ctx.fillRect(0, 0, combined.width, combined.height);
+      ctx.drawImage(canvasA, 0, 0);
+      ctx.fillStyle = 'rgba(13,13,20,0.14)'; ctx.fillRect(canvasA.width, 0, 4 * SCALE, combined.height);
+      ctx.drawImage(canvasB, canvasA.width + 4 * SCALE, 0);
+      showResult(combined, `${A.lastName} vs ${B.lastName} · RAPM`, `hgb_compare_${A.slug}_${B.slug}_25-26.png`);
+    }
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    updateBtn();
+  }
+});
+</script>
+</body>
+</html>
