@@ -21,19 +21,20 @@ export type DashboardPlayerRow = {
   g: number;
   a: number;
   p: number;
-  war: number;
-  impact: number;
-  x60: number;
-  form: string;
+  war_p:  number | null;  // WAR percentile vs position (0-100)
+  rtng_p: number | null;  // HGB Rating percentile (0-100)
+  imp_p:  number | null;  // Impact (Game Score) percentile vs position (0-100)
 };
 
 const GREEN = '#166534';
 const RED   = '#991b1b';
 
-function formColor(form: string): string {
-  if (form.startsWith('+')) return GREEN;
-  if (form.startsWith('-')) return RED;
-  return 'rgba(13,13,20,0.32)';
+
+function pctColor(v: number | null): string {
+  if (v == null) return 'rgba(13,13,20,0.32)';
+  if (v >= 75) return GREEN;
+  if (v <= 35) return RED;
+  return 'rgba(13,13,20,0.72)';
 }
 
 const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
@@ -52,7 +53,7 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
     id: 'team',
     header: 'Tm',
     accessor: r => r.team,
-    align: 'left',
+    align: 'center',
     cell: (v) => (
       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>
         {v}
@@ -64,7 +65,7 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
     id: 'pos',
     header: 'Pos',
     accessor: r => r.pos,
-    align: 'left',
+    align: 'center',
     cell: (v) => (
       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: CELL_FONT_SIZE, color: 'rgba(13,13,20,0.32)' }}>
         {v}
@@ -72,61 +73,33 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
     ),
     mobileHidden: true,
   },
-  { id: 'gp',     header: 'GP',     accessor: r => r.gp,     sortType: 'number', align: 'right', mobileHidden: true },
-  { id: 'g',      header: 'G',      accessor: r => r.g,      sortType: 'number', align: 'right', mobileHidden: true },
-  { id: 'a',      header: 'A',      accessor: r => r.a,      sortType: 'number', align: 'right', mobileHidden: true },
+  { id: 'gp', header: 'GP', accessor: r => r.gp, sortType: 'number', align: 'right', mobileHidden: true },
+  { id: 'g',  header: 'G',  accessor: r => r.g,  sortType: 'number', align: 'right', mobileHidden: true },
+  { id: 'a',  header: 'A',  accessor: r => r.a,  sortType: 'number', align: 'right', mobileHidden: true },
   {
-    id: 'p',
-    header: 'P',
-    accessor: r => r.p,
-    sortType: 'number',
-    align: 'right',
-    cell: (v) => (
-      <span style={{ fontWeight: 700, color: '#0d0d14' }}>{v}</span>
+    id: 'p', header: 'P', accessor: r => r.p, sortType: 'number', align: 'right',
+    cell: (v) => <span style={{ fontWeight: 700, color: '#0d0d14' }}>{v}</span>,
+  },
+  {
+    id: 'war_p', header: 'WAR%', accessor: r => r.war_p ?? -1,
+    sortType: 'number', align: 'center', mobileHidden: true,
+    cell: (_, r) => r.war_p == null ? '—' : (
+      <span style={{ fontWeight: 700, color: pctColor(r.war_p) }}>{r.war_p}</span>
     ),
   },
   {
-    id: 'war',
-    header: 'WAR',
-    accessor: r => r.war,
-    sortType: 'number',
-    align: 'right',
-    cell: (v) => typeof v === 'number' ? v.toFixed(2) : '—',
-    mobileHidden: true,
-  },
-  {
-    id: 'impact',
-    header: 'Impact',
-    accessor: r => r.impact,
-    sortType: 'number',
-    align: 'right',
-    cell: (v) => (
-      <span style={{ fontWeight: 700, fontSize: 12 }}>
-        {typeof v === 'number' ? v.toFixed(2) : '—'}
-      </span>
+    id: 'rtng_p', header: 'RTNG%', accessor: r => r.rtng_p ?? -1,
+    sortType: 'number', align: 'center',
+    cell: (_, r) => r.rtng_p == null ? '—' : (
+      <span style={{ fontWeight: 700, color: pctColor(r.rtng_p) }}>{r.rtng_p}</span>
     ),
   },
   {
-    id: 'x60',
-    header: 'xG/60',
-    accessor: r => r.x60,
-    sortType: 'number',
-    align: 'right',
-    cell: (v) => typeof v === 'number' ? v.toFixed(2) : '—',
-    mobileHidden: true,
-  },
-  {
-    id: 'form',
-    header: 'Form',
-    accessor: r => r.form,
-    align: 'right',
-    cell: (_, r) => (
-      <span style={{ fontWeight: 700, color: formColor(r.form) }}>
-        {r.form.startsWith('+') ? '▲ ' : r.form.startsWith('-') ? '▼ ' : '– '}
-        {r.form}
-      </span>
+    id: 'imp_p', header: 'IMP%', accessor: r => r.imp_p ?? -1,
+    sortType: 'number', align: 'center', mobileHidden: true,
+    cell: (_, r) => r.imp_p == null ? '—' : (
+      <span style={{ fontWeight: 700, color: pctColor(r.imp_p) }}>{r.imp_p}</span>
     ),
-    mobileHidden: true,
   },
 ];
 
@@ -135,7 +108,7 @@ export function DashboardFollowedPlayers({ players }: { players: DashboardPlayer
     <HGBTable
       data={players}
       columns={followedCols}
-      defaultSort={{ id: 'impact', desc: true }}
+      defaultSort={{ id: 'imp_p', desc: true }}
       rowHref={r => `/players/${r.slug}`}
       hideToolbar
       emptyMessage="No players followed yet"
@@ -182,7 +155,7 @@ const topImpactCols: HGBColumnDef<TopImpactRow>[] = [
     id: 'pos',
     header: 'Pos',
     accessor: r => r.pos,
-    align: 'left',
+    align: 'center',
     cell: (v) => (
       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: CELL_FONT_SIZE, color: 'rgba(13,13,20,0.32)' }}>
         {v}
