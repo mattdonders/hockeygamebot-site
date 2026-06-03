@@ -6,6 +6,7 @@ import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
 import { loadPlayers, loadLeaderboard, loadGoalies } from '../../lib/stats-loader';
+import { DashboardFollowedPlayers, DashboardTopImpact, type DashboardPlayerRow, type TopImpactRow } from '../../components/react/DashboardPlayersTable';
 
 // ── Mock data (matches approved POC) ─────────────────────────────────────────
 
@@ -16,7 +17,7 @@ const teamData: Record<string, any> = {
   SJS: { record: "28-44-10", xgf_pct: "46.1%", gf_pct: "44.8%", impact_rank: "28th", playoff_odds: "3%",  label: "Rebuild watch",    labelColor: "rgba(13,13,20,0.40)", oddsClass: "low",  color: "#006D75" },
 };
 
-const followedPlayers = [
+const followedPlayers: DashboardPlayerRow[] = [
   { name: "Jack Hughes",       slug: "jack-hughes",       team: "NJD", pos: "C", gp: 61, g: 27, a: 61, p: 88,  war: 1.77, impact: 0.79, x60: 0.89, form: "+0.14" },
   { name: "Nico Hischier",     slug: "nico-hischier",     team: "NJD", pos: "C", gp: 68, g: 34, a: 39, p: 73,  war: 0.92, impact: 0.61, x60: 0.71, form: "+0.07" },
   { name: "Jesper Bratt",      slug: "jesper-bratt",      team: "NJD", pos: "W", gp: 72, g: 31, a: 44, p: 75,  war: 0.88, impact: 0.55, x60: 0.68, form: "-0.03" },
@@ -25,7 +26,7 @@ const followedPlayers = [
   { name: "Macklin Celebrini", slug: "macklin-celebrini", team: "SJS", pos: "C", gp: 82, g: 29, a: 39, p: 68,  war: 0.65, impact: 0.52, x60: 0.74, form: "+0.09" },
   { name: "Will Smith",        slug: "will-smith",        team: "SJS", pos: "C", gp: 77, g: 22, a: 35, p: 57,  war: 0.48, impact: 0.44, x60: 0.61, form: "+0.18" },
   { name: "William Eklund",    slug: "william-eklund",    team: "SJS", pos: "W", gp: 78, g: 18, a: 41, p: 59,  war: 0.61, impact: 0.41, x60: 0.58, form: "-0.05" },
-].sort((a, b) => b.impact - a.impact);
+];
 
 const modelSignals = [
   { rule: "PLAYER SIGNAL · SHOT CREATION", threshold: "xG/60 > 1.50σ above position",
@@ -67,7 +68,14 @@ const allPlayers = loadPlayers();
 const eligible   = allPlayers.filter(p => p.gp >= 20);
 const allGoalies = loadGoalies();
 
-const topImpact = loadLeaderboard('game_score').slice(0, 10).map((p, i) => ({ ...p, rank: i + 1 }));
+const topImpact: TopImpactRow[] = loadLeaderboard('game_score').slice(0, 10).map((p) => ({
+  display_name: (p as any).display_name ?? (p as any).name ?? '',
+  slug:         (p as any).slug ?? '',
+  team_abbrev:  (p as any).team_abbrev ?? '',
+  pos:          (p as any).pos ?? '',
+  gp:           (p as any).gp ?? 0,
+  value:        (p as any).value ?? 0,
+}));
 const topGsax   = [...allGoalies].sort((a, b) => b.gsax - a.gsax).slice(0, 3);
 
 const topTeams = (() => {
@@ -475,38 +483,7 @@ const topTeams = (() => {
           <span class="section-title">Your Players</span>
           <a href="/account" class="section-link">sorted by Impact ↓</a>
         </div>
-        <div class="player-tbl-wrap"><table class="player-table">
-          <thead>
-            <tr>
-              <th>Player</th><th>Tm</th><th>Pos</th><th>GP</th>
-              <th>G</th><th>A</th><th>P</th>
-              <th>WAR</th><th>Impact</th><th>xG/60</th><th>Form</th>
-            </tr>
-          </thead>
-          <tbody>
-            {followedPlayers.map(p => {
-              const isPos = p.form.startsWith('+');
-              const isNeg = p.form.startsWith('-');
-              const cls   = isPos ? 'form-up' : isNeg ? 'form-down' : 'form-flat';
-              const arrow = isPos ? '▲' : isNeg ? '▼' : '–';
-              return (
-                <tr>
-                  <td class="name-cell"><a href={`/players/${p.slug}`}>{p.name}</a></td>
-                  <td class="team-cell">{p.team}</td>
-                  <td class="pos-cell">{p.pos}</td>
-                  <td>{p.gp}</td>
-                  <td>{p.g}</td>
-                  <td>{p.a}</td>
-                  <td class="bold-val">{p.p}</td>
-                  <td>{p.war.toFixed(2)}</td>
-                  <td class="impact-val">{p.impact.toFixed(2)}</td>
-                  <td>{p.x60.toFixed(2)}</td>
-                  <td class={cls}>{arrow} {p.form}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table></div>
+        <DashboardFollowedPlayers players={followedPlayers} client:load />
       </div>
 
       <!-- TRENDING -->
@@ -641,29 +618,7 @@ const topTeams = (() => {
 
       <div style="margin-top:28px;">
         <div class="section-head"><span class="section-title">Top Players — HGB Impact</span></div>
-        <div class="player-tbl-wrap">
-          <table class="player-table">
-            <thead>
-              <tr>
-                <th style="width:28px;text-align:right;">#</th>
-                <th style="text-align:left;">Player</th>
-                <th>Tm</th><th>Pos</th><th>GP</th><th>Impact</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topImpact.map(p => (
-                <tr>
-                  <td style="text-align:right;color:var(--ink-32);font-size:10px;">{(p as any).rank}</td>
-                  <td class="name-cell"><a href={`/players/${(p as any).slug ?? ''}`}>{(p as any).display_name ?? (p as any).name}</a></td>
-                  <td class="team-cell">{(p as any).team_abbrev}</td>
-                  <td class="pos-cell">{(p as any).pos ?? '—'}</td>
-                  <td>{(p as any).gp ?? '—'}</td>
-                  <td class="impact-val">{((p as any).value >= 0 ? '+' : '')}{Number((p as any).value).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DashboardTopImpact players={topImpact} client:load />
       </div>
     </div>
 
