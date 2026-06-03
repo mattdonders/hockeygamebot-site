@@ -75,10 +75,7 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
           <img src={teamLogoSrc(row.team)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div>
-            <div style={{ ...BODY, fontWeight: 600, fontSize: 14 }}>{TEAM_NAMES[row.team] ?? row.team}</div>
-            <div style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.48)' }}>{row.team}</div>
-          </div>
+          <span style={{ ...BODY, fontWeight: 600, fontSize: 14 }}>{TEAM_NAMES[row.team] ?? row.team}</span>
           {row.team === row.winner
             ? <span style={{ ...MONO, fontSize: 9, padding: '1px 5px', background: '#166534', color: '#fff', letterSpacing: '0.06em', flexShrink: 0 }}>W</span>
             : <span style={{ ...MONO, fontSize: 9, padding: '1px 5px', background: '#991b1b', color: '#fff', letterSpacing: '0.06em', flexShrink: 0 }}>L</span>
