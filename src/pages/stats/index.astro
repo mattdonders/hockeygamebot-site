@@ -7,6 +7,7 @@ import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
 import { loadPlayers, loadLeaderboard, loadGoalies } from '../../lib/stats-loader';
 import { DashboardFollowedPlayers, DashboardTopImpact, type DashboardPlayerRow, type TopImpactRow } from '../../components/react/DashboardPlayersTable';
+import GlobalPlayerSearch, { type PlayerSearchItem } from '../../components/react/GlobalPlayerSearch';
 
 // ── Draft Capital ─────────────────────────────────────────────────────────────
 // API now uses site-standard abbreviations (NJD, SJS, etc.) — no mapping needed.
@@ -94,7 +95,7 @@ const followedPlayers: DashboardPlayerRow[] = [
 
 const modelSignals = [
   { rule: "PLAYER SIGNAL · SHOT CREATION", threshold: "xG/60 > 1.50σ above position",
-    body: "Jack Hughes leads your followed players with 0.89 xG/60 — elite shot creation even on a mid-tier supporting cast.", href: "/players/jack-hughes" },
+    body: "Jack Hughes leads your followed players with 0.89 xG/60 — elite shot creation even on a mid-tier supporting cast.", href: "/stats/player/jack-hughes" },
   { rule: "TEAM SIGNAL · PROCESS VS RESULTS", threshold: "5v5 xGF% > 52%",
     body: "NJD has controlled 52.3% of 5v5 expected goals this season. The underlying game is stronger than the record suggests.", href: "/teams/njd" },
   { rule: "GROUP SIGNAL · YOUNG CORE", threshold: "Combined Impact L10 > 1.3",
@@ -131,6 +132,18 @@ const statsNavLinks = [
 const allPlayers = loadPlayers();
 const eligible   = allPlayers.filter(p => p.gp >= 20);
 const allGoalies = loadGoalies();
+
+// Search index — pre-computed for the GlobalPlayerSearch island
+const playerSearchIndex: PlayerSearchItem[] = allPlayers.map(p => ({
+  display_name:  p.display_name,
+  first_name:    p.first_name,
+  last_name:     p.last_name,
+  team_abbrev:   p.team_abbrev,
+  pos:           p.pos,
+  gp:            p.gp,
+  slug:          p.slug,
+  search_text:   `${p.first_name} ${p.last_name} ${p.display_name} ${p.team_abbrev}`.toLowerCase(),
+}));
 
 const _playerById = new Map(allPlayers.map(p => [p.player_id, p]));
 const topImpact: TopImpactRow[] = loadLeaderboard('game_score').slice(0, 10).map((p) => {
@@ -210,10 +223,11 @@ const topTeams = (() => {
     .mast-lo-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
       text-transform: uppercase; color: var(--ink-48); display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
     .mast-lo-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-search { margin-top: 20px; }
     .mast-lo-headline { font-family: var(--display); font-weight: 800; font-size: clamp(32px,5vw,56px);
       text-transform: uppercase; line-height: 1; margin-bottom: 10px; }
     .mast-lo-headline em { color: var(--red); font-style: normal; }
-    .mast-lo-sub { font-family: var(--body); font-size: 14px; color: var(--ink-48); margin-bottom: 20px; line-height: 1.5; max-width: 560px; }
+    .mast-lo-sub { font-family: var(--body); font-size: 14px; color: var(--ink-48); margin-bottom: 20px; line-height: 1.5; }
     .cta-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .cta-btn { font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.06em;
       text-transform: uppercase; padding: 11px 28px; background: var(--ink); color: #EFEEE8; cursor: pointer; border: none; display: inline-block; }
@@ -268,13 +282,14 @@ const topTeams = (() => {
     .team-stat { padding: 0 8px; border-right: 1px solid var(--ink-06); }
     .team-stat:first-child { padding-left: 0; }
     .team-stat:last-child  { border-right: none; }
-    .team-stat-k { font-family: var(--mono); font-size: 8px; letter-spacing: 0.10em;
-      text-transform: uppercase; color: var(--ink-32); margin-bottom: 4px; }
-    .team-stat-v { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--ink); }
+    .team-stat-k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--ink-48); margin-bottom: 4px; }
+    .team-stat-v { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--ink); }
     .team-card-links { display: flex; gap: 0; }
-    .team-card-link { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.10em;
-      text-transform: uppercase; color: var(--ink-48); padding: 4px 10px 4px 0; margin-right: 10px;
+    .team-card-link { font-family: var(--body); font-size: 11px; font-weight: 600;
+      color: var(--ink-48); padding: 4px 10px 4px 0; margin-right: 10px;
       border-right: 1px solid var(--ink-14); }
+    .team-card-link::after { content: ' →'; font-weight: 400; }
     .team-card-link:last-child { border-right: none; }
     .team-card-link:hover { color: var(--red); }
 
@@ -496,7 +511,10 @@ const topTeams = (() => {
     </div>
     <div class="mast-lo-card">
       <h1 class="mast-lo-headline">Your Hockey <em>Command Center</em></h1>
-      <p class="mast-lo-sub" style="margin-bottom:0;">Followed teams, tracked players, next games, model signals, and trend movement — all in one place.</p>
+      <p class="mast-lo-sub">Followed teams, tracked players, draft capital, model signals, and trend movement — all in one place.</p>
+      <div class="mast-search">
+        <GlobalPlayerSearch players={playerSearchIndex} client:load />
+      </div>
     </div>
   </div>
 </section>
@@ -512,6 +530,9 @@ const topTeams = (() => {
     <div class="mast-lo-card">
       <h1 class="mast-lo-headline">Personalize <em>Your Dashboard</em></h1>
       <p class="mast-lo-sub">Follow teams and players to get model signals, next games, trend alerts, and quick access to your stats.</p>
+      <div class="mast-search">
+        <GlobalPlayerSearch players={playerSearchIndex} client:load />
+      </div>
     </div>
   </div>
 </section>
@@ -583,7 +604,7 @@ const topTeams = (() => {
         </div>
         <div class="trending-card">
           {trending.map(t => (
-            <a href={`/players/${t.slug}`} class="trending-item" style="display:flex">
+            <a href={`/stats/player/${t.slug}`} class="trending-item" style="display:flex">
               <div>
                 <div class="trend-name">{t.name}</div>
                 <div class="trend-label">{t.label}</div>

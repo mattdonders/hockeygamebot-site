@@ -109,7 +109,7 @@ export function DashboardFollowedPlayers({ players }: { players: DashboardPlayer
       data={players}
       columns={followedCols}
       defaultSort={{ id: 'imp_p', desc: true }}
-      rowHref={r => `/players/${r.slug}`}
+      rowHref={r => `/stats/player/${r.slug}`}
       hideToolbar
       emptyMessage="No players followed yet"
     />
@@ -184,7 +184,7 @@ export function DashboardTopImpact({ players }: { players: TopImpactRow[] }) {
       data={players}
       columns={topImpactCols}
       defaultSort={{ id: 'value', desc: true }}
-      rowHref={r => `/players/${r.slug}`}
+      rowHref={r => `/stats/player/${r.slug}`}
       hideToolbar
     />
   );
