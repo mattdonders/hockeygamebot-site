@@ -1,0 +1,373 @@
+---
+// HockeyGameBot — /internal/sql-explorer — Natural language → SQL tool
+// Internal-only. Not linked from production navigation.
+// Calls api.hockeygamebot.com/v1/internal/sql-query (Claude Haiku).
+// Auth token must be set in .env.local as PUBLIC_HGB_INTERNAL_TOKEN.
+// The Worker generates SQL only — it does NOT execute it.
+// Run the result in D1 Studio or against hgb_analytics.sqlite on Hetzner.
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+
+const internalToken = import.meta.env.PUBLIC_HGB_INTERNAL_TOKEN ?? '';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SQL Explorer · HGB Internal</title>
+  <meta name="robots" content="noindex,nofollow" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #EFEEE8; --ink: #0d0d14; --red: #E8002D; --surface: #FFFFFF;
+      --ink-06: rgba(13,13,20,0.06); --ink-10: rgba(13,13,20,0.10);
+      --ink-14: rgba(13,13,20,0.14); --ink-20: rgba(13,13,20,0.20);
+      --ink-32: rgba(13,13,20,0.32); --ink-48: rgba(13,13,20,0.48);
+      --ink-72: rgba(13,13,20,0.72);
+      --green: #166534;
+      --display: 'Barlow Condensed', sans-serif;
+      --body:    'Barlow', sans-serif;
+      --mono:    'JetBrains Mono', monospace;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    .page-mast { border-bottom: 2px solid var(--ink); padding: 28px 32px 24px; background: var(--bg); }
+    .mast-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .internal-pip { width: 6px; height: 6px; background: var(--red); border-radius: 50%; }
+    .mast-title { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 44px); text-transform: uppercase; letter-spacing: -0.005em; }
+    .mast-sub { font-family: var(--body); font-size: 14px; color: var(--ink-48); margin-top: 8px; line-height: 1.5; }
+
+    .page-body { max-width: 900px; margin: 0 auto; padding: 32px 32px 80px; }
+
+    /* ── Input section ── */
+    .input-section { margin-bottom: 24px; }
+    .input-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 8px; display: block; }
+    .question-textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 14px 16px;
+      font-family: var(--body);
+      font-size: 15px;
+      line-height: 1.55;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1.5px solid var(--ink-20);
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.1s;
+    }
+    .question-textarea:focus { border-color: var(--ink); }
+    .question-textarea::placeholder { color: var(--ink-32); }
+
+    .run-btn {
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 10px 24px;
+      background: var(--ink);
+      color: var(--bg);
+      border: none;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .run-btn:hover:not(:disabled) { background: var(--red); }
+    .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .examples-row { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .examples-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-32); }
+    .example-chip {
+      font-family: var(--mono);
+      font-size: 10px;
+      padding: 4px 10px;
+      border: 1px solid var(--ink-20);
+      background: transparent;
+      color: var(--ink-48);
+      cursor: pointer;
+      transition: all 0.1s;
+    }
+    .example-chip:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* ── Status / Loading ── */
+    .status-block { text-align: center; padding: 48px 32px; }
+    .status-label { font-family: var(--mono); font-size: 12px; color: var(--ink-48); letter-spacing: 0.10em; text-transform: uppercase; }
+    .status-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-32); margin-top: 8px; }
+
+    /* ── Results section ── */
+    .results-section { display: none; }
+    .results-section.visible { display: block; }
+
+    .result-block { background: var(--surface); border: 1px solid var(--ink-14); margin-bottom: 16px; }
+    .result-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--ink-06);
+      background: var(--bg);
+    }
+    .result-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-32); }
+    .copy-btn {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border: 1px solid var(--ink-20);
+      background: transparent;
+      color: var(--ink-48);
+      cursor: pointer;
+      transition: all 0.1s;
+    }
+    .copy-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .copy-btn.copied { background: var(--green); color: #fff; border-color: transparent; }
+
+    .sql-block {
+      padding: 20px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.7;
+      color: var(--ink);
+      white-space: pre-wrap;
+      word-break: break-all;
+      overflow-x: auto;
+    }
+
+    .explanation-block {
+      padding: 14px 16px;
+      font-family: var(--body);
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--ink-72);
+    }
+
+    .run-note {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-32);
+      letter-spacing: 0.06em;
+      padding: 10px 16px;
+      border-top: 1px solid var(--ink-06);
+      background: var(--bg);
+    }
+
+    /* ── Error state ── */
+    .error-block {
+      background: rgba(232,0,45,0.06);
+      border: 1px solid rgba(232,0,45,0.2);
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+    .error-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--red); margin-bottom: 6px; }
+    .error-msg { font-family: var(--mono); font-size: 12px; color: var(--red); }
+
+    /* ── No-token warning ── */
+    .token-warning {
+      background: rgba(146,64,14,0.08);
+      border: 1px solid rgba(146,64,14,0.25);
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #92400e;
+      line-height: 1.6;
+    }
+    .token-warning strong { font-weight: 700; }
+
+    @media (max-width: 640px) {
+      .page-mast { padding: 20px 16px; }
+      .page-body { padding: 20px 16px 60px; }
+    }
+  </style>
+</head>
+<body>
+<Nav currentPath="/internal/sql-explorer" />
+
+<div class="page-mast">
+  <div class="mast-eyebrow"><span class="internal-pip"></span> Internal · Not Public · noindex</div>
+  <h1 class="mast-title">Hockey Analytics SQL Explorer</h1>
+  <p class="mast-sub">Ask a question in plain English, get the SQL. Run it against <code>hgb_analytics.sqlite</code> on Hetzner or in D1 Studio.</p>
+</div>
+
+<div class="page-body">
+
+  {!internalToken && (
+    <div class="token-warning">
+      <strong>No auth token configured.</strong> Add <code>PUBLIC_HGB_INTERNAL_TOKEN=&lt;your-token&gt;</code> to <code>.env.local</code> and rebuild. The token must match <code>AUTH_TOKEN</code> in the hgb-api Worker.
+    </div>
+  )}
+
+  <div class="input-section">
+    <label for="question" class="input-label">Your question</label>
+    <textarea
+      id="question"
+      class="question-textarea"
+      placeholder="Which teams have the highest 5v5 xGF% in the last 10 games?"
+      spellcheck="false"
+    ></textarea>
+
+    <div class="examples-row">
+      <span class="examples-label">Examples:</span>
+      <button class="example-chip" data-q="Which teams have the highest 5v5 xGF% in the last 10 games?">xGF% last 10</button>
+      <button class="example-chip" data-q="Top 20 players by 5v5 xG per 60 this season, minimum 200 minutes">xG/60 leaders</button>
+      <button class="example-chip" data-q="Which players have the best power play xG per 60 in 2025-26 playoffs?">PP xG/60 playoffs</button>
+      <button class="example-chip" data-q="Show games with the highest total xG in the current season">Highest xG games</button>
+      <button class="example-chip" data-q="Which defensemen have the best 5v5 xGF% on-ice this season, min 300 minutes?">D xGF%</button>
+    </div>
+
+    <button id="run-btn" class="run-btn" {!internalToken ? 'disabled' : ''}>Generate SQL</button>
+  </div>
+
+  <div id="loading-state" class="status-block" style="display:none">
+    <div class="status-label">Generating SQL…</div>
+    <div class="status-sub">Calling Claude Haiku</div>
+  </div>
+
+  <div id="error-state" style="display:none">
+    <div class="error-block">
+      <div class="error-label">Error</div>
+      <div class="error-msg" id="error-msg"></div>
+    </div>
+  </div>
+
+  <div id="results-section" class="results-section">
+    <div class="result-block">
+      <div class="result-header">
+        <span class="result-label">Generated SQL</span>
+        <button class="copy-btn" id="copy-sql-btn">Copy SQL</button>
+      </div>
+      <pre class="sql-block" id="sql-output"></pre>
+      <div class="run-note">Run this against <strong>hgb_analytics.sqlite</strong> on Hetzner (<code>ssh hgb-prod</code>) or paste into D1 Studio (hgb_notify database).</div>
+    </div>
+
+    <div class="result-block" id="explanation-block" style="display:none">
+      <div class="result-header">
+        <span class="result-label">Explanation</span>
+      </div>
+      <div class="explanation-block" id="explanation-output"></div>
+    </div>
+  </div>
+
+</div>
+
+<script define:vars={{ internalToken }}>
+(function() {
+  const API = 'https://api.hockeygamebot.com';
+  const TOKEN = internalToken;
+
+  const questionEl = document.getElementById('question');
+  const runBtn = document.getElementById('run-btn');
+  const loadingState = document.getElementById('loading-state');
+  const errorState = document.getElementById('error-state');
+  const errorMsg = document.getElementById('error-msg');
+  const resultsSection = document.getElementById('results-section');
+  const sqlOutput = document.getElementById('sql-output');
+  const explanationBlock = document.getElementById('explanation-block');
+  const explanationOutput = document.getElementById('explanation-output');
+  const copySqlBtn = document.getElementById('copy-sql-btn');
+
+  function setLoading(on) {
+    loadingState.style.display = on ? '' : 'none';
+    runBtn.disabled = on || !TOKEN;
+    if (on) {
+      errorState.style.display = 'none';
+      resultsSection.classList.remove('visible');
+    }
+  }
+
+  function showError(msg) {
+    errorState.style.display = '';
+    errorMsg.textContent = msg;
+    resultsSection.classList.remove('visible');
+  }
+
+  function showResults(sql, explanation) {
+    sqlOutput.textContent = sql;
+    if (explanation) {
+      explanationOutput.textContent = explanation;
+      explanationBlock.style.display = '';
+    } else {
+      explanationBlock.style.display = 'none';
+    }
+    resultsSection.classList.add('visible');
+  }
+
+  async function generate() {
+    const question = questionEl.value.trim();
+    if (!question) {
+      questionEl.focus();
+      return;
+    }
+    if (!TOKEN) {
+      showError('No auth token configured. See .env.local setup note above.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/v1/internal/sql-query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${TOKEN}`,
+        },
+        body: JSON.stringify({ question }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        const errText = data?.error || `HTTP ${res.status}`;
+        showError(errText);
+        return;
+      }
+
+      showResults(data.sql, data.explanation);
+    } catch (err) {
+      showError(`Network error: ${err.message || String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Run on button click
+  runBtn.addEventListener('click', generate);
+
+  // Run on Ctrl+Enter / Cmd+Enter in textarea
+  questionEl.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      generate();
+    }
+  });
+
+  // Example chips
+  document.querySelectorAll('.example-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      questionEl.value = chip.dataset.q || '';
+      questionEl.focus();
+    });
+  });
+
+  // Copy SQL button
+  copySqlBtn.addEventListener('click', () => {
+    const sql = sqlOutput.textContent;
+    if (!sql) return;
+    navigator.clipboard.writeText(sql).then(() => {
+      copySqlBtn.classList.add('copied');
+      copySqlBtn.textContent = 'Copied!';
+      setTimeout(() => {
+        copySqlBtn.classList.remove('copied');
+        copySqlBtn.textContent = 'Copy SQL';
+      }, 2000);
+    });
+  });
+})();
+</script>
+</body>
+</html>
