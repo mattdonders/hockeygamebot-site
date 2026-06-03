@@ -207,14 +207,21 @@ type Props = {
 };
 
 export default function StatsPersonalized({ teamStats, players, teamColors }: Props) {
-  const [state, setState] = useState<LoadState>('init');
+  const [state, setState] = useState<LoadState>(() => {
+    // If the inline script already confirmed no session, skip the skeleton entirely.
+    if (typeof window !== 'undefined' && !(window as any).__HGB_HAS_SESSION) return 'loggedout';
+    return 'init';
+  });
   const [prefs, setPrefs] = useState<Prefs>({ tracked_teams: [], tracked_players: [] });
   const [signals, setSignals] = useState<Signal[]>([]);
   const [signalsMissing, setSignalsMissing] = useState(false);
 
   useEffect(() => {
     const token = getToken();
-    if (!token) { setState('loggedout'); return; }
+    if (!token) {
+      setState('loggedout'); // covers edge case where inline script missed it
+      return;
+    }
 
     setState('loading');
     apiFetch(`${API}/v1/account/prefs`, token)
