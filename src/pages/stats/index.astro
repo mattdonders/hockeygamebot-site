@@ -1,10 +1,13 @@
 ---
 import Nav from '../../components/Nav.astro';
+import StatsSubnav from '../../components/StatsSubnav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
 import Table from '../../components/Table.astro';
 import ChipGroup from '../../components/ChipGroup.astro';
-import { loadPlayers, loadLeaderboard, loadPlayoffLeaderboard, loadGoalies, loadMeta } from '../../lib/stats-loader';
+import StatsPersonalized, { type TeamSummary, type PlayerStub } from '../../components/react/StatsPersonalized';
+import { loadPlayers, loadLeaderboard, loadPlayoffLeaderboard, loadGoalies, loadMeta, loadAllTeamGames } from '../../lib/stats-loader';
+import { pickTeamColor } from '../../lib/team-colors';
 
 const allPlayers  = loadPlayers();
 const eligible    = allPlayers.filter(p => p.gp >= 20);
@@ -117,6 +120,49 @@ const searchIndex = allPlayers.map(p => ({
   team: p.team_abbrev,
   pos:  p.pos,
   gp:   p.gp,
+}));
+
+// ── Personalized dashboard data (passed as props to React island) ─────────────
+
+// Team summaries: derive record + xGF% from per-game logs
+const _allTeamGames = loadAllTeamGames();
+const teamStats: Record<string, TeamSummary> = {};
+for (const [abbrev, games] of Object.entries(_allTeamGames)) {
+  if (!games.length) continue;
+  const w = games.filter(g => g.result === 'W').length;
+  const l = games.filter(g => g.result === 'L').length;
+  const ot = games.filter(g => g.result === 'OT').length;
+  const xgf = games.reduce((s, g) => s + g.xgf_5v5, 0);
+  const xga = games.reduce((s, g) => s + g.xga_5v5, 0);
+  const gf  = games.reduce((s, g) => s + g.gf, 0);
+  const ga  = games.reduce((s, g) => s + g.ga, 0);
+  const total = xgf + xga;
+  teamStats[abbrev] = {
+    abbrev,
+    record: `${w}-${l}-${ot}`,
+    xgf_pct: total > 0 ? (xgf / total) * 100 : 50,
+    gf_pct:  (gf + ga) > 0 ? (gf / (gf + ga)) * 100 : 50,
+  };
+}
+
+// Flat team-color map for the island
+const teamColorMap: Record<string, string> = {};
+for (const abbrev of Object.keys(teamStats)) {
+  teamColorMap[abbrev] = pickTeamColor(abbrev);
+}
+
+// Player stubs for followed-player lookup
+const playerStubs: PlayerStub[] = allPlayers.map(p => ({
+  player_id: p.player_id,
+  slug:       p.slug,
+  name:       `${p.first_name} ${p.last_name}`,
+  team_abbrev: p.team_abbrev,
+  pos:        p.pos,
+  gp:         p.gp,
+  goals:      p.goals,
+  assists:    p.assists,
+  points:     p.goals + p.assists,
+  impact:     typeof p.avg_gs_display === 'number' ? +p.avg_gs_display.toFixed(2) : null,
 }));
 
 function sgn(n: number): string { return n >= 0 ? '+' : ''; }
@@ -347,7 +393,16 @@ const regPts60T   = withTeam(regPts60);
   </div>
 </header>
 
+<StatsSubnav currentPath={Astro.url.pathname} />
+
 <main class="wrap">
+
+  <StatsPersonalized
+    teamStats={teamStats}
+    players={playerStubs}
+    teamColors={teamColorMap}
+    client:load
+  />
 
   <!-- ── Section head + toggle ── -->
   <div class="dash-head">
