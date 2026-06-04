@@ -30,6 +30,9 @@ export type CareerSeason = {
   toi_5v5_sec?: number;
   gf_pct?: number | null;
   xgf_pct?: number | null;
+  // Enriched from player_season_stats — may be null until pipeline delivers
+  rapm_net_pct?: number | null;
+  war_pct?: number | null;
 };
 
 type Props = {
@@ -68,20 +71,39 @@ function pctColor(v: number | null): string | undefined {
   return undefined;
 }
 
+// Percentile tier coloring: ≥70 green, ≤30 red, mid neutral
+function rapmPctColor(v: number | null): string {
+  if (v == null) return 'rgba(13,13,20,0.32)';
+  if (v >= 70) return '#137333';
+  if (v <= 30) return '#991b1b';
+  return 'rgba(13,13,20,0.72)';
+}
+
 // ── Row type (computed from CareerSeason) ────────────────────────────────────
 
 type CareerRow = CareerSeason & {
   season_fmt: string;
   toi_gp: string;
   is_current: boolean;
+  season_normalized: string; // e.g. "2025-26" for event dispatch
 };
 
 const CURRENT_SEASON = '20252026';
 
 // ── Component ────────────────────────────────────────────────────────────────
 
+// Normalize "20252026" → "2025-26", already "2025-26" passes through
+function normalizeSeasonKey(s: string | undefined): string {
+  if (!s) return '';
+  if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(6)}`;
+  return s;
+}
+
 export default function PlayerCareerTable({ seasons }: Props) {
   const [isDark, setIsDark] = useState(false);
+  // Active season: defaults to most recent (first after desc sort)
+  const [activeSeason, setActiveSeason] = useState<string>('');
+
   useEffect(() => {
     const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
     check();
@@ -89,6 +111,12 @@ export default function PlayerCareerTable({ seasons }: Props) {
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     return () => obs.disconnect();
   }, []);
+
+  function handleSeasonClick(seasonNorm: string) {
+    setActiveSeason(seasonNorm);
+    // Dispatch event so the Astro page JS can update EV bars
+    document.dispatchEvent(new CustomEvent('hgb:season-select', { detail: { season: seasonNorm } }));
+  }
 
   const INK    = isDark ? INK_DARK  : INK_LIGHT;
   const BG     = isDark ? BG_DARK   : BG_LIGHT;
@@ -100,16 +128,26 @@ export default function PlayerCareerTable({ seasons }: Props) {
     { id: 'season', desc: true },
   ]);
 
-  const rows = useMemo<CareerRow[]>(
-    () =>
-      seasons.map(row => ({
-        ...row,
-        season_fmt: fmtSeason(row.season ?? ''),
-        toi_gp: fmtToi5v5(row.toi_5v5_sec ?? 0, row.gp ?? 0),
-        is_current: (row.season ?? '') === CURRENT_SEASON,
-      })),
-    [seasons],
-  );
+  const rows = useMemo<CareerRow[]>(() => {
+    const mapped = seasons.map(row => ({
+      ...row,
+      season_fmt: fmtSeason(row.season ?? ''),
+      toi_gp: fmtToi5v5(row.toi_5v5_sec ?? 0, row.gp ?? 0),
+      is_current: (row.season ?? '') === CURRENT_SEASON,
+      season_normalized: normalizeSeasonKey(row.season),
+    }));
+    return mapped;
+  }, [seasons]);
+
+  // Set initial active season to most recent (first after desc sort)
+  useEffect(() => {
+    if (rows.length > 0 && !activeSeason) {
+      const sorted = [...rows].sort((a, b) =>
+        (b.season ?? '').localeCompare(a.season ?? '')
+      );
+      setActiveSeason(sorted[0].season_normalized);
+    }
+  }, [rows]);
 
   const columns = useMemo<ColumnDef<CareerRow>[]>(
     () => [
@@ -196,7 +234,36 @@ export default function PlayerCareerTable({ seasons }: Props) {
           );
         },
       },
+      {
+        id: 'rapm_net_pct',
+        header: 'RATING %',
+        accessorFn: (r) => r.rapm_net_pct ?? -1,
+        cell: (info) => {
+          const v = info.row.original.rapm_net_pct;
+          const color = rapmPctColor(v);
+          return (
+            <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
+              {v == null ? '—' : `${Math.round(Number(v))}%`}
+            </span>
+          );
+        },
+      },
+      {
+        id: 'war_pct',
+        header: 'WAR %',
+        accessorFn: (r) => r.war_pct ?? -1,
+        cell: (info) => {
+          const v = info.row.original.war_pct;
+          const color = rapmPctColor(v);
+          return (
+            <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
+              {v == null ? '—' : `${Math.round(Number(v))}%`}
+            </span>
+          );
+        },
+      },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -254,31 +321,42 @@ export default function PlayerCareerTable({ seasons }: Props) {
           ))}
         </thead>
         <tbody>
-          {table.getRowModel().rows.map((row, i) => (
-            <tr
-              key={row.id}
-              style={{
-                borderBottom: '1px solid rgba(13,13,20,0.05)',
-                background: i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)'),
-              }}
-            >
-              {row.getVisibleCells().map((cell, ci) => (
-                <td
-                  key={cell.id}
-                  style={{
-                    ...MONO,
-                    fontSize: 12,
-                    padding: '10px 10px',
-                    textAlign: ci === 0 ? 'left' : 'center',
-                    whiteSpace: 'nowrap',
-                    borderRight: '1px solid rgba(13,13,20,0.03)',
-                  }}
-                >
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {table.getRowModel().rows.map((row, i) => {
+            const orig = row.original;
+            const isActive = orig.season_normalized === activeSeason;
+            return (
+              <tr
+                key={row.id}
+                data-career-season={orig.season_normalized}
+                onClick={() => handleSeasonClick(orig.season_normalized)}
+                style={{
+                  borderBottom: '1px solid rgba(13,13,20,0.05)',
+                  background: isActive
+                    ? (isDark ? 'rgba(239,238,232,0.07)' : 'rgba(13,13,20,0.05)')
+                    : (i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)')),
+                  borderLeft: isActive ? `3px solid ${isActive ? 'rgba(13,13,20,0.45)' : 'transparent'}` : '3px solid transparent',
+                  cursor: 'pointer',
+                }}
+                title={`Click to view ${orig.season_fmt} percentiles`}
+              >
+                {row.getVisibleCells().map((cell, ci) => (
+                  <td
+                    key={cell.id}
+                    style={{
+                      ...MONO,
+                      fontSize: 12,
+                      padding: '10px 10px',
+                      textAlign: ci === 0 ? 'left' : 'center',
+                      whiteSpace: 'nowrap',
+                      borderRight: '1px solid rgba(13,13,20,0.03)',
+                    }}
+                  >
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       <p
@@ -290,7 +368,7 @@ export default function PlayerCareerTable({ seasons }: Props) {
           letterSpacing: '0.06em',
         }}
       >
-        Click a column header to sort · 5v5 only · min 600 TOI
+        Click a season row to view its EV percentiles above · click column headers to sort · 5v5 only · min 600 TOI · RATING % = single-season EV RAPM · WAR % coming soon
       </p>
     </div>
   );

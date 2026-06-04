@@ -52,7 +52,7 @@ const _META_FALLBACK = {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData, seriesStatsData, seriesRecordsData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData, seriesStatsData, seriesRecordsData, playerSeasonStatsData] = await Promise.all([
   _safeFetchJSON('players',      []),
   _safeFetchJSON('leaderboards', {}),
   _safeFetchJSON('player-games', {}),
@@ -64,6 +64,7 @@ const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsDa
   _fetchJSON('player-career').catch(() => ({})),
   _fetchJSON('series-stats').catch(() => ({ series: [], rounds: [] })),
   _fetchJSON('series-records').catch(() => ({ series: [], total_series: 0 })),
+  _fetchJSON('player-season-stats').catch(() => ({})),
 ]);
 
 const VALIDATED_PLAYERS_RAW  = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
@@ -251,6 +252,59 @@ export function loadLines(): LineData[] {
 
 export function loadSeriesStats(): { series: any[]; rounds: any[] } {
   return (seriesStatsData as any) ?? { series: [], rounds: [] };
+}
+
+// ── Player season stats (player-season-stats endpoint) ───────────────────────
+// Shape: { [player_id: string]: { regular: SeasonEntry[], playoffs: SeasonEntry[] } }
+
+export type PlayerSeasonEntry = {
+  season: string;
+  team?: string;
+  pos?: string;
+  gp?: number;
+  toi_5v5_sec?: number;
+  goals?: number;
+  a1?: number;
+  a2?: number;
+  assists?: number;
+  points?: number;
+  shots?: number;
+  ixg?: number;
+  xgf_5v5?: number;
+  xga_5v5?: number;
+  xgf_pct_5v5?: number;
+  cf_5v5?: number;
+  ca_5v5?: number;
+  cf_pct_5v5?: number;
+  gf_5v5?: number;
+  ga_5v5?: number;
+  gf_pct_5v5?: number;
+  // RAPM percentile fields — present now in pipeline
+  rapm_off_pct?: number | null;
+  rapm_def_pct?: number | null;
+  rapm_net_pct?: number | null;
+  rapm_finishing_pct?: number | null;
+  rapm_pp_pct?: number | null;
+  rapm_pk_pct?: number | null;
+  // Future fields — pipeline not yet writing these; handle null gracefully
+  hgb_rating_pct?: number | null;
+  war_pct?: number | null;
+  impact_pct?: number | null;
+};
+
+export type PlayerSeasonStats = {
+  regular: PlayerSeasonEntry[];
+  playoffs: PlayerSeasonEntry[];
+};
+
+export function loadPlayerSeasonStats(playerId: number): PlayerSeasonStats {
+  const raw = (playerSeasonStatsData as Record<string, unknown>)[String(playerId)];
+  if (!raw || typeof raw !== 'object') return { regular: [], playoffs: [] };
+  const r = raw as Record<string, unknown>;
+  return {
+    regular:  Array.isArray(r.regular)  ? (r.regular  as PlayerSeasonEntry[]) : [],
+    playoffs: Array.isArray(r.playoffs) ? (r.playoffs as PlayerSeasonEntry[]) : [],
+  };
 }
 
 export function loadSeriesRecords(): { series: any[]; total_series: number; scope?: string; generated_at?: string } {
