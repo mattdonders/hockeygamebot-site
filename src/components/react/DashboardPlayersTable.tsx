@@ -44,9 +44,19 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
     accessor: r => r.name,
     align: 'left',
     cell: (_, r) => (
-      <span style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-        {r.name}
-      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <img
+          src={`https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg`}
+          alt={r.team}
+          width={32}
+          height={32}
+          style={{ flexShrink: 0, objectFit: 'contain' }}
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+        />
+        <span style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          {r.name}
+        </span>
+      </div>
     ),
   },
   {
@@ -89,14 +99,14 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
   },
   {
     id: 'rtng_p', header: 'RTNG%', accessor: r => r.rtng_p ?? -1,
-    sortType: 'number', align: 'center',
+    sortType: 'number', align: 'center', mobileHidden: true,
     cell: (_, r) => r.rtng_p == null ? '—' : (
       <span style={{ fontWeight: 700, color: pctColor(r.rtng_p) }}>{r.rtng_p}</span>
     ),
   },
   {
     id: 'imp_p', header: 'IMP%', accessor: r => r.imp_p ?? -1,
-    sortType: 'number', align: 'center', mobileHidden: true,
+    sortType: 'number', align: 'center',
     cell: (_, r) => r.imp_p == null ? '—' : (
       <span style={{ fontWeight: 700, color: pctColor(r.imp_p) }}>{r.imp_p}</span>
     ),
@@ -134,16 +144,26 @@ const topImpactCols: HGBColumnDef<TopImpactRow>[] = [
     accessor: r => r.display_name,
     align: 'left',
     cell: (_, r) => (
-      <span style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-        {r.display_name}
-      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <img
+          src={`https://assets.nhle.com/logos/nhl/svg/${r.team_abbrev}_light.svg`}
+          alt={r.team_abbrev}
+          width={32}
+          height={32}
+          style={{ flexShrink: 0, objectFit: 'contain' }}
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+        />
+        <span style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          {r.display_name}
+        </span>
+      </div>
     ),
   },
   {
     id: 'team',
     header: 'Tm',
     accessor: r => r.team_abbrev,
-    align: 'left',
+    align: 'center',
     cell: (v) => (
       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>
         {v}
