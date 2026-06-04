@@ -1,0 +1,339 @@
+---
+// /admin/insights — HGB Admin: Insights Review
+// Auth-gated client-side: reads hgb_session from localStorage,
+// calls /v1/admin/whoami → /v1/admin/insights/latest.
+// Security boundary is the API Worker, not this page.
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Insights Review · HGB Admin</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #EFEEE8; --surface: #FFFFFF; --ink: #0d0d14; --red: #E8002D;
+      --ink-06: rgba(13,13,20,0.06); --ink-10: rgba(13,13,20,0.10);
+      --ink-14: rgba(13,13,20,0.14); --ink-20: rgba(13,13,20,0.20);
+      --ink-32: rgba(13,13,20,0.32); --ink-48: rgba(13,13,20,0.48);
+      --ink-72: rgba(13,13,20,0.72);
+      --tier-a: #166534; --tier-b: #1e40af; --tier-c: #92400e;
+      --display: "Barlow Condensed", sans-serif;
+      --body: "Barlow", sans-serif;
+      --mono: "JetBrains Mono", monospace;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Mast ── */
+    .admin-mast { border-bottom: 2px solid var(--ink); background: var(--bg); }
+    .admin-mast-inner { max-width: 1200px; margin: 0 auto; padding: 20px 32px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .admin-eyebrow { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--red); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .admin-pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .admin-title { font-family: var(--display); font-weight: 800; font-size: clamp(24px, 3vw, 36px); text-transform: uppercase; letter-spacing: -0.005em; }
+    .admin-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .admin-user { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; }
+
+    /* ── Body ── */
+    .page-body { max-width: 1200px; margin: 0 auto; padding: 28px 32px 80px; }
+
+    /* ── Auth states ── */
+    .auth-state { text-align: center; padding: 80px 32px; }
+    .auth-state-label { font-family: var(--display); font-weight: 700; font-size: 20px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }
+    .auth-state-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; margin-bottom: 20px; }
+    .auth-btn { font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; padding: 10px 24px; background: var(--ink); color: var(--bg); border: none; cursor: pointer; text-decoration: none; display: inline-block; }
+
+    /* ── Run bar ── */
+    .run-bar { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; padding: 8px 0; border-bottom: 1px solid var(--ink-14); margin-bottom: 20px; display: flex; gap: 16px; flex-wrap: wrap; }
+    .run-bar strong { color: var(--ink-72); }
+
+    /* ── Toolbar ── */
+    .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--ink-14); }
+    .toolbar-label { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; }
+    .filter-btn { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 5px 12px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; transition: all 0.1s; }
+    .filter-btn.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .filter-btn:hover:not(.active) { color: var(--ink); border-color: var(--ink-48); }
+    .insight-count { font-family: var(--mono); font-size: 10px; color: var(--ink-32); margin-left: auto; letter-spacing: 0.06em; }
+
+    /* ── Insight cards ── */
+    .insights-grid { display: flex; flex-direction: column; gap: 14px; }
+    .insight-card { background: var(--surface); border: 1px solid var(--ink-14); }
+
+    .ic-header { display: flex; align-items: flex-start; gap: 14px; padding: 14px 18px 10px; border-bottom: 1px solid var(--ink-06); }
+    .ic-tier { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; padding: 3px 7px; flex-shrink: 0; margin-top: 2px; }
+    .tier-A { background: rgba(22,101,52,0.12); color: var(--tier-a); border: 1px solid rgba(22,101,52,0.3); }
+    .tier-B { background: rgba(30,64,175,0.10); color: var(--tier-b); border: 1px solid rgba(30,64,175,0.25); }
+    .tier-C { background: rgba(146,64,14,0.10); color: var(--tier-c); border: 1px solid rgba(146,64,14,0.25); }
+    .ic-meta { flex: 1; min-width: 0; }
+    .ic-signal { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.10em; text-transform: uppercase; margin-bottom: 4px; }
+    .ic-headline { font-family: var(--display); font-weight: 700; font-size: 17px; line-height: 1.15; color: var(--ink); }
+    .ic-entity { font-family: var(--mono); font-size: 10px; color: var(--ink-48); margin-top: 3px; }
+    .ic-score { font-family: var(--mono); font-size: 10px; color: var(--ink-32); flex-shrink: 0; text-align: right; }
+    .ic-score .score-val { font-size: 20px; font-weight: 700; color: var(--ink); display: block; line-height: 1; }
+
+    .ic-body { padding: 14px 18px; display: grid; gap: 12px; }
+
+    .ic-tweet { background: var(--bg); border: 1px solid var(--ink-14); padding: 10px 13px; }
+    .ic-tweet-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 5px; }
+    .ic-tweet-text { font-family: var(--body); font-size: 13px; line-height: 1.55; color: var(--ink-72); white-space: pre-wrap; }
+    .ic-tweet-len { font-family: var(--mono); font-size: 9px; color: var(--ink-32); margin-top: 5px; }
+
+    .ic-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; }
+    .ic-metric { padding: 7px 10px; background: var(--bg); border: 1px solid var(--ink-10); }
+    .ic-metric-k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 2px; }
+    .ic-metric-v { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--ink); }
+
+    .ic-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 10px 18px; border-top: 1px solid var(--ink-06); background: var(--bg); }
+    .action-btn { font-family: var(--mono); font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; padding: 6px 13px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; transition: all 0.1s; }
+    .action-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .action-btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .action-btn.primary:hover { background: var(--red); border-color: var(--red); }
+    .action-btn.copied { background: var(--tier-a); color: #fff; border-color: transparent; }
+    .ic-id { font-family: var(--mono); font-size: 9px; color: var(--ink-32); margin-left: auto; align-self: center; letter-spacing: 0.04em; }
+
+    @media (max-width: 640px) {
+      .admin-mast-inner, .page-body { padding-left: 16px; padding-right: 16px; }
+      .ic-header { flex-direction: column; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+<Nav currentPath="/admin/insights" />
+
+<div class="admin-mast">
+  <div class="admin-mast-inner">
+    <div>
+      <div class="admin-eyebrow"><span class="admin-pip"></span>HGB Admin · Insights Review</div>
+      <h1 class="admin-title">Insights Review</h1>
+    </div>
+    <div>
+      <div class="admin-user" id="admin-user-display"></div>
+      <div class="admin-meta" id="run-info"></div>
+    </div>
+  </div>
+</div>
+
+<div class="page-body">
+
+  <!-- Auth states -->
+  <div id="state-loading" class="auth-state">
+    <div class="auth-state-label">Checking authorization…</div>
+    <div class="auth-state-sub">Verifying admin session</div>
+  </div>
+
+  <div id="state-unauthed" class="auth-state" style="display:none">
+    <div class="auth-state-label">Sign in required</div>
+    <div class="auth-state-sub">You need an active session to access admin tools.</div>
+    <a href="/account" class="auth-btn">Sign in →</a>
+  </div>
+
+  <div id="state-forbidden" class="auth-state" style="display:none">
+    <div class="auth-state-label">Admin access required</div>
+    <div class="auth-state-sub">Your account does not have admin privileges.</div>
+  </div>
+
+  <div id="state-error" class="auth-state" style="display:none">
+    <div class="auth-state-label">Something went wrong</div>
+    <div class="auth-state-sub" id="error-msg"></div>
+  </div>
+
+  <!-- Main UI (shown only after admin confirmed) -->
+  <div id="insights-ui" style="display:none">
+    <div class="toolbar">
+      <span class="toolbar-label">Tier:</span>
+      <button class="filter-btn active" data-tier="all">All</button>
+      <button class="filter-btn" data-tier="A">A</button>
+      <button class="filter-btn" data-tier="B">B</button>
+      <button class="filter-btn" data-tier="C">C</button>
+      <span class="insight-count" id="insight-count"></span>
+    </div>
+    <div class="insights-grid" id="insights-grid"></div>
+  </div>
+
+</div>
+
+<script is:inline>
+(function() {
+  const API = 'https://api.hockeygamebot.com';
+  const SESSION_KEY = 'hgb_session';
+
+  let _allInsights = [];
+  let _activeTier  = 'all';
+
+  // ── DOM ──────────────────────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+
+  function showState(id) {
+    ['state-loading','state-unauthed','state-forbidden','state-error','insights-ui']
+      .forEach(s => $(s).style.display = s === id ? '' : 'none');
+  }
+
+  // ── Auth flow ─────────────────────────────────────────────────────────────────
+  async function init() {
+    let token;
+    try { token = localStorage.getItem(SESSION_KEY); } catch(e) {}
+
+    if (!token) { showState('state-unauthed'); return; }
+
+    // Verify session + admin status
+    let whoami;
+    try {
+      const r = await fetch(`${API}/v1/admin/whoami`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r.status === 401) { showState('state-unauthed'); return; }
+      if (!r.ok) { throw new Error(`whoami ${r.status}`); }
+      whoami = await r.json();
+    } catch(e) {
+      $('error-msg').textContent = `Auth check failed: ${e.message}`;
+      showState('state-error');
+      return;
+    }
+
+    if (!whoami.is_admin) { showState('state-forbidden'); return; }
+
+    // Show user identity in mast
+    const userEl = $('admin-user-display');
+    if (userEl && whoami.email) userEl.textContent = `// ${whoami.email}`;
+
+    // Fetch insights
+    let data;
+    try {
+      const r = await fetch(`${API}/v1/admin/insights/latest`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store'
+      });
+      if (r.status === 401) { showState('state-unauthed'); return; }
+      if (r.status === 403) { showState('state-forbidden'); return; }
+      if (!r.ok) { throw new Error(`insights ${r.status}`); }
+      data = await r.json();
+    } catch(e) {
+      $('error-msg').textContent = `Failed to load insights: ${e.message}`;
+      showState('state-error');
+      return;
+    }
+
+    _allInsights = data.insights || [];
+
+    // Run info bar
+    const runEl = $('run-info');
+    if (runEl && data.generated_at) {
+      const ts = new Date(data.generated_at).toLocaleString();
+      runEl.textContent = `${data.run_type || 'nightly'} · ${data.run_date || ''} · generated ${ts}`;
+    }
+
+    showState('insights-ui');
+    renderInsights();
+    wireFilters();
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────────
+  function renderInsights() {
+    const filtered = _activeTier === 'all'
+      ? _allInsights
+      : _allInsights.filter(i => i.review_tier === _activeTier);
+
+    const countEl = $('insight-count');
+    if (countEl) countEl.textContent = `${filtered.length} of ${_allInsights.length} insights`;
+
+    const grid = $('insights-grid');
+    if (!grid) return;
+
+    if (!filtered.length) {
+      grid.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:40px 0;text-align:center;letter-spacing:0.06em;">No insights match the current filter.</div>';
+      return;
+    }
+
+    grid.innerHTML = filtered.map(ins => {
+      const tier = ins.review_tier || '—';
+      const tierClass = ['A','B','C'].includes(tier) ? `tier-${tier}` : '';
+      const tweetLen = (ins.tweet_draft || '').length;
+      const lenColor = tweetLen > 280 ? 'var(--red)' : tweetLen > 240 ? 'var(--tier-c)' : 'var(--ink-32)';
+
+      const metricsHtml = ins.metrics
+        ? Object.entries(ins.metrics).map(([k,v]) =>
+            `<div class="ic-metric"><div class="ic-metric-k">${esc(k)}</div><div class="ic-metric-v">${esc(v)}</div></div>`
+          ).join('')
+        : '';
+
+      const verifyHref = ins.verify_url || ins.public_stats_url || '';
+
+      return `
+        <div class="insight-card" data-tier="${esc(tier)}" data-id="${esc(ins.insight_id || '')}">
+          <div class="ic-header">
+            <span class="ic-tier ${tierClass}">Tier ${esc(tier)}</span>
+            <div class="ic-meta">
+              <div class="ic-signal">${esc(ins.signal_type || ins.signal || '')}</div>
+              <div class="ic-headline">${esc(ins.headline || '')}</div>
+              <div class="ic-entity">${esc(ins.entity_type || '')} · ${esc(ins.entity_name || ins.team || '')}</div>
+            </div>
+            <div class="ic-score">
+              <span class="score-val">${esc(String(ins.detector_score ?? ins.score ?? '—'))}</span>
+              score
+            </div>
+          </div>
+
+          <div class="ic-body">
+            ${ins.tweet_draft ? `
+              <div class="ic-tweet">
+                <div class="ic-tweet-label">Tweet draft</div>
+                <div class="ic-tweet-text">${esc(ins.tweet_draft)}</div>
+                <div class="ic-tweet-len" style="color:${lenColor}">${tweetLen} chars</div>
+              </div>` : ''}
+
+            ${metricsHtml ? `<div class="ic-metrics">${metricsHtml}</div>` : ''}
+          </div>
+
+          <div class="ic-actions">
+            ${ins.tweet_draft ? `<button class="action-btn primary" onclick="copyTweet(this, '${safeTweetAttr(ins.tweet_draft)}')">Copy tweet</button>` : ''}
+            ${verifyHref ? `<a class="action-btn" href="${esc(verifyHref)}" target="_blank" rel="noopener">Verify →</a>` : ''}
+            <span class="ic-id">${esc(ins.insight_id || '')}</span>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Filters ───────────────────────────────────────────────────────────────────
+  function wireFilters() {
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _activeTier = btn.dataset.tier;
+        renderInsights();
+      });
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function safeTweetAttr(s) {
+    return String(s ?? '').replace(/'/g,'&#39;').replace(/\n/g,'\\n');
+  }
+
+  window.copyTweet = function(btn, text) {
+    const decoded = text.replace(/\\n/g,'\n').replace(/&#39;/g,"'");
+    navigator.clipboard.writeText(decoded).then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy tweet'; btn.classList.remove('copied'); }, 2000);
+    });
+  };
+
+  // ── Boot ──────────────────────────────────────────────────────────────────────
+  init();
+})();
+</script>
+
+</body>
+</html>
