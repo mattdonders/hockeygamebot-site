@@ -72,6 +72,40 @@ function buildTeamDraft(siteAbbr: string, color: string) {
 
 const followedTeams = ["NJD", "SJS"];
 
+// Playoff status — live from D1 series_predictions via hgb-api.
+// Falls back to hardcoded SCF teams if the endpoint is unavailable at build time.
+type PlayoffStatus = {
+  generated_at: string;
+  season: string;
+  round: string;
+  teams_remaining: number;
+  active_teams: string[];
+  eliminated_teams: string[];
+  playoff_odds: Record<string, number>;
+};
+let playoffStatus: PlayoffStatus | null = null;
+try {
+  const r = await fetch('https://api.hockeygamebot.com/v1/playoffs/status');
+  if (r.ok) playoffStatus = await r.json();
+} catch {}
+
+const PLAYOFFS_ACTIVE   = new Set(playoffStatus?.active_teams ?? ['VGK', 'CAR']);
+const teamsRemaining    = playoffStatus?.teams_remaining ?? PLAYOFFS_ACTIVE.size;
+const playoffOdds       = playoffStatus?.playoff_odds ?? {};
+
+const allFollowedEliminated = followedTeams.every(t => !PLAYOFFS_ACTIVE.has(t));
+// Draft Capital is shown first when ≤4 teams remain (late playoffs) or all followed teams are out.
+const draftCapitalFirst = teamsRemaining <= 4 || allFollowedEliminated;
+
+// Badge class: high (>50%) or low (≤50%) for active teams.
+function playoffOddsClass(abbrev: string): string {
+  return (playoffOdds[abbrev] ?? 0) > 0.5 ? 'high' : 'low';
+}
+function playoffOddsLabel(abbrev: string): string {
+  const v = playoffOdds[abbrev];
+  return v != null ? `${Math.round(v * 100)}%` : '—';
+}
+
 const teamData: Record<string, any> = {
   NJD: { name: "New Jersey Devils", record: "42-28-12", xgf_pct: "52.3%", gf_pct: "50.1%", impact_rank: "8th",  playoff_odds: "67%", label: "Contender profile", labelColor: "#166534", oddsClass: "high", color: "#CE1126" },
   SJS: { name: "San Jose Sharks",   record: "28-44-10", xgf_pct: "46.1%", gf_pct: "44.8%", impact_rank: "28th", playoff_odds: "3%",  label: "Rebuild watch",    labelColor: "rgba(13,13,20,0.40)", oddsClass: "low",  color: "#006D75" },
@@ -170,6 +204,8 @@ const topTeams = (() => {
     { abbrev: 'CAR', xgf_pct: '57.2%', record: '52-20-10' },
     { abbrev: 'VGK', xgf_pct: '55.1%', record: '49-22-11' },
     { abbrev: 'TOR', xgf_pct: '54.8%', record: '50-21-11' },
+    { abbrev: 'FLA', xgf_pct: '53.2%', record: '44-29-9' },
+    { abbrev: 'EDM', xgf_pct: '52.8%', record: '47-24-11' },
   ];
 })();
 ---
@@ -224,6 +260,9 @@ const topTeams = (() => {
       text-transform: uppercase; color: var(--ink-48); display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
     .mast-lo-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
     .mast-search { margin-top: 20px; }
+    .mast-search-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 6px; }
+    .mast-mobile-cta { display: none; margin-top: 14px; }
+    @media (max-width: 640px) { .mast-mobile-cta { display: block; } }
     .mast-lo-headline { font-family: var(--display); font-weight: 800; font-size: clamp(32px,5vw,56px);
       text-transform: uppercase; line-height: 1; margin-bottom: 10px; }
     .mast-lo-headline em { color: var(--red); font-style: normal; }
@@ -271,6 +310,7 @@ const topTeams = (() => {
       font-weight: 700; letter-spacing: 0.10em; padding: 3px 7px; }
     .odds-badge.high { background: var(--green-bg); color: var(--green); }
     .odds-badge.low  { background: var(--ink-04);   color: var(--ink-48); }
+    .odds-badge.eliminated { background: rgba(13,13,20,0.06); color: var(--ink-48); letter-spacing: 0.08em; }
     .team-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
     .team-logo { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
     .team-abbrev { font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: 0.01em; line-height: 1.1; }
@@ -282,13 +322,11 @@ const topTeams = (() => {
     .team-stat { padding: 0 8px; border-right: 1px solid var(--ink-06); }
     .team-stat:first-child { padding-left: 0; }
     .team-stat:last-child  { border-right: none; }
-    .team-stat-k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+    .team-stat-k { font-family: var(--body); font-size: 10px; letter-spacing: 0.08em;
       text-transform: uppercase; color: var(--ink-48); margin-bottom: 4px; }
     .team-stat-v { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--ink); }
-    .team-card-links { display: flex; gap: 0; }
-    .team-card-link { font-family: var(--body); font-size: 11px; font-weight: 600;
-      color: var(--ink-48); padding: 4px 10px 4px 0; margin-right: 10px;
-      border-right: 1px solid var(--ink-14); }
+    .team-card-links { display: flex; gap: 0; justify-content: space-between; }
+    .team-card-link { font-family: var(--body); font-size: 11px; font-weight: 600; color: var(--ink-48); padding: 4px 0; }
     .team-card-link::after { content: ' →'; font-weight: 400; }
     .team-card-link:last-child { border-right: none; }
     .team-card-link:hover { color: var(--red); }
@@ -336,7 +374,7 @@ const topTeams = (() => {
     .tonight-stat { padding: 8px 10px; border-right: 1px solid var(--ink-06); }
     .tonight-stat:first-child { padding-left: 0; }
     .tonight-stat:last-child { border-right: none; }
-    .tonight-stat-k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 4px; }
+    .tonight-stat-k { font-family: var(--body); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 4px; }
     .tonight-stat-v { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--ink); }
     .tonight-cta { display: block; padding: 9px 16px; font-family: var(--mono); font-size: 9px; font-weight: 700;
       letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); text-align: right;
@@ -368,25 +406,13 @@ const topTeams = (() => {
     .delta-up   { color: var(--green); }
     .delta-down { color: var(--red); }
 
-    /* ── Quick access ── */
-    .quick-section { margin-top: 40px; }
-    .quick-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; }
-    .quick-card { background: var(--surface); border: 1px solid var(--ink-14); border-right: none;
-      padding: 16px 14px; text-align: center; display: flex; flex-direction: column; align-items: center;
-      gap: 8px; transition: background 0.1s; }
-    .quick-card:last-child { border-right: 1px solid var(--ink-14); }
-    .quick-card:hover { background: var(--ink-04); }
-    .quick-card:hover .quick-label { color: var(--red); }
-    .quick-icon { font-size: 20px; line-height: 1; opacity: 0.75; }
-    .quick-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.10em;
-      text-transform: uppercase; color: var(--ink-72); transition: color 0.1s; }
 
     /* ── Logged-out state ── */
     .lo-section { margin-bottom: 36px; }
     .personalize-bar { background: var(--ink); color: #EFEEE8; padding: 20px 28px;
       display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 32px; }
     .personalize-bar-headline { font-family: var(--display); font-weight: 800; font-size: 20px; text-transform: uppercase; }
-    .personalize-bar-sub { font-family: var(--mono); font-size: 10px; color: rgba(239,238,232,0.5); margin-top: 4px; letter-spacing: 0.06em; max-width: 480px; line-height: 1.5; }
+    .personalize-bar-sub { font-family: var(--body); font-weight: 500; font-size: 10px; color: rgba(239,238,232,0.5); margin-top: 4px; letter-spacing: 0.06em; max-width: 480px; line-height: 1.5; }
     .personalize-bar-cta { font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.06em;
       text-transform: uppercase; padding: 10px 24px; background: var(--red); color: #fff; white-space: nowrap; }
     .personalize-bar-cta:hover { opacity: 0.9; }
@@ -406,7 +432,7 @@ const topTeams = (() => {
     .lo-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; border-top: 1px solid var(--ink-06); }
     .lo-stat { padding: 10px 0; border-right: 1px solid var(--ink-06); }
     .lo-stat:last-child { border-right: none; }
-    .lo-stat-k { font-family: var(--mono); font-size: 8px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 3px; }
+    .lo-stat-k { font-family: var(--body); font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 3px; }
     .lo-stat-v { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--ink); }
 
     .performers { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--ink-14); }
@@ -417,7 +443,7 @@ const topTeams = (() => {
     .performer-name { font-family: var(--body); font-weight: 600; font-size: 12.5px; flex: 1; }
     .performer-team { font-family: var(--mono); font-size: 10px; color: var(--ink-48); width: 32px; }
     .performer-val  { font-family: var(--mono); font-size: 11px; font-weight: 700; }
-    .performer-lbl  { font-family: var(--mono); font-size: 9px; color: var(--ink-32); margin-left: 4px; }
+    .performer-lbl  { font-family: var(--body); font-size: 10px; color: var(--ink-48); margin-left: 4px; }
 
     /* ── Draft Capital card ── */
     .draft-stack { display: flex; flex-direction: column; gap: 10px; }
@@ -429,7 +455,7 @@ const topTeams = (() => {
     .draft-stat-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border-top: 1px solid var(--ink-06); border-bottom: 1px solid var(--ink-06); }
     .draft-stat { padding: 7px 10px; border-right: 1px solid var(--ink-06); }
     .draft-stat:last-child { border-right: none; }
-    .draft-stat-k { font-family: var(--mono); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 3px; }
+    .draft-stat-k { font-family: var(--body); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 3px; }
     .draft-stat-v { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--ink); }
     .draft-picks-list { padding: 8px 14px 11px; display: flex; flex-direction: column; gap: 4px; }
     .draft-pick-chip { display: flex; align-items: baseline; gap: 6px; font-size: 10px; }
@@ -453,8 +479,6 @@ const topTeams = (() => {
     @media (max-width: 900px) {
       .page-grid { grid-template-columns: 1fr; }
       .team-cards { grid-template-columns: 1fr 1fr; }
-      .quick-grid { grid-template-columns: repeat(4, 1fr); }
-      .quick-card { border-right: 1px solid var(--ink-14); }
     }
     @media (max-width: 640px) {
       /* ── Containment: all sections use the same gutter ── */
@@ -479,10 +503,6 @@ const topTeams = (() => {
       .performers { max-width: 100%; }
       /* Logged-out grid sections */
       .lo-stats { max-width: 100%; }
-      /* Quick access */
-      .quick-grid { grid-template-columns: repeat(2, 1fr); max-width: 100%;
-        border-top: 1px solid var(--ink-14); }
-      .quick-card { border-right: 1px solid var(--ink-14); border-top: none; border-bottom: 1px solid var(--ink-14); }
       /* Table cell sizing */
       .player-table td, .player-table thead th { padding: 7px 6px; font-size: 10px; }
       /* Subnav: containment only (no style changes) */
@@ -513,6 +533,7 @@ const topTeams = (() => {
       <h1 class="mast-lo-headline">Your Hockey <em>Command Center</em></h1>
       <p class="mast-lo-sub">Followed teams, tracked players, draft capital, model signals, and trend movement — all in one place.</p>
       <div class="mast-search">
+        <div class="mast-search-label">Search any player</div>
         <GlobalPlayerSearch players={playerSearchIndex} client:load />
       </div>
     </div>
@@ -531,7 +552,11 @@ const topTeams = (() => {
       <h1 class="mast-lo-headline">Personalize <em>Your Dashboard</em></h1>
       <p class="mast-lo-sub">Follow teams and players to get model signals, next games, trend alerts, and quick access to your stats.</p>
       <div class="mast-search">
+        <div class="mast-search-label">Search any player</div>
         <GlobalPlayerSearch players={playerSearchIndex} client:load />
+      </div>
+      <div class="mast-mobile-cta">
+        <a href="/account" class="cta-btn">Sign in free →</a>
       </div>
     </div>
   </div>
@@ -563,7 +588,10 @@ const topTeams = (() => {
           const d = teamData[abbrev];
           return (
             <div class="team-card" data-color style={`--team-color:${d.color}`}>
-              <span class={`odds-badge ${d.oddsClass}`}>PO: {d.playoff_odds}</span>
+              {PLAYOFFS_ACTIVE.has(abbrev)
+                ? <span class={`odds-badge ${playoffOddsClass(abbrev)}`}>PO: {playoffOddsLabel(abbrev)}</span>
+                : <span class="odds-badge eliminated">ELIM</span>
+              }
               <div class="team-card-head">
                 <img src={`https://assets.nhle.com/logos/nhl/svg/${abbrev}_dark.svg`} alt={abbrev} class="team-logo" />
                 <div>
@@ -591,7 +619,7 @@ const topTeams = (() => {
       <div class="players-section">
         <div class="section-head">
           <span class="section-title">Your Players</span>
-          <a href="/account" class="section-link">sorted by IMP% ↓</a>
+          <span class="section-link" style="cursor:default;border-bottom:1px solid var(--ink-14);padding-bottom:10px;">sorted by IMP% ↓</span>
         </div>
         <DashboardFollowedPlayers players={followedPlayers} client:load />
       </div>
@@ -615,6 +643,7 @@ const topTeams = (() => {
             </a>
           ))}
         </div>
+        <div class="note-meta" style="margin-top:8px;">L10 rolling impact delta vs. season average</div>
       </div>
 
     </div><!-- /left col -->
@@ -622,97 +651,167 @@ const topTeams = (() => {
     <!-- RIGHT COLUMN -->
     <div class="right-col">
 
-      <!-- DRAFT CAPITAL -->
-      <div>
-        <div class="section-head">
-          <span class="section-title">Draft Capital</span>
-          <span class="section-link" style="border-bottom:1px solid var(--ink-14);padding-bottom:10px;">
-            {draftYear} draft{draftGeneratedAt ? ` · ${draftGeneratedAt}` : ''}
-          </span>
-        </div>
-        <div class="draft-stack">
-          {followedTeams.length === 0 && (
-            <div class="draft-empty" style="background:var(--surface);border:1px solid var(--ink-14);padding:14px;">Follow teams to track draft capital</div>
-          )}
-          {followedTeams.map(abbrev => {
-            const td = teamDraftData[abbrev];
-            if (!td) return null;
-            const showPicks = td.r1r2Picks;
-            return (
-              <div class="draft-team-card">
-                <div class="draft-team-bar" style={`background:${td.color}`}></div>
-                <div class="draft-team-head">
-                  <img src={`https://assets.nhle.com/logos/nhl/svg/${abbrev}_dark.svg`} alt={abbrev} class="draft-team-logo" />
-                  <div class="draft-team-summary">
-                    {td.picks.length > 0
-                      ? `${td.picks.length} pick${td.picks.length !== 1 ? 's' : ''} · first at #${td.firstPick}`
-                      : 'No 2026 picks currently owned'}
-                  </div>
-                </div>
-                {td.picks.length > 0 && (
-                  <>
-                    <div class="draft-stat-row">
-                      <div class="draft-stat"><div class="draft-stat-k">1st Rd</div><div class="draft-stat-v">{td.r1Count}</div></div>
-                      <div class="draft-stat"><div class="draft-stat-k">Top 64</div><div class="draft-stat-v">{td.top64Count}</div></div>
-                      <div class="draft-stat"><div class="draft-stat-k">In</div><div class="draft-stat-v">{td.acquiredCount}</div></div>
-                      <div class="draft-stat"><div class="draft-stat-k">Out</div><div class="draft-stat-v">{td.lostCount}</div></div>
+      {draftCapitalFirst ? (
+        <>
+          <!-- DRAFT CAPITAL first when all followed teams are eliminated -->
+          <div>
+            <div class="section-head">
+              <span class="section-title">Draft Capital</span>
+              <span class="section-link" style="border-bottom:1px solid var(--ink-14);padding-bottom:10px;">
+                {draftYear} draft{draftGeneratedAt ? ` · ${draftGeneratedAt}` : ''}
+              </span>
+            </div>
+            <div class="draft-stack">
+              {followedTeams.length === 0 && (
+                <div class="draft-empty" style="background:var(--surface);border:1px solid var(--ink-14);padding:14px;">Follow teams to track draft capital</div>
+              )}
+              {followedTeams.map(abbrev => {
+                const td = teamDraftData[abbrev];
+                if (!td) return null;
+                const showPicks = td.r1r2Picks;
+                return (
+                  <div class="draft-team-card">
+                    <div class="draft-team-bar" style={`background:${td.color}`}></div>
+                    <div class="draft-team-head">
+                      <img src={`https://assets.nhle.com/logos/nhl/svg/${abbrev}_dark.svg`} alt={abbrev} class="draft-team-logo" />
+                      <div class="draft-team-summary">
+                        {td.picks.length > 0
+                          ? `${td.picks.length} pick${td.picks.length !== 1 ? 's' : ''} · first at #${td.firstPick}`
+                          : 'No 2026 picks currently owned'}
+                      </div>
                     </div>
-                    <div class="draft-picks-list">
-                      {showPicks.map(p => (
-                        <div class="draft-pick-chip">
-                          <span class="draft-pick-overall">#{p.overall}</span>
-                          <span class="draft-pick-round">R{p.round}</span>
-                          {p.is_traded
-                            ? <span class="draft-pick-source" title={p.original_team_name}>from {p.original_team}</span>
-                            : <span class="draft-pick-source">own</span>
-                          }
+                    {td.picks.length > 0 && (
+                      <>
+                        <div class="draft-stat-row">
+                          <div class="draft-stat"><div class="draft-stat-k">1st Rd</div><div class="draft-stat-v">{td.r1Count}</div></div>
+                          <div class="draft-stat"><div class="draft-stat-k">Top 64</div><div class="draft-stat-v">{td.top64Count}</div></div>
+                          <div class="draft-stat"><div class="draft-stat-k">In</div><div class="draft-stat-v">{td.acquiredCount}</div></div>
+                          <div class="draft-stat"><div class="draft-stat-k">Out</div><div class="draft-stat-v">{td.lostCount}</div></div>
                         </div>
-                      ))}
-                      {td.laterCount > 0 && (
-                        <div class="draft-later">+{td.laterCount} later round{td.laterCount !== 1 ? 's' : ''}</div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-          {draftUnavailable && (
-            <div class="draft-fallback-note" style="background:var(--surface);border:1px solid var(--ink-14);padding:10px 14px;">Draft data unavailable</div>
-          )}
-        </div>
-      </div>
+                        <div class="draft-picks-list">
+                          {showPicks.map(p => (
+                            <div class="draft-pick-chip">
+                              <span class="draft-pick-overall">#{p.overall}</span>
+                              <span class="draft-pick-round">R{p.round}</span>
+                              {p.is_traded
+                                ? <span class="draft-pick-source" title={p.original_team_name}>from {p.original_team}</span>
+                                : <span class="draft-pick-source">own</span>
+                              }
+                            </div>
+                          ))}
+                          {td.laterCount > 0 && (
+                            <div class="draft-later">+{td.laterCount} later round{td.laterCount !== 1 ? 's' : ''}</div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {draftUnavailable && (
+                <div class="draft-fallback-note" style="background:var(--surface);border:1px solid var(--ink-14);padding:10px 14px;">Draft data unavailable</div>
+              )}
+            </div>
+          </div>
 
-      <!-- MODEL SIGNALS -->
-      <div>
-        <div class="section-head"><span class="section-title">Model Signals</span></div>
-        <div class="model-notes">
-          {modelSignals.map(s => (
-            <a href={s.href} class="model-note" style="display:block">
-              <div class="note-rule">{s.rule}</div>
-              <div class="note-threshold">Rule: {s.threshold}</div>
-              <div class="note-body">{s.body}</div>
-            </a>
-          ))}
-        </div>
-        <div class="note-meta">Signals from the latest HGB model run</div>
-      </div>
+          <!-- MODEL SIGNALS second -->
+          <div>
+            <div class="section-head"><span class="section-title">Model Signals</span></div>
+            <div class="model-notes">
+              {modelSignals.map(s => (
+                <a href={s.href} class="model-note" style="display:block">
+                  <div class="note-rule">{s.rule}</div>
+                  <div class="note-threshold">Rule: {s.threshold}</div>
+                  <div class="note-body">{s.body}</div>
+                </a>
+              ))}
+            </div>
+            <div class="note-meta">Signals from the latest HGB model run</div>
+          </div>
+        </>
+      ) : (
+        <>
+          <!-- MODEL SIGNALS first (default) -->
+          <div>
+            <div class="section-head"><span class="section-title">Model Signals</span></div>
+            <div class="model-notes">
+              {modelSignals.map(s => (
+                <a href={s.href} class="model-note" style="display:block">
+                  <div class="note-rule">{s.rule}</div>
+                  <div class="note-threshold">Rule: {s.threshold}</div>
+                  <div class="note-body">{s.body}</div>
+                </a>
+              ))}
+            </div>
+            <div class="note-meta">Signals from the latest HGB model run</div>
+          </div>
+
+          <!-- DRAFT CAPITAL second -->
+          <div>
+            <div class="section-head">
+              <span class="section-title">Draft Capital</span>
+              <span class="section-link" style="border-bottom:1px solid var(--ink-14);padding-bottom:10px;">
+                {draftYear} draft{draftGeneratedAt ? ` · ${draftGeneratedAt}` : ''}
+              </span>
+            </div>
+            <div class="draft-stack">
+              {followedTeams.length === 0 && (
+                <div class="draft-empty" style="background:var(--surface);border:1px solid var(--ink-14);padding:14px;">Follow teams to track draft capital</div>
+              )}
+              {followedTeams.map(abbrev => {
+                const td = teamDraftData[abbrev];
+                if (!td) return null;
+                const showPicks = td.r1r2Picks;
+                return (
+                  <div class="draft-team-card">
+                    <div class="draft-team-bar" style={`background:${td.color}`}></div>
+                    <div class="draft-team-head">
+                      <img src={`https://assets.nhle.com/logos/nhl/svg/${abbrev}_dark.svg`} alt={abbrev} class="draft-team-logo" />
+                      <div class="draft-team-summary">
+                        {td.picks.length > 0
+                          ? `${td.picks.length} pick${td.picks.length !== 1 ? 's' : ''} · first at #${td.firstPick}`
+                          : 'No 2026 picks currently owned'}
+                      </div>
+                    </div>
+                    {td.picks.length > 0 && (
+                      <>
+                        <div class="draft-stat-row">
+                          <div class="draft-stat"><div class="draft-stat-k">1st Rd</div><div class="draft-stat-v">{td.r1Count}</div></div>
+                          <div class="draft-stat"><div class="draft-stat-k">Top 64</div><div class="draft-stat-v">{td.top64Count}</div></div>
+                          <div class="draft-stat"><div class="draft-stat-k">In</div><div class="draft-stat-v">{td.acquiredCount}</div></div>
+                          <div class="draft-stat"><div class="draft-stat-k">Out</div><div class="draft-stat-v">{td.lostCount}</div></div>
+                        </div>
+                        <div class="draft-picks-list">
+                          {showPicks.map(p => (
+                            <div class="draft-pick-chip">
+                              <span class="draft-pick-overall">#{p.overall}</span>
+                              <span class="draft-pick-round">R{p.round}</span>
+                              {p.is_traded
+                                ? <span class="draft-pick-source" title={p.original_team_name}>from {p.original_team}</span>
+                                : <span class="draft-pick-source">own</span>
+                              }
+                            </div>
+                          ))}
+                          {td.laterCount > 0 && (
+                            <div class="draft-later">+{td.laterCount} later round{td.laterCount !== 1 ? 's' : ''}</div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {draftUnavailable && (
+                <div class="draft-fallback-note" style="background:var(--surface);border:1px solid var(--ink-14);padding:10px 14px;">Draft data unavailable</div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
     </div><!-- /right col -->
   </div><!-- /page-grid -->
 
-  <!-- QUICK ACCESS -->
-  <div class="quick-section">
-    <div class="section-head"><span class="section-title">Quick Access</span></div>
-    <div class="quick-grid">
-      {quickLinks.map(q => (
-        <a href={q.href} class="quick-card">
-          <span class="quick-icon">{q.icon}</span>
-          <span class="quick-label">{q.label}</span>
-        </a>
-      ))}
-    </div>
-  </div>
 
 </div><!-- /page-wrap -->
 </div><!-- /view-li -->
@@ -731,31 +830,10 @@ const topTeams = (() => {
   </div>
 
   <div class="page-grid">
-    <!-- LEFT: public game + top performers -->
+    <!-- LEFT: top performers -->
     <div>
-      <div class="section-head"><span class="section-title">Tonight's Public Model</span></div>
-      <div class="lo-game-card">
-        <div class="lo-matchup">CAR <span class="vs">vs</span> VGK</div>
-        <div class="lo-time">8:00 PM ET · T-Mobile Arena · TNT</div>
-        <div class="lo-wp-row">
-          <div style="width:47%;background:#CC0000;"></div>
-          <div style="width:53%;background:#B4975A;"></div>
-        </div>
-        <div class="lo-wp-labels">
-          <span style="color:#CC0000;font-weight:700;">CAR 47%</span>
-          <span style="color:#B4975A;font-weight:700;">VGK 53%</span>
-        </div>
-        <div class="lo-stats">
-          <div class="lo-stat"><div class="lo-stat-k">HGB Model</div><div class="lo-stat-v">VGK</div></div>
-          <div class="lo-stat"><div class="lo-stat-k">xGF Edge</div><div class="lo-stat-v">+0.4</div></div>
-          <div class="lo-stat"><div class="lo-stat-k">Series</div><div class="lo-stat-v">VGK 3-2</div></div>
-        </div>
-      </div>
-
-      <div style="margin-top:28px;">
-        <div class="section-head"><span class="section-title">Top Players — HGB Impact</span></div>
-        <DashboardTopImpact players={topImpact} client:load />
-      </div>
+      <div class="section-head"><span class="section-title">Top Players — HGB Impact</span></div>
+      <DashboardTopImpact players={topImpact} client:load />
     </div>
 
     <!-- RIGHT: draft, top teams + signals teaser -->
@@ -826,18 +904,6 @@ const topTeams = (() => {
     </div>
   </div>
 
-  <!-- QUICK ACCESS -->
-  <div class="quick-section">
-    <div class="section-head"><span class="section-title">Explore Stats</span></div>
-    <div class="quick-grid">
-      {quickLinks.map(q => (
-        <a href={q.href} class="quick-card">
-          <span class="quick-icon">{q.icon}</span>
-          <span class="quick-label">{q.label}</span>
-        </a>
-      ))}
-    </div>
-  </div>
 
 </div><!-- /page-wrap -->
 </div><!-- /view-lo -->
