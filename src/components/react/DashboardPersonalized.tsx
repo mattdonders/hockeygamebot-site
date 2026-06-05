@@ -250,11 +250,20 @@ export function EntitySignals({ entityId, entityType, limit = 3 }: EntitySignals
   if (signals === null || !signals.length) return null;
 
   return (
-    <div className="model-notes" style={{ marginTop: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
       {signals.map((s, i) => (
-        <div key={i} className="model-note" style={{ borderLeftColor: SEVERITY_BORDER[s.severity] ?? 'var(--red)' }}>
-          <div className="note-rule">{s.category.toUpperCase()}</div>
-          <div className="note-body">{s.copy}</div>
+        <div key={i} style={{
+          background: 'var(--surface, #fff)',
+          border: '1px solid rgba(13,13,20,0.10)',
+          borderLeft: `3px solid ${SEVERITY_BORDER[s.severity] ?? '#C8102E'}`,
+          padding: '10px 14px',
+        }}>
+          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
+            {s.category}
+          </div>
+          <div style={{ fontFamily: 'var(--body, sans-serif)', fontWeight: 600, fontSize: 12.5, lineHeight: 1.55, color: 'rgba(13,13,20,0.72)' }}>
+            {s.copy}
+          </div>
         </div>
       ))}
     </div>
