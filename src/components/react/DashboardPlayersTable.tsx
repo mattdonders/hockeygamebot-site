@@ -7,8 +7,50 @@
  * hideToolbar + no virtualization (small row counts, no need).
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE } from './HGBTable';
+
+const API = 'https://api.hockeygamebot.com';
+
+function computeWarPct(all: any[], player: any): number | null {
+  const grp = player.pos_group;
+  const peers = all.filter(p => p.pos_group === grp && p.war != null).sort((a, b) => a.war - b.war);
+  const idx = peers.findIndex(p => p.player_id === player.player_id);
+  if (idx < 0 || peers.length < 2) return null;
+  return Math.round((idx / (peers.length - 1)) * 100);
+}
+
+async function fetchPersonalizedPlayers(): Promise<DashboardPlayerRow[]> {
+  let token: string | null = null;
+  try { token = localStorage.getItem('hgb_session'); } catch {}
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const [prefsRes, playersRes] = await Promise.all([
+    fetch(`${API}/v1/account/prefs`, { headers, credentials: 'include' }),
+    fetch(`${API}/v1/stats/players`),
+  ]);
+
+  const prefs = prefsRes.ok ? await prefsRes.json() : {};
+  const raw   = playersRes.ok ? await playersRes.json() : [];
+  const allPlayers: any[] = Array.isArray(raw) ? raw : (raw.players ?? []);
+
+  const trackedIds: Set<number> = new Set(prefs.tracked_players ?? []);
+  const tracked = allPlayers.filter(p => trackedIds.has(p.player_id));
+
+  return tracked.map(p => ({
+    name:   `${p.first_name} ${p.last_name}`,
+    slug:   p.slug ?? '',
+    team:   p.team_abbrev ?? '',
+    pos:    p.pos ?? '',
+    gp:     p.gp ?? 0,
+    g:      p.goals ?? 0,
+    a:      p.assists ?? 0,
+    p:      (p.goals ?? 0) + (p.assists ?? 0),
+    war_p:  computeWarPct(allPlayers, p),
+    rtng_p: p.hgb_rating_percentile != null ? Math.round(p.hgb_rating_percentile) : null,
+    imp_p:  p.gs_pct != null ? Math.round(p.gs_pct) : null,
+  }));
+}
 
 // ── Followed players (logged-in) ──────────────────────────────────────────────
 
@@ -113,7 +155,17 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
   },
 ];
 
-export function DashboardFollowedPlayers({ players }: { players: DashboardPlayerRow[] }) {
+export function DashboardFollowedPlayers() {
+  const [players, setPlayers] = useState<DashboardPlayerRow[] | null>(null);
+
+  useEffect(() => {
+    fetchPersonalizedPlayers().then(setPlayers).catch(() => setPlayers([]));
+  }, []);
+
+  if (players === null) {
+    return <div style={{ padding: '16px 0', color: 'rgba(13,13,20,0.32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+  }
+
   return (
     <HGBTable
       data={players}
@@ -121,7 +173,7 @@ export function DashboardFollowedPlayers({ players }: { players: DashboardPlayer
       defaultSort={{ id: 'imp_p', desc: true }}
       rowHref={r => `/stats/player/${r.slug}`}
       hideToolbar
-      emptyMessage="No players followed yet"
+      emptyMessage="No players followed. Add players in Account settings."
     />
   );
 }
