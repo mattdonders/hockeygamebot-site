@@ -2249,12 +2249,23 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     stopCountdown();
     _pageState = 'post';
     const games = data.games ?? [];
+    const prevGames = (data.previous_day?.games ?? []).filter(g => {
+      const s = gs(g); return s === 'final' || s === 'game-end';
+    });
     const todayDate = data.hockey_date;
-    const dateLabel = todayDate ? fmtDate(todayDate) : 'Last Night';
-    setText('hero-ghost', String(games.length || '—'));
+    const prevDate = data.previous_day?.hockey_date;
+    // On off-days with no games today, fall back to showing previous night's results
+    const isOffDay = games.length === 0 && prevGames.length > 0;
+    const displayGames = isOffDay ? prevGames : games;
+    const dateLabel = isOffDay
+      ? (prevDate ? fmtDate(prevDate) : 'Last Night')
+      : (todayDate ? fmtDate(todayDate) : 'Last Night');
+    setText('hero-ghost', String(displayGames.length || '—'));
     document.getElementById('live-pill').style.display = 'none';
-    setText('hero-eyebrow-text', games.length === 0 ? `Off Night · ${dateLabel}` : `That's a Wrap · ${dateLabel}`);
-    setText('hero-meta', games.length === 0 ? 'No games tonight' : `${games.length} games played · All final`);
+    setText('hero-eyebrow-text', isOffDay ? `Last Game · ${dateLabel}` : `That's a Wrap · ${dateLabel}`);
+    setText('hero-meta', isOffDay
+      ? `${displayGames.length} game${displayGames.length !== 1 ? 's' : ''} · All final`
+      : (games.length === 0 ? 'No games tonight' : `${games.length} games played · All final`));
     document.getElementById('also-section').style.display = 'none';
     // Hide SSR editorial sections in post state — they show yesterday's data
     // which is now stale. The hero final cards are the full story.
@@ -2265,7 +2276,8 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
     if (yesterSec) yesterSec.style.display = 'none';
     if (trackedSec) trackedSec.style.display = 'none';
 
-    const cards = games.map(g => {
+    const cardDate = isOffDay ? prevDate : todayDate;
+    const cards = displayGames.map(g => {
       const a=g.away_team.abbrev, h=g.home_team.abbrev;
       const ac=clr(a), hc=clr(h);
       const awayWins = g.away_team.score > g.home_team.score;
@@ -2274,7 +2286,7 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       const xgA = g.stats?.xg_5v5?.away, xgH = g.stats?.xg_5v5?.home;
       return `<a class="final-card" href="/games/${g.game_id}">
         <div class="final-card-bar"><div class="a" style="background:${ac}"></div><div class="h" style="background:${hc}"></div></div>
-        <div class="final-card-tag"><span>Final</span><span>${todayDate||''}</span></div>
+        <div class="final-card-tag"><span>Final</span><span>${cardDate||''}</span></div>
         <div class="final-row">
           <img class="final-logo" src="https://assets.nhle.com/logos/nhl/svg/${a}_light.svg" alt="${a}" onerror="this.style.display='none'">
           <div><div class="final-abbr" style="color:${ac}">${a}</div>${xgA!=null?`<div class="final-xg">xG ${xgA.toFixed(2)}</div>`:''}</div>
@@ -2292,10 +2304,20 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
       </a>`;
     }).join('');
 
+    const heroHeadline = isOffDay ? `LAST <em>GAME.</em>` : (games.length === 0 ? `QUIET <em>NIGHT.</em>` : `THAT'S A <em>WRAP.</em>`);
+    const heroLead = isOffDay
+      ? `No games today — here's how things finished ${dateLabel}.`
+      : (games.length === 0
+        ? `No games on the NHL schedule tonight. Check back on game days for live xG, win probability, and bot posts.`
+        : `All games are final. Post-game cards, three stars, and recap threads published across all 32 bot accounts.`);
+    const heroMeta = isOffDay
+      ? `${displayGames.length} GAMES FINAL · ${dateLabel.toUpperCase()}`
+      : (games.length === 0 ? `NO GAMES TONIGHT` : `${games.length} GAMES FINAL · NEXT PUCK DROP TOMORROW`);
+
     setHtml('hero-slot', `<div class="state-empty">
-      <div class="state-big">${games.length === 0 ? `QUIET <em>NIGHT.</em>` : `THAT'S A <em>WRAP.</em>`}</div>
-      <div class="state-lead">${games.length === 0 ? `No games on the NHL schedule tonight. Check back on game days for live xG, win probability, and bot posts.` : `All games are final. Post-game cards, three stars, and recap threads published across all 32 bot accounts.`}</div>
-      <div class="state-meta">${games.length === 0 ? `NO GAMES TONIGHT` : `${games.length} GAMES FINAL · NEXT PUCK DROP TOMORROW`}</div>
+      <div class="state-big">${heroHeadline}</div>
+      <div class="state-lead">${heroLead}</div>
+      <div class="state-meta">${heroMeta}</div>
       <div class="finals-grid">${cards}</div>
     </div>`);
   }
