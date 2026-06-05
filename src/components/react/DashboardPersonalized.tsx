@@ -69,12 +69,12 @@ interface TeamCardData {
 }
 
 async function fetchTeamCardData(teams: string[]): Promise<TeamCardData[]> {
-  const [teamsRes, playoffRes] = await Promise.all([
-    fetch(`${API}/v1/stats/teams`),
-    fetch(`${API}/v1/playoffs/status`),
+  if (!teams.length) return [];
+  const safe = (p: Promise<Response>) => p.then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  const [teamsData, playoff]: [any, any] = await Promise.all([
+    safe(fetch(`${API}/v1/stats/teams`)),
+    safe(fetch(`${API}/v1/playoffs/status`)),
   ]);
-  const teamsData: any = teamsRes.ok ? await teamsRes.json() : {};
-  const playoff: any = playoffRes.ok ? await playoffRes.json() : {};
 
   const regular: any[] = teamsData.regular ?? [];
   const current = regular.filter(t => t.season === '2025-26');
@@ -155,6 +155,7 @@ interface TrendRow {
   name: string;
   slug: string;
   team: string;
+  pos: string;
   delta: string;
   dir: 'up' | 'down';
 }
@@ -176,6 +177,7 @@ async function fetchTrendingData(playerIds: number[]): Promise<TrendRow[]> {
         name:  `${p.first_name} ${p.last_name}`,
         slug:  p.slug ?? '',
         team:  p.team_abbrev ?? '',
+        pos:   p.pos ?? '',
         delta: (delta >= 0 ? '+' : '') + delta.toFixed(2),
         dir:   delta >= 0 ? 'up' as const : 'down' as const,
         _abs:  Math.abs(delta),
