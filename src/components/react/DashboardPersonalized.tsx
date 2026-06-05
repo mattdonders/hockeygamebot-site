@@ -210,7 +210,7 @@ export function DashboardTrending() {
           <img src={`https://assets.nhle.com/logos/nhl/svg/${t.team}_light.svg`} alt={t.team} style={{ width: 28, height: 28, objectFit: 'contain', flexShrink: 0, marginRight: 6 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="trend-name">{t.name}</div>
-            <div className="trend-label">Impact last 7</div>
+            <div className="trend-label" style={{ color: 'rgba(13,13,20,0.40)' }}>{t.team} · {t.pos ?? ''}</div>
           </div>
           <div className={`trend-delta ${t.dir === 'up' ? 'delta-up' : 'delta-down'}`}>
             {t.dir === 'up' ? '↑' : '↓'} {t.delta}
