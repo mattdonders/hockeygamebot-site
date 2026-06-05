@@ -224,7 +224,44 @@ export function DashboardTrending() {
   );
 }
 
-// ── Model Signals ─────────────────────────────────────────────────────────────
+// ── Entity Signals (player page / team page) ──────────────────────────────────
+
+interface EntitySignalsProps {
+  entityId: string;   // player_id as string OR team abbrev
+  entityType: 'player' | 'team';
+  limit?: number;
+}
+
+export function EntitySignals({ entityId, entityType, limit = 3 }: EntitySignalsProps) {
+  const [signals, setSignals] = useState<Signal[] | null>(null);
+
+  useEffect(() => {
+    const safe = (p: Promise<Response>) => p.then(r => r.ok ? r.json() : {}).catch(() => ({}));
+    safe(fetch(`${API}/v1/stats/signals`)).then((data: any) => {
+      const all: Signal[] = data.signals ?? (Array.isArray(data) ? data : []);
+      const filtered = all
+        .filter(s => s.entity_type === entityType && s.entity_id === entityId)
+        .sort((a, b) => b.priority - a.priority)
+        .slice(0, limit);
+      setSignals(filtered);
+    });
+  }, [entityId, entityType]);
+
+  if (signals === null || !signals.length) return null;
+
+  return (
+    <div className="model-notes" style={{ marginTop: 0 }}>
+      {signals.map((s, i) => (
+        <div key={i} className="model-note" style={{ borderLeftColor: SEVERITY_BORDER[s.severity] ?? 'var(--red)' }}>
+          <div className="note-rule">{s.category.toUpperCase()}</div>
+          <div className="note-body">{s.copy}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Model Signals (dashboard) ─────────────────────────────────────────────────
 
 interface Signal {
   entity_type: string;
