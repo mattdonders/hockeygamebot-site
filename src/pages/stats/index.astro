@@ -7,6 +7,7 @@ import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
 import { loadPlayers, loadLeaderboard, loadGoalies } from '../../lib/stats-loader';
 import { DashboardFollowedPlayers, DashboardTopImpact, type DashboardPlayerRow, type TopImpactRow } from '../../components/react/DashboardPlayersTable';
+import { DashboardTeamCards, DashboardTrending, DashboardModelSignals } from '../../components/react/DashboardPersonalized';
 import GlobalPlayerSearch, { type PlayerSearchItem } from '../../components/react/GlobalPlayerSearch';
 
 // ── Draft Capital ─────────────────────────────────────────────────────────────
@@ -303,6 +304,7 @@ const topTeams = (() => {
 
     /* ── Team cards ── */
     .team-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 32px; }
+    .team-cards > .team-card:only-child { grid-column: 1 / -1; }
     .team-card { background: var(--surface); border: 1px solid var(--ink-14); padding: 18px 18px 14px; position: relative; overflow: hidden; }
     .team-card { border-top: 3px solid var(--ink-14); }
     .team-card[data-color] { border-top-color: var(--team-color, var(--ink-14)); }
@@ -611,37 +613,7 @@ const topTeams = (() => {
         <span class="section-title">Your Teams</span>
         <a href="/account" class="section-link">Edit follows →</a>
       </div>
-      <div class="team-cards" id="personal-teams">
-        {followedTeams.map(abbrev => {
-          const d = teamData[abbrev];
-          return (
-            <div class="team-card" data-color style={`--team-color:${d.color}`}>
-              {PLAYOFFS_ACTIVE.has(abbrev)
-                ? <span class={`odds-badge ${playoffOddsClass(abbrev)}`}>PO: {playoffOddsLabel(abbrev)}</span>
-                : <span class="odds-badge eliminated">ELIM</span>
-              }
-              <div class="team-editorial-label" style={`color:${d.labelColor};margin-bottom:8px;`}>{d.label}</div>
-              <div class="team-card-head">
-                <img src={`https://assets.nhle.com/logos/nhl/svg/${abbrev}_light.svg`} alt={abbrev} class="team-logo" style="width:52px;height:52px;" />
-                <div>
-                  <div class="team-abbrev">{d.name}</div>
-                  <div class="team-record">{d.record}</div>
-                </div>
-              </div>
-              <div class="team-card-stats">
-                <div class="team-stat"><div class="team-stat-k">xGF% 5v5</div><div class="team-stat-v">{d.xgf_pct}</div></div>
-                <div class="team-stat"><div class="team-stat-k">GF%</div><div class="team-stat-v">{d.gf_pct}</div></div>
-                <div class="team-stat"><div class="team-stat-k">Impact Rank</div><div class="team-stat-v">{d.impact_rank}</div></div>
-              </div>
-              <div class="team-card-links">
-                <a href={`/teams/${abbrev.toLowerCase()}`} class="team-card-link">Team Page</a>
-                <a href={`/stats/skaters`}                class="team-card-link">Players</a>
-                <a href={`/stats/lines`}                  class="team-card-link">Lines</a>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <DashboardTeamCards client:load />
 
       <!-- YOUR PLAYERS -->
       <div class="players-section" id="personal-players-wrap">
@@ -659,21 +631,8 @@ const topTeams = (() => {
           <span class="section-title">Trending</span>
           <span class="section-link" style="border-bottom:1px solid var(--ink-14);padding-bottom:10px;">Your players · Impact movement</span>
         </div>
-        <div class="trending-card">
-          {trending.map(t => (
-            <a href={`/stats/player/${t.slug}`} class="trending-item" style="display:flex">
-              <img src={`https://assets.nhle.com/logos/nhl/svg/${t.team}_light.svg`} alt={t.team} style="width:28px;height:28px;object-fit:contain;flex-shrink:0;margin-right:6px;" />
-              <div style="flex:1;min-width:0;">
-                <div class="trend-name">{t.name}</div>
-                <div class="trend-label">{t.label}</div>
-              </div>
-              <div class={`trend-delta ${t.dir === 'up' ? 'delta-up' : 'delta-down'}`}>
-                {t.dir === 'up' ? '↑' : '↓'} {t.delta}
-              </div>
-            </a>
-          ))}
-        </div>
-        <div class="note-meta" style="margin-top:8px;">L10 rolling impact delta vs. season average</div>
+        <DashboardTrending client:load />
+        <div class="note-meta" style="margin-top:8px;color:var(--ink-48);">↑↓ = L7 avg game score vs. season average · biggest movers first</div>
       </div>
 
     </div><!-- /left col -->
@@ -760,16 +719,8 @@ const topTeams = (() => {
           <!-- MODEL SIGNALS second -->
           <div>
             <div class="section-head"><span class="section-title">Model Signals</span></div>
-            <div class="model-notes">
-              {modelSignals.map(s => (
-                <a href={s.href} class="model-note" style="display:block">
-                  <div class="note-rule">{s.rule}</div>
-                  <div class="note-threshold">Rule: {s.threshold}</div>
-                  <div class="note-body">{s.body}</div>
-                </a>
-              ))}
-            </div>
-            <div class="note-meta">Signals from the latest HGB model run</div>
+            <DashboardModelSignals client:load />
+            <div class="note-meta" style="margin-top:8px;">Signals from the latest HGB model run</div>
           </div>
         </>
       ) : (
@@ -777,16 +728,8 @@ const topTeams = (() => {
           <!-- MODEL SIGNALS first (default) -->
           <div>
             <div class="section-head"><span class="section-title">Model Signals</span></div>
-            <div class="model-notes">
-              {modelSignals.map(s => (
-                <a href={s.href} class="model-note" style="display:block">
-                  <div class="note-rule">{s.rule}</div>
-                  <div class="note-threshold">Rule: {s.threshold}</div>
-                  <div class="note-body">{s.body}</div>
-                </a>
-              ))}
-            </div>
-            <div class="note-meta">Signals from the latest HGB model run</div>
+            <DashboardModelSignals client:load />
+            <div class="note-meta" style="margin-top:8px;">Signals from the latest HGB model run</div>
           </div>
 
           <!-- DRAFT CAPITAL second -->
@@ -1234,41 +1177,13 @@ const topTeams = (() => {
     var headers = { 'Authorization': 'Bearer ' + token };
     var results = await Promise.all([
       fetch(API + '/v1/account/prefs', { headers: headers, credentials: 'include' }).then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
-      fetch(API + '/v1/stats/teams').then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
-      fetch(API + '/v1/stats/players').then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
       fetch(API + '/v1/stats/draft-picks').then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
     ]);
-    var prefs = results[0], teamsData = results[1], playersData = results[2], draftsData = results[3];
+    var prefs = results[0], draftsData = results[1];
     var trackedTeams = prefs.tracked_teams || [];
-    var trackedPlayerIds = prefs.tracked_players || [];
-    var allPlayers = Array.isArray(playersData) ? playersData : (playersData.players || []);
     var allPicks = draftsData.picks || [];
 
-    // Build lookup sets
-    var playerIdSet = {};
-    trackedPlayerIds.forEach(function(id) { playerIdSet[id] = true; });
-    var trackedPlayers = allPlayers.filter(function(p) { return playerIdSet[p.player_id]; });
-    trackedPlayers.sort(function(a,b){ return (b.gs_pct||0) - (a.gs_pct||0); });
-
-    // Get playoff state from window (SSR already fetched it)
-    var playoffActive = window._HGB_PLAYOFF_ACTIVE || [];
-    var playoffOdds = window._HGB_PLAYOFF_ODDS || {};
-
-    // Render teams
-    var teamsEl = document.getElementById('personal-teams');
-    if (teamsEl) {
-      if (!trackedTeams.length) {
-        teamsEl.innerHTML = '<div style="color:var(--ink-48);font-size:13px;padding:12px 0;">No teams followed. <a href="/account">Add teams →</a></div>';
-      } else {
-        teamsEl.innerHTML = trackedTeams.map(function(abbrev) {
-          var stats = getCurrentTeamStats(teamsData, abbrev);
-          var rank = computeImpactRank(teamsData, abbrev);
-          return renderTeamCard(abbrev, stats, rank, playoffActive, playoffOdds);
-        }).join('');
-      }
-    }
-
-    // Players section handled by self-fetching DashboardFollowedPlayers React component.
+    // Teams + Players + Trending handled by self-fetching React components.
 
     // Render draft stacks
     var draftStacks = document.querySelectorAll('.personal-draft-stack');
