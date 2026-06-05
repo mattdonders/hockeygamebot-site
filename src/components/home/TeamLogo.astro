@@ -1,0 +1,62 @@
+---
+/**
+ * TeamLogo — inline-SVG renderer for NHL team logos.
+ *
+ * Why inline (vs `<img src="…svg">`): `<img>` rasterizes the SVG at its
+ * intrinsic dimensions and then upscales the pixel buffer, which goes
+ * fuzzy at any large size or zoom. Rendering the SVG markup directly
+ * via `set:html` keeps the browser in vector mode end-to-end — crisp
+ * at any size.
+ *
+ * Source files live under `src/data/team-logos/{ABBR}_dark.svg` and are
+ * bundled at build time via `src/lib/team-logos.ts` (Vite glob import
+ * with `?raw`). Only the abbreviations actually rendered ship to the
+ * client, but the bundle includes the full set since the map is eager.
+ *
+ * If a logo is missing (e.g. brand-new team, cron hasn't fetched yet)
+ * we render a small placeholder block so layout is preserved.
+ */
+import { getTeamLogoSvg } from '../../lib/team-logos';
+
+interface Props {
+  abbr: string;
+  size?: number;
+  class?: string;
+  ariaLabel?: string;
+}
+
+const { abbr, size = 32, class: className, ariaLabel } = Astro.props;
+
+const svgRaw = getTeamLogoSvg(abbr);
+const altLabel = ariaLabel ?? `${abbr} logo`;
+
+const placeholderSvg = `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${altLabel}"><rect width="32" height="32" rx="3" fill="#1a1a22"/><text x="16" y="20" text-anchor="middle" fill="#9aa0aa" font-family="-apple-system,Segoe UI,sans-serif" font-size="10" font-weight="700">${abbr}</text></svg>`;
+
+const html = svgRaw ?? placeholderSvg;
+---
+
+<span
+  class:list={["team-logo", className]}
+  style={`--logo-size: ${size}px`}
+  data-abbr={abbr}
+  role="img"
+  aria-label={altLabel}
+  set:html={html}
+></span>
+
+<style>
+  .team-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--logo-size);
+    height: var(--logo-size);
+    flex-shrink: 0;
+    line-height: 0;
+  }
+  .team-logo :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+</style>

@@ -1,0 +1,163 @@
+---
+// HockeyGameBot — /stats/lines — Forward Lines + D Pairs
+// Client-side interactive table. Data from /v1/stats/lines (R2 via hgb-api).
+// URL params: ?game_type=3 (playoff), ?season=playoff (alias), ?team=MTL, ?type=forwards|defense, ?toi=N
+import Nav from '../../components/Nav.astro';
+import StatsSubnav from '../../components/StatsSubnav.astro';
+import LinesTable from '../../components/react/LinesTable';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import { loadMeta, loadLines, loadIsPlayoffSeason } from '../../lib/stats-loader';
+const allLines = loadLines();
+const _meta     = loadMeta();
+const isPlayoffSeason = loadIsPlayoffSeason();
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
+
+---
+<!doctype html>
+<html lang="en">
+<head>
+<ThemeScript />
+<Fonts />
+<meta charset="utf-8" />
+<title>Line Combinations — HockeyGameBot</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="NHL forward line and defensive pair stats. xGoals%, xGoals For/Against per 60, filterable by team, season, and line type." />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/favicon-180x180.png" />
+
+<style is:global>
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-86:  rgba(13,13,20,0.86);
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-04:  rgba(13,13,20,0.04);
+  --red:     #E8002D;
+  --green:   #4ade80;
+  --stats-pos: #166534;
+  --stats-neg: #991b1b;
+  --grid-line: rgba(13,13,20,0.04);
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; min-height: 100vh; }
+a { color: inherit; text-decoration: none; }
+
+.mast { position: relative; overflow: hidden; padding: 0; border-bottom: 2px solid var(--ink); background-color: var(--bg); background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 96px 96px; }
+.mast-ghost { position: absolute; pointer-events: none; user-select: none; z-index: 0; font-family: var(--display); font-weight: 800; font-size: 260px; line-height: 0.86; text-transform: uppercase; letter-spacing: -0.02em; white-space: nowrap; color: rgba(13,13,20,0.07); top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+.mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 48px 32px 40px; }
+.mast-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 16px; }
+.mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+.mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+.mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px); text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+.mast-lede { font-size: 14px; line-height: 1.65; color: var(--ink-56); max-width: 640px; }
+.mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
+
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+
+.section-block { padding: 40px 0 0; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 6px; }
+.section-head h2 { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.5vw, 28px); text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+.section-meta { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); }
+.section-lede { font-size: 13px; color: var(--ink-48); max-width: 780px; line-height: 1.6; margin-bottom: 16px; }
+
+.controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+
+select {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  padding: 6px 10px; font-family: var(--body); font-weight: 600;
+  font-size: 11.5px; letter-spacing: 0.04em; color: var(--ink);
+  cursor: pointer; outline: none;
+}
+
+.slider-wrap { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
+.team-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--ink); color: var(--bg); font-family: var(--body); font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 8px 4px 10px; }
+.team-chip-x { cursor: pointer; opacity: 0.6; font-size: 13px; line-height: 1; background: none; border: none; color: inherit; padding: 0; }
+.team-chip-x:hover { opacity: 1; }
+#team-add-select:disabled { opacity: 0.35; }
+.slider-wrap input[type=range] { width: 120px; accent-color: var(--red); }
+
+.tbl-more { border-top: 1px solid var(--ink-14); padding: 12px; text-align: center; }
+.tbl-more button { background: none; border: 1px solid var(--ink-20); padding: 6px 20px; cursor: pointer; font-family: var(--body); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; }
+.tbl-more button:hover { border-color: var(--ink); color: var(--ink); }
+.tbl-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; margin-top: 8px; }
+
+.foot { border-top: 1px solid var(--ink-14); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
+.foot-inner { max-width: 1200px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.foot-wordmark { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; }
+.foot-wordmark .dot { width: 5px; height: 5px; background: var(--red); border-radius: 50%; margin: 0 6px; display: inline-block; }
+
+@media (max-width: 680px) {
+  .mast-inner { padding: 32px 20px 28px; }
+  .wrap { padding: 0 20px 60px; }
+  .mast-ghost { font-size: 120px; }
+}
+</style>
+<script src="/js/table-export.js" defer></script>
+
+  <meta property="og:image" content="https://hockeygamebot.com/og/default.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://hockeygamebot.com/og/default.png" />
+</head>
+<body>
+
+<Nav currentPath={Astro.url.pathname} />
+
+<section class="mast">
+  <div class="mast-ghost">LINES</div>
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-eyebrow"><span class="pip"></span>HockeyGameBot Analytics</div>
+    <div class="mast-card">
+      <h1 class="mast-headline">Line Combinations</h1>
+      <p class="mast-lede" id="mast-lede">
+        Forward lines (3-man) and defensive pairs at 5v5 · 2022–23 through 2025–26 regular season ·
+        Ranked by <span class="mono">xGoals%</span>. Minimum TOI slider filters noise.
+      </p>
+    </div>
+  </div>
+</section>
+<StatsSubnav currentPath={Astro.url.pathname} />
+<div class="wrap">
+  <div class="section-block">
+    <div class="section-head">
+      <h2>Lines &amp; Pairs</h2>
+    </div>
+    <LinesTable rows={allLines} statsDate={_statsDate} isPlayoffSeason={isPlayoffSeason} client:load />
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="foot-inner">
+    <span class="foot-wordmark">Hockey<span class="dot"></span>Gamebot</span>
+    <span>5v5 · Regular Season · 2022–26 · Data via HGB Analytics</span>
+  </div>
+</footer>
+
+</body>
+</html>

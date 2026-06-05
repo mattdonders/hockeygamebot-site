@@ -1,0 +1,981 @@
+---
+// /internal/stats-dashboard-poc — Personalized logged-in dashboard POC
+// noindex, never linked from nav. Run locally with `npm run dev`.
+// Visit: localhost:4321/internal/stats-dashboard-poc
+
+import Nav from '../../components/Nav.astro';
+import Fonts from '../../components/Fonts.astro';
+
+const followedTeams = ["NJD", "SJS"];
+
+const followedPlayers = [
+  { name: "Jack Hughes",       team: "NJD", pos: "C", gp: 61, g: 27, a: 61, p: 88, war: 1.77, impact: 0.79, x60: 0.89, form: "+0.14" },
+  { name: "Nico Hischier",     team: "NJD", pos: "C", gp: 68, g: 34, a: 39, p: 73, war: 0.92, impact: 0.61, x60: 0.71, form: "+0.07" },
+  { name: "Jesper Bratt",      team: "NJD", pos: "W", gp: 72, g: 31, a: 44, p: 75, war: 0.88, impact: 0.55, x60: 0.68, form: "-0.03" },
+  { name: "Luke Hughes",       team: "NJD", pos: "D", gp: 74, g: 12, a: 52, p: 64, war: 1.12, impact: 0.43, x60: 0.41, form: "+0.21" },
+  { name: "Timo Meier",        team: "NJD", pos: "W", gp: 69, g: 38, a: 28, p: 66, war: 0.71, impact: 0.58, x60: 0.77, form: "-0.11" },
+  { name: "Macklin Celebrini", team: "SJS", pos: "C", gp: 82, g: 29, a: 39, p: 68, war: 0.65, impact: 0.52, x60: 0.74, form: "+0.09" },
+  { name: "Will Smith",        team: "SJS", pos: "C", gp: 77, g: 22, a: 35, p: 57, war: 0.48, impact: 0.44, x60: 0.61, form: "+0.18" },
+  { name: "William Eklund",    team: "SJS", pos: "W", gp: 78, g: 18, a: 41, p: 59, war: 0.61, impact: 0.41, x60: 0.58, form: "-0.05" },
+];
+
+// Sort by Impact desc
+const sortedPlayers = [...followedPlayers].sort((a, b) => b.impact - a.impact);
+
+const teamData: Record<string, { record: string; xgf_pct: string; gf_pct: string; impact_rank: string; playoff_odds: string; }> = {
+  NJD: { record: "42-28-12", xgf_pct: "52.3%", gf_pct: "50.1%", impact_rank: "8th",  playoff_odds: "67%" },
+  SJS: { record: "28-44-10", xgf_pct: "46.1%", gf_pct: "44.8%", impact_rank: "28th", playoff_odds: "3%"  },
+};
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+}
+
+const statsLinks = [
+  { href: '/stats/skaters', label: 'Skaters'        },
+  { href: '/stats/goalies', label: 'Goalies'         },
+  { href: '/stats/teams',   label: 'Teams'           },
+  { href: '/stats/lines',   label: 'Lines'           },
+  { href: '/stats/impact',  label: 'Impact'          },
+  { href: '/stats/records', label: 'Series Records'  },
+  { href: '/stats/wowy',    label: 'WOWY'            },
+];
+
+// Model Signals — rule-triggered, not LLM-generated (no API cost)
+// Pipeline fires these when thresholds are crossed: xGF% > 55, player xG > 1.5σ, etc.
+const modelSignals = [
+  { rule: "PLAYER · xG/60 > 1.5σ",   body: "Jack Hughes leads your followed players with 0.89 xG/60 — elite shot creation even on a mid-tier supporting cast." },
+  { rule: "TEAM · 5v5 xGF% > 52%",   body: "NJD has controlled 52.3% of 5v5 xG this season. The underlying game is stronger than the record suggests." },
+  { rule: "GROUP · YOUNG CORE RISING", body: "Celebrini + Smith + Eklund: 1.37 combined avg Impact over the last 10 games. The SJS rebuild is producing." },
+];
+
+const trending = [
+  { dir: "up",   name: "Luke Hughes",    delta: "+0.21", label: "Impact last 7" },
+  { dir: "up",   name: "Will Smith",     delta: "+0.18", label: "Impact last 7" },
+  { dir: "down", name: "Timo Meier",     delta: "-0.11", label: "Impact last 7" },
+];
+
+const quickLinks = [
+  { href: "/stats/skaters", label: "All Skaters",    icon: "⛸" },
+  { href: "/stats/goalies", label: "Goalies",         icon: "🥅" },
+  { href: "/stats/teams",   label: "Teams",           icon: "🏒" },
+  { href: "/stats/lines",   label: "Lines",           icon: "↔" },
+  { href: "/stats/impact",  label: "Impact",          icon: "◈" },
+  { href: "/stats/records", label: "Series Records",  icon: "▤" },
+  { href: "/internal/stats-leaderboards-poc", label: "Leaderboards", icon: "⬆" },
+];
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Stats Dashboard POC · HGB Internal</title>
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #EFEEE8;
+      --surface:  #FFFFFF;
+      --ink:      #0D0D14;
+      --red:      #E8002D;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --green:    #14803c;
+      --green-bg: rgba(20,128,60,0.08);
+      --red-bg:   rgba(232,0,45,0.08);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--body);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; }
+
+    /* ── POC Banner ── */
+    .poc-banner {
+      background: var(--ink);
+      color: var(--bg);
+      padding: 8px 32px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .poc-banner .pill {
+      background: var(--red);
+      color: #fff;
+      padding: 2px 8px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+    .poc-banner .dim { color: var(--ink-48); }
+
+    /* ── Masthead ── */
+    .mast {
+      position: relative;
+      border-bottom: 2px solid var(--ink);
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px;
+    }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner {
+      position: relative;
+      z-index: 2;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 28px 32px 24px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .mast-eyebrow {
+      font-family: var(--mono);
+      font-weight: 500;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-48);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; flex-shrink: 0; }
+    .mast-user {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-32);
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Inline subnav (Option B chip style) ── */
+    .stats-subnav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      padding: 0 32px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--ink-14);
+      overflow-x: auto;
+    }
+    .stats-subnav a {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 8px 14px;
+      border: 1px solid var(--ink-14);
+      border-right: none;
+      color: var(--ink-48);
+      white-space: nowrap;
+      text-decoration: none;
+      transition: background 0.1s, color 0.1s;
+    }
+    .stats-subnav a:last-child { border-right: 1px solid var(--ink-14); }
+    .stats-subnav a:hover { background: var(--ink-06); color: var(--ink); }
+    .stats-subnav a.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* dashboard chip indicating "Your Dashboard" active state */
+    .subnav-dashboard-chip {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 8px 14px;
+      border: 1px solid var(--ink);
+      background: var(--ink);
+      color: var(--bg);
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .subnav-dashboard-chip .dot { width: 4px; height: 4px; background: var(--red); border-radius: 50%; }
+
+    /* ── Page layout ── */
+    .page-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 36px 32px 80px;
+    }
+    .page-grid {
+      display: grid;
+      grid-template-columns: 60fr 40fr;
+      gap: 40px;
+      align-items: start;
+    }
+
+    /* ── Section headers ── */
+    .section-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-48);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .section-title::before {
+      content: '';
+      display: inline-block;
+      width: 14px;
+      height: 1px;
+      background: var(--ink-20);
+    }
+    .section-link {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-32);
+      text-decoration: none;
+    }
+    .section-link:hover { color: var(--red); }
+
+    /* ── Team cards ── */
+    .team-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 36px; }
+
+    .team-card {
+      background: var(--surface);
+      border: 1px solid var(--ink-14);
+      overflow: hidden;
+      position: relative;
+    }
+    .team-card-head {
+      padding: 16px 18px 14px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border-bottom: 1px solid var(--ink-06);
+    }
+    .team-logo {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+    }
+    .team-identity {}
+    .team-abbrev {
+      font-family: var(--display);
+      font-weight: 800;
+      font-size: 26px;
+      letter-spacing: -0.01em;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+    .team-record {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-48);
+      letter-spacing: 0.04em;
+      margin-top: 2px;
+    }
+    .team-card-stats {
+      padding: 12px 18px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+    }
+    .team-stat {}
+    .team-stat-k {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-32);
+      margin-bottom: 1px;
+    }
+    .team-stat-v {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .team-card-links {
+      padding: 10px 18px;
+      border-top: 1px solid var(--ink-06);
+      display: flex;
+      gap: 0;
+    }
+    .team-card-link {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-48);
+      text-decoration: none;
+      padding: 4px 10px 4px 0;
+      border-right: 1px solid var(--ink-10);
+      margin-right: 10px;
+      transition: color 0.1s;
+    }
+    .team-card-link:last-child { border-right: none; margin-right: 0; }
+    .team-card-link:hover { color: var(--red); }
+
+    /* contention treatment — warm left accent */
+    .team-card.contention { border-left: 3px solid var(--green); }
+    .team-card.contention .team-abbrev { color: var(--green); }
+    /* rebuilding treatment — muted */
+    .team-card.rebuilding { border-left: 3px solid var(--ink-20); }
+    .team-card.rebuilding .team-abbrev { color: var(--ink-72); }
+
+    /* playoff odds badge */
+    .odds-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 2px 7px;
+    }
+    .odds-badge.high { background: var(--green-bg); color: var(--green); border: 1px solid rgba(20,128,60,0.25); }
+    .odds-badge.low  { background: var(--ink-06);  color: var(--ink-32); border: 1px solid var(--ink-10); }
+
+    /* ── Players table ── */
+    .players-section { margin-bottom: 36px; }
+
+    .player-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--ink-14);
+      font-size: 12px;
+    }
+    .player-table thead th {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-32);
+      padding: 8px 10px;
+      text-align: right;
+      border-bottom: 1px solid var(--ink-14);
+      white-space: nowrap;
+      background: var(--ink-04);
+    }
+    .player-table thead th:first-child,
+    .player-table thead th:nth-child(2),
+    .player-table thead th:nth-child(3) {
+      text-align: left;
+    }
+    .player-table tbody tr {
+      border-bottom: 1px solid var(--ink-06);
+      transition: background 0.08s;
+    }
+    .player-table tbody tr:last-child { border-bottom: none; }
+    .player-table tbody tr:hover { background: var(--ink-04); }
+
+    .player-table td {
+      padding: 8px 10px;
+      text-align: right;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-72);
+      white-space: nowrap;
+    }
+    .player-table td.name-cell {
+      text-align: left;
+      font-family: var(--body);
+      font-weight: 600;
+      font-size: 12.5px;
+      color: var(--ink);
+    }
+    .player-table td.name-cell a {
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .player-table td.name-cell a:hover { color: var(--red); }
+    .player-table td.team-cell {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-48);
+      font-weight: 700;
+      letter-spacing: 0.06em;
+    }
+    .player-table td.pos-cell {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-32);
+    }
+    .player-table td.bold-val {
+      color: var(--ink);
+      font-weight: 700;
+    }
+    .player-table td.impact-val {
+      color: var(--ink);
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    /* Form indicator */
+    .form-up   { color: var(--green); font-weight: 700; }
+    .form-down { color: var(--red);   font-weight: 700; }
+    .form-flat { color: var(--ink-32); }
+
+    /* ── Right column ── */
+    .right-col { display: flex; flex-direction: column; gap: 24px; }
+
+    /* ── Tonight module ── */
+    .tonight-card {
+      background: var(--surface);
+      border: 1px solid var(--ink-14);
+      overflow: hidden;
+    }
+    .tonight-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--ink-10);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .tonight-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-32);
+    }
+    .tonight-live-pip {
+      width: 5px;
+      height: 5px;
+      background: var(--red);
+      border-radius: 50%;
+    }
+    .tonight-game {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--ink-06);
+    }
+    .tonight-matchup {
+      font-family: var(--display);
+      font-weight: 800;
+      font-size: 20px;
+      text-transform: uppercase;
+      letter-spacing: -0.01em;
+      margin-bottom: 8px;
+    }
+    .tonight-time {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-48);
+      letter-spacing: 0.06em;
+    }
+    .tonight-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0;
+      border-top: 1px solid var(--ink-06);
+      margin-top: 10px;
+    }
+    .tonight-stat {
+      padding: 8px 0;
+      border-right: 1px solid var(--ink-06);
+    }
+    .tonight-stat:last-child { border-right: none; }
+    .tonight-stat-k {
+      font-family: var(--mono);
+      font-size: 8px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-32);
+      margin-bottom: 3px;
+    }
+    .tonight-stat-v {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .tonight-cta {
+      display: block;
+      padding: 10px 16px;
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-48);
+      text-align: right;
+      border-top: 1px solid var(--ink-06);
+      text-decoration: none;
+      transition: color 0.1s;
+    }
+    .tonight-cta:hover { color: var(--red); }
+
+    .tonight-idle {
+      padding: 12px 16px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-48);
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--ink-06);
+    }
+    .tonight-idle strong { color: var(--ink); font-weight: 700; }
+
+    /* ── Model notes ── */
+    .model-notes { display: flex; flex-direction: column; gap: 10px; }
+    .model-note {
+      background: var(--surface);
+      border: 1px solid var(--ink-10);
+      border-left: 3px solid var(--red);
+      padding: 12px 14px;
+    }
+    .note-eyebrow {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--red);
+      margin-bottom: 6px;
+      opacity: 0.75;
+    }
+    .note-body {
+      font-family: var(--body);
+      font-weight: 600;
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--ink-72);
+    }
+
+    /* ── Trending ── */
+    .trending-card {
+      background: var(--surface);
+      border: 1px solid var(--ink-14);
+      overflow: hidden;
+    }
+    .trending-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--ink-10);
+    }
+    .trending-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink-32);
+    }
+    .trending-item {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--ink-06);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .trending-item:last-child { border-bottom: none; }
+    .trend-name {
+      font-family: var(--body);
+      font-weight: 600;
+      font-size: 12.5px;
+      color: var(--ink);
+    }
+    .trend-delta {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .trend-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--ink-32);
+      letter-spacing: 0.06em;
+    }
+    .arrow-up   { color: var(--green); }
+    .arrow-down { color: var(--red); }
+    .delta-up   { color: var(--green); }
+    .delta-down { color: var(--red); }
+
+    /* ── Quick access grid ── */
+    .quick-section { margin-top: 40px; }
+    .quick-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0;
+    }
+    .quick-card {
+      background: var(--surface);
+      border: 1px solid var(--ink-14);
+      border-right: none;
+      padding: 16px 14px;
+      text-align: center;
+      text-decoration: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.1s;
+    }
+    .quick-card:last-child { border-right: 1px solid var(--ink-14); }
+    .quick-card:hover { background: var(--ink-04); }
+    .quick-card:hover .quick-label { color: var(--red); }
+    .quick-icon {
+      font-size: 18px;
+      line-height: 1;
+      opacity: 0.55;
+    }
+    .quick-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--ink-48);
+      transition: color 0.1s;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .page-grid { grid-template-columns: 1fr; }
+      .team-cards { grid-template-columns: 1fr 1fr; }
+      .quick-grid { grid-template-columns: repeat(4, 1fr); }
+      .quick-card { border-right: 1px solid var(--ink-14); }
+    }
+    @media (max-width: 640px) {
+      .stats-subnav { padding: 0 16px; }
+      .stats-subnav a { padding: 7px 10px; font-size: 9px; }
+      .page-wrap { padding: 24px 16px 60px; }
+      .team-cards { grid-template-columns: 1fr; }
+      .quick-grid { grid-template-columns: repeat(2, 1fr); }
+      .quick-card { border-right: 1px solid var(--ink-14); border-bottom: none; }
+      .mast-inner { padding: 20px 16px 16px; flex-direction: column; gap: 4px; }
+      .player-table td, .player-table thead th { padding: 7px 7px; font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<Nav currentPath="/internal/stats-dashboard-poc" />
+
+<!-- POC BANNER -->
+<div class="poc-banner">
+  <span>INTERNAL POC</span>
+  <span class="pill">LOCAL ONLY</span>
+  <span class="dim">stats-dashboard-poc · personalized logged-in view</span>
+</div>
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-eyebrow">
+      <span class="pip"></span>
+      HGB Stats &middot; Your Dashboard
+    </div>
+    <div class="mast-user">// signed in as mdonders@hgb</div>
+  </div>
+</section>
+
+<!-- SUBNAV: inline chip strip with Dashboard active -->
+<nav class="stats-subnav" aria-label="Stats section">
+  <span class="subnav-dashboard-chip"><span class="dot"></span> Dashboard</span>
+  {statsLinks.map(l => (
+    <a href={l.href}>{l.label}</a>
+  ))}
+</nav>
+
+<!-- MAIN CONTENT -->
+<div class="page-wrap">
+  <div class="page-grid">
+
+    <!-- LEFT COLUMN -->
+    <div class="left-col">
+
+      <!-- YOUR TEAMS -->
+      <div class="section-head">
+        <span class="section-title">Your Teams</span>
+        <a href="#" class="section-link">Edit follows →</a>
+      </div>
+      <div class="team-cards">
+
+        <!-- NJD — Contention -->
+        <div class="team-card contention">
+          <span class="odds-badge high">PO: 67%</span>
+          <div class="team-card-head">
+            <img src="/logos/nhl/NJD_light.svg" alt="NJD" class="team-logo" />
+            <div class="team-identity">
+              <div class="team-abbrev">NJD</div>
+              <div class="team-record">{teamData.NJD.record}</div>
+            </div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#166534;margin-bottom:10px;">Contender profile</div>
+          <div class="team-card-stats">
+            <div class="team-stat">
+              <div class="team-stat-k">xGF%</div>
+              <div class="team-stat-v">{teamData.NJD.xgf_pct}</div>
+            </div>
+            <div class="team-stat">
+              <div class="team-stat-k">GF%</div>
+              <div class="team-stat-v">{teamData.NJD.gf_pct}</div>
+            </div>
+            <div class="team-stat">
+              <div class="team-stat-k">Impact Rank</div>
+              <div class="team-stat-v">{teamData.NJD.impact_rank}</div>
+            </div>
+            <div class="team-stat">
+              <div class="team-stat-k">PO Odds</div>
+              <div class="team-stat-v">{teamData.NJD.playoff_odds}</div>
+            </div>
+          </div>
+          <div class="team-card-links">
+            <a href="/stats/teams/njd" class="team-card-link">Team Page</a>
+            <a href="/stats/skaters?team=NJD" class="team-card-link">Players</a>
+            <a href="/stats/lines?team=NJD" class="team-card-link">Lines</a>
+          </div>
+        </div>
+
+        <!-- SJS — Rebuilding -->
+        <div class="team-card rebuilding">
+          <span class="odds-badge low">PO: 3%</span>
+          <div class="team-card-head">
+            <img src="/logos/nhl/SJS_light.svg" alt="SJS" class="team-logo" />
+            <div class="team-identity">
+              <div class="team-abbrev">SJS</div>
+              <div class="team-record">{teamData.SJS.record}</div>
+            </div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(13,13,20,0.40);margin-bottom:10px;">Rebuild watch</div>
+          <div class="team-card-stats">
+            <div class="team-stat">
+              <div class="team-stat-k">xGF%</div>
+              <div class="team-stat-v">{teamData.SJS.xgf_pct}</div>
+            </div>
+            <div class="team-stat">
+              <div class="team-stat-k">GF%</div>
+              <div class="team-stat-v">{teamData.SJS.gf_pct}</div>
+            </div>
+            <div class="team-stat">
+              <div class="team-stat-k">Impact Rank</div>
+              <div class="team-stat-v">{teamData.SJS.impact_rank}</div>
+            </div>
+            <div class="team-stat">
+              <div class="team-stat-k">PO Odds</div>
+              <div class="team-stat-v">{teamData.SJS.playoff_odds}</div>
+            </div>
+          </div>
+          <div class="team-card-links">
+            <a href="/stats/teams/sjs" class="team-card-link">Team Page</a>
+            <a href="/stats/skaters?team=SJS" class="team-card-link">Players</a>
+            <a href="/stats/lines?team=SJS" class="team-card-link">Lines</a>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- YOUR PLAYERS -->
+      <div class="players-section">
+        <div class="section-head">
+          <span class="section-title">Your Players</span>
+          <a href="#" class="section-link">sorted by Impact ↓</a>
+        </div>
+
+        <table class="player-table">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Tm</th>
+              <th>Pos</th>
+              <th>GP</th>
+              <th>G</th>
+              <th>A</th>
+              <th>P</th>
+              <th>WAR</th>
+              <th>Impact</th>
+              <th>xG/60</th>
+              <th>Form</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedPlayers.map(p => {
+              const isPos = p.form.startsWith("+");
+              const isNeg = p.form.startsWith("-");
+              const formClass = isPos ? "form-up" : isNeg ? "form-down" : "form-flat";
+              const formArrow = isPos ? "▲" : isNeg ? "▼" : "–";
+              return (
+                <tr>
+                  <td class="name-cell">
+                    <a href={`/stats/player/${slugify(p.name)}`}>{p.name}</a>
+                  </td>
+                  <td class="team-cell">{p.team}</td>
+                  <td class="pos-cell">{p.pos}</td>
+                  <td>{p.gp}</td>
+                  <td>{p.g}</td>
+                  <td>{p.a}</td>
+                  <td class="bold-val">{p.p}</td>
+                  <td>{p.war.toFixed(2)}</td>
+                  <td class="impact-val">{p.impact.toFixed(2)}</td>
+                  <td>{p.x60.toFixed(2)}</td>
+                  <td class={formClass}>{formArrow} {p.form}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+    </div><!-- /left-col -->
+
+    <!-- RIGHT COLUMN -->
+    <div class="right-col">
+
+      <!-- TONIGHT -->
+      <div>
+        <div class="section-head" style="margin-bottom: 10px;">
+          <span class="section-title">Tonight</span>
+        </div>
+        <div class="tonight-card">
+          <div class="tonight-header">
+            <span class="tonight-label">NJD · Game Tonight</span>
+            <span class="tonight-live-pip"></span>
+          </div>
+
+          <div class="tonight-game">
+            <div class="tonight-matchup">NJD <span style="color: var(--ink-20); font-size: 14px; font-weight: 400;">@</span> BOS</div>
+            <div class="tonight-time">7:00 PM ET · TD Garden · ESPN</div>
+            <div class="tonight-stats">
+              <div class="tonight-stat">
+                <div class="tonight-stat-k">HGB Win Prob</div>
+                <div class="tonight-stat-v">NJD 43%</div>
+              </div>
+              <div class="tonight-stat">
+                <div class="tonight-stat-k">xG Edge</div>
+                <div class="tonight-stat-v">BOS +0.3</div>
+              </div>
+              <div class="tonight-stat">
+                <div class="tonight-stat-k">Last 5</div>
+                <div class="tonight-stat-v" style="font-size: 10px; padding-top: 2px;">
+                  NJD 3-2<br />
+                  <span style="color: var(--ink-32); font-size: 9px;">BOS 4-1</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <a href="#" class="tonight-cta">Game Center →</a>
+
+          <div class="tonight-idle">
+            <strong>SJS</strong>&nbsp; Next: <span style="font-weight: 700;">SAT vs ANA</span>&nbsp;&middot;&nbsp;Lenient Sharks rebuild slate
+          </div>
+        </div>
+      </div>
+
+      <!-- MODEL NOTES -->
+      <div>
+        <div class="section-head" style="margin-bottom: 10px;">
+          <span class="section-title">Model Signals</span>
+        </div>
+        <div class="model-notes">
+          {modelSignals.map(note => (
+            <div class="model-note">
+              <div class="note-eyebrow" style="font-size:8px;opacity:0.55">{note.rule}</div>
+              <div class="note-body">{note.body}</div>
+            </div>
+          ))}
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:rgba(13,13,20,0.28);letter-spacing:0.06em;margin-top:8px;">Rule-triggered · no LLM cost · pipeline-generated</div>
+      </div>
+
+      <!-- TRENDING -->
+      <div>
+        <div class="section-head" style="margin-bottom: 10px;">
+          <span class="section-title">Trending</span>
+        </div>
+        <div class="trending-card">
+          <div class="trending-header">
+            <span class="trending-label">Your players · Impact movement</span>
+          </div>
+          {trending.map(t => (
+            <div class="trending-item">
+              <div>
+                <div class="trend-name">{t.name}</div>
+                <div class="trend-label">{t.label}</div>
+              </div>
+              <div class={`trend-delta ${t.dir === 'up' ? 'delta-up' : 'delta-down'}`}>
+                <span class={t.dir === 'up' ? 'arrow-up' : 'arrow-down'}>
+                  {t.dir === 'up' ? '↑' : '↓'}
+                </span>
+                {t.delta}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+    </div><!-- /right-col -->
+  </div><!-- /page-grid -->
+
+  <!-- QUICK ACCESS — full width -->
+  <div class="quick-section">
+    <div class="section-head" style="margin-bottom: 14px;">
+      <span class="section-title">Quick Access</span>
+    </div>
+    <div class="quick-grid">
+      {quickLinks.map(q => (
+        <a href={q.href} class="quick-card">
+          <span class="quick-icon">{q.icon}</span>
+          <span class="quick-label">{q.label}</span>
+        </a>
+      ))}
+    </div>
+  </div>
+
+</div><!-- /page-wrap -->
+
+<footer style="text-align: center; padding: 32px 0 48px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32);">
+  HOCKEYGAMEBOT.COM · HGB STATS · DASHBOARD POC · 2025–2026
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,186 @@
+---
+/**
+ * ArtifactGoalie — goalie standout card (cool blue).
+ *
+ * Visual: differentiated from skater cards via the cool blue accent
+ * (`--status-intermission` #60a5fa). Headline is the SAVE % big numeric;
+ * supporting stats are saves/SOG and GSAx; decision pill (W/L/OT) sits
+ * top-right; opponent + score context lives at the bottom.
+ *
+ * Data contract:
+ *   - eyebrow      — "GOALIE OF THE NIGHT" / "STARTER · SHUTOUT" / etc
+ *   - name         — player display name
+ *   - sub          — team/jersey, e.g. "TBL · #88"
+ *   - svPct        — display string ".947" (do NOT include the leading zero)
+ *   - saves        — int saves
+ *   - shotsAgainst — int shots against
+ *   - gsax         — display string with sign, "+1.4" — rendered inline
+ *                    with saves/SOG as a single dense line
+ *   - hdSvPct      — high-danger save percentage display string ".862"
+ *                    (premium goalie stat — pairs with GSAx, signals
+ *                    actual quality of stops vs total stops)
+ *   - decision     — "W" / "L" / "OT" / "SO"
+ *   - context      — "vs FLA · 2-1 · 30 SAVES IN 2ND" (game context)
+ *
+ * Python card-generator note: fires on game_end when goalie hits svPct
+ * thresholds (e.g. ≥.940 with 25+ shots). Same shape feeds the social card.
+ */
+
+import ArtifactShell, { type ArtifactTag, type ArtifactByline } from './ArtifactShell.astro';
+
+export type GoalieDecision = 'W' | 'L' | 'OT' | 'SO';
+
+export interface Props {
+  tag?: ArtifactTag;
+  byline?: ArtifactByline;
+  eyebrow: string;
+  name: string;
+  sub: string;
+  svPct: string;
+  saves: number;
+  shotsAgainst: number;
+  gsax: string;
+  /** High-danger SV% — display string like ".862". */
+  hdSvPct: string;
+  decision: GoalieDecision;
+  context: string;
+}
+
+const {
+  tag, byline, eyebrow, name, sub, svPct, saves, shotsAgainst, gsax, hdSvPct, decision, context,
+} = Astro.props;
+---
+<ArtifactShell variantClass="art-goalie" tag={tag} byline={byline}>
+  <div class="art-goalie__ehead">
+    <span>{eyebrow}</span>
+    <span
+      class:list={['art-goalie__decision', `dec-${decision.toLowerCase()}`]}
+      aria-label={`Decision: ${decision}`}
+    >{decision}</span>
+  </div>
+  <div class="art-goalie__name">{name}</div>
+  <div class="art-goalie__sub">{sub}</div>
+  <div class="art-goalie__big">
+    <div class="art-goalie__sv">{svPct}</div>
+    <div class="art-goalie__svlbl">SV%</div>
+  </div>
+  <div class="art-goalie__stats">
+    <div class="art-goalie__stat">
+      <div class="art-goalie__k">SAVES · GSAx</div>
+      <div class="art-goalie__v">
+        {saves}<span class="art-goalie__o">/{shotsAgainst}</span>
+        <span class="art-goalie__sep"> · </span>
+        <span class="art-goalie__gsax">{gsax}</span>
+      </div>
+    </div>
+    <div class="art-goalie__stat">
+      <div class="art-goalie__k">HIGH-DANGER SV%</div>
+      <div class="art-goalie__v">{hdSvPct}</div>
+    </div>
+  </div>
+  <div class="art-goalie__ctx">{context}</div>
+</ArtifactShell>
+
+<style is:global>
+  .art-goalie {
+    background:
+      radial-gradient(circle at 0% 0%, rgba(96, 165, 250, 0.16), transparent 55%),
+      #06101e;
+    border: 1px solid #1a3358;
+    padding: 22px 22px 40px;
+    position: relative;
+  }
+  /* Decision pill is now inline next to the eyebrow — used to be
+     absolute top-right where it overlapped the artifact-shell
+     hover chrome (share / expand). Inline keeps it readable, frees
+     up the corner for chrome, and reads more like a broadcast
+     graphic (label · status). */
+  .art-goalie__decision {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--display); font-weight: 700;
+    font-size: 10px; letter-spacing: 0.22em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 1px;
+    background: rgba(96, 165, 250, 0.16);
+    border: 1px solid rgba(96, 165, 250, 0.45);
+    color: #cfe1ff;
+    line-height: 1.1;
+  }
+  .art-goalie__decision.dec-w  { background: rgba(0, 230, 118, 0.16); border-color: rgba(0, 230, 118, 0.45); color: #aaf2cc; }
+  .art-goalie__decision.dec-l  { background: rgba(232, 0, 45, 0.16); border-color: rgba(232, 0, 45, 0.45); color: #f5b6c1; }
+  .art-goalie__decision.dec-ot { background: rgba(255, 152, 0, 0.16); border-color: rgba(255, 152, 0, 0.45); color: #ffd6a3; }
+  .art-goalie__decision.dec-so { background: rgba(255, 152, 0, 0.16); border-color: rgba(255, 152, 0, 0.45); color: #ffd6a3; }
+  .art-goalie__ehead {
+    font-family: var(--display); font-weight: 700;
+    font-size: 9.5px; color: var(--status-intermission);
+    letter-spacing: 0.22em; text-transform: uppercase;
+    margin-top: 14px; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px;
+    /* Reserve right padding so the eyebrow row never tucks under
+       the artifact-shell action chrome (share + expand). */
+    padding-right: 56px;
+  }
+  .art-goalie__name {
+    font-family: var(--display); font-weight: 700;
+    font-size: 28px; color: #fff;
+    letter-spacing: 0.01em; line-height: 1;
+    text-transform: uppercase;
+  }
+  .art-goalie__sub {
+    font-family: var(--mono); font-size: 10.5px;
+    color: #6f8aa9; letter-spacing: 0.06em; margin-top: 5px;
+    text-transform: uppercase;
+  }
+  .art-goalie__big {
+    display: flex; align-items: baseline; gap: 8px; margin-top: 18px;
+  }
+  .art-goalie__sv {
+    font-family: var(--display); font-weight: 700;
+    font-size: 64px; color: var(--status-intermission);
+    font-variant-numeric: tabular-nums; line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .art-goalie__svlbl {
+    font-family: var(--mono); font-size: 11px;
+    color: #6f8aa9; letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .art-goalie__stats {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(96, 165, 250, 0.18);
+  }
+  .art-goalie__stat { display: flex; flex-direction: column; gap: 2px; }
+  .art-goalie__k {
+    font-family: var(--mono); font-size: 9.5px;
+    color: #6f8aa9; letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .art-goalie__v {
+    font-family: var(--display); font-weight: 700;
+    font-size: 22px; color: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+  .art-goalie__o {
+    color: #6f8aa9; font-family: var(--mono);
+    font-size: 14px; font-weight: 500;
+  }
+  .art-goalie__sep {
+    color: #2a4a72; font-family: var(--mono);
+    font-size: 14px; font-weight: 500;
+    margin: 0 2px;
+  }
+  .art-goalie__gsax {
+    color: var(--status-intermission);
+    font-variant-numeric: tabular-nums;
+  }
+  .art-goalie__ctx {
+    margin-top: 14px;
+    font-family: var(--mono); font-size: 10.5px;
+    color: #4f6d92; letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+</style>

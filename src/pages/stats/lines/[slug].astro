@@ -1,0 +1,1068 @@
+---
+// HockeyGameBot — /stats/lines/{slug} — Line/Pair Detail Page (Stage 1)
+// Static generation: one page per qualifying line in lines.json.
+// Player names/positions resolved from players.json at build time.
+import Nav from '../../../components/Nav.astro';
+import ThemeScript from '../../../components/ThemeScript.astro';
+import Fonts from '../../../components/Fonts.astro';
+import { loadLines, loadPlayers } from '../../../lib/stats-loader';
+import { toLineSlug } from '../../../lib/line-slug';
+import { fmtSeasonLong } from '../../../lib/format-season';
+import type { LineRecord } from '../../../lib/stats-schemas';
+import type { PlayerSummary } from '../../../lib/stats-loader';
+
+export async function getStaticPaths() {
+  const lines   = loadLines();
+  const players = loadPlayers();
+  const playerMap = new Map(players.map(p => [p.player_id, p]));
+
+  const seen  = new Set<string>();
+  const paths = [];
+
+  for (const line of lines) {
+    const slug = toLineSlug(line);
+    if (seen.has(slug)) continue; // skip slug collisions (shouldn't happen)
+    seen.add(slug);
+
+    const linePlayers = line.player_ids
+      .map(id => playerMap.get(id))
+      .filter((p): p is PlayerSummary => p != null);
+
+    paths.push({ params: { slug }, props: { line, linePlayers } });
+  }
+
+  return paths;
+}
+
+interface Props {
+  line:        LineRecord;
+  linePlayers: PlayerSummary[];
+}
+
+const { line, linePlayers } = Astro.props;
+
+// ── Display values ─────────────────────────────────────────────────────────
+
+const seasonDisplay  = fmtSeasonLong(line.season);
+const gameTypeLabel  = line.game_type === 3 ? 'Playoffs' : 'Regular Season';
+const lineTypeLabel  = line.type === 'F' ? 'Forward Line' : 'Defensive Pair';
+
+// Headline uses uppercased last names only (from abbreviated players string)
+const headlineNames  = line.players
+  .split('–')
+  .map(p => p.trim().split(' ').pop()?.toUpperCase() ?? '')
+  .join(' – ');
+
+const pageTitle = `${line.players} · ${line.team} · HGB Stats`;
+const canonUrl  = `https://hockeygamebot.com/stats/lines/${Astro.params.slug}`;
+
+// ── KPI cells ──────────────────────────────────────────────────────────────
+
+function xgfClass(v: number | null | undefined): string {
+  if (v == null) return '';
+  if (v >= 55)   return 'kpi-pos';
+  if (v <= 45)   return 'kpi-neg';
+  return '';
+}
+
+function pdoClass(v: number | null | undefined): string {
+  if (v == null) return '';
+  if (v >= 101)  return 'kpi-pos';
+  if (v <= 99)   return 'kpi-neg';
+  return '';
+}
+
+function bdPctCls(pctVal: number | null | undefined, pctType: 'std' | 'pdo'): string {
+  if (pctVal == null) return 'bd-pct';
+  if (pctType === 'pdo') {
+    if (pctVal >= 101) return 'bd-pct bd-pos';
+    if (pctVal <= 99)  return 'bd-pct bd-neg';
+    return 'bd-pct';
+  }
+  if (pctVal >= 55) return 'bd-pct bd-pos';
+  if (pctVal <= 45) return 'bd-pct bd-neg';
+  return 'bd-pct';
+}
+
+const toMMSS = (min: number): string => {
+  const s = Math.round(min * 60);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+const kpis = [
+  // Group 1 — Ice time
+  { label: 'GP',     value: String(line.games),                                                   cls: '' },
+  { label: 'TOI',    value: toMMSS(line.toi_min),                                                 cls: '' },
+  { label: 'MIN/GP', value: line.games > 0 ? toMMSS(line.toi_min / line.games) : '—',           cls: '' },
+  // Group 2 — Goals
+  { label: 'GF',     value: line.gf     != null ? String(line.gf)               : '—',           cls: '' },
+  { label: 'GF%',    value: line.gf_pct != null ? line.gf_pct.toFixed(1) + '%'  : '—',          cls: xgfClass(line.gf_pct) },
+  { label: 'GA',     value: line.ga     != null ? String(line.ga)               : '—',           cls: '' },
+  // Group 3 — Expected goals
+  { label: 'XGF',    value: line.xgf    != null ? line.xgf.toFixed(2)           : '—',           cls: '' },
+  { label: 'XGF%',   value: line.xgf_pct != null ? line.xgf_pct.toFixed(1) + '%' : '—',         cls: xgfClass(line.xgf_pct) },
+  { label: 'XGA',    value: line.xga    != null ? line.xga.toFixed(2)           : '—',           cls: '' },
+] as const;
+
+// ── Stage 2: breakdown blocks ──────────────────────────────────────────────
+
+const fmt  = (v: number | null | undefined, decimals = 0) =>
+  v != null ? v.toFixed(decimals) : '—';
+const fmtP = (v: number | null | undefined) =>
+  v != null ? v.toFixed(1) + '%' : '—';
+
+interface BreakdownBlock {
+  label:        string;
+  against:      string;
+  pct:          string;
+  pctVal:       number | null | undefined;
+  pctType:      'std' | 'pdo';
+  forVal:       string;
+  againstLabel: string;
+  pctLabel:     string;
+  forLabel:     string;
+}
+
+const breakdownBlocks: BreakdownBlock[] = [
+  {
+    label: 'CORSI', againstLabel: 'CA', pctLabel: 'CF%', forLabel: 'CF',
+    against: fmt(line.ca),   pct: fmtP(line.cf_pct),  pctVal: line.cf_pct,  pctType: 'std', forVal: fmt(line.cf),
+  },
+  {
+    label: 'FENWICK', againstLabel: 'FA', pctLabel: 'FF%', forLabel: 'FF',
+    against: fmt(line.fa),   pct: fmtP(line.ff_pct),  pctVal: line.ff_pct,  pctType: 'std', forVal: fmt(line.ff),
+  },
+  {
+    label: 'SHOTS', againstLabel: 'SA', pctLabel: 'SF%', forLabel: 'SF',
+    against: fmt(line.sa),   pct: fmtP(line.sf_pct),  pctVal: line.sf_pct,  pctType: 'std', forVal: fmt(line.sf),
+  },
+  {
+    label: 'PDO', againstLabel: 'SV%', pctLabel: 'PDO', forLabel: 'SH%',
+    against: fmtP(line.sv_pct), pct: line.pdo != null ? line.pdo.toFixed(1) : '—', pctVal: line.pdo, pctType: 'pdo', forVal: fmtP(line.sh_pct),
+  },
+];
+
+// ── Headshot URL ───────────────────────────────────────────────────────────
+const headshotUrl = (id: number) =>
+  `https://assets.nhle.com/mugs/nhl/20252026/${line.team}/${id}.png`;
+---
+<!doctype html>
+<html lang="en">
+<head>
+<ThemeScript />
+<Fonts />
+<meta charset="utf-8" />
+<title>{pageTitle}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content={`${line.team} ${lineTypeLabel} — ${line.games} GP, ${Math.round(line.toi_min)}m TOI, xGF% ${line.xgf_pct?.toFixed(1) ?? '—'}% · ${seasonDisplay} ${gameTypeLabel}. HockeyGameBot.`} />
+<link rel="canonical" href={canonUrl} />
+<meta property="og:title"       content={pageTitle} />
+<meta property="og:description" content={`${line.team} ${lineTypeLabel} · ${seasonDisplay} ${gameTypeLabel}`} />
+<meta property="og:url"         content={canonUrl} />
+<meta property="og:image"       content="https://hockeygamebot.com/og/default.png" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/favicon-180x180.png" />
+
+<style is:global>
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-04:  rgba(13,13,20,0.04);
+  --red:     #E8002D;
+  --stats-pos: #166534;
+  --stats-neg: #991b1b;
+  --grid-line: rgba(13,13,20,0.04);
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+}
+html[data-theme="dark"] {
+  --bg:      #0D0D14;
+  --bg-2:    #14141E;
+  --surface: #1A1A26;
+  --ink:     #EFEEE8;
+  --ink-72:  rgba(239,238,232,0.72);
+  --ink-56:  rgba(239,238,232,0.56);
+  --ink-48:  rgba(239,238,232,0.48);
+  --ink-32:  rgba(239,238,232,0.32);
+  --ink-20:  rgba(239,238,232,0.20);
+  --ink-14:  rgba(239,238,232,0.14);
+  --ink-10:  rgba(239,238,232,0.10);
+  --ink-06:  rgba(239,238,232,0.06);
+  --ink-04:  rgba(239,238,232,0.04);
+  --red:     #FF3355;
+  --stats-pos: #4ade80;
+  --stats-neg: #f87171;
+  --grid-line: rgba(239,238,232,0.04);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; min-height: 100vh; }
+a { color: inherit; text-decoration: none; }
+
+/* ── Masthead ─────────────────────────────────────────────────────────── */
+.mast { position: relative; overflow: hidden; border-bottom: 2px solid var(--ink); background-color: var(--bg); background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 96px 96px; }
+.mast-ghost { position: absolute; pointer-events: none; user-select: none; z-index: 0; font-family: var(--display); font-weight: 800; font-size: 260px; line-height: 0.86; text-transform: uppercase; letter-spacing: -0.02em; white-space: nowrap; color: rgba(13,13,20,0.07); top: 50%; left: 50%; transform: translate(-50%, -50%); }
+html[data-theme="dark"] .mast-ghost { color: rgba(239,238,232,0.05); }
+.mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+.mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 48px 32px 40px; }
+.mast-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 16px; }
+.mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+.mast-eyebrow a { color: var(--ink-48); }
+.mast-eyebrow a:hover { color: var(--red); }
+.mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+.mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 56px); text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 10px; }
+.mast-sub { font-family: var(--mono); font-size: 11px; letter-spacing: 0.10em; color: var(--ink-48); text-transform: uppercase; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mast-sub .sep { color: var(--ink-20); }
+
+/* ── Wrap ─────────────────────────────────────────────────────────────── */
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+/* ── Filter context bar ───────────────────────────────────────────────── */
+.ctx-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 28px 0 20px; }
+.ctx-chip { display: inline-flex; align-items: center; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; background: var(--ink); color: var(--bg); }
+.ctx-chip.gt-chip { background: var(--red); }
+.ctx-spacer { flex: 1; }
+.back-link { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48); transition: color 0.15s; }
+.back-link:hover { color: var(--ink); }
+.dl-btn { background: none; border: 1px solid var(--ink-20); padding: 5px 14px; cursor: pointer; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-48); transition: all 0.15s; white-space: nowrap; }
+.dl-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+/* ── Player strip ─────────────────────────────────────────────────────── */
+.player-strip { display: flex; gap: 0; background: var(--surface); border: 1px solid var(--ink); margin-bottom: 2px; }
+.player-card { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 28px 20px 24px; border-right: 1px solid var(--ink-14); text-align: center; }
+.player-card:last-child { border-right: none; }
+.headshot-wrap { width: 88px; height: 88px; border-radius: 50%; overflow: hidden; background: var(--bg-2); border: 2px solid var(--ink-14); margin-bottom: 14px; position: relative; flex-shrink: 0; }
+.headshot { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.headshot-fallback { width: 100%; height: 100%; display: none; align-items: center; justify-content: center; font-family: var(--display); font-weight: 800; font-size: 24px; color: var(--ink-32); letter-spacing: 0.02em; }
+.player-name-first { font-family: var(--body); font-size: 12px; color: var(--ink-48); margin-bottom: 2px; }
+.player-name-last { font-family: var(--display); font-weight: 800; font-size: 20px; text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); line-height: 1.1; margin-bottom: 10px; }
+.pos-badge { display: inline-flex; align-items: center; justify-content: center; font-family: var(--mono); font-weight: 700; font-size: 11px; letter-spacing: 0.12em; width: 32px; height: 22px; border: 1px solid var(--ink-20); color: var(--ink-56); }
+
+/* ── KPI strip ────────────────────────────────────────────────────────── */
+.kpi-strip { display: grid; grid-template-columns: repeat(9, 1fr); background: var(--surface); border: 1px solid var(--ink); }
+.kpi-cell { padding: 18px 12px 16px; text-align: center; border-right: 1px solid var(--ink-10); }
+.kpi-cell:last-child { border-right: none; }
+.kpi-cell:nth-child(3) { border-right: 2px solid var(--ink-20); }
+.kpi-cell:nth-child(6) { border-right: 2px solid var(--ink-20); }
+.kpi-label { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 8px; }
+.kpi-value { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.5vw, 30px); line-height: 1; color: var(--ink); letter-spacing: -0.01em; }
+.kpi-cell.kpi-pos .kpi-value { color: var(--stats-pos); }
+.kpi-cell.kpi-neg .kpi-value { color: var(--stats-neg); }
+.kpi-cell.kpi-placeholder .kpi-value { color: var(--ink-32); }
+.kpi-cell.kpi-placeholder .kpi-label::after { content: " ·"; }
+.kpi-unit { font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--ink-48); margin-left: 1px; }
+
+/* ── Breakdown blocks ────────────────────────────────────────────────── */
+.section-header { padding: 28px 0 12px; }
+.section-label { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); }
+.breakdown-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin-bottom: 2px; }
+.bd-block { background: var(--surface); border: 1px solid var(--ink-10); padding: 14px 12px 12px; text-align: center; }
+.bd-block-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 10px; }
+.bd-row { display: flex; align-items: baseline; justify-content: center; gap: 0; }
+.bd-cell { flex: 1; text-align: center; }
+.bd-val { font-family: var(--display); font-weight: 800; font-size: clamp(16px, 2vw, 22px); line-height: 1; letter-spacing: -0.01em; color: var(--ink); }
+.bd-val.bd-against { color: var(--ink-72); }
+.bd-val.bd-pct { color: var(--ink); }
+.bd-val.bd-pct.bd-pos { color: var(--stats-pos); }
+.bd-val.bd-pct.bd-neg { color: var(--stats-neg); }
+.bd-sub { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); margin-top: 3px; }
+.bd-divider { width: 1px; background: var(--ink-10); align-self: stretch; margin: 2px 4px; flex-shrink: 0; }
+
+@media (max-width: 639px) {
+  .breakdown-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── Shot Map ─────────────────────────────────────────────────────────── */
+.shot-map-wrap { background: var(--surface); border: 1px solid var(--ink-10); padding: 16px 16px 12px; }
+.full-rink-svg { width: 100%; height: auto; display: block; }
+.shot-map-empty { padding: 32px 0; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.08em; }
+.balance-bar { display: flex; height: 12px; margin-top: 8px; border-radius: 2px; overflow: hidden; font: 700 9px/12px 'JetBrains Mono', monospace; }
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+.foot { border-top: 1px solid var(--ink-14); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
+.foot-inner { max-width: 1200px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.foot-wordmark { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.04em; text-transform: uppercase; display: inline-flex; align-items: center; }
+.foot-wordmark .dot { width: 5px; height: 5px; background: var(--red); border-radius: 50%; margin: 0 6px; display: inline-block; }
+
+@media (max-width: 680px) {
+  .mast-inner { padding: 32px 20px 28px; }
+  .wrap { padding: 0 20px 60px; }
+  .mast-ghost { font-size: 120px; }
+  .kpi-strip { grid-template-columns: repeat(3, 1fr); }
+  .kpi-cell { padding: 14px 8px 12px; }
+  .kpi-cell:nth-child(3) { border-right: 1px solid var(--ink-10); }
+  .kpi-cell:nth-child(4), .kpi-cell:nth-child(7) { border-top: 1px solid var(--ink-14); }
+  .kpi-cell:nth-child(6) { border-right: 1px solid var(--ink-10); }
+  .headshot-wrap { width: 70px; height: 70px; }
+  .player-name-last { font-size: 16px; }
+  .player-card { padding: 20px 12px 16px; }
+}
+</style>
+</head>
+<body>
+
+<Nav currentPath="/stats/lines" />
+
+<section class="mast">
+  <div class="mast-ghost">LINES</div>
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-eyebrow">
+      <span class="pip"></span>
+      <a href="/stats/lines">Lines &amp; Pairs</a>
+      <span class="sep">›</span>
+      {line.team}
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">{headlineNames}</h1>
+      <div class="mast-sub">
+        <span>{line.team}</span>
+        <span class="sep">·</span>
+        <span>{lineTypeLabel}</span>
+        <span class="sep">·</span>
+        <span>{seasonDisplay}</span>
+        <span class="sep">·</span>
+        <span>{gameTypeLabel}</span>
+        <span class="sep">·</span>
+        <span>5v5</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+
+  <!-- Filter context bar -->
+  <div class="ctx-bar">
+    <span class="ctx-chip gt-chip">{gameTypeLabel}</span>
+    <span class="ctx-chip">{line.team}</span>
+    <span class="ctx-chip">{lineTypeLabel}</span>
+    <span class="ctx-chip">{seasonDisplay}</span>
+    <span class="ctx-chip">5v5</span>
+    <span class="ctx-spacer"></span>
+    <a href="/stats/lines" class="back-link">← All Lines</a>
+    <button class="dl-btn" id="dl-btn">↓ PNG</button>
+  </div>
+
+  <!-- Player identity strip -->
+  <div class="player-strip" id="player-strip">
+    {linePlayers.map(player => (
+      <div class="player-card">
+        <div class="headshot-wrap">
+          <img
+            class="headshot"
+            src={headshotUrl(player.player_id)}
+            alt={`${player.first_name} ${player.last_name}`}
+            onerror="this.style.opacity='0'; this.nextElementSibling.style.display='flex'"
+          />
+          <div class="headshot-fallback">
+            {player.first_name.charAt(0)}{player.last_name.charAt(0)}
+          </div>
+        </div>
+        <div class="player-name-first">{player.first_name}</div>
+        <div class="player-name-last">{player.last_name}</div>
+        <div class="pos-badge">{player.pos}</div>
+      </div>
+    ))}
+  </div>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip" id="kpi-strip">
+    {kpis.map(kpi => (
+      <div class={`kpi-cell ${kpi.cls}`}>
+        <div class="kpi-label">{kpi.label}</div>
+        <div class="kpi-value">
+          {kpi.value}
+          {kpi.label === 'TOI' ? '' : ''}
+        </div>
+      </div>
+    ))}
+  </div>
+
+  <!-- Stage 2: Stat Breakdown -->
+  <div class="section-header">
+    <span class="section-label">Breakdown</span>
+  </div>
+
+  <div class="breakdown-grid" id="breakdown-grid">
+    {breakdownBlocks.map(block => {
+      const pctCls = bdPctCls(block.pctVal, block.pctType);
+      return (
+        <div class="bd-block">
+          <div class="bd-block-label">{block.label}</div>
+          <div class="bd-row">
+            <div class="bd-cell">
+              <div class="bd-val bd-against">{block.against}</div>
+              <div class="bd-sub">{block.againstLabel}</div>
+            </div>
+            <div class="bd-divider"></div>
+            <div class="bd-cell">
+              <div class={`bd-val ${pctCls}`}>{block.pct}</div>
+              <div class="bd-sub">{block.pctLabel}</div>
+            </div>
+            <div class="bd-divider"></div>
+            <div class="bd-cell">
+              <div class="bd-val">{block.forVal}</div>
+              <div class="bd-sub">{block.forLabel}</div>
+            </div>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+
+  <!-- Stage 3: Shot Map -->
+  <div id="section-shotmap" style="display:none">
+    <div class="section-header">
+      <span class="section-label">Shot Map</span>
+    </div>
+    <div class="shot-map-wrap" id="shot-map-wrap">
+      <div id="shot-map-container"><!-- full-rink SVG injected by JS --></div>
+      <div class="balance-bar" id="balance-bar" style="display:none">
+        <div id="bar-aga" style="background:rgba(232,0,45,0.70);display:flex;align-items:center;padding-left:5px;color:rgba(255,255,255,0.92);overflow:hidden;white-space:nowrap"></div>
+        <div id="bar-for" style="background:rgba(20,100,200,0.70);display:flex;align-items:center;justify-content:flex-end;padding-right:5px;color:rgba(255,255,255,0.92);overflow:hidden;white-space:nowrap"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer class="foot">
+  <div class="foot-inner">
+    <span class="foot-wordmark">Hockey<span class="dot"></span>Gamebot</span>
+    <span>5v5 · {gameTypeLabel} · {seasonDisplay} · Data via HGB Analytics</span>
+  </div>
+</footer>
+
+<script is:inline src="/js/table-export.js"></script>
+<script is:inline define:vars={{
+  lineData: {
+    players:   line.players,
+    team:      line.team,
+    type:      line.type,
+    season:    line.season,
+    game_type: line.game_type,
+    games:     line.games,
+    toi_min:   line.toi_min,
+    gf:        line.gf,
+    ga:        line.ga,
+    gf_pct:    line.gf_pct,
+    xgf:       line.xgf,
+    xga:       line.xga,
+    xgf_pct:   line.xgf_pct,
+    pdo:       line.pdo,
+    // Stage 2 fields
+    cf:        line.cf,
+    ca:        line.ca,
+    cf_pct:    line.cf_pct,
+    ff:        line.ff,
+    fa:        line.fa,
+    ff_pct:    line.ff_pct,
+    sf:        line.sf,
+    sa:        line.sa,
+    sf_pct:    line.sf_pct,
+    sh_pct:    line.sh_pct,
+    sv_pct:    line.sv_pct,
+  },
+  playerData: linePlayers.map(p => ({
+    first_name: p.first_name,
+    last_name:  p.last_name,
+    pos:        p.pos,
+    player_id:  p.player_id,
+  })),
+  seasonDisplay,
+  gameTypeLabel,
+  lineTypeLabel,
+  slugParam: Astro.params.slug,
+}}>
+(function () {
+  'use strict';
+
+  // ── PNG Export ─────────────────────────────────────────────────────────────
+
+  const SCALE = 2;
+  const W     = 560;   // 1× width; mobile-proportioned card
+
+  function _cssVar(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
+  function _roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(x, y, w, h, r);
+    } else {
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+  }
+
+  // Load a single headshot via proxy; resolves to HTMLImageElement or null on error.
+  function _loadHeadshot(playerId) {
+    return new Promise(function (resolve) {
+      if (!playerId) { resolve(null); return; }
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload  = function () { resolve(img); };
+      img.onerror = function () { resolve(null); };
+      img.src = 'https://api.hockeygamebot.com/v1/proxy/headshot/' + lineData.team + '/' + playerId;
+    });
+  }
+
+  function _toMMSS(min) {
+    var s = Math.round(min * 60);
+    var mm = Math.floor(s / 60);
+    var ss = s % 60;
+    return mm + ':' + (ss < 10 ? '0' : '') + ss;
+  }
+
+  function _svgToImage(svgStr, w, h) {
+    return new Promise(function (resolve) {
+      var sized = svgStr
+        .replace(/class="full-rink-svg"\s*/, '')
+        .replace(/width="[^"]*"/, 'width="' + w + '"');
+      if (!sized.includes('height=')) sized = sized.replace('<svg ', '<svg height="' + h + '" ');
+      var blob = new Blob([sized], { type: 'image/svg+xml;charset=utf-8' });
+      var url  = URL.createObjectURL(blob);
+      var img  = new Image();
+      img.onload  = function () { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  async function drawCard() {
+    const BG      = '#EFEEE8';
+    const INK     = '#0D0D14';
+    const SURFACE = '#FFFFFF';
+    const RED     = '#E8002D';
+    const INK72   = 'rgba(13,13,20,0.72)';
+    const INK48   = 'rgba(13,13,20,0.48)';
+    const INK32   = 'rgba(13,13,20,0.32)';
+    const INK20   = 'rgba(13,13,20,0.20)';
+    const INK14   = 'rgba(13,13,20,0.14)';
+    const INK10   = 'rgba(13,13,20,0.10)';
+    const INK06   = 'rgba(13,13,20,0.06)';
+    const POS     = _cssVar('--stats-pos', '#166534');
+    const NEG     = _cssVar('--stats-neg', '#991b1b');
+
+    const PAD     = 28;
+
+    // ── Helper: format stat value ─────────────────────────────────────────────
+    function _fmt(v, dec) {
+      return v != null ? Number(v).toFixed(dec != null ? dec : 0) : '—';
+    }
+    function _fmtP(v) {
+      return v != null ? Number(v).toFixed(1) + '%' : '—';
+    }
+
+    // Heights at 1×
+    const TITLE_H   = 68;
+    const CHIPS_H   = 40;
+    const PLAYERS_H = 104;
+    const SEP_H     = 1;
+    const KPI_LH    = 26; // KPI label row
+    const KPI_VH    = 42; // KPI value row
+    const BD_SEP_H  = 20; // "Breakdown" section header
+    const BD_LH     = 18; // breakdown label row
+    const BD_VH     = 40; // breakdown value row
+    const FOOT_H    = 24;
+
+    // Shot map section (conditional — only if data was already fetched)
+    const hasShotMap  = typeof window.buildFullRink === 'function' && !!window._hgbShotData;
+    const RINK_W      = W - PAD * 2;
+    const SM_SEP_H    = hasShotMap ? 8  : 0;
+    const SM_LH       = hasShotMap ? 24 : 0;
+    const SM_H        = hasShotMap ? Math.round(RINK_W * 170 / 390) : 0;
+    const SM_BAL_H    = hasShotMap ? 22 : 0;
+
+    const TOTAL_H   = TITLE_H + CHIPS_H + PLAYERS_H + SEP_H + KPI_LH + KPI_VH + BD_SEP_H + BD_LH + BD_VH + SM_SEP_H + SM_LH + SM_H + SM_BAL_H + FOOT_H;
+
+    const canvas  = document.createElement('canvas');
+    canvas.width  = W * SCALE;
+    canvas.height = TOTAL_H * SCALE;
+    const ctx     = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+
+    // Background
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W, TOTAL_H);
+
+    let y = 0;
+
+    // ── Title row ────────────────────────────────────────────────────────────
+    ctx.fillStyle = SURFACE;
+    ctx.fillRect(0, y, W, TITLE_H);
+    ctx.font = '800 22px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    // Last names in uppercase from players string
+    const lastNamesDisplay = lineData.players.split('–').map(function(p) {
+      return p.trim().split(' ').pop().toUpperCase();
+    }).join(' – ');
+    ctx.fillText(lastNamesDisplay, PAD, y + TITLE_H / 2);
+    // Team badge top-right
+    ctx.font = '700 10px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK48;
+    ctx.textAlign = 'right';
+    ctx.fillText(lineData.team + ' · ' + lineTypeLabel + ' · 5v5', W - PAD, y + TITLE_H / 2);
+    // Bottom border
+    ctx.fillStyle = INK;
+    ctx.fillRect(0, y + TITLE_H - 2, W, 2);
+    y += TITLE_H;
+
+    // ── Chips row ─────────────────────────────────────────────────────────────
+    const chipH  = 22;
+    const chipY0 = y + (CHIPS_H - chipH) / 2;
+    let cx = PAD;
+    ctx.font = '700 9px "Barlow Condensed", sans-serif';
+    const chips = [gameTypeLabel, lineData.team, lineTypeLabel, seasonDisplay];
+    for (var ci = 0; ci < chips.length; ci++) {
+      const chip = chips[ci].toUpperCase();
+      const tw   = ctx.measureText(chip).width;
+      const cw   = tw + 18;
+      _roundRect(ctx, cx, chipY0, cw, chipH, 2);
+      ctx.fillStyle = ci === 0 ? RED : INK;
+      ctx.fill();
+      ctx.fillStyle = BG;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText(chip, cx + 9, chipY0 + chipH / 2);
+      cx += cw + 6;
+    }
+    // Brand pill — right side
+    const brandText = 'HOCKEYGAMEBOT.COM';
+    ctx.font = '700 9px "Barlow Condensed", sans-serif';
+    const btw   = ctx.measureText(brandText).width;
+    const bChipW = btw + 18;
+    const bx     = W - PAD - bChipW;
+    _roundRect(ctx, bx, chipY0, bChipW, chipH, 2);
+    ctx.fillStyle = RED;
+    ctx.fill();
+    ctx.fillStyle = BG;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(brandText, bx + 9, chipY0 + chipH / 2);
+    y += CHIPS_H;
+
+    // ── Players row (headshot circles + name + position) ─────────────────────
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, y, W, PLAYERS_H);
+    if (playerData.length > 0) {
+      // Fetch all headshots in parallel before drawing
+      var headshots = await Promise.all(playerData.map(function (p) {
+        return _loadHeadshot(p.player_id);
+      }));
+      const colW  = (W - PAD * 2) / playerData.length;
+      const R     = 28; // circle radius at 1×
+      const CY    = y + R + 4; // vertical center of circle
+      for (var pi = 0; pi < playerData.length; pi++) {
+        const p   = playerData[pi];
+        const img = headshots[pi];
+        const cx  = PAD + pi * colW + colW / 2;
+
+        if (img) {
+          // Draw circular headshot
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, CY, R, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(img, cx - R, CY - R, R * 2, R * 2);
+          ctx.restore();
+        } else {
+          // Fallback: initials circle
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, CY, R, 0, Math.PI * 2);
+          ctx.fillStyle = INK10;
+          ctx.fill();
+          ctx.restore();
+          ctx.font = '800 18px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = INK32;
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'center';
+          ctx.fillText((p.first_name.charAt(0) + p.last_name.charAt(0)).toUpperCase(), cx, CY);
+        }
+
+        // Name below circle
+        const nameY = CY + R + 10;
+        ctx.font = '700 13px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK;
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'center';
+        ctx.fillText((p.first_name + ' ' + p.last_name).toUpperCase(), cx, nameY);
+
+        // Position badge
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK48;
+        ctx.fillText(p.pos, cx, nameY + 16);
+      }
+    }
+    y += PLAYERS_H;
+
+    // Separator
+    ctx.fillStyle = INK14;
+    ctx.fillRect(0, y, W, SEP_H);
+    y += SEP_H;
+
+    // ── KPI grid (3 groups of 3) ──────────────────────────────────────────────
+    const kpiItems = [
+      // Group 1 — Ice time
+      { label: 'GP',      value: String(lineData.games),                                                pct: null,            pctType: 'std' },
+      { label: 'TOI',     value: _toMMSS(lineData.toi_min),                                            pct: null,            pctType: 'std' },
+      { label: 'MIN/GP',  value: lineData.games > 0 ? _toMMSS(lineData.toi_min / lineData.games) : '—', pct: null,           pctType: 'std' },
+      // Group 2 — Goals
+      { label: 'GF',      value: lineData.gf     != null ? String(lineData.gf)                : '—',  pct: null,            pctType: 'std' },
+      { label: 'GF%',     value: lineData.gf_pct != null ? lineData.gf_pct.toFixed(1) + '%'   : '—',  pct: lineData.gf_pct, pctType: 'std' },
+      { label: 'GA',      value: lineData.ga     != null ? String(lineData.ga)                : '—',  pct: null,            pctType: 'std' },
+      // Group 3 — Expected goals
+      { label: 'XGF',     value: lineData.xgf    != null ? lineData.xgf.toFixed(2)            : '—',  pct: null,            pctType: 'std' },
+      { label: 'XGF%',    value: lineData.xgf_pct != null ? lineData.xgf_pct.toFixed(1) + '%' : '—', pct: lineData.xgf_pct, pctType: 'std' },
+      { label: 'XGA',     value: lineData.xga    != null ? lineData.xga.toFixed(2)            : '—',  pct: null,            pctType: 'std' },
+    ];
+    const kColW = (W - PAD * 2) / kpiItems.length;
+
+    // Label row
+    ctx.font = '700 8px "JetBrains Mono", monospace';
+    ctx.fillStyle = INK48;
+    ctx.textBaseline = 'middle';
+    for (var ki = 0; ki < kpiItems.length; ki++) {
+      const kx = PAD + ki * kColW + kColW / 2;
+      ctx.textAlign = 'center';
+      ctx.fillText(kpiItems[ki].label, kx, y + KPI_LH / 2);
+    }
+    y += KPI_LH;
+
+    // Value row
+    ctx.font = '800 18px "Barlow Condensed", sans-serif';
+    ctx.textBaseline = 'middle';
+    for (var ki2 = 0; ki2 < kpiItems.length; ki2++) {
+      const item = kpiItems[ki2];
+      const kx   = PAD + ki2 * kColW + kColW / 2;
+      var valueColor = INK;
+      if (item.pct != null) {
+        if (item.pctType === 'pdo') {
+          if (item.pct >= 101)     valueColor = POS;
+          else if (item.pct <= 99) valueColor = NEG;
+        } else {
+          if (item.pct >= 55)      valueColor = POS;
+          else if (item.pct <= 45) valueColor = NEG;
+        }
+      }
+      ctx.fillStyle = valueColor;
+      ctx.textAlign = 'center';
+      ctx.fillText(item.value, kx, y + KPI_VH / 2);
+    }
+
+    // Dividers between KPI cells — thicker/darker at group boundaries (3, 6)
+    for (var di = 1; di < kpiItems.length; di++) {
+      const dx = PAD + di * kColW;
+      const isGroup = (di === 3 || di === 6);
+      ctx.fillStyle = isGroup ? INK20 : INK06;
+      ctx.fillRect(isGroup ? dx - 0.5 : dx, y - KPI_LH, isGroup ? 2 : 1, KPI_LH + KPI_VH);
+    }
+    y += KPI_VH;
+
+    // ── Breakdown section header ──────────────────────────────────────────────
+    // thin separator line
+    ctx.fillStyle = INK10;
+    ctx.fillRect(PAD, y, W - PAD * 2, 1);
+    // "BREAKDOWN" label
+    ctx.font = '700 8px "JetBrains Mono", monospace';
+    ctx.fillStyle = INK48;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText('BREAKDOWN', PAD, y + BD_SEP_H / 2);
+    y += BD_SEP_H;
+
+    // ── Breakdown 6-block grid ────────────────────────────────────────────────
+    const bdBlocks = [
+      { label: 'CORSI',   against: _fmt(lineData.ca),     pct: _fmtP(lineData.cf_pct),  pctVal: lineData.cf_pct,  pctType: 'std', forVal: _fmt(lineData.cf),     aLbl: 'CA',  pLbl: 'CF%',  fLbl: 'CF'  },
+      { label: 'FENWICK', against: _fmt(lineData.fa),     pct: _fmtP(lineData.ff_pct),  pctVal: lineData.ff_pct,  pctType: 'std', forVal: _fmt(lineData.ff),     aLbl: 'FA',  pLbl: 'FF%',  fLbl: 'FF'  },
+      { label: 'SHOTS',   against: _fmt(lineData.sa),     pct: _fmtP(lineData.sf_pct),  pctVal: lineData.sf_pct,  pctType: 'std', forVal: _fmt(lineData.sf),     aLbl: 'SA',  pLbl: 'SF%',  fLbl: 'SF'  },
+      { label: 'PDO',     against: _fmtP(lineData.sv_pct), pct: lineData.pdo != null ? lineData.pdo.toFixed(1) : '—', pctVal: lineData.pdo, pctType: 'pdo', forVal: _fmtP(lineData.sh_pct), aLbl: 'SV%', pLbl: 'PDO', fLbl: 'SH%' },
+    ];
+
+    const bdColW  = (W - PAD * 2) / bdBlocks.length;
+    const bdCellW = bdColW / 3; // 3 sub-cells per block
+
+    // Label row
+    ctx.font = '700 7px "JetBrains Mono", monospace';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    for (var bi = 0; bi < bdBlocks.length; bi++) {
+      const bk = bdBlocks[bi];
+      const bx0 = PAD + bi * bdColW + bdColW / 2;
+      ctx.fillStyle = INK48;
+      ctx.fillText(bk.label, bx0, y + BD_LH / 2);
+    }
+    y += BD_LH;
+
+    // Value row — 3 sub-cells per block (or 2 if twoCell:true)
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    for (var bi2 = 0; bi2 < bdBlocks.length; bi2++) {
+      const bk   = bdBlocks[bi2];
+      const bx0  = PAD + bi2 * bdColW;
+
+      // Compute pct color upfront (used in both layouts)
+      var pctColor = INK;
+      if (bk.pctVal != null) {
+        if (bk.pctType === 'pdo') {
+          if (bk.pctVal >= 101)     pctColor = POS;
+          else if (bk.pctVal <= 99) pctColor = NEG;
+        } else {
+          if (bk.pctVal >= 55)      pctColor = POS;
+          else if (bk.pctVal <= 45) pctColor = NEG;
+        }
+      }
+
+      if (bk.twoCell) {
+        // 2-value layout: spread evenly at 25% and 75% of block width
+        var cx1 = bx0 + bdColW * 0.25;
+        var cx2 = bx0 + bdColW * 0.75;
+        ctx.font = '800 11px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK72;
+        ctx.fillText(bk.against, cx1, y + BD_VH / 2 - 7);
+        ctx.font = '400 7px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32;
+        ctx.fillText(bk.aLbl, cx1, y + BD_VH / 2 + 9);
+        ctx.font = '800 11px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = pctColor;
+        ctx.fillText(bk.pct, cx2, y + BD_VH / 2 - 7);
+        ctx.font = '400 7px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32;
+        ctx.fillText(bk.pLbl, cx2, y + BD_VH / 2 + 9);
+      } else {
+        // Standard 3-sub-cell layout
+        ctx.font = '800 11px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK72;
+        ctx.fillText(bk.against, bx0 + bdCellW / 2, y + BD_VH / 2 - 7);
+        ctx.font = '400 7px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32;
+        ctx.fillText(bk.aLbl, bx0 + bdCellW / 2, y + BD_VH / 2 + 9);
+
+        ctx.font = '800 11px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = pctColor;
+        ctx.fillText(bk.pct, bx0 + bdCellW * 1.5, y + BD_VH / 2 - 7);
+        ctx.font = '400 7px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32;
+        ctx.fillText(bk.pLbl, bx0 + bdCellW * 1.5, y + BD_VH / 2 + 9);
+
+        ctx.font = '800 11px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK;
+        ctx.fillText(bk.forVal, bx0 + bdCellW * 2.5, y + BD_VH / 2 - 7);
+        ctx.font = '400 7px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32;
+        ctx.fillText(bk.fLbl, bx0 + bdCellW * 2.5, y + BD_VH / 2 + 9);
+      }
+
+      // Block divider
+      if (bi2 < bdBlocks.length - 1) {
+        ctx.fillStyle = INK10;
+        ctx.fillRect(bx0 + bdColW - 0.5, y, 1, BD_VH);
+      }
+    }
+    y += BD_VH;
+
+    // ── Shot map section ──────────────────────────────────────────────────────
+    if (hasShotMap) {
+      ctx.fillStyle = INK10;
+      ctx.fillRect(PAD, y, W - PAD * 2, 1);
+      y += SM_SEP_H;
+
+      ctx.font = '700 7px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText('SHOT MAP', PAD, y + SM_LH / 2);
+      y += SM_LH;
+
+      var shotRes = window.buildFullRink(window._hgbShotData.sf, window._hgbShotData.sa);
+      var rinkImg = await _svgToImage(shotRes.svg, RINK_W * SCALE, SM_H * SCALE);
+      if (rinkImg) ctx.drawImage(rinkImg, PAD, y, RINK_W, SM_H);
+      y += SM_H;
+
+      var bBarY = y + (SM_BAL_H - 10) / 2;
+      var bBarH = 10;
+      var agaW  = RINK_W * (shotRes.xgaPct / 100);
+      ctx.save();
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') ctx.roundRect(PAD, bBarY, RINK_W, bBarH, 2);
+      else ctx.rect(PAD, bBarY, RINK_W, bBarH);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(232,0,45,0.70)';
+      ctx.fillRect(PAD, bBarY, agaW, bBarH);
+      ctx.fillStyle = 'rgba(20,100,200,0.70)';
+      ctx.fillRect(PAD + agaW, bBarY, RINK_W - agaW, bBarH);
+      ctx.restore();
+      ctx.font = '700 7px "JetBrains Mono", monospace';
+      ctx.textBaseline = 'middle';
+      if (shotRes.xgaPct > 18) { ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'left';  ctx.fillText('xGA ' + shotRes.xgaPct.toFixed(1) + '%', PAD + 4, bBarY + bBarH / 2); }
+      if (shotRes.xgfPct > 18) { ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'right'; ctx.fillText('xGF ' + shotRes.xgfPct.toFixed(1) + '%', PAD + RINK_W - 4, bBarY + bBarH / 2); }
+      y += SM_BAL_H;
+    }
+
+    // ── Footer strip ──────────────────────────────────────────────────────────
+    ctx.fillStyle = INK;
+    ctx.fillRect(0, y, W, 2);
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, y + 2, W, FOOT_H - 2);
+
+    // Download
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href = url; a.download = 'hgb-' + slugParam + '.png';
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    }, 'image/png');
+  }
+
+  document.getElementById('dl-btn').addEventListener('click', async function () {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    await drawCard();
+  });
+})();
+</script>
+
+<script is:inline define:vars={{ slugParam: Astro.params.slug }}>
+(function () {
+  'use strict';
+
+  // ── Full-rink coordinate mapping ──────────────────────────────────────────
+  // ViewBox: 0 0 390 170  |  Center ice at x=195
+  // FOR (right): nhlX 0-100 → SVG x 195-377
+  // AGAINST (left, mirrored): nhlX 0-100 → SVG x 195-13
+  var W = 390, H = 170, CX = 195;
+  function fxFor(x) { return CX + (x / 100) * 182; }
+  function fxAga(x) { return CX - (x / 100) * 182; }
+  function fy(y)    { return ((y + 42.5) / 85) * 164 + 3; }
+
+  // ── Shot dot helper ───────────────────────────────────────────────────────
+  function dot(sx, sy, xg, isGoal, gFill, ngFill, ngStr) {
+    var r = isGoal ? '4.0' : Math.max(1.8, Math.min(4.5, 1.5 + (xg || 0.05) * 14)).toFixed(1);
+    var tip = (isGoal ? 'Goal' : 'Shot') + ' xG ' + (xg || 0).toFixed(3);
+    if (isGoal) return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + gFill + '" opacity="0.90"><title>' + tip + '</title></circle>';
+    return '<circle cx="' + sx + '" cy="' + sy + '" r="' + r + '" fill="' + ngFill + '" stroke="' + ngStr + '" stroke-width="0.6"><title>' + tip + '</title></circle>';
+  }
+
+  // ── Full-rink SVG builder ─────────────────────────────────────────────────
+  function buildFullRink(sf, sa) {
+    var xgf = sf.reduce(function(a,s){return a+(s.xg||0);},0);
+    var xga = sa.reduce(function(a,s){return a+(s.xg||0);},0);
+    var tot = xgf + xga;
+    var fp  = tot > 0 ? xgf/tot*100 : 50;
+    var ap  = 100 - fp;
+    var fo  = Math.max(0, (fp-50)/50*0.22).toFixed(3);
+    var ao  = Math.max(0, (ap-50)/50*0.22).toFixed(3);
+    var cY  = fy(0).toFixed(1);
+    var cYm = (fy(0)-20).toFixed(1);
+    var cYp = (fy(0)+20).toFixed(1);
+    var foY1 = fy(-22).toFixed(1), foY2 = fy(22).toFixed(1);
+    var p = [];
+    p.push('<svg class="full-rink-svg" viewBox="0 0 390 170" xmlns="http://www.w3.org/2000/svg" width="100%">');
+    p.push('<rect x="2" y="2" width="386" height="166" rx="6" fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>');
+    p.push('<rect x="'+CX+'" y="2" width="'+(CX-2)+'" height="166" fill="rgba(20,100,200,'+fo+')"/>');
+    p.push('<rect x="2" y="2" width="'+(CX-2)+'" height="166" fill="rgba(232,0,45,'+ao+')"/>');
+    p.push('<line x1="'+CX+'" y1="2" x2="'+CX+'" y2="168" stroke="rgba(13,13,20,0.25)" stroke-width="1.5"/>');
+    p.push('<circle cx="'+CX+'" cy="'+cY+'" r="8" fill="none" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>');
+    var fBL=fxFor(0).toFixed(1),fGL=fxFor(100).toFixed(1),fFo=fxFor(69).toFixed(1);
+    p.push('<line x1="'+fBL+'" y1="2" x2="'+fBL+'" y2="168" stroke="rgba(20,100,200,0.28)" stroke-width="1.2" stroke-dasharray="4 3"/>');
+    p.push('<line x1="'+fGL+'" y1="2" x2="'+fGL+'" y2="168" stroke="rgba(232,0,45,0.40)" stroke-width="1.2"/>');
+    p.push('<path d="M'+fGL+','+cYm+' A20,20 0 0,0 '+fGL+','+cYp+'" fill="rgba(20,100,200,0.07)" stroke="rgba(20,100,200,0.28)" stroke-width="1"/>');
+    p.push('<rect x="'+fGL+'" y="'+(fy(0)-3).toFixed(1)+'" width="4" height="6" fill="rgba(13,13,20,0.35)" rx="0.5"/>');
+    p.push('<circle cx="'+fFo+'" cy="'+foY1+'" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>');
+    p.push('<circle cx="'+fFo+'" cy="'+foY2+'" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>');
+    p.push('<circle cx="'+fFo+'" cy="'+foY1+'" r="2" fill="rgba(232,0,45,0.32)"/>');
+    p.push('<circle cx="'+fFo+'" cy="'+foY2+'" r="2" fill="rgba(232,0,45,0.32)"/>');
+    var aBL=fxAga(0).toFixed(1),aGL=fxAga(100).toFixed(1),aFo=fxAga(69).toFixed(1);
+    p.push('<line x1="'+aBL+'" y1="2" x2="'+aBL+'" y2="168" stroke="rgba(232,0,45,0.22)" stroke-width="1.2" stroke-dasharray="4 3"/>');
+    p.push('<line x1="'+aGL+'" y1="2" x2="'+aGL+'" y2="168" stroke="rgba(232,0,45,0.40)" stroke-width="1.2"/>');
+    p.push('<path d="M'+aGL+','+cYm+' A20,20 0 0,1 '+aGL+','+cYp+'" fill="rgba(232,0,45,0.07)" stroke="rgba(232,0,45,0.28)" stroke-width="1"/>');
+    p.push('<rect x="'+(parseFloat(aGL)-4).toFixed(1)+'" y="'+(fy(0)-3).toFixed(1)+'" width="4" height="6" fill="rgba(13,13,20,0.35)" rx="0.5"/>');
+    p.push('<circle cx="'+aFo+'" cy="'+foY1+'" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>');
+    p.push('<circle cx="'+aFo+'" cy="'+foY2+'" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>');
+    p.push('<circle cx="'+aFo+'" cy="'+foY1+'" r="2" fill="rgba(232,0,45,0.32)"/>');
+    p.push('<circle cx="'+aFo+'" cy="'+foY2+'" r="2" fill="rgba(232,0,45,0.32)"/>');
+    p.push('<text x="'+(CX-82)+'" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(232,0,45,0.55)" text-anchor="middle" letter-spacing="0.10em">← AGAINST</text>');
+    p.push('<text x="'+(CX+82)+'" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(20,100,200,0.55)" text-anchor="middle" letter-spacing="0.10em">FOR →</text>');
+    sa.forEach(function(s){p.push(dot(fxAga(s.x).toFixed(1),fy(s.y).toFixed(1),s.xg,s.is_goal,'#E8002D','rgba(232,0,45,0.13)','rgba(232,0,45,0.35)'));});
+    sf.forEach(function(s){p.push(dot(fxFor(s.x).toFixed(1),fy(s.y).toFixed(1),s.xg,s.is_goal,'rgba(20,100,200,0.90)','rgba(20,100,200,0.13)','rgba(20,100,200,0.35)'));});
+    p.push('</svg>');
+    return { svg: p.join(''), xgfPct: fp, xgaPct: ap };
+  }
+
+  window.buildFullRink = buildFullRink;
+
+  // ── Fetch and render ──────────────────────────────────────────────────────
+  function loadShotMap() {
+    var section   = document.getElementById('section-shotmap');
+    var container = document.getElementById('shot-map-container');
+    var bar       = document.getElementById('balance-bar');
+    var barFor    = document.getElementById('bar-for');
+    var barAga    = document.getElementById('bar-aga');
+    var wrap      = document.getElementById('shot-map-wrap');
+    if (!section || !container || !wrap) return;
+    fetch('https://api.hockeygamebot.com/v1/lines/' + slugParam + '/shots')
+      .then(function(r) { if (!r.ok) { showEmpty(wrap, section); return null; } return r.json(); })
+      .then(function(data) {
+        if (!data) return;
+        var sf = data.shots_for || [], sa = data.shots_against || [];
+        if (!sf.length && !sa.length) { showEmpty(wrap, section); return; }
+        window._hgbShotData = { sf: sf, sa: sa };
+        var res = buildFullRink(sf, sa);
+        container.innerHTML = res.svg;
+        if (bar && barFor && barAga) {
+          barAga.style.width = res.xgaPct.toFixed(1) + '%';
+          barFor.style.width = res.xgfPct.toFixed(1) + '%';
+          if (res.xgaPct > 18) barAga.textContent = 'xGA ' + res.xgaPct.toFixed(1) + '%';
+          if (res.xgfPct > 18) barFor.textContent = 'xGF ' + res.xgfPct.toFixed(1) + '%';
+          bar.style.display = 'flex';
+        }
+        section.style.display = '';
+      })
+      .catch(function() { showEmpty(wrap, section); });
+  }
+
+  function showEmpty(wrap, section) {
+    wrap.innerHTML = '<div class="shot-map-empty">Shot data not available for this line.</div>';
+    section.style.display = '';
+  }
+
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadShotMap);
+  } else {
+    loadShotMap();
+  }
+})();
+</script>
+</body>
+</html>

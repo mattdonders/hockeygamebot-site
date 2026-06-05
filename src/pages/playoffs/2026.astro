@@ -1,4 +1,7 @@
 ---
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
 // ── helpers ───────────────────────────────────────────────────────────────────
 function mixHex(hex: string, target: string, amount: number): string {
   if (!hex.startsWith('#') || hex.length < 7) return hex;
@@ -34,35 +37,6 @@ const TEAM_META: Record<string, { name: string; color: string; conf: string; see
   ANA: { name: 'Anaheim Ducks',          color: '#FCD116', conf: 'West', seed: 'Pac · 3',    seedFull: 'Pacific · 3rd' },
 };
 
-// ── Round-aware labels ───────────────────────────────────────────────────────
-const ROUND_LABELS: Record<number, string> = {
-  1: 'First Round',
-  2: 'Conference Semifinals',
-  3: 'Conference Finals',
-  4: 'Stanley Cup Final',
-};
-
-// Per-matchup color overrides. TEAM_META already shifts OTT/ANA preemptively
-// for R1 clashes. For R2, when two teams' default colors are too similar, we
-// override one team's color *just for that matchup*. Keys are sorted abbrev
-// pairs ("ABC|XYZ") so lookup is order-independent.
-const MATCHUP_COLOR_OVERRIDES: Record<string, { team: string; color: string }[]> = {
-  // Both red — push MTL toward its alternate light-blue.
-  'CAR|MTL': [{ team: 'MTL', color: '#192168' }],
-  // Both gold — push PIT toward its alternate black/white. Use a deep gold-leaning
-  // gray so it stays visually distinct from BOS gold.
-  'BOS|PIT': [{ team: 'PIT', color: '#CFC493' }],
-};
-function matchupKey(a: string, b: string) {
-  return [a, b].sort().join('|');
-}
-function colorFor(abbr: string, opponent: string): string {
-  const base = TEAM_META[abbr]?.color ?? '#888888';
-  const overrides = MATCHUP_COLOR_OVERRIDES[matchupKey(abbr, opponent)];
-  const hit = overrides?.find(o => o.team === abbr);
-  return hit ? hit.color : base;
-}
-
 // ── BUILD-TIME FETCH: hgb-api is the source of truth for everything dynamic ──
 // distributions, win %, per-game winners, next-game times, staleness. No
 // hardcoded placeholder numbers — the page renders with real data on first
@@ -78,282 +52,121 @@ type ApiSeries = {
   updated_at: string;
 };
 
-// Carousel R2 series — used to seed R2 placeholder cards when hgb-api hasn't
-// yet generated model data for round 2 (CAR + COL lock in first via division
-// winners). Shape: NHL playoff-series/carousel response.
-type CarouselSeries = {
-  seriesLetter: string;
-  topSeed: { abbrev: string };
-  bottomSeed: { abbrev: string };
-};
-
 let apiSeries: ApiSeries[] = [];
 let apiSeriesR2: ApiSeries[] = [];
 let apiSeriesR3: ApiSeries[] = [];
-let carouselR1: CarouselSeries[] = [];
-let carouselR2: CarouselSeries[] = [];
-let currentRound = 1;
+let apiSeriesR4: ApiSeries[] = [];
 let latestUpdate: string | null = null;
 try {
-  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
-  if (res.ok) {
-    const data = await res.json();
-    apiSeries = data.series ?? [];
-    latestUpdate = data.latest_update ?? null;
-  }
-} catch (_) {
-  // If hgb-api is unreachable at build time, the page still renders. Client-side
-  // loadModelData() will fill in later.
-}
-try {
-  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/2');
-  if (res.ok) {
-    const data = await res.json();
-    apiSeriesR2 = data.series ?? [];
-  }
-} catch (_) { /* ok if R2 not seeded */ }
-try {
-  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/3');
-  if (res.ok) { const data = await res.json(); apiSeriesR3 = data.series ?? []; }
-} catch (_) { /* ok if R3 not seeded */ }
-try {
-  const res = await fetch('https://api-web.nhle.com/v1/playoff-series/carousel/20252026');
-  if (res.ok) {
-    const data = await res.json();
-    currentRound = data.currentRound ?? 1;
-    const r1 = (data.rounds ?? []).find((r: any) => r.roundNumber === 1);
-    if (r1) carouselR1 = r1.series ?? [];
-    const r2 = (data.rounds ?? []).find((r: any) => r.roundNumber === 2);
-    if (r2) carouselR2 = r2.series ?? [];
-  }
-} catch (_) { /* fall back to round 1 only */ }
+  const [res1, res2, res3, res4] = await Promise.all([
+    fetch('https://api.hockeygamebot.com/v1/playoffs/round/1'),
+    fetch('https://api.hockeygamebot.com/v1/playoffs/round/2'),
+    fetch('https://api.hockeygamebot.com/v1/playoffs/round/3'),
+    fetch('https://api.hockeygamebot.com/v1/playoffs/round/4'),
+  ]);
+  if (res1.ok) { const d = await res1.json(); apiSeries = d.series ?? []; latestUpdate = d.latest_update ?? null; }
+  if (res2.ok) { const d = await res2.json(); apiSeriesR2 = d.series ?? []; latestUpdate = latestUpdate ?? d.latest_update ?? null; }
+  if (res3.ok) { const d = await res3.json(); apiSeriesR3 = d.series ?? []; }
+  if (res4.ok) { const d = await res4.json(); apiSeriesR4 = d.series ?? []; latestUpdate = latestUpdate ?? d.latest_update ?? null; }
+} catch (_) {}
 
-// ── R2 → R1 feeder mapping ─────────────────────────────────────────────────
-// Standard NHL bracket; the API does not expose feeder fields so hardcode.
-// Verified against NHL carousel 2026: J=CAR(C)+PHI(D), so pairings are
-// adjacent letter-pairs within each conference: A+B, C+D, E+F, G+H.
-//   I → A winner vs B winner (East upper half)
-//   J → C winner vs D winner (East lower half)
-//   K → E winner vs F winner (West upper half)
-//   L → G winner vs H winner (West lower half)
-const R2_FEEDERS: Record<string, [string, string]> = {
-  I: ['A', 'B'],
-  J: ['C', 'D'],
-  K: ['E', 'F'],
-  L: ['G', 'H'],
-};
-
-// Find the R1 series for a given letter; return its two team abbrevs and
-// whether the series is already complete (winner known) per hgb-api data.
-function r1FeederFor(letter: string): { a: string; b: string; winner: string | null } | null {
-  const car = carouselR1.find(c => c.seriesLetter === letter);
-  if (!car) return null;
-  const a = car.topSeed.abbrev;
-  const b = car.bottomSeed.abbrev;
-  // Cross-reference hgb-api R1 to detect winner. Match by team set so we
-  // don't depend on team_a/team_b ordering.
-  const api = apiSeries.find(s =>
-    (s.team_a === a && s.team_b === b) || (s.team_a === b && s.team_b === a)
-  );
-  const winner = api?.is_complete ? api.winner : null;
-  return { a, b, winner };
-}
-
-// Render label for the TBD slot in an R2 placeholder.
-// - If we can't resolve feeders, fall back to "Series {letter}".
-// - If the OTHER R1 feeder is already complete, just show the winner.
-// - Otherwise, "Winner of {A}/{B}".
-function feederLabel(r2Letter: string, lockedAbbr: string | null): string {
-  const feeders = R2_FEEDERS[r2Letter];
-  if (!feeders) return `Series ${r2Letter}`;
-  const [letterA, letterB] = feeders;
-  const feedA = r1FeederFor(letterA);
-  const feedB = r1FeederFor(letterB);
-  // Pick the feeder that does NOT contain the locked R2 team.
-  let other: { a: string; b: string; winner: string | null } | null = null;
-  if (lockedAbbr && feedA && (feedA.a === lockedAbbr || feedA.b === lockedAbbr)) {
-    other = feedB;
-  } else if (lockedAbbr && feedB && (feedB.a === lockedAbbr || feedB.b === lockedAbbr)) {
-    other = feedA;
-  } else {
-    // No locked side — return both feeders if we have them, else generic.
-    other = feedA ?? feedB;
-  }
-  if (!other) return `Series ${r2Letter}`;
-  if (other.winner) return other.winner;
-  return `Winner of ${other.a}/${other.b}`;
-}
-
-// Derive a UI-ready SERIES array. Team metadata comes from TEAM_META; dynamic
-// state from the API payload. Series_id pattern is `hs-ls` lowercased (Elo order).
-const SERIES = apiSeries.map(s => {
-  const a = TEAM_META[s.team_a] ?? null;
-  const b = TEAM_META[s.team_b] ?? null;
-  if (!a || !b) return null;
-  const colorA = colorFor(s.team_a, s.team_b);
-  const colorB = colorFor(s.team_b, s.team_a);
-  return {
-    id: s.series_id,
-    round: 1,
-    conf: a.conf,
-    miniBadge: `${a.conf === 'East' ? 'East' : 'West'} · ${a.seed.split(' · ')[1] ?? a.seed} vs ${b.seed.split(' · ')[1] ?? b.seed}`,
-    games: s.games,
-    is_complete: s.is_complete,
-    winner: s.winner,
-    winner_in: s.winner_in,
-    nextGameUTC: s.next_game_utc,
-    tbd: false,
-    a: { abbr: s.team_a, name: a.name, color: colorA, seed: a.seed, seedFull: a.seedFull,
-         dist: s.dist_a, winPct: s.win_pct_a },
-    b: { abbr: s.team_b, name: b.name, color: colorB, seed: b.seed, seedFull: b.seedFull,
-         dist: s.dist_b, winPct: s.win_pct_b },
-  };
-}).filter((x): x is NonNullable<typeof x> => x !== null);
-
-// ── R2 SERIES ─────────────────────────────────────────────────────────────────
-// Build the R2 series list. Prefer hgb-api model data; fall back to the NHL
-// carousel (which exposes which teams have locked in via series letters J/K/L/M
-// before the model has had a chance to spin a prediction). TBD slots render as
-// pull-quote placeholder cards.
-type R2Card = {
-  id: string;
-  round: 2;
-  conf: 'East' | 'West';
-  miniBadge: string;
-  games: (string | null)[];
-  is_complete: boolean;
-  winner: string | null;
-  winner_in: number | null;
-  nextGameUTC: string | null;
-  tbd: boolean;
-  awaitingFromLetter?: string;  // "Winner of A" placeholder anchor when team_b is TBD
-  a: { abbr: string; name: string; color: string; seed: string; seedFull: string; dist: number[]; winPct: number };
-  b: { abbr: string; name: string; color: string; seed: string; seedFull: string; dist: number[]; winPct: number };
-};
-
-const TBD_META = {
-  abbr: 'TBD', name: 'To Be Determined', color: '#3a3a48',
-  seed: 'TBD', seedFull: 'To Be Determined',
-};
-
-function buildR2FromApi(s: ApiSeries): R2Card | null {
-  const a = TEAM_META[s.team_a];
-  const b = TEAM_META[s.team_b];
-  // If either is "TBD" or unknown, treat as carousel-style placeholder.
-  if (!a || !b) return null;
-  const colorA = colorFor(s.team_a, s.team_b);
-  const colorB = colorFor(s.team_b, s.team_a);
-  return {
-    id: s.series_id,
-    round: 2,
-    conf: a.conf as 'East' | 'West',
-    miniBadge: `${a.conf === 'East' ? 'East' : 'West'} · R2`,
-    games: s.games,
-    is_complete: s.is_complete,
-    winner: s.winner,
-    winner_in: s.winner_in,
-    nextGameUTC: s.next_game_utc,
-    tbd: false,
-    a: { abbr: s.team_a, name: a.name, color: colorA, seed: a.seed, seedFull: a.seedFull,
-         dist: s.dist_a, winPct: s.win_pct_a },
-    b: { abbr: s.team_b, name: b.name, color: colorB, seed: b.seed, seedFull: b.seedFull,
-         dist: s.dist_b, winPct: s.win_pct_b },
-  };
-}
-
-function buildR2FromCarousel(c: CarouselSeries): R2Card | null {
-  // The carousel exposes topSeed + bottomSeed. Either may be TBD. Pick the
-  // locked team as `a` (so single-color matchups always show the locked team
-  // on the left); the placeholder occupies `b`.
-  const top = c.topSeed.abbrev, bot = c.bottomSeed.abbrev;
-  const topMeta = TEAM_META[top];
-  const botMeta = TEAM_META[bot];
-  // Determine conference from whichever side is locked.
-  const conf = (topMeta?.conf ?? botMeta?.conf ?? 'East') as 'East' | 'West';
-  // Build the card. Awaiting-side metadata uses the placeholder.
-  const aLocked = !!topMeta;
-  const bLocked = !!botMeta;
-  if (!aLocked && !bLocked) {
-    // Both TBD — render double placeholder.
+function buildSeriesArray(raw: ApiSeries[]) {
+  return raw.map(s => {
+    const a = TEAM_META[s.team_a] ?? null;
+    const b = TEAM_META[s.team_b] ?? null;
+    if (!a || !b) return null;
     return {
-      id: `tbd-tbd-${c.seriesLetter.toLowerCase()}`,
-      round: 2,
-      conf,
-      miniBadge: `R2 · Series ${c.seriesLetter}`,
-      games: [null, null, null, null, null, null, null],
-      is_complete: false, winner: null, winner_in: null, nextGameUTC: null,
-      tbd: true,
-      awaitingFromLetter: c.seriesLetter,
-      a: { ...TBD_META, dist: [0,0,0,0], winPct: 0 },
-      b: { ...TBD_META, dist: [0,0,0,0], winPct: 0 },
+      id: s.series_id,
+      conf: a.conf,
+      miniBadge: `${a.conf === 'East' ? 'East' : 'West'} · ${a.seed.split(' · ')[1] ?? a.seed} vs ${b.seed.split(' · ')[1] ?? b.seed}`,
+      games: s.games,
+      is_complete: s.is_complete,
+      winner: s.winner,
+      winner_in: s.winner_in,
+      nextGameUTC: s.next_game_utc,
+      a: { abbr: s.team_a, name: a.name, color: a.color, seed: a.seed, seedFull: a.seedFull,
+           dist: s.dist_a, winPct: s.win_pct_a },
+      b: { abbr: s.team_b, name: b.name, color: b.color, seed: b.seed, seedFull: b.seedFull,
+           dist: s.dist_b, winPct: s.win_pct_b },
     };
+  }).filter((x): x is NonNullable<typeof x> => x !== null);
+}
+
+function deduplicateSeries(arr: ReturnType<typeof buildSeriesArray>) {
+  const seen = new Set<string>();
+  return arr.filter(s => {
+    const key = [s.a.abbr, s.b.abbr].sort().join('-');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const SERIES    = deduplicateSeries(buildSeriesArray(apiSeries));
+const SERIES_R2 = deduplicateSeries(buildSeriesArray(apiSeriesR2));
+const SERIES_R3 = deduplicateSeries(buildSeriesArray(apiSeriesR3));
+const SERIES_R4 = deduplicateSeries(buildSeriesArray(apiSeriesR4));
+const scfSeries = SERIES_R4[0] ?? null;  // only one SCF series
+
+// Quick lookup: series by team pair (for bracket rendering)
+const seriesByTeams = new Map<string, typeof SERIES[0]>();
+[...SERIES, ...SERIES_R2, ...SERIES_R3, ...SERIES_R4].forEach(s => {
+  seriesByTeams.set(`${s.a.abbr}-${s.b.abbr}`, s);
+  seriesByTeams.set(`${s.b.abbr}-${s.a.abbr}`, s);
+});
+
+// ── Bracket state for hero ────────────────────────────────────────────────────
+// Hardcoded 2026 bracket topology. Each arm: r1a + r1b → r2.
+// Winner of r1a plays winner of r1b in round 2.
+type BracketArm = { r1: [string, string]; r2: [string, string] };
+const EAST_BRACKET: BracketArm[] = [
+  { r1: ['CAR','OTT'], r2: ['CAR','PHI'] },
+  { r1: ['PHI','PIT'], r2: ['CAR','PHI'] },
+  { r1: ['BUF','BOS'], r2: ['BUF','MTL'] },
+  { r1: ['MTL','TBL'], r2: ['BUF','MTL'] },
+];
+const WEST_BRACKET: BracketArm[] = [
+  { r1: ['COL','LAK'], r2: ['COL','MIN'] },
+  { r1: ['MIN','DAL'], r2: ['COL','MIN'] },
+  { r1: ['VGK','UTA'], r2: ['VGK','ANA'] },
+  { r1: ['ANA','EDM'], r2: ['VGK','ANA'] },
+];
+
+// R1 winners/losers for bracket rendering
+const r1Winners = new Map<string, boolean>(); // team → won round 1
+SERIES.forEach(s => {
+  if (s.is_complete && s.winner) {
+    const loser = s.a.abbr === s.winner ? s.b.abbr : s.a.abbr;
+    r1Winners.set(s.winner, true);
+    r1Winners.set(loser, false);
   }
-  const lockedAbbr = aLocked ? top : bot;
-  const lockedMeta = aLocked ? topMeta! : botMeta!;
-  const id = `${lockedAbbr.toLowerCase()}-tbd-${c.seriesLetter.toLowerCase()}`;
-  return {
-    id,
-    round: 2,
-    conf: lockedMeta.conf as 'East' | 'West',
-    miniBadge: `${lockedMeta.conf === 'East' ? 'East' : 'West'} · Series ${c.seriesLetter}`,
-    games: [null, null, null, null, null, null, null],
-    is_complete: false, winner: null, winner_in: null, nextGameUTC: null,
-    tbd: true,
-    awaitingFromLetter: c.seriesLetter,
-    a: { abbr: lockedAbbr, name: lockedMeta.name, color: lockedMeta.color,
-         seed: lockedMeta.seed, seedFull: lockedMeta.seedFull, dist: [0,0,0,0], winPct: 0 },
-    b: { ...TBD_META, dist: [0,0,0,0], winPct: 0 },
-  };
+});
+
+// R2 series lookup by team pair
+function getR2Series(a: string, b: string) {
+  return seriesByTeams.get(`${a}-${b}`) ?? seriesByTeams.get(`${b}-${a}`) ?? null;
 }
 
-// Build R2 cards by MERGING carousel + API data, not either-or.
-// - Carousel is the master list of all 4 R2 slots (locked or TBD).
-// - For each carousel entry, prefer the API-backed card when both seeds are
-//   locked AND there's a matching API row. Otherwise render the carousel
-//   placeholder so a single API populated series doesn't hide the others.
-let SERIES_R2: R2Card[] = [];
-if (carouselR2.length > 0) {
-  SERIES_R2 = carouselR2.map(car => {
-    const ta = car.topSeed.abbrev;
-    const tb = car.bottomSeed.abbrev;
-    const apiMatch = apiSeriesR2.find(s =>
-      (s.team_a === ta && s.team_b === tb) || (s.team_a === tb && s.team_b === ta)
-    );
-    if (apiMatch) {
-      const built = buildR2FromApi(apiMatch);
-      if (built) return built;
-    }
-    return buildR2FromCarousel(car);
-  }).filter((x): x is R2Card => x !== null);
-} else if (apiSeriesR2.length > 0) {
-  // Carousel missing (unlikely) — fall back to API-only.
-  SERIES_R2 = apiSeriesR2.map(buildR2FromApi).filter((x): x is R2Card => x !== null);
+// Bracket win-count helper: count wins from games[] with fallback to winner_in when games is empty
+function bracketWins(s: ReturnType<typeof buildSeriesArray>[0] | undefined, team: string): number {
+  if (!s) return 0;
+  const fromGames = s.games.filter(g => g === team).length;
+  if (fromGames > 0) return fromGames;
+  // Fallback: derive from winner + winner_in when games array is empty
+  if (s.is_complete && s.winner && s.winner_in) {
+    return s.winner === team ? 4 : s.winner_in - 4;
+  }
+  return 0;
 }
 
+// ── card helpers (server-side) ────────────────────────────────────────────────
 function isTonight(utc: string | null): boolean {
   if (!utc) return false;
   const diff = new Date(utc).getTime() - Date.now();
-  return diff >= -7200000 && diff <= 100800000;
+  return diff >= -7200000 && diff <= 100800000; // within 28 hrs ahead or 2 hrs past
 }
 
-const SERIES_R3: R2Card[] = apiSeriesR3.map(s => buildR2FromApi(s)).filter((x): x is R2Card => x !== null);
-
-const r1AllComplete = SERIES.length > 0 && SERIES.every(s => s.is_complete);
-const showR2 = SERIES_R2.length > 0;
-// Eyebrow round indicator shows whenever any R2 series has BOTH seeds locked
-// (or NHL has officially advanced currentRound). Strictly waiting for
-// currentRound > 1 misses the window between conference-final-game-7 and the
-// carousel update, when a fully-set R2 matchup is already known.
-const r2HasFullMatchup = SERIES_R2.some(s => !s.tbd);
-const showRoundIndicator = currentRound > 1 || (showR2 && r2HasFullMatchup);
-const indicatorRound = currentRound > 1 ? currentRound : 2;
-const currentRoundLabel = ROUND_LABELS[currentRound] ?? 'Stanley Cup Playoffs';
-const indicatorLabel = ROUND_LABELS[indicatorRound] ?? currentRoundLabel;
-
-// ── card helpers (server-side) ────────────────────────────────────────────────
-type AnyCard = (typeof SERIES)[0] | R2Card;
-
-function buildCardSegs(s: AnyCard) {
+function buildCardSegs(s: typeof SERIES[0]) {
   if (!s.a.dist.length) return [];
   const [a4,a5,a6,a7] = s.a.dist;
   const [b4,b5,b6,b7] = s.b.dist;
@@ -372,7 +185,7 @@ function buildCardSegs(s: AnyCard) {
   return raw.filter(sg => sg.w > 0).map(sg => ({ ...sg, isSmall: sg.w <= 6, isMax: sg.w === maxW }));
 }
 
-function mostLikely(s: AnyCard) {
+function mostLikely(s: typeof SERIES[0]) {
   if (!s.a.dist.length) return null;
   const all = [
     ...s.a.dist.map((v: number, i: number) => ({ label:`${s.a.abbr} in ${i+4}`, v })),
@@ -381,12 +194,34 @@ function mostLikely(s: AnyCard) {
   return all.reduce((best, x) => x.v > best.v ? x : best);
 }
 
-const eastSeries = SERIES.filter(s => s.conf === 'East');
-const westSeries = SERIES.filter(s => s.conf === 'West');
+const eastSeries    = SERIES.filter(s => s.conf === 'East');
+const westSeries    = SERIES.filter(s => s.conf === 'West');
+const eastSeriesR2  = SERIES_R2.filter(s => s.conf === 'East');
+const westSeriesR2  = SERIES_R2.filter(s => s.conf === 'West');
+const eastSeriesR3  = SERIES_R3.filter(s => s.conf === 'East');
+const westSeriesR3  = SERIES_R3.filter(s => s.conf === 'West');
+
+// Rough cup win probability: P(win R2) × ½ × ½ (assuming 50/50 in ECF+SCF)
+// Win percentages from the API are 0-100. Eliminated teams get 0.
+const cupPct: Record<string, number> = {};
+SERIES_R2.forEach(s => {
+  cupPct[s.a.abbr] = Math.round(s.a.winPct / 4);
+  cupPct[s.b.abbr] = Math.round(s.b.winPct / 4);
+});
+// Override with R4 (SCF) win percentages when available — direct cup odds
+if (scfSeries) {
+  cupPct[scfSeries.a.abbr] = scfSeries.a.winPct;
+  cupPct[scfSeries.b.abbr] = scfSeries.b.winPct;
+}
+const cupRanked = Object.entries(cupPct)
+  .map(([abbr, pct]) => ({ abbr, pct, color: TEAM_META[abbr]?.color ?? '#888' }))
+  .sort((a, b) => b.pct - a.pct);
 ---
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <ThemeScript />
+  <Fonts />
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>2026 Stanley Cup Playoff Predictions · HockeyGameBot</title>
@@ -414,288 +249,313 @@ const westSeries = SERIES.filter(s => s.conf === 'West');
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="/favicon-180x180.png">
-  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style is:global>
+/* ── TOKENS ── */
 :root {
-  --hgb-bg: #0d0d14;
-  --hgb-surface: #15151e;
-  --hgb-surface-2: #1a1a26;
-  --hgb-border: rgba(255,255,255,0.06);
-  --hgb-border-strong: rgba(255,255,255,0.12);
-  --hgb-border-bright: rgba(255,255,255,0.22);
-  --hgb-text: #ebe9e6;
-  --hgb-text-2: #a8a8b4;
-  --hgb-text-3: #6a6a78;
-  --hgb-text-4: #494957;
-  --hgb-font-display: 'Oswald', sans-serif;
-  --hgb-font-body: 'Space Grotesk', sans-serif;
-  --hgb-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg:      #EFEEE8;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-04:  rgba(13,13,20,0.04);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --red:     #E8002D;
+  --grid-line: rgba(13,13,20,0.04);
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 /* CSS rules with display:* override the default [hidden]{display:none}. Force it back. */
 [hidden] { display: none !important; }
 html { -webkit-font-smoothing: antialiased; }
-body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb-font-body); min-height: 100vh; font-size: 14px; line-height: 1.4; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); min-height: 100vh; font-size: 14px; line-height: 1.4; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
 
-/* ── Topbar ── */
-.topbar { height: 52px; background: var(--hgb-bg); border-bottom: 1px solid var(--hgb-border-strong); display: flex; align-items: center; padding: 0 24px; gap: 16px; position: sticky; top: 0; z-index: 50; }
-.brand { font-family: var(--hgb-font-display); font-size: 22px; font-weight: 700; color: #fff; letter-spacing: 0.1em; text-decoration: none; }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.topbar-link { font: 600 10px/1 var(--hgb-font-mono); letter-spacing: 0.1em; color: var(--hgb-text-3); text-decoration: none; padding: 5px 10px; border: 1px solid var(--hgb-border-strong); border-radius: 3px; transition: color 0.15s, border-color 0.15s; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; text-transform: uppercase; }
-.topbar-link:hover { color: var(--hgb-text); border-color: var(--hgb-border-bright); }
-.topbar-link--active { color: #E8002D; border-color: rgba(232,0,45,0.35); }
-.support-heart { opacity: 0.5; transition: opacity 0.15s; flex-shrink: 0; }
-.topbar-link--support:hover .support-heart { opacity: 1; }
 
-/* ── Page header ── */
-.page-head { padding: 36px 24px 28px; display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; border-bottom: 1px solid var(--hgb-border); }
-.page-head__title { display: flex; flex-direction: column; gap: 6px; }
-.page-head__eyebrow { font: 500 10px/1 var(--hgb-font-mono); color: #E8002D; letter-spacing: 0.18em; text-transform: uppercase; }
-.page-head__h1 { font: 500 34px/1 var(--hgb-font-display); letter-spacing: 0.06em; text-transform: uppercase; }
-.page-head__meta { display: flex; flex-direction: column; gap: 4px; text-align: right; }
-.page-head__meta small { font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; }
-.page-head__meta strong { font: 500 14px/1 var(--hgb-font-display); color: var(--hgb-text-2); letter-spacing: 0.04em; }
+/* ── MASTHEAD ── */
+.mast {
+  position: relative; overflow: hidden;
+  padding: 56px 0 48px;
+  border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+.mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+.mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+.mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 28px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+.mast-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; }
+.mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; flex-shrink: 0; }
+.mast-meta { font-size: 10px; opacity: 0.6; text-align: right; font-family: var(--mono); }
+.mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 32px 36px 28px; position: relative; }
+.mast-headline { font-family: var(--display); font-weight: 800; text-transform: uppercase; font-size: clamp(36px,5vw,56px); line-height: 0.92; letter-spacing: -0.01em; }
+.mast-sub { font-family: var(--mono); font-size: 12px; color: var(--ink-48); margin-top: 10px; letter-spacing: 0.04em; }
 
-/* ── Content ── */
-.content { max-width: 1120px; margin: 0 auto; padding: 32px 24px 100px; }
-.section-label { font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.16em; text-transform: uppercase; margin: 0 0 16px; display: flex; align-items: center; gap: 12px; }
-.section-label::after { content: ''; flex: 1; height: 1px; background: var(--hgb-border); }
-.conf-block { margin-bottom: 48px; }
+/* ── BRACKET ── */
+.bracket-wrap { display: grid; grid-template-columns: 1fr 110px 1fr; gap: 0; margin-top: 20px; border-top: 1px solid var(--ink-10); }
+.b-conf { display: flex; gap: 0; overflow: hidden; }
+.b-conf.west { flex-direction: row-reverse; }
+.b-col { display: flex; flex-direction: column; border-right: 1px solid var(--ink-06); min-width: 0; }
+.b-conf.west .b-col { border-right: none; border-left: 1px solid var(--ink-06); }
+.b-col-hd { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-32); text-align: center; padding: 6px 4px 5px; border-bottom: 1px solid var(--ink-10); background: var(--bg); flex-shrink: 0; }
+.b-team { display: flex; align-items: center; gap: 7px; padding: 8px 12px; border-bottom: 1px solid var(--ink-06); border-left: 3px solid transparent; flex-shrink: 0; }
+.b-team:last-child { border-bottom: none; }
+.b-team.elim { opacity: 0.28; }
+.b-team.winner { }
+.b-logo { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+.b-abbr { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.02em; flex: 1; min-width: 0; line-height: 1; }
+.b-wins { font-family: var(--display); font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ink-32); line-height: 1; }
+.b-team.winner .b-wins { color: var(--ink-72); }
+.b-team.elim .b-wins { color: var(--ink-20); }
+.b-elim-tag { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; color: var(--ink-32); }
+.b-pair-gap { height: 8px; background: var(--bg); border-bottom: 1px solid var(--ink-06); flex-shrink: 0; }
+.b-tbd { display: flex; align-items: center; justify-content: center; flex: 1; padding: 12px 8px; }
+.b-tbd-inner { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-20); border: 1px dashed var(--ink-14); padding: 3px 8px; }
+.b-scf { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 16px 8px; background: var(--bg); }
+.b-scf-icon { font-size: 24px; line-height: 1; }
+.b-scf-lbl { font-family: var(--mono); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); text-align: center; }
+.b-scf-series { display: flex; flex-direction: column; width: 100%; gap: 1px; margin-top: 4px; }
+.b-scf-series .b-team { border-bottom: 1px solid var(--ink-06); padding: 5px 6px; width: 100%; gap: 4px; }
+.b-scf-series .b-team:last-child { border-bottom: none; }
+.b-scf-series .b-logo { width: 16px; height: 16px; }
+.b-scf-series .b-abbr { font-size: 13px; }
+.b-scf-series .b-wins { font-size: 13px; }
+.b-scf-pct { font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; color: var(--ink-32); text-align: center; padding: 2px 0; width: 100%; }
+/* Footer model note */
+.bracket-foot { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; padding: 8px 20px 6px; text-align: right; }
+
+/* Cup strip */
+.cup-strip { border-top: 1px solid var(--ink-10); padding: 14px 20px 0; }
+.cup-strip-label { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.cup-strip-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48); }
+.cup-strip-note { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+.cup-strip-teams { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 700px) { .cup-strip-teams { grid-template-columns: repeat(2, 1fr); } }
+.cup-team { display: flex; align-items: center; gap: 8px; }
+.cup-rank { font-family: var(--mono); font-size: 10px; color: var(--ink-20); min-width: 14px; font-variant-numeric: tabular-nums; }
+.cup-logo { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+.cup-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.cup-abbr { font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: 0.02em; line-height: 1; }
+.cup-pct { font-family: var(--mono); font-weight: 700; font-size: 11px; font-variant-numeric: tabular-nums; }
+.cup-bar-wrap { flex: 1; height: 3px; background: var(--ink-06); overflow: hidden; align-self: center; }
+.cup-bar-fill { height: 100%; opacity: 0.7; }
+
+/* ── CONTENT LAYOUT ── */
+.content { max-width: 1200px; margin: 0 auto; padding: 40px 32px 100px; }
+.conf-block { margin-bottom: 52px; }
+.section-label {
+  font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--ink-32); margin: 0 0 16px;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-label .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; flex-shrink: 0; }
+.section-label::after { content: ''; flex: 1; height: 1px; background: var(--ink-14); }
 .series-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .pending-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
 
-/* ── Series card ── */
+/* ── SERIES CARD ── */
 .hgb-card {
-  position: relative; display: block; padding: 20px 22px 18px;
-  background: linear-gradient(180deg, #181821 0%, #13131c 100%);
-  border: 1px solid var(--hgb-border-strong); border-radius: 10px;
-  color: inherit; text-decoration: none; cursor: pointer; text-align: left;
+  position: relative; display: block; padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--ink-14);
+  border-left: 4px solid var(--hgb-team-a, var(--ink-14));
+  box-shadow: 0 1px 3px rgba(13,13,20,0.06);
+  color: var(--ink); text-decoration: none; cursor: pointer; text-align: left;
   width: 100%; font-family: inherit;
   transition: transform 220ms cubic-bezier(.2,.8,.2,1), border-color 220ms ease, box-shadow 220ms ease;
   overflow: hidden;
 }
-.hgb-card:hover { transform: translateY(-2px); border-color: var(--hgb-border-bright); box-shadow: 0 12px 32px -12px rgba(0,0,0,0.5); }
+.hgb-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(13,13,20,0.10); }
 .hgb-card:focus-visible { outline: 2px solid rgba(232,0,45,0.6); outline-offset: 2px; }
+.hgb-card__inner { padding: 18px 20px 16px; }
 
 /* Cards render server-side with real data from hgb-api (build-time fetch) —
    no placeholder numbers, no fade-in needed. A client-side loadModelData()
    still runs to pick up cron updates that happened after the last build. */
 
 /* meta strip */
-.hgb-card__meta { display: flex; align-items: center; gap: 10px; font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 14px; }
-.hgb-mini-badge { padding: 3px 7px; border: 1px solid var(--hgb-border-strong); border-radius: 2px; color: var(--hgb-text-3); background: rgba(255,255,255,0.02); }
-.hgb-card__state { font: 600 10px/1 var(--hgb-font-display); color: var(--team-color, var(--hgb-text-2)); letter-spacing: 0.04em; }
-.hgb-card__state::before { content: '●'; margin-right: 5px; font-size: 7px; vertical-align: middle; color: inherit; }
+.hgb-card__meta { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 12px; }
+.hgb-mini-badge { padding: 2px 6px; border: 1px solid var(--ink-14); color: var(--ink-32); background: transparent; }
 
 /* teams row */
-.hgb-card__teams { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin-bottom: 14px; }
-.hgb-card__team { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.hgb-card__teams { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin-bottom: 12px; }
+.hgb-card__team { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .hgb-card__team--b { flex-direction: row-reverse; text-align: right; }
-.hgb-card__logo { width: 44px; height: 44px; object-fit: contain; filter: drop-shadow(0 2px 10px rgba(0,0,0,0.4)); flex-shrink: 0; }
-.hgb-card__ids { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.hgb-card__seed { font: 500 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; }
-.hgb-card__abbr { font: 500 22px/0.9 var(--hgb-font-display); color: var(--hgb-text); letter-spacing: 0.02em; }
-.hgb-card__pct { font: 500 34px/0.85 var(--hgb-font-display); color: var(--hgb-text); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; display: inline-flex; align-items: baseline; gap: 2px; }
-.hgb-card__pct small { font-size: 18px; color: var(--team-color); }
-.hgb-card__vs { font: 500 11px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.2em; padding: 0 4px; align-self: center; }
-
-/* game dots (shown mid-series) */
-.hgb-card__dots { display: flex; gap: 3px; margin-bottom: 10px; }
-.hgb-card__dot { flex: 1; height: 3px; border-radius: 1px; background: rgba(255,255,255,0.05); }
-.hgb-card__dot--a { background: var(--hgb-team-a); }
-.hgb-card__dot--b { background: var(--hgb-team-b); }
+.hgb-card__logo { width: 36px; height: 36px; object-fit: contain; flex-shrink: 0; }
+.hgb-card__ids { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hgb-card__seed { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.12em; text-transform: uppercase; }
+.hgb-card__abbr { font-family: var(--display); font-weight: 800; font-size: 20px; line-height: 0.9; letter-spacing: 0.02em; color: var(--team-color, var(--ink)); }
+.hgb-card__pct { font-family: var(--mono); font-weight: 700; font-size: 22px; line-height: 0.85; color: var(--ink); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; display: inline-flex; align-items: baseline; gap: 2px; }
+.hgb-card__pct small { font-size: 12px; color: var(--ink-48); }
+.hgb-card__vs { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.2em; padding: 0 4px; align-self: center; }
 
 /* distribution bar */
-.hgb-card__bar { display: flex; height: 26px; border-radius: 2px; overflow: hidden; background: rgba(255,255,255,0.03); border: 1px solid var(--hgb-border); margin-bottom: 14px; }
+.hgb-card__bar { display: flex; height: 24px; overflow: hidden; background: var(--ink-06); border-top: 1px solid var(--ink-10); border-bottom: 1px solid var(--ink-10); margin-bottom: 12px; }
 .hgb-card__seg { position: relative; background: var(--c); flex: var(--w) 0 0; display: flex; align-items: center; justify-content: center; }
-.hgb-card__seg + .hgb-card__seg { border-left: 1px solid rgba(13,13,20,0.85); }
-.hgb-card__seg[data-boundary] { border-left: 2px solid rgba(255,255,255,0.28) !important; }
-.hgb-card__seg-val { font: 600 9px/1 var(--hgb-font-mono); color: rgba(255,255,255,0.9); font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.hgb-card__seg + .hgb-card__seg { border-left: 1px solid rgba(239,238,232,0.7); }
+.hgb-card__seg[data-boundary] { border-left: 2px solid rgba(13,13,20,0.25) !important; }
+.hgb-card__seg-val { font-family: var(--mono); font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.95); font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
 .hgb-card__seg--small .hgb-card__seg-val { display: none; }
+.hgb-card__seg--max .hgb-card__seg-val { font-size: 15px; }
+.hgb-card__bar .hgb-card__seg[data-dominant] .hgb-card__seg-val { font-size: 18px; }
 
 /* footer */
-.hgb-card__foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--hgb-border); }
-.hgb-card__foot-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hgb-card__foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 20px 14px; border-top: 1px solid var(--ink-06); }
+.hgb-card__foot-col { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .hgb-card__foot-col--right { text-align: right; align-items: flex-end; }
-.hgb-card__foot-label { font: 500 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; }
-.hgb-card__foot-val { font: 500 13px/1 var(--hgb-font-display); color: var(--hgb-text); letter-spacing: 0.02em; white-space: nowrap; }
+.hgb-card__foot-label { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.12em; text-transform: uppercase; }
+.hgb-card__foot-val { font-family: var(--mono); font-size: 12px; color: var(--ink); letter-spacing: 0.01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hgb-card__foot-val strong { color: var(--hgb-team-a); }
 
-/* ── Enhancements: dots / elim / tonight / win% label ── */
-.hgb-card__games { display: flex; gap: 5px; padding: 0 20px 12px; align-items: center; }
-.hgb-card__gdot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.1); flex-shrink: 0; }
+/* TBD */
+.series-tbd { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 20px; min-height: 76px; background: var(--ink-04); border: 1px dashed var(--ink-14); }
+/* Game-by-game dots on card */
+.hgb-card__games { display: flex; gap: 5px; padding: 4px 20px 12px; align-items: center; }
+.hgb-card__gdot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-10); flex-shrink: 0; }
 .hgb-card__gdot--a { background: var(--hgb-team-a); }
 .hgb-card__gdot--b { background: var(--hgb-team-b); }
-.hgb-card__gdot--next { background: transparent; border: 1.5px solid rgba(255,255,255,0.3); }
-.hgb-card__team--elim { opacity: 0.25; filter: grayscale(0.5); }
-.hgb-tonight { display: inline-flex; align-items: center; gap: 5px; font: 700 9px/1 var(--hgb-font-mono); letter-spacing: 0.14em; text-transform: uppercase; padding: 2px 8px; background: rgba(232,0,45,0.15); color: #ff4466; margin-left: 6px; }
-.hgb-tonight::before { content: ""; width: 5px; height: 5px; background: #ff4466; border-radius: 50%; animation: hgb-pulse 1.4s ease-in-out infinite; }
+.hgb-card__gdot--next { background: transparent; border: 1.5px solid var(--ink-32); }
+/* Eliminated team on completed cards */
+.hgb-card__team--elim { opacity: 0.28; filter: grayscale(0.4); }
+/* Tonight badge */
+.hgb-tonight { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; padding: 2px 8px; background: rgba(232,0,45,0.1); color: var(--red); margin-left: 6px; }
+.hgb-tonight::before { content: ""; width: 5px; height: 5px; background: var(--red); border-radius: 50%; animation: hgb-pulse 1.4s ease-in-out infinite; }
 @keyframes hgb-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+/* Win% label */
 .hgb-card__pct-wrap { display: flex; flex-direction: column; gap: 1px; }
 .hgb-card__pct-wrap--right { align-items: flex-end; }
-.hgb-card__pct-lbl { font: 500 8px/1 var(--hgb-font-mono); color: rgba(255,255,255,0.28); letter-spacing: 0.1em; text-transform: uppercase; }
+.hgb-card__pct-lbl { font-family: var(--mono); font-size: 8px; color: var(--ink-32); letter-spacing: 0.1em; text-transform: uppercase; }
+.series-tbd-teams { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--ink-20); letter-spacing: 0.06em; }
+.series-tbd-sep { color: var(--ink-32); font-family: var(--mono); font-size: 10px; }
+.series-tbd-label { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.14em; text-transform: uppercase; border: 1px solid var(--ink-14); padding: 3px 7px; }
 
-/* TBD */
-.series-tbd { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 20px; min-height: 76px; background: rgba(255,255,255,0.015); border: 1px dashed var(--hgb-border-strong); border-radius: 10px; }
-.series-tbd-teams { font: 700 16px/1 var(--hgb-font-display); color: rgba(255,255,255,0.18); letter-spacing: 0.06em; }
-.series-tbd-sep { color: var(--hgb-text-4); font: 500 10px/1 var(--hgb-font-mono); }
-.series-tbd-label { font: 600 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; border: 1px solid var(--hgb-border-strong); padding: 3px 7px; border-radius: 2px; }
-
-/* ── R2 placeholder card (TBD opponent) ──
-   Same outer shell as the live card but with dashed border, dimmed numerals,
-   and a pull-quote in place of the distribution bar. */
-.hgb-card--placeholder {
-  background: linear-gradient(180deg, #15151d 0%, #0f0f17 100%);
-  border-style: dashed;
-  cursor: default;
-}
-.hgb-card--placeholder:hover { transform: none; box-shadow: none; border-color: var(--hgb-border-strong); }
-.hgb-card--placeholder .hgb-card__pct,
-.hgb-card--placeholder .hgb-card__abbr,
-.hgb-card--placeholder .hgb-card__seed { color: var(--hgb-text-4); }
-.hgb-card--placeholder .hgb-card__team--tbd .hgb-card__logo { opacity: 0.18; filter: grayscale(1); }
-.hgb-card-pull {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 14px 12px; margin-bottom: 14px; min-height: 52px;
-  background: rgba(255,255,255,0.015); border: 1px solid var(--hgb-border); border-radius: 6px;
-  text-align: center;
-}
-.hgb-card-pull__lead { font: 500 11px/1 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.18em; text-transform: uppercase; }
-.hgb-card-pull__main { font: 500 14px/1.2 var(--hgb-font-display); color: var(--hgb-text-2); letter-spacing: 0.04em; }
-.hgb-card-pull__main strong { color: var(--team-color, var(--hgb-text)); font-weight: 600; }
-
-/* Round-complete dimming: applied to the R1 grid wrapper once every R1 series
-   has a winner — softens it visually so attention falls on the active round. */
-.conf-block--complete .conf-block__inner { opacity: 0.85; }
-.section-label__badge {
-  display: inline-flex; align-items: center; padding: 3px 7px; border: 1px solid rgba(74,222,128,0.35);
-  border-radius: 2px; font: 600 9px/1 var(--hgb-font-mono); color: #4ade80; letter-spacing: 0.18em;
-  background: rgba(74,222,128,0.06); margin-left: auto;
-}
-.section-label__round {
-  font: 600 10px/1 var(--hgb-font-mono); color: var(--hgb-text-2); letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-/* Override the auto-rule when a badge is present so the rule sits between
-   label and badge instead of after both. */
-.section-label--has-badge::after { display: none; }
-.section-label--has-badge .section-label__rule { flex: 1; height: 1px; background: var(--hgb-border); }
-
-/* ── Modal ── */
+/* ── MODAL ── */
 .hgb-modal { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; }
 .hgb-modal.is-open { pointer-events: auto; }
-.hgb-modal__scrim { position: absolute; inset: 0; background: radial-gradient(ellipse at center bottom, rgba(10,10,15,0.75), rgba(0,0,0,0.92)); backdrop-filter: blur(6px); opacity: 0; transition: opacity 320ms ease; }
+.hgb-modal__scrim { position: absolute; inset: 0; background: rgba(13,13,20,0.55); backdrop-filter: blur(4px); opacity: 0; transition: opacity 320ms ease; }
 .hgb-modal.is-open .hgb-modal__scrim { opacity: 1; }
 .hgb-modal__sheet {
   position: relative; width: 100%; max-width: 860px; max-height: 94vh;
   overflow-y: auto;
-  background: linear-gradient(180deg, #181821 0%, #12121a 100%);
-  border: 1px solid var(--hgb-border-strong); border-bottom: none;
-  border-radius: 16px 16px 0 0;
-  box-shadow: 0 -1px 0 rgba(255,255,255,0.07) inset, 0 -24px 60px -12px rgba(0,0,0,0.6);
+  background: var(--surface);
+  border: 1px solid var(--ink); border-bottom: none;
+  border-radius: 0;
+  box-shadow: 0 -8px 40px rgba(13,13,20,0.15);
   transform: translateY(60px); opacity: 0;
   transition: transform 420ms cubic-bezier(.2,.8,.2,1), opacity 260ms ease;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.08) transparent;
+  scrollbar-color: var(--ink-14) transparent;
 }
 .hgb-modal__sheet::-webkit-scrollbar { width: 6px; }
 .hgb-modal__sheet::-webkit-scrollbar-track { background: transparent; }
-.hgb-modal__sheet::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-.hgb-modal__sheet::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+.hgb-modal__sheet::-webkit-scrollbar-thumb { background: var(--ink-14); border-radius: 3px; }
+.hgb-modal__sheet::-webkit-scrollbar-thumb:hover { background: var(--ink-32); }
 .hgb-modal.is-animating .hgb-modal__sheet { overflow: hidden; }
 .hgb-modal.is-open .hgb-modal__sheet { transform: translateY(0); opacity: 1; }
 
-.hgb-modal__handle { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 42px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.14); border: none; cursor: grab; z-index: 3; transition: background 200ms, width 200ms; }
-.hgb-modal__handle:hover { background: rgba(255,255,255,0.3); width: 56px; }
+.hgb-modal__handle { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 42px; height: 4px; background: var(--ink-14); border: none; cursor: grab; z-index: 3; transition: background 200ms, width 200ms; }
+.hgb-modal__handle:hover { background: var(--ink-32); width: 56px; }
 
 /* modal util bar */
-.hgb-util { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 28px 14px; }
+.hgb-util { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 28px 14px; border-bottom: 1px solid var(--ink-14); }
 .hgb-util__group { display: flex; align-items: center; gap: 10px; }
-.hgb-mono { font: 500 10px/1.2 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.1em; text-transform: uppercase; }
-.hgb-badge { display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid var(--hgb-border-strong); border-radius: 2px; font: 600 9px/1 var(--hgb-font-mono); color: var(--hgb-text-2); letter-spacing: 0.18em; text-transform: uppercase; background: rgba(255,255,255,0.02); }
-.hgb-modal__close { width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--hgb-border-strong); background: transparent; color: var(--hgb-text-2); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 150ms ease; }
-.hgb-modal__close:hover { color: var(--hgb-text); border-color: var(--hgb-border-bright); background: var(--hgb-surface-2); }
-.hgb-modal__share { width: 28px; height: 28px; border-radius: 4px; border: 1px solid var(--hgb-border-strong); background: transparent; color: var(--hgb-text-2); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 150ms ease; }
-.hgb-modal__share:hover { color: #E8002D; border-color: rgba(232,0,45,0.4); background: rgba(232,0,45,0.08); }
-.hgb-modal__share.is-copied { color: #4ade80; border-color: rgba(74,222,128,0.4); background: rgba(74,222,128,0.08); }
+.hgb-mono { font-family: var(--mono); font-size: 10px; line-height: 1.2; color: var(--ink-48); letter-spacing: 0.1em; text-transform: uppercase; }
+.hgb-badge { display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid var(--ink-14); font-family: var(--mono); font-size: 9px; font-weight: 600; color: var(--ink-48); letter-spacing: 0.18em; text-transform: uppercase; background: transparent; }
+.hgb-modal__close { width: 28px; height: 28px; border: 1px solid var(--ink-14); background: transparent; color: var(--ink-48); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 150ms ease; }
+.hgb-modal__close:hover { color: var(--ink); border-color: var(--ink); background: var(--ink-06); }
+.hgb-modal__share { width: 28px; height: 28px; border: 1px solid var(--ink-14); background: transparent; color: var(--ink-48); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 150ms ease; }
+.hgb-modal__share:hover { color: var(--red); border-color: rgba(232,0,45,0.4); background: rgba(232,0,45,0.06); }
+.hgb-modal__share.is-copied { color: #16a34a; border-color: rgba(22,163,74,0.4); background: rgba(22,163,74,0.06); }
 
 /* matchup header */
-.hgb-matchup { position: relative; z-index: 2; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 28px; padding: 18px 28px 28px; }
-.hgb-matchup::after { content: ''; position: absolute; left: 28px; right: 28px; bottom: 0; height: 1px; background: var(--hgb-border); }
+.hgb-matchup { position: relative; z-index: 2; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 28px; padding: 24px 28px 28px; border-bottom: 1px solid var(--ink-14); }
 .hgb-team { display: flex; align-items: center; gap: 18px; }
 .hgb-team--b { flex-direction: row-reverse; text-align: right; }
-.hgb-team__logo { width: 60px; height: 60px; object-fit: contain; filter: drop-shadow(0 4px 20px rgba(0,0,0,0.5)); }
+.hgb-team__logo { width: 60px; height: 60px; object-fit: contain; }
 .hgb-team__meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.hgb-team__seed { font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 6px; }
+.hgb-team__seed { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 6px; }
 .hgb-team__seed::before { content: ''; width: 10px; height: 2px; background: var(--team-color); display: inline-block; }
 .hgb-team--b .hgb-team__seed { justify-content: flex-end; }
 .hgb-team--b .hgb-team__seed::before { display: none; }
 .hgb-team--b .hgb-team__seed::after { content: ''; width: 10px; height: 2px; background: var(--team-color); display: inline-block; }
-.hgb-team__abbr { font: 500 32px/0.9 var(--hgb-font-display); letter-spacing: 0.02em; color: var(--hgb-text); }
-.hgb-team__name { font: 400 12px/1.3 var(--hgb-font-body); color: var(--hgb-text-2); }
+.hgb-team__abbr { font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 0.9; letter-spacing: 0.02em; color: var(--team-color, var(--ink)); }
+.hgb-team__name { font-family: var(--body); font-size: 12px; line-height: 1.3; color: var(--ink-48); }
 .hgb-matchup__center { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 92px; }
-.hgb-matchup__vs { font: 500 13px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.28em; padding: 0 8px; }
+.hgb-matchup__vs { font-family: var(--mono); font-size: 13px; color: var(--ink-32); letter-spacing: 0.28em; padding: 0 8px; }
 .hgb-matchup__score { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.hgb-matchup__score-nums { display: flex; align-items: center; gap: 10px; font: 500 44px/0.9 var(--hgb-font-display); letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
-.hgb-matchup__score-a, .hgb-matchup__score-b { color: var(--hgb-text-4); }
+.hgb-matchup__score-nums { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 0.9; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.hgb-matchup__score-a, .hgb-matchup__score-b { color: var(--ink-32); }
 .hgb-matchup__score-a.is-lead { color: var(--hgb-team-a); }
 .hgb-matchup__score-b.is-lead { color: var(--hgb-team-b); }
-.hgb-matchup__score-sep { color: var(--hgb-text-4); font-size: 30px; }
-.hgb-matchup__status { font: 600 9px/1 var(--hgb-font-mono); letter-spacing: 0.22em; text-transform: uppercase; color: var(--hgb-text-2); }
+.hgb-matchup__score-sep { color: var(--ink-32); font-size: 30px; }
+.hgb-matchup__status { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-48); }
 .hgb-matchup__status.is-lead-a { color: var(--hgb-team-a); }
 .hgb-matchup__status.is-lead-b { color: var(--hgb-team-b); }
 
 /* series tracker */
-.hgb-tracker { position: relative; z-index: 2; padding: 22px 28px 24px; display: flex; flex-direction: column; gap: 14px; }
-.hgb-tracker::after { content: ''; position: absolute; left: 28px; right: 28px; bottom: 0; height: 1px; background: var(--hgb-border); }
+.hgb-tracker { position: relative; z-index: 2; padding: 22px 28px 24px; display: flex; flex-direction: column; gap: 14px; border-bottom: 1px solid var(--ink-14); }
 .hgb-tracker__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; max-width: 560px; width: 100%; margin: 0 auto; }
-.hgb-tracker__game { aspect-ratio: 1; border: 1px solid var(--hgb-border-strong); border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 52px; background: rgba(255,255,255,0.015); }
+.hgb-tracker__game { aspect-ratio: 1; border: 1px solid var(--ink-14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 52px; background: var(--ink-04); }
 .hgb-tracker__game--played { background: var(--c); border-color: var(--c); }
-.hgb-tracker__game--next { border-color: var(--hgb-border-bright); background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px rgba(255,255,255,0.08); }
-.hgb-tracker__winner { font: 600 12px/1 var(--hgb-font-display); color: #fff; letter-spacing: 0.04em; }
-.hgb-tracker__num { font: 500 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; }
-.hgb-tracker__game--played .hgb-tracker__num { color: rgba(255,255,255,0.8); }
-.hgb-tracker__game--next .hgb-tracker__num { color: var(--hgb-text-2); }
+.hgb-tracker__game--next { border-color: var(--ink); background: var(--ink-06); }
+.hgb-tracker__winner { font-family: var(--display); font-weight: 700; font-size: 12px; line-height: 1; color: #fff; letter-spacing: 0.04em; }
+.hgb-tracker__num { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.14em; text-transform: uppercase; }
+.hgb-tracker__game--played .hgb-tracker__num { color: rgba(255,255,255,0.75); }
+.hgb-tracker__game--next .hgb-tracker__num { color: var(--ink-56); }
 .hgb-tracker__meta { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 0 2px; }
 .hgb-tracker__next { display: flex; align-items: baseline; gap: 8px; }
-.hgb-tracker__next-label { font: 500 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.18em; text-transform: uppercase; }
-.hgb-tracker__next-val { font: 500 14px/1 var(--hgb-font-display); color: var(--hgb-text); letter-spacing: 0.04em; }
+.hgb-tracker__next-label { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.18em; text-transform: uppercase; }
+.hgb-tracker__next-val { font-family: var(--mono); font-size: 13px; color: var(--ink); letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
 .hgb-tracker__advance { display: flex; align-items: baseline; gap: 18px; }
-.hgb-tracker__adv-item { display: inline-flex; align-items: baseline; gap: 6px; font: 500 9px/1 var(--hgb-font-mono); color: var(--hgb-text-4); letter-spacing: 0.14em; text-transform: uppercase; }
-.hgb-tracker__adv-num { font: 500 18px/1 var(--hgb-font-display); color: var(--team-color); letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+.hgb-tracker__adv-item { display: inline-flex; align-items: baseline; gap: 6px; font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.14em; text-transform: uppercase; }
+.hgb-tracker__adv-num { font-family: var(--display); font-weight: 800; font-size: 18px; line-height: 1; color: var(--team-color); letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
 
 /* win probability */
-.hgb-wp { position: relative; z-index: 2; padding: 28px 28px 32px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.hgb-wp__label { font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.22em; text-transform: uppercase; }
+.hgb-wp { position: relative; z-index: 2; padding: 28px 28px 32px; display: flex; flex-direction: column; align-items: center; gap: 16px; border-bottom: 1px solid var(--ink-14); }
+.hgb-wp__label { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.22em; text-transform: uppercase; }
 .hgb-wp__row { width: 100%; position: relative; display: grid; grid-template-columns: 1fr 1fr; align-items: center; }
-.hgb-wp__row::before { content: ''; position: absolute; top: 8%; bottom: 8%; left: 50%; width: 1px; background: var(--hgb-border); }
+.hgb-wp__row::before { content: ''; position: absolute; top: 8%; bottom: 8%; left: 50%; width: 1px; background: var(--ink-14); }
 .hgb-wp__side { display: flex; align-items: baseline; justify-content: center; gap: 4px; line-height: 1; }
-.hgb-wp__num { font: 500 84px/0.85 var(--hgb-font-display); color: var(--hgb-text); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.hgb-wp__pct { font: 500 28px/1 var(--hgb-font-display); color: var(--team-color); }
+.hgb-wp__num { font-family: var(--display); font-weight: 800; font-size: 84px; line-height: 0.85; color: var(--ink); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.hgb-wp__pct { font-family: var(--display); font-weight: 700; font-size: 28px; line-height: 1; color: var(--team-color); }
 
 /* distribution chart */
-.hgb-dist { position: relative; z-index: 2; padding: 28px 28px 40px; border-top: 1px solid var(--hgb-border); }
+.hgb-dist { position: relative; z-index: 2; padding: 28px 28px 40px; border-top: 1px solid var(--ink-14); }
 .hgb-dist__head { margin-bottom: 20px; }
-.hgb-dist__h { font: 600 10px/1 var(--hgb-font-mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--hgb-text-3); }
+.hgb-dist__h { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); }
 .hgb-dist__body { display: grid; grid-template-columns: 32px 1fr; gap: 18px; }
-.hgb-dist__y { display: flex; flex-direction: column; justify-content: space-between; font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-4); text-align: right; height: 280px; font-variant-numeric: tabular-nums; }
-.hgb-dist__y span::after { content: ''; display: inline-block; width: 4px; height: 1px; background: var(--hgb-text-4); margin-left: 4px; vertical-align: middle; }
-.hgb-dist__y .hgb-dist__y-0 { color: var(--hgb-text-2); font-weight: 600; }
-.hgb-dist__y .hgb-dist__y-0::after { background: var(--hgb-border-bright); width: 6px; }
+.hgb-dist__y { display: flex; flex-direction: column; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--ink-32); text-align: right; height: 280px; font-variant-numeric: tabular-nums; }
+.hgb-dist__y span::after { content: ''; display: inline-block; width: 4px; height: 1px; background: var(--ink-20); margin-left: 4px; vertical-align: middle; }
+.hgb-dist__y .hgb-dist__y-0 { color: var(--ink-48); font-weight: 600; }
+.hgb-dist__y .hgb-dist__y-0::after { background: var(--ink-32); width: 6px; }
 .hgb-dist__plot { position: relative; height: 280px; display: grid; grid-template-columns: repeat(4, 1fr); }
 .hgb-dist__plot::before {
   content: ''; position: absolute; inset: 0;
   background: linear-gradient(to bottom,
-    transparent 12.5%, rgba(255,255,255,0.03) 12.5%, rgba(255,255,255,0.03) calc(12.5% + 1px), transparent calc(12.5% + 1px),
-    transparent 25%,   rgba(255,255,255,0.03) 25%,   rgba(255,255,255,0.03) calc(25% + 1px),   transparent calc(25% + 1px),
-    transparent 37.5%, rgba(255,255,255,0.03) 37.5%, rgba(255,255,255,0.03) calc(37.5% + 1px), transparent calc(37.5% + 1px),
-    transparent 62.5%, rgba(255,255,255,0.03) 62.5%, rgba(255,255,255,0.03) calc(62.5% + 1px), transparent calc(62.5% + 1px),
-    transparent 75%,   rgba(255,255,255,0.03) 75%,   rgba(255,255,255,0.03) calc(75% + 1px),   transparent calc(75% + 1px),
-    transparent 87.5%, rgba(255,255,255,0.03) 87.5%, rgba(255,255,255,0.03) calc(87.5% + 1px), transparent calc(87.5% + 1px)
+    transparent 12.5%, rgba(13,13,20,0.03) 12.5%, rgba(13,13,20,0.03) calc(12.5% + 1px), transparent calc(12.5% + 1px),
+    transparent 25%,   rgba(13,13,20,0.03) 25%,   rgba(13,13,20,0.03) calc(25% + 1px),   transparent calc(25% + 1px),
+    transparent 37.5%, rgba(13,13,20,0.03) 37.5%, rgba(13,13,20,0.03) calc(37.5% + 1px), transparent calc(37.5% + 1px),
+    transparent 62.5%, rgba(13,13,20,0.03) 62.5%, rgba(13,13,20,0.03) calc(62.5% + 1px), transparent calc(62.5% + 1px),
+    transparent 75%,   rgba(13,13,20,0.03) 75%,   rgba(13,13,20,0.03) calc(75% + 1px),   transparent calc(75% + 1px),
+    transparent 87.5%, rgba(13,13,20,0.03) 87.5%, rgba(13,13,20,0.03) calc(87.5% + 1px), transparent calc(87.5% + 1px)
   );
   pointer-events: none;
 }
-.hgb-dist__plot::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--hgb-border-bright); z-index: 3; }
+.hgb-dist__plot::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--ink-20); z-index: 3; }
 .hgb-dist__col { position: relative; display: grid; grid-template-rows: 1fr 28px 1fr; z-index: 1; }
 .hgb-dist__half { position: relative; display: flex; justify-content: center; overflow: visible; }
 .hgb-dist__half--top { align-items: flex-end; }
@@ -714,20 +574,20 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .hgb-dist__bar--b::after { top: auto; bottom: -1px; }
 .hgb-dist__bar--max { box-shadow: 0 -10px 40px -8px var(--team-color); }
 .hgb-dist__bar--b.hgb-dist__bar--max { box-shadow: 0 10px 40px -8px var(--team-color); }
-.hgb-dist__cap { position: absolute; left: 50%; transform: translateX(-50%); font: 600 12px/1 var(--hgb-font-mono); color: var(--team-color); font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: 0.02em; opacity: 0; transition: opacity 300ms ease calc(var(--delay, 0ms) + 500ms); }
+.hgb-dist__cap { position: absolute; left: 50%; transform: translateX(-50%); font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--team-color); font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: 0.02em; opacity: 0; transition: opacity 300ms ease calc(var(--delay, 0ms) + 500ms); }
 .hgb-modal.is-open .hgb-dist__cap { opacity: 1; }
 .hgb-dist__bar--a .hgb-dist__cap { bottom: calc(100% + 8px); }
 .hgb-dist__bar--b .hgb-dist__cap { top: calc(100% + 8px); }
-.hgb-dist__bar--max .hgb-dist__cap::before { content: '★ '; font-family: var(--hgb-font-body); font-size: 10px; opacity: 0.85; }
-.hgb-dist__axis { display: flex; align-items: center; justify-content: center; font: 500 11px/1 var(--hgb-font-mono); color: var(--hgb-text-2); letter-spacing: 0.12em; text-transform: uppercase; }
+.hgb-dist__bar--max .hgb-dist__cap::before { content: '★ '; font-family: var(--body); font-size: 10px; opacity: 0.85; }
+.hgb-dist__axis { display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.12em; text-transform: uppercase; }
 
 /* telemetry row */
-.hgb-tel { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--hgb-border); background: linear-gradient(180deg, transparent, rgba(0,0,0,0.25)); }
-.hgb-tel__cell { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--hgb-border); position: relative; }
+.hgb-tel { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--ink-14); }
+.hgb-tel__cell { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--ink-14); position: relative; }
 .hgb-tel__cell:last-child { border-right: none; }
-.hgb-tel__label { font: 500 10px/1 var(--hgb-font-mono); color: var(--hgb-text-3); letter-spacing: 0.14em; text-transform: uppercase; }
-.hgb-tel__big { font: 500 24px/1 var(--hgb-font-display); color: var(--hgb-text); font-variant-numeric: tabular-nums; }
-.hgb-tel__unit { font: 400 11px/1 var(--hgb-font-body); color: var(--hgb-text-3); margin-left: 4px; }
+.hgb-tel__label { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.14em; text-transform: uppercase; }
+.hgb-tel__big { font-family: var(--display); font-weight: 800; font-size: 24px; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hgb-tel__unit { font-family: var(--body); font-size: 11px; color: var(--ink-48); margin-left: 4px; }
 
 /* modal entry animations */
 .hgb-modal.is-open .hgb-util,
@@ -750,37 +610,43 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
 .hgb-team__seed .short-seed { display: none; }
 .hgb-team__seed .long-seed { display: inline; }
 
-/* ── Responsive ── */
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+  /* Bracket — scroll horizontally rather than try to reflow complex 3-col structure */
+  .bracket-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .bracket-wrap > * { min-width: 560px; }
+  .mast { padding: 36px 0 32px; }
+  .mast-headline { font-size: clamp(28px, 6vw, 48px); }
+}
 @media (max-width: 700px) {
-  .page-head { padding: 24px 16px 20px; }
-  .page-head__h1 { font-size: 26px; }
-  .content { padding: 24px 16px 60px; }
+  .content { padding: 28px 20px 60px; }
+  .mast-inner { padding: 0 20px; }
+  .mast-card { padding: 24px 20px 20px; }
+  .mast-top { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .mast-meta { text-align: left; }
   .series-grid, .pending-strip { grid-template-columns: 1fr; gap: 12px; }
-  .topbar { padding: 0 16px; }
 
-  /* Cards — tighter, smaller numerals so the whole card fits in one viewport */
-  .hgb-card { padding: 16px 16px 14px; }
-  .hgb-card__teams { gap: 10px; margin-bottom: 12px; }
-  .hgb-card__logo { width: 36px; height: 36px; }
-  .hgb-card__abbr { font-size: 20px; }
-  .hgb-card__pct { font-size: 30px; }
-  .hgb-card__pct small { font-size: 14px; }
-  .hgb-card__bar { height: 22px; margin-bottom: 12px; }
-  .hgb-card__seg-val { font-size: 9px; }
-  .hgb-card__foot { gap: 8px; }
-  .hgb-card__foot-val { font-size: 12px; }
+  /* Cards — tighter */
+  .hgb-card__inner { padding: 14px 14px 12px; }
+  .hgb-card__teams { gap: 8px; margin-bottom: 10px; }
+  .hgb-card__logo { width: 24px; height: 24px; }
+  .hgb-card__abbr { font-size: 18px; }
+  .hgb-card__pct { font-size: 20px; }
+  .hgb-card__pct small { font-size: 11px; }
+  .hgb-card__bar { height: 20px; margin-bottom: 10px; }
+  .hgb-card__foot { padding: 8px 14px 12px; gap: 8px; }
+  .hgb-card__foot-val { font-size: 11px; }
 
   /* modal: cap height, smooth scroll */
   .hgb-modal__sheet {
-    max-height: 92dvh; /* dvh = excludes iOS browser chrome */
-    border-radius: 12px 12px 0 0;
+    max-height: 92dvh;
     -webkit-overflow-scrolling: touch;
   }
 
   .hgb-matchup { gap: 14px; padding: 14px 18px 22px; }
   .hgb-team__logo { width: 44px; height: 44px; }
   .hgb-team__abbr { font-size: 24px; }
-  /* Compress long seed labels on mobile — "Atl · WC1" instead of "Atlantic · Wild Card 1" */
+  /* Compress long seed labels on mobile */
   .hgb-team__seed .long-seed { display: none; }
   .hgb-team__seed .short-seed { display: inline; }
   .hgb-team__name { font-size: 11px; }
@@ -788,7 +654,6 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
   .hgb-wp { padding: 20px 20px 24px; }
   .hgb-wp__num { font-size: 56px; }
   .hgb-dist { padding: 20px 16px 32px; }
-  /* shrink chart to 200px so it fits without forced scroll */
   .hgb-dist__plot { height: 200px; }
   .hgb-dist__y { height: 200px; }
   .hgb-dist__bar { width: 36px; }
@@ -798,239 +663,362 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
   .hgb-tracker__meta { flex-direction: column; align-items: flex-start; gap: 10px; }
   .hgb-tel { grid-template-columns: 1fr 1fr; }
   .hgb-tel__cell:nth-child(2) { border-right: none; }
-  .hgb-tel__cell:nth-child(-n+2) { border-bottom: 1px solid var(--hgb-border); }
+  .hgb-tel__cell:nth-child(-n+2) { border-bottom: 1px solid var(--ink-14); }
   .hgb-util { padding: 18px 18px 12px; }
+}
+@media (max-width: 480px) {
+  .content { padding: 20px 16px 48px; }
+  .mast-inner { padding: 0 16px; }
+  .mast-card { padding: 20px 16px 16px; }
+  .mast-headline { font-size: clamp(26px, 7vw, 40px); }
+  .mast-sub { font-size: 11px; }
+  .hgb-card__abbr { font-size: 16px; }
+  .hgb-card__pct { font-size: 18px; }
 }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <a href="/" class="brand">HGB</a>
-  <div class="topbar-right">
-    <a href="/playoffs" class="topbar-link topbar-link--active">PLAYOFFS</a>
-    <a href="/teams" class="topbar-link">TEAMS</a>
-    <a href="/support" class="topbar-link topbar-link--support" aria-label="Support HockeyGameBot">
-      <svg class="support-heart" width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-      <span>SUPPORT</span>
-    </a>
-  </div>
-</div>
+<Nav currentPath={Astro.url.pathname} />
 
-<div class="page-head">
-  <div class="page-head__title">
-    <span class="page-head__eyebrow">{
-      showRoundIndicator
-        ? `ROUND ${indicatorRound} · ${indicatorLabel.toUpperCase()}`
-        : 'HockeyGameBot · Model Projections'
-    }</span>
-    <h1 class="page-head__h1">2026 Stanley Cup Playoffs</h1>
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
   </div>
-  <div class="page-head__meta">
-    <small>{currentRoundLabel} · Monte Carlo, 10,000 sims each</small>
-    <strong id="page-meta-strong">{latestUpdate ? `Updated ${new Date(latestUpdate).toISOString().slice(0,10)}` : 'Blended model'}</strong>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span>HockeyGameBot · Model Projections</div>
+      <div class="mast-meta" id="page-meta-strong">{latestUpdate ? `Predictions updated ${new Date(latestUpdate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Predictions · HGB model'}</div>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">2026 Stanley Cup Playoffs</h1>
+
+      <!-- BRACKET -->
+      <div class="bracket-wrap">
+
+        <!-- EAST (reads left → right) -->
+        <div class="b-conf east">
+          <!-- R1 -->
+          <div class="b-col" style="flex:2">
+            <div class="b-col-hd">R1 East</div>
+            {[
+              ['CAR','OTT'], ['PHI','PIT'], null,
+              ['BUF','BOS'], ['MTL','TBL'],
+            ].map(pair => pair === null
+              ? <div class="b-pair-gap"></div>
+              : (() => {
+                  const [ta, tb] = pair as [string,string];
+                  const s = seriesByTeams.get(`${ta}-${tb}`) ?? seriesByTeams.get(`${tb}-${ta}`);
+                  const wonA = r1Winners.get(ta); const wonB = r1Winners.get(tb);
+                  const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
+                  const winsA = bracketWins(s, ta);
+                  const winsB = bracketWins(s, tb);
+                  return (<>
+                    <div class={`b-team${wonA === true ? ' winner' : wonA === false ? ' elim' : ''}`} style={`border-left-color:${ma.color}`}>
+                      <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
+                      <span class="b-abbr">{ta}</span>
+                      <span class="b-wins">{winsA}</span>
+                    </div>
+                    <div class={`b-team${wonB === true ? ' winner' : wonB === false ? ' elim' : ''}`} style={`border-left-color:${mb.color}`}>
+                      <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${tb}_light.svg`} alt={tb} />
+                      <span class="b-abbr">{tb}</span>
+                      <span class="b-wins">{winsB}</span>
+                    </div>
+                  </>);
+                })()
+            )}
+          </div>
+          <!-- R2 -->
+          <div class="b-col" style="flex:1.6">
+            <div class="b-col-hd">R2</div>
+            {[['CAR','PHI'], null, ['BUF','MTL']].map(pair => {
+              if (pair === null) return <div class="b-pair-gap" style="flex:1"></div>;
+              const [ta, tb] = pair as [string,string];
+              const s = getR2Series(ta, tb);
+              const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
+              const winsA = bracketWins(s ?? undefined, ta);
+              const winsB = bracketWins(s ?? undefined, tb);
+              return (<>
+                <div class="b-team" style={`border-left-color:${ma.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
+                  <span class="b-abbr">{ta}</span>
+                  <span class="b-wins" style={`color:${ma.color}`}>{winsA}</span>
+                </div>
+                <div class="b-team" style={`border-left-color:${mb.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${tb}_light.svg`} alt={tb} />
+                  <span class="b-abbr">{tb}</span>
+                  <span class="b-wins" style={`color:${mb.color}`}>{winsB}</span>
+                </div>
+              </>);
+            })}
+          </div>
+          <!-- ECF -->
+          <div class="b-col" style="flex:1">
+            <div class="b-col-hd">ECF</div>
+            {eastSeriesR3.length > 0 ? (() => {
+              const ecf = eastSeriesR3[0]!;
+              const wA = bracketWins(ecf, ecf.a.abbr); const wB = bracketWins(ecf, ecf.b.abbr);
+              return (<>
+                <div class={`b-team${ecf.is_complete && ecf.winner === ecf.a.abbr ? ' winner' : ecf.is_complete ? ' elim' : ''}`} style={`border-left-color:${ecf.a.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ecf.a.abbr}_light.svg`} alt={ecf.a.abbr} />
+                  <span class="b-abbr">{ecf.a.abbr}</span>
+                  <span class="b-wins" style={`color:${ecf.a.color}`}>{wA}</span>
+                </div>
+                <div class={`b-team${ecf.is_complete && ecf.winner === ecf.b.abbr ? ' winner' : ecf.is_complete ? ' elim' : ''}`} style={`border-left-color:${ecf.b.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ecf.b.abbr}_light.svg`} alt={ecf.b.abbr} />
+                  <span class="b-abbr">{ecf.b.abbr}</span>
+                  <span class="b-wins" style={`color:${ecf.b.color}`}>{wB}</span>
+                </div>
+              </>);
+            })() : <div class="b-tbd" style="flex:1"><div class="b-tbd-inner">TBD</div></div>}
+          </div>
+        </div>
+
+        <!-- CENTER: SCF -->
+        <div class="b-scf">
+          <div class="b-scf-icon">🏆</div>
+          <div class="b-scf-lbl">Stanley<br/>Cup<br/>Final</div>
+          {scfSeries && (
+            <div class="b-scf-series">
+              <div class={`b-team${scfSeries.is_complete && scfSeries.winner === scfSeries.a.abbr ? ' winner' : scfSeries.is_complete ? ' elim' : ''}`}
+                   style={`border-left-color:${scfSeries.a.color}`}>
+                <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${scfSeries.a.abbr}_light.svg`} alt={scfSeries.a.abbr} />
+                <span class="b-abbr">{scfSeries.a.abbr}</span>
+                <span class="b-wins">{scfSeries.games.filter((g: string | null) => g === scfSeries.a.abbr).length}</span>
+              </div>
+              <div class="b-scf-pct">{scfSeries.a.winPct}% · {scfSeries.b.winPct}%</div>
+              <div class={`b-team${scfSeries.is_complete && scfSeries.winner === scfSeries.b.abbr ? ' winner' : scfSeries.is_complete ? ' elim' : ''}`}
+                   style={`border-left-color:${scfSeries.b.color}`}>
+                <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${scfSeries.b.abbr}_light.svg`} alt={scfSeries.b.abbr} />
+                <span class="b-abbr">{scfSeries.b.abbr}</span>
+                <span class="b-wins">{scfSeries.games.filter((g: string | null) => g === scfSeries.b.abbr).length}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <!-- WEST (reads right → left) -->
+        <div class="b-conf west">
+          <!-- R1 -->
+          <div class="b-col" style="flex:2">
+            <div class="b-col-hd">R1 West</div>
+            {[
+              ['COL','LAK'], ['MIN','DAL'], null,
+              ['VGK','UTA'], ['ANA','EDM'],
+            ].map(pair => pair === null
+              ? <div class="b-pair-gap"></div>
+              : (() => {
+                  const [ta, tb] = pair as [string,string];
+                  const s = seriesByTeams.get(`${ta}-${tb}`) ?? seriesByTeams.get(`${tb}-${ta}`);
+                  const wonA = r1Winners.get(ta); const wonB = r1Winners.get(tb);
+                  const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
+                  const winsA = bracketWins(s, ta);
+                  const winsB = bracketWins(s, tb);
+                  return (<>
+                    <div class={`b-team${wonA === true ? ' winner' : wonA === false ? ' elim' : ''}`} style={`border-left-color:${ma.color}`}>
+                      <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
+                      <span class="b-abbr">{ta}</span>
+                      <span class="b-wins">{winsA}</span>
+                    </div>
+                    <div class={`b-team${wonB === true ? ' winner' : wonB === false ? ' elim' : ''}`} style={`border-left-color:${mb.color}`}>
+                      <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${tb}_light.svg`} alt={tb} />
+                      <span class="b-abbr">{tb}</span>
+                      <span class="b-wins">{winsB}</span>
+                    </div>
+                  </>);
+                })()
+            )}
+          </div>
+          <!-- R2 -->
+          <div class="b-col" style="flex:1.6">
+            <div class="b-col-hd">R2</div>
+            {[['COL','MIN'], null, ['VGK','ANA']].map(pair => {
+              if (pair === null) return <div class="b-pair-gap" style="flex:1"></div>;
+              const [ta, tb] = pair as [string,string];
+              const s = getR2Series(ta, tb);
+              const ma = TEAM_META[ta]!; const mb = TEAM_META[tb]!;
+              const winsA = bracketWins(s ?? undefined, ta);
+              const winsB = bracketWins(s ?? undefined, tb);
+              return (<>
+                <div class="b-team" style={`border-left-color:${ma.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${ta}_light.svg`} alt={ta} />
+                  <span class="b-abbr">{ta}</span>
+                  <span class="b-wins" style={`color:${ma.color}`}>{winsA}</span>
+                </div>
+                <div class="b-team" style={`border-left-color:${mb.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${tb}_light.svg`} alt={tb} />
+                  <span class="b-abbr">{tb}</span>
+                  <span class="b-wins" style={`color:${mb.color}`}>{winsB}</span>
+                </div>
+              </>);
+            })}
+          </div>
+          <!-- WCF -->
+          <div class="b-col" style="flex:1">
+            <div class="b-col-hd">WCF</div>
+            {westSeriesR3.length > 0 ? (() => {
+              const wcf = westSeriesR3[0]!;
+              const wA = bracketWins(wcf, wcf.a.abbr); const wB = bracketWins(wcf, wcf.b.abbr);
+              return (<>
+                <div class={`b-team${wcf.is_complete && wcf.winner === wcf.a.abbr ? ' winner' : wcf.is_complete ? ' elim' : ''}`} style={`border-left-color:${wcf.a.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${wcf.a.abbr}_light.svg`} alt={wcf.a.abbr} />
+                  <span class="b-abbr">{wcf.a.abbr}</span>
+                  <span class="b-wins" style={`color:${wcf.a.color}`}>{wA}</span>
+                </div>
+                <div class={`b-team${wcf.is_complete && wcf.winner === wcf.b.abbr ? ' winner' : wcf.is_complete ? ' elim' : ''}`} style={`border-left-color:${wcf.b.color};flex:1`}>
+                  <img class="b-logo" src={`https://assets.nhle.com/logos/nhl/svg/${wcf.b.abbr}_light.svg`} alt={wcf.b.abbr} />
+                  <span class="b-abbr">{wcf.b.abbr}</span>
+                  <span class="b-wins" style={`color:${wcf.b.color}`}>{wB}</span>
+                </div>
+              </>);
+            })() : <div class="b-tbd" style="flex:1"><div class="b-tbd-inner">TBD</div></div>}
+          </div>
+        </div>
+
+      </div><!-- /bracket-wrap -->
+      <!-- Cup odds strip -->
+      {cupRanked.length > 0 && (
+        <div class="cup-strip">
+          <div class="cup-strip-label">
+            <span class="cup-strip-eyebrow">~Cup Win %</span>
+            <span class="cup-strip-note">{scfSeries ? 'SCF teams use model odds · others estimated' : 'estimated · assumes equal odds in ECF + SCF'}</span>
+          </div>
+          <div class="cup-strip-teams">
+            {cupRanked.map((t, i) => (
+              <div class="cup-team">
+                <span class="cup-rank">{i + 1}</span>
+                <img class="cup-logo" src={`https://assets.nhle.com/logos/nhl/svg/${t.abbr}_light.svg`} alt={t.abbr} />
+                <div class="cup-info">
+                  <span class="cup-abbr" style={`color:${t.color}`}>{t.abbr}</span>
+                  <span class="cup-pct" style={`color:${t.color}`}>{t.pct}%</span>
+                </div>
+                <div class="cup-bar-wrap">
+                  <div class="cup-bar-fill" style={`width:${Math.min(t.pct * 4, 100)}%;background:${t.color}`}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div class="bracket-foot">Series win % · 10,000 Monte Carlo simulations per series · 60/40 Elo/xGF blend</div>
+        </div>
+      )}
+    </div>
   </div>
-</div>
+</section>
 
 <div class="content">
   {SERIES.length === 0 && (
-    <div class="section-label" style="color: var(--hgb-text-3)">
+    <div class="section-label" style="color: var(--ink-48)">
       Predictions loading — please refresh in a moment.
     </div>
   )}
 
-  {/* ── ROUND 3 — Conference Finals ────────────────────────────────────────── */}
-  {SERIES_R3.length > 0 && (
-    <div class="conf-block">
-      <div class="section-label section-label--has-badge">
-        <span class="section-label__round">Conference Finals</span>
-        <span class="section-label__rule"></span>
-      </div>
-      <div class="series-grid">
-        {SERIES_R3.map(s => {
-          const segs = buildCardSegs(s);
-          const ml = mostLikely(s);
-          const played = s.games.filter(Boolean).length;
-          const aElim  = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
-          const bElim  = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
-          const tonight = isTonight(s.nextGameUTC);
-          return (
-            <button class="hgb-card" data-id={s.id} style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`} aria-label={`${s.a.abbr} vs ${s.b.abbr}`}>
+  {/* Stanley Cup Final */}
+  {scfSeries && (() => {
+    const s = scfSeries!;
+    const segs = buildCardSegs(s);
+    const ml = mostLikely(s);
+    const played = s.games.filter(Boolean).length;
+    const aElim = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
+    const bElim = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
+    const tonight = isTonight(s.nextGameUTC);
+    return (
+      <div class="conf-block">
+        <div class="section-label"><span class="pip"></span>Stanley Cup Final · <span style="color:var(--red)">2025–26</span></div>
+        <div class="series-grid" style="grid-template-columns:minmax(0,540px)">
+          <button class="hgb-card" data-id={s.id} style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`} aria-label={`${s.a.abbr} vs ${s.b.abbr} — click for series details`}>
+            <div class="hgb-card__inner">
               <header class="hgb-card__meta">
-                <span class="hgb-mini-badge">{s.miniBadge}</span>
+                <span class="hgb-mini-badge">Stanley Cup Final</span>
                 {tonight && <span class="hgb-tonight">Tonight</span>}
               </header>
               <div class="hgb-card__teams">
                 <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
                   <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
                   <div class="hgb-card__ids"><span class="hgb-card__seed">{s.a.seed}</span><span class="hgb-card__abbr">{s.a.abbr}</span></div>
-                  <div class="hgb-card__pct-wrap" style="margin-left: auto"><span class="hgb-card__pct-lbl">Win %</span><span class="hgb-card__pct">{s.a.winPct}<small>%</small></span></div>
+                  <div class="hgb-card__pct-wrap" style="margin-left: auto">
+                    <span class="hgb-card__pct-lbl">Win %</span>
+                    <span class="hgb-card__pct">{s.a.winPct}<small>%</small></span>
+                  </div>
                 </div>
                 <span class="hgb-card__vs">vs</span>
                 <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
                   <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
                   <div class="hgb-card__ids"><span class="hgb-card__seed">{s.b.seed}</span><span class="hgb-card__abbr">{s.b.abbr}</span></div>
-                  <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto"><span class="hgb-card__pct-lbl">Win %</span><span class="hgb-card__pct">{s.b.winPct}<small>%</small></span></div>
+                  <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
+                    <span class="hgb-card__pct-lbl">Win %</span>
+                    <span class="hgb-card__pct">{s.b.winPct}<small>%</small></span>
+                  </div>
                 </div>
               </div>
-              <div class="hgb-card__games">
-                {s.games.map((w, i) => (<span class={`hgb-card__gdot${w === s.a.abbr ? ' hgb-card__gdot--a' : w === s.b.abbr ? ' hgb-card__gdot--b' : i === played && !s.is_complete ? ' hgb-card__gdot--next' : ''}`}></span>))}
+            </div>
+            <div class="hgb-card__games">
+              {s.games.map((w, i) => (
+                <span class={`hgb-card__gdot${w === s.a.abbr ? ' hgb-card__gdot--a' : w === s.b.abbr ? ' hgb-card__gdot--b' : i === played && !s.is_complete ? ' hgb-card__gdot--next' : ''}`}></span>
+              ))}
+            </div>
+            <div class="hgb-card__bar">
+              {segs.map(seg => (
+                <div class="hgb-card__seg" style={`--c:${seg.c};--w:${seg.w}`} data-boundary={seg.boundary ? '' : undefined} data-dominant={seg.w >= 95 ? '' : undefined} class:list={[seg.isSmall && 'hgb-card__seg--small', seg.isMax && 'hgb-card__seg--max']}>
+                  {!seg.isSmall && <span class="hgb-card__seg-val">{seg.w}%</span>}
+                </div>
+              ))}
+            </div>
+            <footer class="hgb-card__foot">
+              <div class="hgb-card__foot-col">
+                <span class="hgb-card__foot-label">Next Game</span>
+                <span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span>
               </div>
-              <div class="hgb-card__bar">
-                {segs.map(seg => (<span class={`hgb-card__seg${seg.isSmall ? ' hgb-card__seg--small' : ''}`} style={`--c: ${seg.c}; --w: ${seg.w}`} data-boundary={seg.boundary ? 'true' : undefined} title={`${seg.label} · ${seg.w}%`}><span class="hgb-card__seg-val">{seg.w}</span></span>))}
-              </div>
-              <footer class="hgb-card__foot">
-                <div class="hgb-card__foot-col"><span class="hgb-card__foot-label">Next Game</span><span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span></div>
-                {ml && <div class="hgb-card__foot-col hgb-card__foot-col--right"><span class="hgb-card__foot-label">Most Likely</span><span class="hgb-card__foot-val"><strong>{ml.label.split(' in ')[0]}</strong> in {ml.label.split(' in ')[1]} · {ml.v}%</span></div>}
-              </footer>
-            </button>
-          );
-        })}
+              {ml && <div class="hgb-card__foot-col hgb-card__foot-col--right">
+                <span class="hgb-card__foot-label">Most Likely</span>
+                <span class="hgb-card__foot-val"><strong>{ml.label.split(' in ')[0]}</strong> in {ml.label.split(' in ')[1]} · {ml.v}%</span>
+              </div>}
+            </footer>
+          </button>
+        </div>
       </div>
-    </div>
-  )}
+    );
+  })()}
 
-  {/* ── ROUND 2 — Conference Semifinals ───────────────────────────────────── */}
-  {showR2 && (
+  {/* Round 3 — Conference Finals */}
+  {(SERIES_R3.length > 0) && ([['East', eastSeriesR3], ['West', westSeriesR3]] as const).map(([label, series]) => (
+    series.length > 0 && (
     <div class="conf-block">
-      <div class="section-label section-label--has-badge">
-        <span class="section-label__round">Conference Semifinals · Round 2</span>
-        <span class="section-label__rule"></span>
-      </div>
+      <div class="section-label"><span class="pip"></span>{label}ern Conference · <span style="color:var(--red)">Conference Finals</span></div>
       <div class="series-grid">
-        {SERIES_R2.map(s => {
-          if (s.tbd) {
-            // Placeholder card: locked side on the left, "Winner of {Letter}" on the right.
-            const lockedAbbr = s.a.abbr !== 'TBD' ? s.a.abbr : (s.b.abbr !== 'TBD' ? s.b.abbr : null);
-            const locked = lockedAbbr ? (s.a.abbr === lockedAbbr ? s.a : s.b) : null;
-            const otherSide = locked === s.a ? s.b : s.a;
-            const lockedColor = locked?.color ?? '#888';
-            // Resolve the OTHER R1 feeder so we can show "Winner of TBL/MTL"
-            // instead of "Series J". If the feeder is already complete, the
-            // label will be just the winner's abbrev (locks momentarily anyway).
-            const feederTxt = s.awaitingFromLetter
-              ? feederLabel(s.awaitingFromLetter, lockedAbbr)
-              : 'TBD';
-            const feederIsLetterFallback = feederTxt.startsWith('Series ');
-            // For the TBD slot, prefer just naming the feeders ("TBL/MTL") and
-            // putting the verbose "Winner of" copy in the pull-quote band.
-            const tbdSlotLabel = feederTxt.startsWith('Winner of ')
-              ? feederTxt.slice('Winner of '.length)
-              : feederTxt;
-            return (
-              <div
-                class="hgb-card hgb-card--placeholder"
-                data-id={s.id}
-                aria-label={`${lockedAbbr ?? 'TBD'} vs ${feederTxt} — awaiting opponent`}
-                style={`--hgb-team-a: ${lockedColor}; --hgb-team-b: var(--hgb-border-strong);`}
-              >
-                <header class="hgb-card__meta">
-                  <span class="hgb-mini-badge">{s.miniBadge}</span>
-                  <span class="hgb-card__state" style={`--team-color: ${lockedColor}`}>Awaiting</span>
-                </header>
-
-                <div class="hgb-card__teams">
-                  <div class="hgb-card__team" style={`--team-color: ${lockedColor}`}>
-                    {locked ? (
-                      <>
-                        <img src={`https://assets.nhle.com/logos/nhl/svg/${locked.abbr}_light.svg`} alt={locked.abbr} class="hgb-card__logo" loading="lazy" />
-                        <div class="hgb-card__ids">
-                          <span class="hgb-card__seed">{locked.seed}</span>
-                          <span class="hgb-card__abbr">{locked.abbr}</span>
-                        </div>
-                      </>
-                    ) : (
-                      <div class="hgb-card__ids">
-                        <span class="hgb-card__seed">TBD</span>
-                        <span class="hgb-card__abbr">TBD</span>
-                      </div>
-                    )}
-                  </div>
-                  <span class="hgb-card__vs">vs</span>
-                  <div class="hgb-card__team hgb-card__team--b hgb-card__team--tbd" style="--team-color: var(--hgb-text-4)">
-                    <img src="https://assets.nhle.com/logos/nhl/svg/team-tbd-light.svg" alt="TBD" class="hgb-card__logo" loading="lazy" />
-                    <div class="hgb-card__ids">
-                      <span class="hgb-card__seed">{tbdSlotLabel}</span>
-                      <span class="hgb-card__abbr">TBD</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="hgb-card-pull">
-                  <span class="hgb-card-pull__lead">Awaiting Opponent</span>
-                  <span class="hgb-card-pull__main" style={`--team-color: ${lockedColor}`}>
-                    {locked ? (
-                      feederIsLetterFallback ? (
-                        <><strong>{locked.abbr}</strong> vs winner of {feederTxt}</>
-                      ) : feederTxt.startsWith('Winner of ') ? (
-                        <><strong>{locked.abbr}</strong> vs winner of <strong>{feederTxt.replace(/^Winner of /, '')}</strong></>
-                      ) : (
-                        <><strong>{locked.abbr}</strong> vs <strong>{feederTxt}</strong></>
-                      )
-                    ) : (
-                      feederIsLetterFallback ? (
-                        <>Winners of {feederTxt}</>
-                      ) : (
-                        <>{feederTxt}</>
-                      )
-                    )}
-                  </span>
-                </div>
-
-                <footer class="hgb-card__foot">
-                  <div class="hgb-card__foot-col">
-                    <span class="hgb-card__foot-label">Next Game</span>
-                    <span class="hgb-card__foot-val">TBD</span>
-                  </div>
-                  <div class="hgb-card__foot-col hgb-card__foot-col--right">
-                    <span class="hgb-card__foot-label">Prediction</span>
-                    <span class="hgb-card__foot-val">Pending</span>
-                  </div>
-                </footer>
-              </div>
-            );
-          }
-          // Live R2 card — same shape as R1.
+        {series.map(s => {
           const segs = buildCardSegs(s);
           const ml = mostLikely(s);
+          const pctA = s.a.winPct;
+          const pctB = s.b.winPct;
           const played = s.games.filter(Boolean).length;
           const aElim  = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
           const bElim  = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
           const tonight = isTonight(s.nextGameUTC);
           return (
-            <button
-              class="hgb-card"
-              data-id={s.id}
-              style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`}
-              aria-label={`${s.a.abbr} vs ${s.b.abbr} — click to open series details`}
-            >
-              <header class="hgb-card__meta">
-                <span class="hgb-mini-badge">{s.miniBadge}</span>
-                {tonight && <span class="hgb-tonight">Tonight</span>}
-              </header>
-
-              <div class="hgb-card__teams">
-                <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
-                  <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
-                  <div class="hgb-card__ids">
-                    <span class="hgb-card__seed">{s.a.seed}</span>
-                    <span class="hgb-card__abbr">{s.a.abbr}</span>
+            <button class="hgb-card" data-id={s.id} style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`} aria-label={`${s.a.abbr} vs ${s.b.abbr} — click for series details`}>
+              <div class="hgb-card__inner">
+                <header class="hgb-card__meta">
+                  <span class="hgb-mini-badge">{s.miniBadge}</span>
+                  {tonight && <span class="hgb-tonight">Tonight</span>}
+                </header>
+                <div class="hgb-card__teams">
+                  <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids"><span class="hgb-card__seed">{s.a.seed}</span><span class="hgb-card__abbr">{s.a.abbr}</span></div>
+                    <div class="hgb-card__pct-wrap" style="margin-left: auto">
+                      <span class="hgb-card__pct-lbl">Win %</span>
+                      <span class="hgb-card__pct">{pctA}<small>%</small></span>
+                    </div>
                   </div>
-                  <div class="hgb-card__pct-wrap" style="margin-left: auto">
-                    <span class="hgb-card__pct-lbl">Win %</span>
-                    <span class="hgb-card__pct">{s.a.winPct}<small>%</small></span>
-                  </div>
-                </div>
-                <span class="hgb-card__vs">vs</span>
-                <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
-                  <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
-                  <div class="hgb-card__ids">
-                    <span class="hgb-card__seed">{s.b.seed}</span>
-                    <span class="hgb-card__abbr">{s.b.abbr}</span>
-                  </div>
-                  <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
-                    <span class="hgb-card__pct-lbl">Win %</span>
-                    <span class="hgb-card__pct">{s.b.winPct}<small>%</small></span>
+                  <span class="hgb-card__vs">vs</span>
+                  <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids"><span class="hgb-card__seed">{s.b.seed}</span><span class="hgb-card__abbr">{s.b.abbr}</span></div>
+                    <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
+                      <span class="hgb-card__pct-lbl">Win %</span>
+                      <span class="hgb-card__pct">{pctB}<small>%</small></span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1039,52 +1027,113 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
                   <span class={`hgb-card__gdot${w === s.a.abbr ? ' hgb-card__gdot--a' : w === s.b.abbr ? ' hgb-card__gdot--b' : i === played && !s.is_complete ? ' hgb-card__gdot--next' : ''}`}></span>
                 ))}
               </div>
-
               <div class="hgb-card__bar">
                 {segs.map(seg => (
-                  <span
-                    class={`hgb-card__seg${seg.isSmall ? ' hgb-card__seg--small' : ''}`}
-                    style={`--c: ${seg.c}; --w: ${seg.w}`}
-                    data-boundary={seg.boundary ? 'true' : undefined}
-                    title={`${seg.label} · ${seg.w}%`}
-                  >
-                    <span class="hgb-card__seg-val">{seg.w}</span>
-                  </span>
+                  <div class="hgb-card__seg" style={`--c:${seg.c};--w:${seg.w}`} data-boundary={seg.boundary ? '' : undefined} data-dominant={seg.w >= 95 ? '' : undefined} class:list={[seg.isSmall && 'hgb-card__seg--small', seg.isMax && 'hgb-card__seg--max']}>
+                    {!seg.isSmall && <span class="hgb-card__seg-val">{seg.w}%</span>}
+                  </div>
                 ))}
               </div>
-
               <footer class="hgb-card__foot">
                 <div class="hgb-card__foot-col">
                   <span class="hgb-card__foot-label">Next Game</span>
                   <span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span>
                 </div>
-                <div class="hgb-card__foot-col hgb-card__foot-col--right">
+                {ml && <div class="hgb-card__foot-col hgb-card__foot-col--right">
                   <span class="hgb-card__foot-label">Most Likely</span>
-                  <span class="hgb-card__foot-val">
-                    <strong>{ml?.label.split(' in ')[0]}</strong> in {ml?.label.split(' in ')[1]} · {ml?.v}%
-                  </span>
-                </div>
+                  <span class="hgb-card__foot-val"><strong>{ml.label.split(' in ')[0]}</strong> in {ml.label.split(' in ')[1]} · {ml.v}%</span>
+                </div>}
               </footer>
             </button>
           );
         })}
       </div>
     </div>
-  )}
+    )
+  ))}
 
-  {/* ── ROUND 1 — First Round ───────────────────────────────────────────── */}
-  {([['East', eastSeries], ['West', westSeries]] as const).map(([label, series]) => (
-    <div class={`conf-block${r1AllComplete ? ' conf-block--complete' : ''}`}>
-      <div class="section-label section-label--has-badge">
-        <span class="section-label__round">{label}ern Conference · First Round</span>
-        <span class="section-label__rule"></span>
-        {r1AllComplete && <span class="section-label__badge">Complete</span>}
-      </div>
-      <div class="conf-block__inner">
+  {/* Round 2 */}
+  {(SERIES_R2.length > 0) && ([['East', eastSeriesR2], ['West', westSeriesR2]] as const).map(([label, series]) => (
+    series.length > 0 && (
+    <div class="conf-block">
+      <div class="section-label"><span class="pip"></span>{label}ern Conference · <span style="color:var(--red)">Round 2</span></div>
       <div class="series-grid">
         {series.map(s => {
           const segs = buildCardSegs(s);
           const ml = mostLikely(s);
+          const pctA = s.a.winPct;
+          const pctB = s.b.winPct;
+          const played = s.games.filter(Boolean).length;
+          const aElim  = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
+          const bElim  = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
+          const tonight = isTonight(s.nextGameUTC);
+          return (
+            <button class="hgb-card" data-id={s.id} style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`} aria-label={`${s.a.abbr} vs ${s.b.abbr} — click for series details`}>
+              <div class="hgb-card__inner">
+                <header class="hgb-card__meta">
+                  <span class="hgb-mini-badge">{s.miniBadge}</span>
+                  {tonight && <span class="hgb-tonight">Tonight</span>}
+                </header>
+                <div class="hgb-card__teams">
+                  <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids"><span class="hgb-card__seed">{s.a.seed}</span><span class="hgb-card__abbr">{s.a.abbr}</span></div>
+                    <div class="hgb-card__pct-wrap" style="margin-left: auto">
+                      <span class="hgb-card__pct-lbl">Win %</span>
+                      <span class="hgb-card__pct">{pctA}<small>%</small></span>
+                    </div>
+                  </div>
+                  <span class="hgb-card__vs">vs</span>
+                  <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids"><span class="hgb-card__seed">{s.b.seed}</span><span class="hgb-card__abbr">{s.b.abbr}</span></div>
+                    <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
+                      <span class="hgb-card__pct-lbl">Win %</span>
+                      <span class="hgb-card__pct">{pctB}<small>%</small></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="hgb-card__games">
+                {s.games.map((w, i) => (
+                  <span class={`hgb-card__gdot${w === s.a.abbr ? ' hgb-card__gdot--a' : w === s.b.abbr ? ' hgb-card__gdot--b' : i === played && !s.is_complete ? ' hgb-card__gdot--next' : ''}`}></span>
+                ))}
+              </div>
+              <div class="hgb-card__bar">
+                {segs.map(seg => (
+                  <div class="hgb-card__seg" style={`--c:${seg.c};--w:${seg.w}`} data-boundary={seg.boundary ? '' : undefined} data-dominant={seg.w >= 95 ? '' : undefined} class:list={[seg.isSmall && 'hgb-card__seg--small', seg.isMax && 'hgb-card__seg--max']}>
+                    {!seg.isSmall && <span class="hgb-card__seg-val">{seg.w}%</span>}
+                  </div>
+                ))}
+              </div>
+              <footer class="hgb-card__foot">
+                <div class="hgb-card__foot-col">
+                  <span class="hgb-card__foot-label">Next Game</span>
+                  <span class="hgb-card__foot-val" data-next-game data-iso={s.nextGameUTC ?? ''}>{s.nextGameUTC ? '' : 'TBD'}</span>
+                </div>
+                {ml && <div class="hgb-card__foot-col hgb-card__foot-col--right">
+                  <span class="hgb-card__foot-label">Most Likely</span>
+                  <span class="hgb-card__foot-val"><strong>{ml.label.split(' in ')[0]}</strong> in {ml.label.split(' in ')[1]} · {ml.v}%</span>
+                </div>}
+              </footer>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+    )
+  ))}
+
+  {/* Round 1 */}
+  {([['East', eastSeries], ['West', westSeries]] as const).map(([label, series]) => (
+    <div class="conf-block">
+      <div class="section-label"><span class="pip"></span>{label}ern Conference · Round 1 <span style="font-family:var(--mono);font-size:9px;opacity:0.5;letter-spacing:0.08em">(COMPLETE)</span></div>
+      <div class="series-grid">
+        {series.map(s => {
+          const segs = buildCardSegs(s);
+          const ml = mostLikely(s);
+          const pctA = s.a.winPct;
+          const pctB = s.b.winPct;
           const played = s.games.filter(Boolean).length;
           const aElim  = s.is_complete && !!s.winner && s.winner !== s.a.abbr;
           const bElim  = s.is_complete && !!s.winner && s.winner !== s.b.abbr;
@@ -1095,32 +1144,34 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
               style={`--hgb-team-a: ${s.a.color}; --hgb-team-b: ${s.b.color};`}
               aria-label={`${s.a.abbr} vs ${s.b.abbr} — click to open series details`}
             >
-              <header class="hgb-card__meta">
-                <span class="hgb-mini-badge">{s.miniBadge}</span>
-              </header>
+              <div class="hgb-card__inner">
+                <header class="hgb-card__meta">
+                  <span class="hgb-mini-badge">{s.miniBadge}</span>
+                </header>
 
-              <div class="hgb-card__teams">
-                <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
-                  <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
-                  <div class="hgb-card__ids">
-                    <span class="hgb-card__seed">{s.a.seed}</span>
-                    <span class="hgb-card__abbr">{s.a.abbr}</span>
+                <div class="hgb-card__teams">
+                  <div class={`hgb-card__team${aElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.a.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.a.abbr}_light.svg`} alt={s.a.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids">
+                      <span class="hgb-card__seed">{s.a.seed}</span>
+                      <span class="hgb-card__abbr">{s.a.abbr}</span>
+                    </div>
+                    <div class="hgb-card__pct-wrap" style="margin-left: auto">
+                      <span class="hgb-card__pct-lbl">Win %</span>
+                      <span class="hgb-card__pct">{pctA}<small>%</small></span>
+                    </div>
                   </div>
-                  <div class="hgb-card__pct-wrap" style="margin-left: auto">
-                    <span class="hgb-card__pct-lbl">Win %</span>
-                    <span class="hgb-card__pct">{s.a.winPct}<small>%</small></span>
-                  </div>
-                </div>
-                <span class="hgb-card__vs">vs</span>
-                <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
-                  <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
-                  <div class="hgb-card__ids">
-                    <span class="hgb-card__seed">{s.b.seed}</span>
-                    <span class="hgb-card__abbr">{s.b.abbr}</span>
-                  </div>
-                  <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
-                    <span class="hgb-card__pct-lbl">Win %</span>
-                    <span class="hgb-card__pct">{s.b.winPct}<small>%</small></span>
+                  <span class="hgb-card__vs">vs</span>
+                  <div class={`hgb-card__team hgb-card__team--b${bElim ? ' hgb-card__team--elim' : ''}`} style={`--team-color: ${s.b.color}`}>
+                    <img src={`https://assets.nhle.com/logos/nhl/svg/${s.b.abbr}_light.svg`} alt={s.b.abbr} class="hgb-card__logo" loading="lazy" />
+                    <div class="hgb-card__ids">
+                      <span class="hgb-card__seed">{s.b.seed}</span>
+                      <span class="hgb-card__abbr">{s.b.abbr}</span>
+                    </div>
+                    <div class="hgb-card__pct-wrap hgb-card__pct-wrap--right" style="margin-right: auto">
+                      <span class="hgb-card__pct-lbl">Win %</span>
+                      <span class="hgb-card__pct">{pctB}<small>%</small></span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1158,7 +1209,6 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
             </button>
           );
         })}
-      </div>
       </div>
 
     </div>
@@ -1178,6 +1228,7 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
       </div>
       <div class="hgb-util__group">
         <span class="hgb-mono" data-field="round-label"></span>
+        <a href="#" id="hgb-stats-link" target="_blank" style="font-family:var(--mono);font-size:10px;letter-spacing:0.10em;text-transform:uppercase;color:var(--ink-48);text-decoration:none;border:1px solid var(--ink-20);padding:4px 8px;white-space:nowrap;" title="Series stats page">Stats ↗</a>
         <button class="hgb-modal__share" id="hgb-share-btn" aria-label="Share this series prediction" title="Share">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         </button>
@@ -1289,14 +1340,18 @@ body { background: var(--hgb-bg); color: var(--hgb-text); font-family: var(--hgb
   </section>
 </div>
 
-<!-- Series data for client-side modal population — R1 + R2 in one array.
-     R2 placeholder cards are included so deep-links by id resolve, but
-     openModal() bails early on `tbd: true` so they never actually open. -->
-<script id="hgb-series-json" type="application/json" set:html={JSON.stringify([...SERIES, ...SERIES_R2, ...SERIES_R3])}></script>
+<!-- Series data for client-side modal population and live polling updates -->
+<script id="hgb-series-json"    type="application/json" set:html={JSON.stringify(SERIES)}></script>
+<script id="hgb-series-r2-json" type="application/json" set:html={JSON.stringify(SERIES_R2)}></script>
+<script id="hgb-series-r3-json" type="application/json" set:html={JSON.stringify(SERIES_R3)}></script>
+<script id="hgb-series-r4-json" type="application/json" set:html={JSON.stringify(SERIES_R4)}></script>
 
 <script>
 // ── Data ──────────────────────────────────────────────────────────────────────
-const SERIES = JSON.parse(document.getElementById('hgb-series-json')!.textContent!);
+const SERIES    = JSON.parse(document.getElementById('hgb-series-json')!.textContent!);
+const SERIES_R2 = JSON.parse(document.getElementById('hgb-series-r2-json')!.textContent!);
+const SERIES_R3 = JSON.parse(document.getElementById('hgb-series-r3-json')!.textContent!);
+const SERIES_R4 = JSON.parse(document.getElementById('hgb-series-r4-json')!.textContent!);
 
 // ── Module-scope state ────────────────────────────────────────────────────────
 // Declared here (above openModal) so the deep-link call below the wire-up block
@@ -1365,8 +1420,15 @@ function renderTracker(s: any) {
 }
 
 function openModal(id: string) {
-  const s = SERIES.find((x: any) => x.id === id);
+  const s = [...SERIES, ...SERIES_R2, ...SERIES_R3, ...SERIES_R4].find((x: any) => x.id === id);
   if (!s || s.tbd) return;
+
+  // Series stats page link
+  const _round = SERIES_R4.some((x: any) => x.id === id) ? 'scf'
+    : SERIES_R3.some((x: any) => x.id === id) ? 'r3'
+    : SERIES_R2.some((x: any) => x.id === id) ? 'r2' : 'r1';
+  const statsLink = document.getElementById('hgb-stats-link') as HTMLAnchorElement | null;
+  if (statsLink) statsLink.href = `/stats/series/2026-${_round}-${id}`;
 
   modal.style.setProperty('--hgb-team-a', s.a.color);
   modal.style.setProperty('--hgb-team-b', s.b.color);
@@ -1660,55 +1722,66 @@ function hydrateLocalNextGame() {
  * Fails silently — if hgb-api is unreachable or returns an error, the site
  * falls back to the hardcoded `SERIES` array and loads normally.
  */
-async function loadModelData() {
-  try {
-    const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
-    if (!res.ok) return;
-    const data = await res.json();
+// Apply a round payload from the API to a SERIES array in-place.
+function applyRoundUpdate(arr: any[], data: any) {
+  for (const snap of (data.series ?? [])) {
+    let s = arr.find((x: any) => x.id === snap.series_id);
+    if (!s) {
+      s = arr.find((x: any) =>
+        (x.a.abbr === snap.team_a && x.b.abbr === snap.team_b) ||
+        (x.a.abbr === snap.team_b && x.b.abbr === snap.team_a)
+      );
+    }
+    if (!s) continue;
 
-    // Match by series_id first, then fall back to team pair — round 2+ matchups
-    // may have different ids than what we hardcoded but the same two teams.
-    for (const snap of (data.series ?? [])) {
-      let s = SERIES.find((x: any) => x.id === snap.series_id);
-      if (!s) {
-        s = SERIES.find((x: any) =>
-          (x.a.abbr === snap.team_a && x.b.abbr === snap.team_b) ||
-          (x.a.abbr === snap.team_b && x.b.abbr === snap.team_a)
-        );
-      }
-      if (!s) continue;
-
-      // Map API's team_a / team_b to our a / b by abbrev (API orders by Elo).
-      if (snap.team_a === s.a.abbr) {
-        s.a.dist = snap.dist_a;
-        s.b.dist = snap.dist_b;
-      } else if (snap.team_a === s.b.abbr) {
-        s.a.dist = snap.dist_b;
-        s.b.dist = snap.dist_a;
-      }
-
-      if (Array.isArray(snap.games)) s.games = snap.games;
-      s.is_complete = !!snap.is_complete;
-      s.winner = snap.winner ?? null;
-      s.winner_in = snap.winner_in ?? null;
-      if (snap.next_game_utc) s._nextGameUTC = snap.next_game_utc;
-      if (Number.isFinite(snap.win_pct_a) && Number.isFinite(snap.win_pct_b)) {
-        // Map to SERIES a/b same way as dist
-        if (snap.team_a === s.a.abbr) { s.a.winPct = snap.win_pct_a; s.b.winPct = snap.win_pct_b; }
-        else                           { s.a.winPct = snap.win_pct_b; s.b.winPct = snap.win_pct_a; }
-      }
+    // Map API's team_a / team_b to our a / b by abbrev (API orders by Elo).
+    if (snap.team_a === s.a.abbr) {
+      s.a.dist = snap.dist_a;
+      s.b.dist = snap.dist_b;
+    } else if (snap.team_a === s.b.abbr) {
+      s.a.dist = snap.dist_b;
+      s.b.dist = snap.dist_a;
     }
 
-    // Staleness indicator in page header
-    if (data.latest_update) {
-      const dt = new Date(data.latest_update);
+    if (Array.isArray(snap.games)) s.games = snap.games;
+    s.is_complete = !!snap.is_complete;
+    s.winner = snap.winner ?? null;
+    s.winner_in = snap.winner_in ?? null;
+    if (snap.next_game_utc) s._nextGameUTC = snap.next_game_utc;
+    if (Number.isFinite(snap.win_pct_a) && Number.isFinite(snap.win_pct_b)) {
+      if (snap.team_a === s.a.abbr) { s.a.winPct = snap.win_pct_a; s.b.winPct = snap.win_pct_b; }
+      else                           { s.a.winPct = snap.win_pct_b; s.b.winPct = snap.win_pct_a; }
+    }
+  }
+}
+
+async function loadModelData() {
+  try {
+    const BASE = 'https://api.hockeygamebot.com/v1/playoffs/round';
+    const results = await Promise.allSettled([
+      fetch(`${BASE}/1`).then(r => r.ok ? r.json() : null),
+      fetch(`${BASE}/2`).then(r => r.ok ? r.json() : null),
+      fetch(`${BASE}/3`).then(r => r.ok ? r.json() : null),
+      fetch(`${BASE}/4`).then(r => r.ok ? r.json() : null),
+    ]);
+
+    const [d1, d2, d3, d4] = results.map(r => r.status === 'fulfilled' ? r.value : null);
+
+    if (d1) applyRoundUpdate(SERIES,    d1);
+    if (d2) applyRoundUpdate(SERIES_R2, d2);
+    if (d3) applyRoundUpdate(SERIES_R3, d3);
+    if (d4) applyRoundUpdate(SERIES_R4, d4);
+
+    // Staleness indicator uses round 1 timestamp (most likely to have recent update).
+    if (d1?.latest_update) {
+      const dt = new Date(d1.latest_update);
       const time = dt.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
       const date = dt.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
       const strong = document.getElementById('page-meta-strong');
-      if (strong) strong.textContent = `Updated ${date} · ${time} ET`;
+      if (strong) strong.textContent = `Predictions updated ${date} · ${time} ET`;
     }
 
-    for (const s of SERIES) {
+    for (const s of [...SERIES, ...SERIES_R2, ...SERIES_R3, ...SERIES_R4]) {
       if ((s as any).tbd) continue;
       const card = document.querySelector<HTMLElement>(`.hgb-card[data-id="${s.id}"]`);
       if (card) rebuildCard(card, s);

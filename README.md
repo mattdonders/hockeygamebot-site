@@ -1,9 +1,23 @@
 # hockeygamebot-site
 
-Static website for HockeyGameBot (dark mode by default).
+Astro static site for HockeyGameBot, deployed via Cloudflare Pages at hockeygamebot.com.
 
-- NJD feed page (V1)
-- “All Teams” Bluesky list feed page
-- No backend (served via GitHub Pages)
+## Setup
 
-Deploy: GitHub Pages + custom domain (hockeygamebot.com)
+```bash
+npm install
+```
+
+## Development
+
+```bash
+npm run dev      # Local dev server
+npm run build    # Build for production
+npm run preview  # Preview production build locally
+```
+
+Deploy: push to `main` branch → Cloudflare Pages auto-deploys. The `rewrite` branch deploys to `rewrite.hockeygamebot-site.pages.dev`.
+
+## Documentation
+
+Full documentation at [hgb-docs](../hgb-docs/) — see [CLAUDE.md](../CLAUDE.md) for page structure, design system, and editorial conventions.

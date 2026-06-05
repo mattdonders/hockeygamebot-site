@@ -1,0 +1,60 @@
+name: Refresh NHL team logos
+
+# Weekly fetch of all 32 NHL team `_dark.svg` logos from the NHL CDN.
+# Files land in `src/data/team-logos/{ABBR}_dark.svg` so Vite can `?raw`
+# import them inline at build time (renders crisp at any zoom). Diffs are
+# committed back to the branch the workflow runs on (default branch in
+# production).
+#
+# - Cron runs Mondays 06:00 UTC (~02:00 ET) — quiet window, no live games.
+# - `workflow_dispatch` lets us trigger on-demand for the initial bulk
+#   download or after league relocations / rebrands.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch logos
+        shell: bash
+        run: |
+          mkdir -p src/data/team-logos
+          # 32 NHL team abbreviations as of 2025-26 season.
+          ABBRS=(ANA BOS BUF CAR CBJ CGY CHI COL DAL DET EDM FLA LAK MIN MTL NJD NSH NYI NYR OTT PHI PIT SEA SJS STL TBL TOR UTA VAN VGK WPG WSH)
+          for abbr in "${ABBRS[@]}"; do
+            url="https://assets.nhle.com/logos/nhl/svg/${abbr}_dark.svg"
+            if curl -fsSL "$url" -o "src/data/team-logos/${abbr}_dark.svg"; then
+              echo "Fetched: $abbr"
+            else
+              echo "Failed:  $abbr (URL: $url)"
+            fi
+          done
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet src/data/team-logos/; then
+            echo "No changes in src/data/team-logos/"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Detected changes in src/data/team-logos/"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit + push if changed
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add src/data/team-logos/
+          git commit -m "chore(logos): weekly NHL team logo refresh"
+          git push

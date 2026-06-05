@@ -1,0 +1,161 @@
+---
+// /internal/scatter-poc — React scatter plot explorer POC
+// Replaces vanilla JS chart on /stats/explore as a React island proof of concept.
+// noindex, never linked from nav.
+
+import { loadPlayers } from '../../lib/stats-loader';
+import ScatterExplorer from '../../components/react/ScatterExplorer';
+import type { Player } from '../../components/react/ScatterExplorer';
+
+const rawPlayers = loadPlayers();
+
+// Map PlayerRecord → the ScatterExplorer Player shape.
+// The component uses a simplified, stable interface so the internal schema
+// can evolve without touching the component.
+const players: Player[] = rawPlayers
+  .filter(p => p.gp > 0)
+  .map(p => ({
+    display_name:        p.display_name,
+    team_abbrev:         p.team_abbrev,
+    pos:                 p.pos,
+    pos_group:           p.pos_group,
+    gp:                  p.gp,
+    slug:                p.slug,
+    rates_per_60: {
+      ixg:     p.rates_per_60.ixg,
+      shots:   p.rates_per_60.shots,
+      goals:   p.rates_per_60.goals,
+      assists: p.rates_per_60.a1,          // a1 = primary assists, best per-60 proxy
+    },
+    percentiles_vs_pos: {
+      ev_offence: p.percentiles_vs_pos.ev_offence,
+      ev_defence: p.percentiles_vs_pos.ev_defence,
+    },
+    hgb_war:               p.war ?? null,
+    hgb_rating_percentile: p.hgb_rating_percentile ?? null,
+    goals:       p.goals,
+    assists:     p.assists,
+    points:      p.goals + p.assists,
+    toi_avg_sec: p.toi_avg_sec,
+  }));
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Scatter Explorer POC · HGB Internal</title>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700&family=Barlow+Condensed:wght@700;800&family=JetBrains+Mono:wght@400;700&display=swap"
+  />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #EFEEE8;
+      color: #0d0d14;
+      font-family: 'Barlow', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+
+    .header {
+      border-bottom: 2px solid #0d0d14;
+      padding-bottom: 16px;
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(13,13,20,0.48);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pip {
+      width: 5px;
+      height: 5px;
+      background: #E8002D;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    h1 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800;
+      font-size: clamp(26px, 4vw, 40px);
+      text-transform: uppercase;
+      letter-spacing: -0.01em;
+      line-height: 1;
+    }
+
+    h1 em { color: #E8002D; font-style: normal; }
+
+    .sub {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: rgba(13,13,20,0.48);
+      margin-top: 6px;
+      letter-spacing: 0.04em;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid rgba(13,13,20,0.14);
+      padding: 20px;
+    }
+
+    .features {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: rgba(13,13,20,0.48);
+      letter-spacing: 0.04em;
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 14px;
+    }
+
+    @media (max-width: 600px) {
+      .page { padding: 20px 14px 60px; }
+      .card { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="eyebrow">
+        <span class="pip"></span>
+        Internal · POC · noindex
+      </div>
+      <h1>Scatter <em>Explorer</em></h1>
+      <p class="sub">
+        {players.length} skaters · React SVG scatter · axis selectors · click-to-label · default: iXG/60 vs EV Offense %
+      </p>
+      <p class="features">
+        <span>Responsive SVG (ResizeObserver)</span>
+        <span>Hover tooltip</span>
+        <span>Click-to-pin label (max 5)</span>
+        <span>Position chips</span>
+        <span>Min GP filter</span>
+        <span>Median reference lines</span>
+        <span>Quadrant labels</span>
+        <span>Dot size = HGB Rating</span>
+      </p>
+    </div>
+
+    <div class="card">
+      <ScatterExplorer players={players} client:load />
+    </div>
+  </div>
+</body>
+</html>

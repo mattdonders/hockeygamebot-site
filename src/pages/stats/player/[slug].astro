@@ -1,0 +1,3594 @@
+---
+import Nav from '../../../components/Nav.astro';
+import ThemeScript from '../../../components/ThemeScript.astro';
+import Fonts from '../../../components/Fonts.astro';
+import ChipGroup from '../../../components/ChipGroup.astro';
+import PlayerCareerTable from '../../../components/react/PlayerCareerTable';
+import PlayerGameLogTable from '../../../components/react/PlayerGameLogTable';
+import { loadPlayers, loadPlayerGames, loadPlayerShots, loadMeta, loadPlayerSeasonStats, type GameLogEntry, type PlayerSummary, type PlayerShot, type PlayerSeasonStats } from '../../../lib/stats-loader';
+import { buildPlayerShotMapSVG } from '../../../lib/rink-svg';
+import { pickTeamColor } from '../../../lib/team-colors';
+
+export async function getStaticPaths() {
+  const players = loadPlayers();
+
+  // HGBScore rank within pos_group
+  const forwards = [...players].filter(p => p.pos_group === 'F').sort((a, b) => b.avg_gs_centered - a.avg_gs_centered);
+  const defense  = [...players].filter(p => p.pos_group === 'D').sort((a, b) => b.avg_gs_centered - a.avg_gs_centered);
+  const rankMap = new Map<number, { rank: number; total: number }>();
+  forwards.forEach((p, i) => rankMap.set(p.player_id, { rank: i + 1, total: forwards.length }));
+  defense.forEach( (p, i) => rankMap.set(p.player_id, { rank: i + 1, total: defense.length }));
+
+  // RAPM rank within pos_group and overall
+  const withRapm    = players.filter(p => p.rapm != null);
+  const rapmF       = [...withRapm].filter(p => p.pos_group === 'F').sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
+  const rapmD       = [...withRapm].filter(p => p.pos_group === 'D').sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
+  const rapmAll     = [...withRapm].sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
+  const rapmRankMap = new Map<number, { rankPos: number; totalPos: number; rankAll: number; totalAll: number }>();
+  rapmF.forEach((p, i) => rapmRankMap.set(p.player_id, { rankPos: i+1, totalPos: rapmF.length, rankAll: 0, totalAll: rapmAll.length }));
+  rapmD.forEach((p, i) => rapmRankMap.set(p.player_id, { rankPos: i+1, totalPos: rapmD.length, rankAll: 0, totalAll: rapmAll.length }));
+  rapmAll.forEach((p, i) => { const r = rapmRankMap.get(p.player_id); if (r) r.rankAll = i + 1; });
+
+  // WAR percentile within pos_group (for card hero stat)
+  const withWar  = players.filter(p => p.war != null);
+  const warF     = [...withWar].filter(p => p.pos_group === 'F').sort((a, b) => (b.war ?? 0) - (a.war ?? 0));
+  const warD     = [...withWar].filter(p => p.pos_group === 'D').sort((a, b) => (b.war ?? 0) - (a.war ?? 0));
+  const warPctMap = new Map<number, number>();
+  warF.forEach((p, i) => warPctMap.set(p.player_id, Math.round(100 - (i / warF.length) * 100)));
+  warD.forEach((p, i) => warPctMap.set(p.player_id, Math.round(100 - (i / warD.length) * 100)));
+
+  function findPeers(all: PlayerSummary[], current: PlayerSummary, mode: 'war' | 'rating' = 'war') {
+    const curVal = mode === 'rating' ? (current.hgb_rating ?? current.war ?? 0) : (current.war ?? 0);
+    const candidates = all
+      .filter(p => {
+        if (p.player_id === current.player_id) return false;
+        if (p.pos_group !== current.pos_group) return false;
+        return mode === 'rating' ? (p.hgb_rating != null) : (p.war != null);
+      })
+      .sort((a, b) => {
+        const aVal = mode === 'rating' ? (a.hgb_rating ?? 0) : (a.war ?? 0);
+        const bVal = mode === 'rating' ? (b.hgb_rating ?? 0) : (b.war ?? 0);
+        return Math.abs(aVal - curVal) - Math.abs(bVal - curVal);
+      });
+    for (const band of [0.5, 1.5, 3]) {
+      const inBand = candidates.filter(p => {
+        const v = mode === 'rating' ? (p.hgb_rating ?? 0) : (p.war ?? 0);
+        return Math.abs(v - curVal) <= band;
+      });
+      if (inBand.length >= 3) return inBand.slice(0, 4);
+    }
+    return candidates.slice(0, 4);
+  }
+
+  return players.map(player => {
+    const playerGames = loadPlayerGames(player.player_id);
+    const rankInfo    = rankMap.get(player.player_id)    ?? { rank: 0, total: 0 };
+    const rapmRank    = rapmRankMap.get(player.player_id) ?? null;
+    const mapPeer = (p: PlayerSummary) => ({
+      player_id: p.player_id, slug: p.slug,
+      first_name: p.first_name, last_name: p.last_name,
+      display_name: p.display_name, team_abbrev: p.team_abbrev,
+      pos: p.pos, gp: p.gp, rapm: p.rapm, war: p.war,
+      hgb_rating: p.hgb_rating,
+    });
+    const peers        = findPeers(players, player, 'war').map(mapPeer);
+    const peersRating  = findPeers(players, player, 'rating').map(mapPeer);
+    const warPct = warPctMap.get(player.player_id) ?? null;
+    const playerSeasonStats = loadPlayerSeasonStats(player.player_id);
+    return { params: { slug: player.slug }, props: { player, playerGames, rankInfo, rapmRank, peers, peersRating, warPct, playerSeasonStats } };
+  });
+}
+
+interface Props {
+  player: PlayerSummary;
+  playerGames: GameLogEntry[];
+  rankInfo: { rank: number; total: number };
+  rapmRank: { rankPos: number; totalPos: number; rankAll: number; totalAll: number } | null;
+  peers: Array<{
+    player_id: number; slug: string; first_name: string; last_name: string;
+    display_name: string; team_abbrev: string; pos: string; gp: number;
+    rapm: number | null; war: number | null; hgb_rating: number | null;
+  }>;
+  peersRating: Array<{
+    player_id: number; slug: string; first_name: string; last_name: string;
+    display_name: string; team_abbrev: string; pos: string; gp: number;
+    rapm: number | null; war: number | null; hgb_rating: number | null;
+  }>;
+  warPct: number | null;
+  playerSeasonStats: PlayerSeasonStats;
+}
+
+const { player, playerGames, rankInfo, rapmRank, peers, peersRating, warPct, playerSeasonStats } = Astro.props;
+
+function fmtToi(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+function fmtDate(d: string): string {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const [, mm, dd] = d.split('-');
+  return `${months[parseInt(mm) - 1]} ${parseInt(dd)}`;
+}
+function sign(n: number): string { return n >= 0 ? '+' : ''; }
+function ordinalSuffix(n: number): string {
+  const abs = Math.round(n);
+  const m10 = abs % 10, m100 = abs % 100;
+  if (m100 >= 11 && m100 <= 13) return `${abs}th`;
+  if (m10 === 1) return `${abs}st`;
+  if (m10 === 2) return `${abs}nd`;
+  if (m10 === 3) return `${abs}rd`;
+  return `${abs}th`;
+}
+
+// RAPM values are already per-60 units — use directly
+const rapmNet = player.rapm     ?? null;
+const rapmOff = player.rapm_off ?? null;
+const rapmDef = player.rapm_def ?? null;
+
+const teamColor     = pickTeamColor(player.team_abbrev);
+const headshotUrl   = `https://api.hockeygamebot.com/v1/proxy/headshot/${player.team_abbrev}/${player.player_id}`;
+const allGames      = [...playerGames].sort((a, b) => a.game_date.localeCompare(b.game_date));
+const recentGames   = [...allGames].reverse();  // all games, newest first
+const totalGoals    = playerGames.reduce((s, g) => s + g.goals,   0);
+const totalAssists  = playerGames.reduce((s, g) => s + g.assists, 0);
+
+// Points/60 (total TOI, includes PP)
+const totTOIhr = (player.toi_avg_sec * player.gp) / 3600;
+const pts60 = totTOIhr > 0 ? +((totalGoals + totalAssists) / totTOIhr).toFixed(2) : null;
+
+// ── Impact season trend chart ─────────────────────────────────────────────
+const IW = 680, IH = 160;
+const IP = { t: 16, r: 8, b: 24, l: 38 };
+const iCW = IW - IP.l - IP.r, iCH = IH - IP.t - IP.b;
+const iN   = allGames.length || 1;
+const iGS  = allGames.map(g => g.gs_display);
+const iMin = -5, iMax = 12;  // fixed scale matches sparklines
+const ipx  = (i: number) => IP.l + (i / (iN - 1 || 1)) * iCW;
+const ipy  = (v: number) => IP.t + iCH - ((v - iMin) / (iMax - iMin)) * iCH;
+const ipy0 = ipy(0);
+const iPath = allGames.map((g, i) =>
+  `${i === 0 ? 'M' : 'L'}${ipx(i).toFixed(1)},${ipy(g.gs_display).toFixed(1)}`
+).join(' ');
+const iArea = allGames.length >= 2
+  ? `${iPath} L${ipx(iN-1).toFixed(1)},${ipy0.toFixed(1)} L${IP.l},${ipy0.toFixed(1)} Z`
+  : '';
+const posLabel      = player.pos_group === 'F' ? 'Forward' : 'Defenseman';
+const posPlural     = player.pos_group === 'F' ? 'forwards' : 'defensemen';
+
+// ── Build-time freshness ───────────────────────────────────────────────────
+const _meta      = loadMeta();
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
+
+// ── Shot map data ──────────────────────────────────────────────────────────
+const playerShots = loadPlayerShots(player.player_id);
+const shotMapSVG  = playerShots.length > 0
+  ? buildPlayerShotMapSVG(playerShots as [number, number, number, string][], teamColor)
+  : '';
+
+// ── Season stats helpers ────────────────────────────────────────────────────
+// Sorted descending by season string (e.g. "2025-26" > "2024-25")
+const seasonStatsSorted = [...(playerSeasonStats.regular ?? [])].sort(
+  (a, b) => (b.season ?? '').localeCompare(a.season ?? '')
+);
+// Most recent season entry (for default EV RAPM bar values)
+const latestSeasonEntry = seasonStatsSorted[0] ?? null;
+const defaultRapmOffPct: number | null = latestSeasonEntry?.rapm_off_pct ?? null;
+const defaultRapmDefPct: number | null = latestSeasonEntry?.rapm_def_pct ?? null;
+
+const pctBars = [
+  { label: 'EV Offense', key: 'ev_offence', val: player.percentiles_vs_pos.ev_offence, grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  { label: 'EV Defense', key: 'ev_defence', val: player.percentiles_vs_pos.ev_defence, grad: 'linear-gradient(90deg,#e8f0fe,#4285f4)' },
+  { label: 'Goals / 60', key: 'goals',      val: player.percentiles_vs_pos.goals,       grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  { label: 'A1 / 60',    key: 'a1',         val: player.percentiles_vs_pos.a1,          grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  { label: 'xG / 60',    key: 'ixg',        val: player.percentiles_vs_pos.ixg,         grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  { label: 'Finishing',  key: 'finishing',  val: player.percentiles_vs_pos.finishing,    grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  { label: 'Shots / 60', key: 'shots',      val: player.percentiles_vs_pos.shots,       grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  { label: 'Pen. Diff',  key: 'pen_diff',   val: player.percentiles_vs_pos.pen_diff,    grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  ...(player.qoc != null ? [{ label: 'Opp. Quality', key: 'qoc', val: player.qoc, grad: 'linear-gradient(90deg,#f8d7da,#842029)' }] : []),
+  ...(player.qot != null ? [{ label: 'Mate Quality', key: 'qot', val: player.qot, grad: 'linear-gradient(90deg,#e8f0fe,#4285f4)' }] : []),
+];
+
+// ── Enrich career_seasons with RAPM percentiles from player_season_stats ──────
+// career_seasons uses "20252026" format; playerSeasonStats uses "2025-26" format.
+// Normalize both to "2025-26" for joining.
+function normalizeSeason(s: string): string {
+  if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(6)}`;
+  return s;
+}
+// Build lookup from normalized season → season stats entry
+const seasonStatsLookup = new Map<string, typeof seasonStatsSorted[0]>();
+seasonStatsSorted.forEach(e => {
+  if (e.season) seasonStatsLookup.set(normalizeSeason(e.season), e);
+});
+// Current season normalized key — used to override with authoritative players.json values
+const currentSeasonNorm = normalizeSeason(seasonStatsSorted[0]?.season ?? '');
+
+// Enrich each career season row with RAPM + HGB Rating + WAR + Impact from player_season_stats.
+// For 2025-26: override with authoritative values from players.json (same as page hero).
+// Historical seasons use simplified pipeline formula (different computation, labeled in footnote).
+const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
+  const norm    = normalizeSeason(cs.season ?? '');
+  const entry   = seasonStatsLookup.get(norm);
+  const isCurrent = norm === currentSeasonNorm;
+  return {
+    ...cs,
+    rapm_net_pct:   entry?.rapm_net_pct ?? null,
+    hgb_rating_pct: isCurrent ? (player.hgb_rating_percentile ?? null) : (entry?.hgb_rating_pct ?? null),
+    war_pct:        isCurrent ? (warPct ?? null)                        : (entry?.war_pct        ?? null),
+    impact_pct:     isCurrent ? Math.round(player.percentiles_vs_pos.game_score) : (entry?.impact_pct ?? null),
+  };
+});
+
+// Career seasons are passed directly to PlayerCareerTable (React component).
+// Game log is passed directly to PlayerGameLogTable (React component).
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{player.first_name} {player.last_name} — HGB Stats</title>
+  <meta name="description" content={`${player.first_name} ${player.last_name} (${player.team_abbrev}, ${player.pos}) — ${player.gp} GP, ${totalGoals}G ${totalAssists}A. Season rates, percentiles, and RAPM.`} />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #EFEEE8;
+      --ink:     #0d0d14;
+      --red:     #E8002D;
+      --surface: #FFFFFF;
+      --ink-06:  rgba(13,13,20,0.06);
+      --ink-10:  rgba(13,13,20,0.10);
+      --ink-14:  rgba(13,13,20,0.14);
+      --ink-20:  rgba(13,13,20,0.20);
+      --ink-32:  rgba(13,13,20,0.32);
+      --ink-48:  rgba(13,13,20,0.48);
+      --ink-72:  rgba(13,13,20,0.72);
+      --display:   'Barlow Condensed', sans-serif;
+      --body:      'Barlow', sans-serif;
+      --mono:      'JetBrains Mono', monospace;
+      --grid-line: rgba(13,13,20,0.04);
+    }
+    /* ── MASTHEAD REDESIGN ── */
+    .mast-card {
+      background: var(--surface); border: 1px solid var(--ink-14);
+      border-left: 6px solid currentColor; padding: 28px 32px;
+      display: flex; align-items: center; gap: 0; position: relative;
+    }
+    .mast-left { display: flex; align-items: center; gap: 28px; flex: 1; min-width: 0; }
+    .headshot-circle-wrap { flex-shrink: 0; }
+    .headshot-circle {
+      width: 110px; height: 110px; border-radius: 50%; object-fit: cover;
+      border: 3px solid var(--team-c, var(--ink)); display: block;
+    }
+    .identity-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .player-name {
+      font-family: var(--display); font-weight: 800; font-size: clamp(36px,4.5vw,56px);
+      text-transform: uppercase; line-height: 0.95; letter-spacing: -0.01em; color: var(--ink);
+    }
+    .player-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
+
+    /* Hero tiles — flex row, shrink-0 on the right */
+    .mast-right { display: flex; gap: 12px; flex-shrink: 0; margin-left: 28px; }
+    .hero-tile {
+      background: var(--bg); border: 1px solid var(--ink-14);
+      padding: 16px 10px; text-align: center; min-width: 150px;
+      flex: 1 1 0;
+    }
+    .tile-label { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 6px; }
+    .tile-big { font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1; letter-spacing: -0.02em; }
+    .tile-sub { font-family: var(--mono); font-size: 10px; color: var(--ink-48); margin-top: 4px; }
+
+    /* G·A top row / PTS bottom — 2-row season tile */
+    .season-tile { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; gap: 0; padding: 14px 10px; min-width: 130px; }
+    .season-cell { text-align: center; padding: 4px 8px; }
+    .season-cell.ga { border-bottom: 1px solid var(--ink-06); }
+    .season-cell.ga + .season-cell.ga { border-left: 1px solid var(--ink-06); }
+    .season-cell.pts { grid-column: 1 / -1; padding-top: 8px; }
+    .season-cell-val { font-family: var(--display); font-weight: 800; font-size: 26px; line-height: 1; color: var(--ink); }
+    .season-cell-lbl { font-family: var(--mono); font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink-32); margin-top: 3px; }
+
+    /* Shot map */
+    .shot-map-wrap { padding: 12px 16px 16px; overflow: hidden; }
+    .shot-map-svg { width: 100%; height: auto; display: block; overflow: visible; }
+    .shot-map-legend { display: flex; align-items: center; gap: 16px; font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.04em; margin-top: 8px; justify-content: center; }
+    .sm-legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+    .sm-legend-shot { background: transparent; border: 1.5px solid; }
+
+    /* Breadcrumb */
+    .breadcrumb { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--ink-32); margin-bottom: 14px; }
+    .breadcrumb a { color: var(--ink-48); text-decoration: none; }
+    .breadcrumb a:hover { color: var(--ink); }
+
+    /* WAR breakdown card — matches percentile bar design language */
+    .war-components { display: flex; flex-direction: column; gap: 0; padding: 0; }
+    .war-row { display: grid; grid-template-columns: 110px 1fr 52px; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--ink-06); }
+    .war-row:last-child { border-bottom: 0; }
+    .war-row-label { font-family: var(--display); font-weight: 500; font-size: 13px; color: rgba(13,13,20,0.72); }
+    .war-bar-track { height: 10px; background: var(--ink-06); border-radius: 2px; overflow: hidden; }
+    .war-bar-fill { height: 100%; border-radius: 2px; }
+    .war-row-val { font-family: var(--mono); font-weight: 700; font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+    .war-total-row { display: flex; align-items: center; justify-content: space-between; margin: 4px 18px 0; padding: 14px 0; border-top: 1px solid var(--ink-06); }
+    .war-total-label { font-family: var(--display); font-weight: 700; font-size: 11px; color: rgba(13,13,20,0.72); text-transform: uppercase; letter-spacing: 0.08em; }
+    .war-total-val { font-family: var(--mono); font-weight: 800; font-size: 22px; line-height: 1; }
+    .war-total-val.pos { color: #00A86B; }
+    .war-total-val.neg { color: var(--red); }
+    .war-rank-note { font-family: var(--mono); font-size: 10px; color: var(--ink-32); text-align: center; padding: 0 18px 14px; letter-spacing: 0.03em; }
+
+    /* Career stats table — chrome lives in Table.astro now; only the card wrap
+       is page-specific. */
+    .career-card .tbl-wrap { border: none; }
+
+    /* Active season row highlight (set by JS season selector) */
+    :global(.career-row-active) {
+      background: rgba(13,13,20,0.06) !important;
+      border-left: 3px solid currentColor;
+    }
+
+    /* RAPM bar season tooltip — shown below the EV bar label in SEASON mode */
+    .rapm-bar-season-tooltip {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: rgba(13,13,20,0.38);
+      letter-spacing: 0.02em;
+      margin-top: 2px;
+      display: block;
+    }
+
+    /* Percentile bars */
+    .pct-row { display: grid; grid-template-columns: 100px 40px 1fr 44px; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--ink-06); }
+    .pct-row:last-child { border-bottom: 0; }
+    .pct-label { font-family: var(--display); font-weight: 500; font-size: 13px; color: rgba(13,13,20,0.72); }
+    .pct-rate { font-family: var(--mono); font-weight: 400; font-size: 10px; color: rgba(13,13,20,0.45); min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+    .pct-track { height: 10px; background: var(--ink-06); border-radius: 2px; overflow: hidden; }
+    .pct-fill { height: 100%; border-radius: 2px; }
+    .pct-pct { font-family: var(--mono); font-weight: 700; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* RAPM grid */
+    .rapm-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+
+    /* Rate stats sidebar grid */
+    .rate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--ink-06); }
+    .rate-cell { background: var(--surface); padding: 14px 16px; }
+    .rate-lbl { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 4px; }
+    .rate-val { font-family: var(--display); font-weight: 800; font-size: 26px; line-height: 1; letter-spacing: -0.01em; color: var(--ink); }
+    .rate-val.neg { color: var(--red); }
+    .rate-val.pos-green { color: #14803c; }
+
+    /* Quick links sidebar */
+    .quick-links { display: flex; flex-direction: column; }
+    .quick-link { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--ink-06); text-decoration: none; color: var(--ink); font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; }
+    .quick-link:last-child { border-bottom: none; }
+    .quick-link:hover { background: var(--bg); }
+    .quick-link-arrow { color: var(--ink-32); }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; }
+
+
+    /* Layout */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+
+    /* Masthead — full-bleed grid (matches Teams/Home/Stats pattern) */
+    .mast {
+      position: relative; overflow: hidden;
+      border-bottom: 2px solid var(--ink);
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px;
+    }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-top a { color: var(--ink-48); text-decoration: none; }
+    .mast-top a:hover { color: var(--ink); }
+    /* .mast-card defined above in NEW DESIGN ADDITIONS — no override here */
+    .hero { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; }
+    .headshot-wrap { position: relative; width: 168px; flex-shrink: 0; }
+    .headshot { width: 168px; height: 168px; object-fit: cover; border: 2px solid var(--ink-14); background: var(--surface); display: block; }
+    .headshot-team-bar { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; }
+    .hero-identity { display: flex; flex-direction: column; gap: 8px; }
+    .hero-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+    .badge { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); border: 1px solid var(--ink-14); padding: 2px 8px; }
+    .hero-name { font-family: var(--display); font-weight: 800; text-transform: uppercase; line-height: 0.92; letter-spacing: -0.01em; }
+    .hero-name .first { font-size: 24px; color: var(--ink-48); font-weight: 700; }
+    .hero-name .last  { font-size: clamp(40px, 5vw, 64px); color: var(--ink); display: block; }
+
+    /* Stats table */
+    .stats-table { display: grid; grid-template-columns: 110px repeat(6, 1fr); border-top: 1px solid var(--ink-10); margin-top: 10px; }
+    .stat-val.war-pos { color: #14803c; }
+    .stat-val.war-neg { color: var(--red); }
+    .stats-cell { padding: 8px 6px 6px; }
+    .stats-cell.col-header { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); padding-bottom: 4px; border-bottom: 1px solid var(--ink-10); text-align: center; }
+    .stats-cell.season-lbl { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); border-bottom: 1px solid var(--ink-06); display: flex; align-items: center; }
+    .stats-cell.stat-val { font-family: var(--mono); font-weight: 700; font-size: 18px; color: var(--ink); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--ink-06); text-align: center; }
+
+    /* Content grid */
+    .content { display: grid; grid-template-columns: 1fr 280px; gap: 24px; padding: 28px 0 80px; align-items: start; }
+    .explore-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+    .explore-pill { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-48); border: 1px solid var(--ink-14); padding: 5px 10px; text-decoration: none; transition: color 0.1s, border-color 0.1s; white-space: nowrap; }
+    .explore-pill:hover { color: var(--ink); border-color: var(--ink-32); }
+
+    /* Card-head chip groups push to the right edge (was inline margin-left:auto) */
+    :global(.chip-group.rapm-mode-chips),
+    :global(.chip-group.peers-mode-chips) { margin-left: auto; }
+    .content-main { display: flex; flex-direction: column; gap: 16px; grid-column: 1; grid-row: 1 / span 999; min-width: 0; }
+    .content-side { display: flex; flex-direction: column; gap: 16px; grid-column: 2; }
+    .cta-card { grid-column: 2; align-self: start; }
+
+    /* Cards */
+    .card { background: var(--surface); border: 1px solid var(--ink-14); box-shadow: 0 1px 3px rgba(13,13,20,0.06); }
+    .card-head { padding: 14px 18px 12px; border-bottom: 1px solid var(--ink-06); display: flex; align-items: baseline; justify-content: space-between; }
+    .card-eyebrow { font-family: var(--body); font-weight: 700; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(13,13,20,0.72); }
+    .card-eyebrow .accent { color: var(--red); }
+    .card-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .card-meta-link { color: var(--ink-48); text-decoration: none; }
+    .card-meta-link:hover { color: var(--ink-72); text-decoration: underline; }
+    .career-card .card-head { padding: 18px 18px 16px; align-items: center; }
+    .career-card .card-eyebrow { font-size: 12px; }
+
+    /* RAPM */
+    .rapm-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; }
+    .rapm-cell { padding: 18px 16px 16px; border-right: 1px solid var(--ink-06); text-align: center; }
+    .rapm-cell:last-child { border-right: 0; }
+    .rapm-cell.net { background: var(--bg); }
+    .rapm-val { font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .rapm-val.pos { color: #14803c; }
+    .rapm-val.neg { color: var(--red); }
+    .rapm-val.net-val { font-size: 56px; }
+    .rapm-val.null-val { font-size: 32px; color: var(--ink-32); }
+    .rapm-dim { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-32); margin-top: 4px; }
+    .rapm-context { padding: 10px 18px; border-top: 1px solid var(--ink-06); font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
+    .rapm-context strong { color: var(--ink); }
+
+    /* Percentile bars — layout defined above in NEW DESIGN ADDITIONS */
+    .pct-rows { display: flex; flex-direction: column; gap: 0; }
+
+    /* Game log */
+    /* Game log — chrome lives in Table.astro now. */
+
+    /* ── Impact trend chart ── */
+    .impact-chart-wrap { padding: 0 2px 4px; }
+    .impact-chart-svg  { width: 100%; height: auto; display: block; overflow: visible; }
+    .impact-dot { cursor: crosshair; }
+    #imp-tip { position: fixed; pointer-events: none; display: none; z-index: 100;
+      background: var(--surface); color: var(--ink); padding: 6px 10px;
+      font-family: var(--mono); font-size: 10px; white-space: nowrap; border-radius: 2px;
+      border: 1px solid var(--ink-14); box-shadow: 0 2px 8px rgba(13,13,20,0.12); }
+    #imp-tip .tip-ctx  { color: var(--ink-48); margin-right: 6px; }
+    #imp-tip .tip-val  { font-weight: 700; }
+
+    /* CTA sidebar card */
+    .cta-card { background: var(--ink); padding: 22px 18px; }
+    .cta-title { font-family: var(--display); font-weight: 800; font-size: 22px; text-transform: uppercase; color: #fff; letter-spacing: 0.01em; margin-bottom: 6px; }
+    .cta-desc { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.4); letter-spacing: 0.04em; margin-bottom: 16px; line-height: 1.6; }
+    .cta-formats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+    .cta-fmt { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 8px; border: 1px solid rgba(255,255,255,0.16); color: rgba(255,255,255,0.48); cursor: pointer; }
+    .cta-btn { display: block; width: 100%; background: var(--red); color: #fff; font-family: var(--body); font-weight: 700; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; border: none; cursor: pointer; text-align: center; text-decoration: none; }
+    .cta-note { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: rgba(255,255,255,0.24); margin-top: 8px; text-align: center; }
+
+    /* Similar players */
+    .peer-strip { display: flex; flex-direction: column; gap: 0; }
+    .peer-row { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--ink-06); text-decoration: none; color: inherit; }
+    .peer-row:last-child { border-bottom: 0; }
+    .peer-row:hover { background: var(--bg); }
+    .peer-name { font-family: var(--display); font-weight: 500; font-size: 13px; color: rgba(13,13,20,0.72); flex: 1; }
+    .peer-meta { font-family: var(--display); font-weight: 400; font-size: 10px; color: rgba(13,13,20,0.48); letter-spacing: 0; }
+    .peer-rapm { font-family: var(--mono); font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+    .peer-rapm.pos { color: #00A86B; }
+    .peer-rapm.neg { color: var(--red); }
+
+    /* Methodology */
+    .method-card { padding: 14px 18px; }
+    .method-text { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.03em; line-height: 1.65; }
+    .method-link { display: inline-block; margin-top: 10px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--red); text-decoration: none; }
+
+    /* Footer */
+    footer { background: var(--ink); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.24); letter-spacing: 0.06em; text-align: center; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .mast-inner { padding: 24px 20px; }
+      .mast-top { flex-direction: column; align-items: flex-start; gap: 6px; }
+      .hero { grid-template-columns: 1fr; gap: 18px; }
+      .headshot-wrap { width: 120px; }
+      .headshot { width: 120px; height: 120px; }
+      .stats-table { overflow-x: auto; display: block; white-space: nowrap; }
+      /* minmax(0,1fr) stops 1fr expanding to children's min-content width */
+      .content { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 20px 0 60px; }
+      .content-main { grid-column: 1; grid-row: unset; order: 2; min-width: 0; overflow: hidden; }
+      .cta-card     { grid-column: 1; order: 1; }
+      .content-side { grid-column: 1; order: 3; min-width: 0; overflow: hidden; }
+      .wrap { padding: 0 20px; }
+      .rapm-val.net-val { font-size: 44px; }
+      .rapm-val { font-size: 36px; }
+
+      /* ── Masthead: stack left (headshot+name) above right (tiles) ── */
+      .mast-card {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 16px 18px 14px;
+        gap: 14px;
+      }
+      .mast-left { gap: 16px; }
+      .headshot-circle { width: 72px; height: 72px; }
+      .player-name { font-size: clamp(28px, 7vw, 44px); }
+      /* Tiles become equal-width flex row across full card width */
+      .mast-right {
+        margin-left: 0;
+        gap: 8px;
+      }
+      .hero-tile {
+        flex: 1;
+        min-width: 0;
+        padding: 10px 8px;
+      }
+      .tile-big { font-size: 28px; }
+      .tile-label { font-size: 10px; margin-bottom: 4px; }
+      .tile-sub { font-size: 10px; }
+      .season-tile { min-width: 0; padding: 10px 8px; }
+      .season-cell-val { font-size: 20px; }
+      .season-cell-lbl { font-size: 10px; }
+    }
+
+    @media (max-width: 480px) {
+      .mast-inner { padding: 16px; }
+      .mast-card { padding: 14px 14px 12px; gap: 12px; }
+      .wrap { padding: 0 16px; }
+      .headshot-circle { width: 64px; height: 64px; }
+      .player-name { font-size: clamp(24px, 7.5vw, 38px); }
+      .hero-name .last { font-size: clamp(32px, 8vw, 52px); }
+      .headshot-wrap { width: 100px; }
+      .headshot { width: 100px; height: 100px; }
+      .mast-right { gap: 6px; }
+      .hero-tile  { padding: 10px 6px; }
+      .rapm-grid { grid-template-columns: 1fr 1fr; }
+      .rapm-cell.net { grid-column: 1 / -1; border-bottom: 1px solid var(--ink-06); border-right: none; }
+      .rapm-val.net-val { font-size: 40px; }
+      .rapm-val { font-size: 32px; }
+      /* Percentile bars: compress rate column */
+      .pct-row { grid-template-columns: 76px 32px 1fr 36px; gap: 5px; padding: 8px 12px; }
+      .pct-label { font-size: 11px; }
+      .pct-rate { font-size: 9px; }
+      .pct-pct { font-size: 11px; }
+      .content { padding: 16px 0 48px; }
+      /* WAR breakdown: tighter label column */
+      .war-row { grid-template-columns: 90px 1fr 44px; gap: 8px; padding: 9px 12px; }
+      .war-row-label { font-size: 11px; }
+      .war-row-val { font-size: 13px; }
+      /* Card heads: allow meta to wrap below eyebrow */
+      .card-head { flex-wrap: wrap; gap: 2px 8px; padding: 12px 14px 10px; }
+      .card-meta { font-size: 9px; }
+    }
+
+    /* ── NHL EDGE section ── */
+    .edge-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--ink-06); border-bottom: 1px solid var(--ink-06); }
+    .edge-stat-cell { background: var(--surface); padding: 14px 18px 12px; display: flex; flex-direction: column; gap: 4px; }
+    .edge-stat-lbl  { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.08em; text-transform: uppercase; }
+    .edge-stat-val  { font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1; color: var(--ink); }
+    .edge-stat-unit { font-family: var(--body); font-weight: 600; font-size: 14px; color: var(--ink-48); }
+    .edge-bar-track { height: 7px; background: var(--ink-06); border-radius: 2px; overflow: hidden; }
+    .edge-bar-fill  { height: 100%; border-radius: 2px; transition: width 0.3s; }
+    .edge-stat-pct  { font-family: var(--body); font-weight: 600; font-size: 11px; }
+    .edge-stat-avg  { font-family: var(--mono); font-size: 10px; color: var(--ink-32); }
+
+    .edge-zone { padding: 16px 18px 14px; border-bottom: 1px solid var(--ink-06); }
+    .edge-zone-lbl  { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+    .edge-zone-note { color: var(--team-color, var(--ink)); font-weight: 700; }
+    .edge-zone-bar  { height: 20px; display: flex; border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+    .edge-zone-oz   { background: var(--team-color, var(--ink)); }
+    .edge-zone-nz   { background: rgba(13,13,20,0.15); }
+    .edge-zone-dz   { background: rgba(232,0,45,0.28); }
+    .edge-zone-labels { display: flex; }
+    .edge-zone-seg  { display: flex; flex-direction: column; min-width: 0; }
+    .edge-zone-pct  { font-family: var(--display); font-weight: 800; font-size: 18px; color: var(--ink); line-height: 1; }
+    .edge-zone-name { font-family: var(--mono); font-size: 10px; color: var(--ink-48); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+
+    .edge-shot-header { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.08em; text-transform: uppercase; padding: 14px 18px 10px; border-bottom: 1px solid var(--ink-06); }
+    .edge-shot-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--ink-06); }
+    .edge-shot-col  { background: var(--surface); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+    .edge-shot-chip { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 7px; border-radius: 2px; background: var(--ink-06); color: var(--ink-48); width: fit-content; }
+    .edge-shot-chip.accent-chip { background: rgba(var(--team-color-rgb, 0,32,91), 0.10); color: var(--team-color, var(--ink)); }
+    .edge-shot-row  { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .edge-shot-sublbl { font-family: var(--mono); font-size: 10px; color: var(--ink-32); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1px; }
+    .edge-shot-n    { font-family: var(--display); font-weight: 800; font-size: 22px; color: var(--ink); line-height: 1; }
+    .edge-shot-pct  { font-family: var(--body); font-size: 10px; font-weight: 600; margin: 1px 0; }
+    .edge-mini-bar  { height: 4px; background: var(--ink-06); border-radius: 2px; overflow: hidden; }
+    .edge-mini-fill { height: 100%; border-radius: 2px; }
+  </style>
+
+  <meta property="og:title" content={`${player.first_name} ${player.last_name} · HGB Stats · HockeyGameBot`} />
+  <meta property="og:description" content={`Season-by-season Rating, WAR, Impact, and RAPM for ${player.first_name} ${player.last_name}.`} />
+  <meta property="og:image" content="https://hockeygamebot.com/og/player.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://hockeygamebot.com/og/player.png" />
+</head>
+<body>
+
+<Nav currentPath={Astro.url.pathname} />
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="breadcrumb">
+      <a href="/stats">HGB Stats</a> / <a href="/stats/skaters">Players</a> / {player.first_name} {player.last_name}
+    </div>
+    <div class="mast-card" style={`border-left-color: ${teamColor}; color: ${teamColor}; --team-c: ${teamColor}`}>
+      <!-- Left: headshot + identity -->
+      <div class="mast-left">
+        <div class="headshot-circle-wrap">
+          <img class="headshot-circle" src={headshotUrl}
+            alt={`${player.first_name} ${player.last_name}`}
+            width="110" height="110" style={`border-color: ${teamColor}`} />
+        </div>
+        <div class="identity-text">
+          <div class="player-name">{player.first_name}<br/>{player.last_name}</div>
+          <div class="player-meta">
+            {player.team_abbrev} · {posLabel} · {player.gp} GP · 2025–26{_statsDate ? ` · updated ${_statsDate}` : ''}
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: 3 stat tiles -->
+      <div class="mast-right">
+        <div class="hero-tile">
+          <div class="tile-label">Rating</div>
+          <div class="tile-big" style={`color:${teamColor}`}>
+            {player.hgb_rating_percentile != null ? `${player.hgb_rating_percentile}%` : '—'}
+          </div>
+          <div class="tile-sub">
+            {player.hgb_rating != null ? `${player.hgb_rating > 0 ? '+' : ''}${player.hgb_rating.toFixed(2)} Rating` : '—'}
+            {(player.hgb_rating_confidence === 'limited' || player.hgb_rating_confidence === 'limited_sample') ? ' · limited sample' : ''}
+          </div>
+        </div>
+        <div class="hero-tile">
+          <div class="tile-label">WAR</div>
+          <div class="tile-big" style={`color:${teamColor}`}>
+            {warPct != null ? `${warPct}%` : '—'}
+          </div>
+          <div class="tile-sub">
+            {player.war != null ? `${sign(player.war)}${player.war.toFixed(2)} WAR` : '—'}
+          </div>
+        </div>
+        <div class="hero-tile">
+          <div class="tile-label">Impact</div>
+          <div class="tile-big" style={`color:${teamColor}`}>
+            {Math.round(player.percentiles_vs_pos.game_score)}%
+          </div>
+          <div class="tile-sub">{sign(player.avg_gs_display)}{player.avg_gs_display.toFixed(2)} avg</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <div class="content">
+
+    <!-- MAIN -->
+    <div class="content-main">
+
+      <!-- EXPLORE PILLS -->
+      <div class="explore-pills">
+        <a href={`/stats/lines?team=${player.team_abbrev}&player=${player.player_id}`} class="explore-pill">{player.first_name}'s Line Combos →</a>
+        <a href={`/stats/wowy?player=${player.player_id}`} class="explore-pill">WOWY — With or Without →</a>
+        <a href="/stats/skaters" class="explore-pill">Leaderboards →</a>
+      </div>
+
+      <!-- WAR BREAKDOWN (hidden for soft launch) -->
+      {false && player.war != null && (() => {
+        const wc          = player.war_components;
+        const ev5RapmComp = wc?.ev5_rapm_war  ?? wc?.ev5 ?? 0;
+        const finishComp  = wc?.finishing_war  ?? 0;
+        const ppComp      = wc?.pp  ?? 0;
+        const pkComp      = wc?.pk  ?? 0;
+        const penComp     = wc?.pen ?? 0;
+        const fmt     = (v: number) => (v >= 0 ? '+' : '') + v.toFixed(2);
+        // Scale so the largest component fills ~85% of the bar track
+        const maxAbs  = Math.max(Math.abs(ev5RapmComp), Math.abs(finishComp), Math.abs(ppComp), Math.abs(pkComp), Math.abs(penComp), 0.01);
+        const BAR_REF = maxAbs / 0.85;
+        const pct     = (v: number) => Math.max(0, Math.min(100, (Math.abs(v) / BAR_REF) * 100)).toFixed(1);
+        const mkRow = (label: string, val: number) => ({
+          label, val,
+          barC: val >= 0.02 ? '#137333' : val < -0.01 ? 'var(--red)' : 'rgba(13,13,20,0.20)',
+          valC: val >= 0.02 ? '#137333' : val < -0.01 ? 'var(--red)' : 'var(--ink-32)',
+        });
+        const rows = [
+          mkRow('EV5 RAPM',          ev5RapmComp),
+          mkRow('Finishing',         finishComp),
+          mkRow('PP RAPM',           ppComp),
+          mkRow('PK RAPM',           pkComp),
+          mkRow('Pen. Differential', penComp),
+        ].filter(r => wc != null || r.label === 'EV5 RAPM');
+        return (
+          <div class="card">
+            <div class="card-head">
+              <span class="card-eyebrow">WAR <span class="accent">Breakdown</span></span>
+              <span class="card-meta">2025–26 season · WAR components</span>
+            </div>
+            <div class="war-components">
+              {rows.map(r => (
+                <div class="war-row">
+                  <div class="war-row-label">{r.label}</div>
+                  <div class="war-bar-track">
+                    <div class="war-bar-fill" style={`width:${pct(r.val)}%;background:${r.barC}`}></div>
+                  </div>
+                  <div class="war-row-val" style={`color:${r.valC}`}>{fmt(r.val)}</div>
+                </div>
+              ))}
+            </div>
+            <div class="war-total-row">
+              <div class="war-total-label">Total WAR</div>
+              <div class={`war-total-val ${player.war >= 0 ? 'pos' : 'neg'}`}>{fmt(player.war)}</div>
+            </div>
+          </div>
+        );
+      })()}
+
+      <!-- CAREER STATS TABLE -->
+      {player.career_seasons && player.career_seasons.length > 0 && (
+        <div class="card career-card">
+          <div class="card-head">
+            <span class="card-eyebrow">Career Stats &nbsp;<span class="accent">Season by Season</span></span>
+            <a href={`/stats/skaters?player=${player.slug}`} class="card-meta card-meta-link">See in Skater Stats →</a>
+          </div>
+          <PlayerCareerTable
+            client:load
+            seasons={enrichedCareerSeasons}
+            playerTeam={player.team_abbrev}
+          />
+        </div>
+      )}
+
+      <!-- PERCENTILE PROFILE (hidden for soft launch) -->
+      {false && (() => {
+        // EV RAPM bars — swap between season percentile and 3yr Rating percentile
+        // SEASON tab: uses single-season RAPM percentile from player_season_stats.json
+        //   falls back to on-ice percentile when rapm_off/def_pct is null
+        // HGB RATING tab: uses blended multi-season rating from players.json (unchanged)
+        const evOffSeasonVal = defaultRapmOffPct ?? player.percentiles_vs_pos.ev_offence;
+        const evDefSeasonVal = defaultRapmDefPct ?? player.percentiles_vs_pos.ev_defence;
+        const rapmBars = [
+          {
+            label: 'EV Offense',
+            key: 'ev_offence',
+            val: evOffSeasonVal,
+            ratingVal: player.hgb_rating_off_pct ?? null,
+            isBlue: false,
+            isRed: false,
+            // tooltip shown in SEASON tab — signals single-season isolated RAPM
+            seasonTooltip: defaultRapmOffPct != null ? 'Single-season RAPM · isolated from teammates/opponents' : null,
+          },
+          {
+            label: 'EV Defense',
+            key: 'ev_defence',
+            val: evDefSeasonVal,
+            ratingVal: player.hgb_rating_def_pct ?? null,
+            isBlue: true,
+            isRed: false,
+            seasonTooltip: defaultRapmDefPct != null ? 'Single-season RAPM · isolated from teammates/opponents' : null,
+          },
+        ];
+        // Counting stat bars — swap between season and 3yr weighted percentiles
+        const rateBars = [
+          { label: 'Goals / 60', key: 'goals',    val: player.percentiles_vs_pos.goals,     ratingPct: player.g_60_pct_3yr ?? null,        ratingRate: player.g_60_3yr ?? null,        isBlue: false, isRed: false },
+          { label: 'A1 / 60',    key: 'a1',       val: player.percentiles_vs_pos.a1,        ratingPct: player.a1_60_pct_3yr ?? null,       ratingRate: player.a1_60_3yr ?? null,       isBlue: false, isRed: false },
+          { label: 'xG / 60',    key: 'ixg',      val: player.percentiles_vs_pos.ixg,       ratingPct: player.xg_60_pct_3yr ?? null,       ratingRate: player.xg_60_3yr ?? null,       isBlue: false, isRed: false },
+          { label: 'Finishing',  key: 'finishing', val: player.percentiles_vs_pos.finishing, ratingPct: player.finishing_pct_3yr ?? null,   ratingRate: player.finishing_3yr ?? null,   isBlue: false, isRed: false },
+          { label: 'Shots / 60', key: 'shots',    val: player.percentiles_vs_pos.shots,     ratingPct: player.s_60_pct_3yr ?? null,        ratingRate: player.s_60_3yr ?? null,        isBlue: false, isRed: false },
+          { label: 'Pen. Diff',  key: 'pen_diff', val: player.percentiles_vs_pos.pen_diff,  ratingPct: player.pen_diff_pct_3yr ?? null,    ratingRate: player.pen_diff_60_3yr ?? null, isBlue: false, isRed: false },
+          ...(player.qoc != null ? [{ label: 'Opp. Quality', key: 'qoc', val: player.qoc, ratingPct: player.qoc_pct_3yr ?? null, ratingRate: null, isBlue: false, isRed: true }] : []),
+          ...(player.qot != null ? [{ label: 'Mate Quality', key: 'qot', val: player.qot, ratingPct: player.qot_pct_3yr ?? null, ratingRate: null, isBlue: true,  isRed: false }] : []),
+        ];
+        return (
+          <div class="card" id="pct-profile-card">
+            <div class="card-head">
+              <span class="card-eyebrow">Percentile Profile &nbsp;<span class="accent">vs. {posPlural}</span></span>
+              <ChipGroup
+                id="rapm-mode-filter"
+                name="rapm-mode"
+                className="rapm-mode-chips"
+                items={[
+                  { label: 'Season', value: 'season', active: true },
+                  { label: 'HGB Rating', value: 'rating' },
+                ]}
+              />
+            </div>
+            <div class="pct-rows">
+              {rapmBars.map(bar => {
+                const tierC = bar.val >= 75
+                  ? (bar.isBlue ? '#4285f4' : '#137333')
+                  : bar.val >= 50
+                    ? (bar.isBlue ? '#7baaf7' : '#34a853')
+                    : bar.val >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
+                return (
+                  <div class="pct-row"
+                    data-bar-key={bar.key}
+                    data-season-val={bar.val.toFixed(1)}
+                    data-rating-val={bar.ratingVal != null ? bar.ratingVal.toFixed(1) : ''}
+                    data-is-blue={bar.isBlue ? 'true' : 'false'}
+                    data-is-red="false"
+                    data-season-tooltip={bar.seasonTooltip ?? ''}
+                  >
+                    <span class="pct-label" style="display:flex;flex-direction:column;gap:0;">
+                      <span style="display:flex;align-items:baseline;gap:4px;">
+                        <span class="rapm-bar-base-label">{bar.label}</span>
+                        <span class="rapm-bar-3yr-suffix" style="display:none;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:400;color:rgba(13,13,20,0.45);">· blended</span>
+                      </span>
+                      {bar.seasonTooltip && (
+                        <span class="rapm-bar-season-tooltip rapm-bar-season-note">{bar.seasonTooltip}</span>
+                      )}
+                    </span>
+                    <span class="pct-rate"></span>
+                    <div class="pct-track">
+                      <div class="pct-fill" style={`width:${bar.val.toFixed(1)}%;background:${tierC}`}></div>
+                    </div>
+                    <span class="pct-pct" style={`color:${tierC}`}>{Math.round(bar.val)}%</span>
+                  </div>
+                );
+              })}
+              {rateBars.map(bar => {
+                const rate = player.rates_per_60[bar.key as keyof typeof player.rates_per_60] as number | undefined;
+                const tierC = bar.val >= 75
+                  ? (bar.isBlue ? '#4285f4' : bar.isRed ? '#842029' : '#137333')
+                  : bar.val >= 50
+                    ? (bar.isBlue ? '#7baaf7' : bar.isRed ? '#c03244' : '#34a853')
+                    : bar.val >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
+                return (
+                  <div class="pct-row"
+                    data-rate-key={bar.key}
+                    data-season-val={bar.val.toFixed(1)}
+                    data-rating-val={bar.ratingPct != null ? Number(bar.ratingPct).toFixed(1) : ''}
+                    data-season-rate={rate != null ? rate.toFixed(2) : ''}
+                    data-rating-rate={bar.ratingRate != null ? Number(bar.ratingRate).toFixed(2) : ''}
+                    data-is-blue={bar.isBlue ? 'true' : 'false'}
+                    data-is-red={bar.isRed ? 'true' : 'false'}
+                  >
+                    <span class="pct-label">{bar.label}</span>
+                    <span class="pct-rate">{rate != null ? rate.toFixed(2) : '—'}</span>
+                    <div class="pct-track">
+                      <div class="pct-fill" style={`width:${bar.val.toFixed(1)}%;background:${tierC}`}></div>
+                    </div>
+                    <span class="pct-pct" style={`color:${tierC}`}>{Math.round(bar.val)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      <!-- SHOT MAP -->
+      {shotMapSVG && (
+        <div class="card">
+          <div class="card-head">
+            <span class="card-eyebrow">Shot Map &nbsp;<span class="accent">Offensive Zone</span></span>
+            <span class="card-meta">{playerShots.length} shots · all situations · 2025–26</span>
+          </div>
+          <div class="shot-map-wrap">
+            <Fragment set:html={shotMapSVG} />
+            <div class="shot-map-legend">
+              <span class="sm-legend-dot" style={`background:${teamColor};opacity:0.9`}></span> Goals
+              <span class="sm-legend-dot sm-legend-shot" style={`border-color:${teamColor}`}></span> Shots
+            </div>
+          </div>
+        </div>
+      )}
+
+      <!-- IMPACT TREND -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-eyebrow">HGB Impact &nbsp;<span class="accent">Season Trend</span></span>
+          <span class="card-meta">Avg {sign(player.avg_gs_display)}{player.avg_gs_display.toFixed(2)} · {allGames.length} games</span>
+        </div>
+        {allGames.length > 1 && (
+          <div class="impact-chart-wrap">
+            <svg class="impact-chart-svg" viewBox={`0 0 ${IW} ${IH}`} preserveAspectRatio="xMidYMid meet">
+              <line x1={IP.l} y1={ipy0.toFixed(1)} x2={(IP.l+iCW).toFixed(1)} y2={ipy0.toFixed(1)}
+                stroke="rgba(13,13,20,0.18)" stroke-width="1" stroke-dasharray="3 3" />
+              {[-4, 0, 4, 8, 12].map(v => (
+                <text x={(IP.l-4).toFixed(1)} y={ipy(v).toFixed(1)} text-anchor="end"
+                  dominant-baseline="middle" font-family="JetBrains Mono,monospace"
+                  font-size="9" fill="rgba(13,13,20,0.28)">
+                  {v >= 0 ? '+' : ''}{v}
+                </text>
+              ))}
+              {iArea && <path d={iArea} fill={teamColor} fill-opacity="0.08" />}
+              <path d={iPath} fill="none" stroke={teamColor} stroke-width="2"
+                stroke-linejoin="round" stroke-linecap="round" />
+              {allGames.map((g, i) => {
+                const cx = ipx(i).toFixed(1), cy = ipy(g.gs_display).toFixed(1);
+                const sgn = g.gs_display >= 0 ? '+' : '';
+                const tip = `${g.game_date} ${g.is_home ? 'vs' : '@'} ${g.opp_abbrev} · ${sgn}${g.gs_display.toFixed(2)}`;
+                return (
+                  <circle cx={cx} cy={cy} r="6" fill="transparent" class="impact-dot"
+                    data-tip={tip} data-val={g.gs_display} />
+                );
+              })}
+            </svg>
+            <div id="imp-tip"></div>
+          </div>
+        )}
+      </div>
+
+      <!-- NHL EDGE DATA (hidden for soft launch) -->
+      {false && player.edge != null && (() => {
+        const e = player.edge!;
+        const oz = e.oz_pct ?? 0, nz = e.nz_pct ?? 0, dz = e.dz_pct ?? 0;
+        const total = oz + nz + dz || 1;
+        return (
+          <div class="card" id="edge-section" style={`--team-color:${teamColor}`}>
+            <div class="card-head">
+              <span class="card-eyebrow">NHL EDGE &nbsp;<span class="accent">Athlete Tracking</span></span>
+              <span class="card-meta">2025–26 season</span>
+            </div>
+            <!-- Speed + Distance 2×2 grid -->
+            <div class="edge-stat-grid">
+              {[
+                { lbl: 'Top Speed',        val: e.speed_max_mph,        unit: 'mph', pct: e.speed_max_pct,         avg: e.speed_max_league_avg_mph,        avgUnit: 'mph' },
+                { lbl: 'Miles Skated',     val: e.distance_mi,          unit: 'mi',  pct: e.distance_pct,           avg: e.distance_league_avg_mi,          avgUnit: 'mi'  },
+                { lbl: 'Bursts > 20 mph',  val: e.bursts_over_20,       unit: '',    pct: e.bursts_over_20_pct,     avg: e.bursts_over_20_league_avg,       avgUnit: ''    },
+                { lbl: 'Hardest Shot',     val: e.shot_speed_max_mph,   unit: 'mph', pct: e.shot_speed_max_pct,     avg: e.shot_speed_max_league_avg_mph,   avgUnit: 'mph' },
+              ].map(stat => {
+                const pct = stat.pct ?? 0;
+                const tierC = pct >= 75 ? '#137333' : pct >= 50 ? '#34a853' : pct >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
+                return (
+                  <div class="edge-stat-cell">
+                    <div class="edge-stat-lbl">{stat.lbl}</div>
+                    {stat.val != null
+                      ? <div class="edge-stat-val">{stat.val}<span class="edge-stat-unit">{stat.unit ? ` ${stat.unit}` : ''}</span></div>
+                      : <div class="edge-stat-val">—</div>}
+                    <div class="edge-bar-track">
+                      <div class="edge-bar-fill" style={`width:${pct}%;background:${tierC}`}></div>
+                    </div>
+                    <div class="edge-stat-pct" style={`color:${tierC}`}>
+                      {stat.pct != null ? `${Math.round(stat.pct)}th percentile` : '—'}
+                    </div>
+                    {stat.avg != null && <div class="edge-stat-avg">avg {stat.avg}{stat.avgUnit ? ` ${stat.avgUnit}` : ''}</div>}
+                  </div>
+                );
+              })}
+            </div>
+
+            <!-- Zone time -->
+            <div class="edge-zone">
+              <div class="edge-zone-lbl">Zone Time — Even Strength
+                {e.oz_ev_pct_pct != null && <span class="edge-zone-note"> · OZ {Math.round(e.oz_ev_pct_pct)}th percentile</span>}
+              </div>
+              <div class="edge-zone-bar">
+                <div class="edge-zone-oz" style={`width:${(oz/total*100).toFixed(1)}%`}></div>
+                <div class="edge-zone-nz" style={`width:${(nz/total*100).toFixed(1)}%`}></div>
+                <div class="edge-zone-dz" style={`width:${(dz/total*100).toFixed(1)}%`}></div>
+              </div>
+              <div class="edge-zone-labels">
+                <div class="edge-zone-seg" style={`width:${(oz/total*100).toFixed(1)}%`}>
+                  <span class="edge-zone-pct">{oz.toFixed(0)}%</span>
+                  <span class="edge-zone-name">Offensive</span>
+                </div>
+                <div class="edge-zone-seg" style={`width:${(nz/total*100).toFixed(1)}%`}>
+                  <span class="edge-zone-pct">{nz.toFixed(0)}%</span>
+                  <span class="edge-zone-name">Neutral</span>
+                </div>
+                <div class="edge-zone-seg" style={`width:${(dz/total*100).toFixed(1)}%`}>
+                  <span class="edge-zone-pct">{dz.toFixed(0)}%</span>
+                  <span class="edge-zone-name">Defensive</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Shot location by danger zone -->
+            <div class="edge-shot-header">Shot Location by Danger Zone</div>
+            <div class="edge-shot-grid">
+              {[
+                { lbl: 'High Danger', n: e.shots_high, np: e.shots_high_pct, sh: e.shooting_pct_high, shp: e.shooting_pct_high_pct, accent: true },
+                { lbl: 'Mid Range',   n: e.shots_mid,  np: e.shots_mid_pct,  sh: e.shooting_pct_mid,  shp: e.shooting_pct_mid_pct,  accent: false },
+                { lbl: 'Long Range',  n: e.shots_long, np: e.shots_long_pct, sh: e.shooting_pct_long, shp: e.shooting_pct_long_pct, accent: false },
+              ].map(z => {
+                const np = z.np ?? 0, shp = z.shp ?? 0;
+                const npC  = np  >= 75 ? '#137333' : np  >= 50 ? '#34a853' : np  >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
+                const shpC = shp >= 75 ? '#137333' : shp >= 50 ? '#34a853' : shp >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
+                return (
+                  <div class="edge-shot-col">
+                    <div class={`edge-shot-chip ${z.accent ? 'accent-chip' : ''}`}>{z.lbl}</div>
+                    <div class="edge-shot-row">
+                      <div>
+                        <div class="edge-shot-sublbl">Attempts</div>
+                        <div class="edge-shot-n">{z.n ?? '—'}</div>
+                        <div class="edge-shot-pct" style={`color:${npC}`}>{z.np != null ? `${Math.round(z.np)}th` : ''}</div>
+                        <div class="edge-mini-bar"><div class="edge-mini-fill" style={`width:${np}%;background:${npC}`}></div></div>
+                      </div>
+                      <div>
+                        <div class="edge-shot-sublbl">Sh%</div>
+                        <div class="edge-shot-n">{z.sh != null ? `${z.sh}%` : '—'}</div>
+                        <div class="edge-shot-pct" style={`color:${shpC}`}>{z.shp != null ? `${Math.round(z.shp)}th` : ''}</div>
+                        <div class="edge-mini-bar"><div class="edge-mini-fill" style={`width:${shp}%;background:${shpC}`}></div></div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      <!-- GAME LOG -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-eyebrow">Game log &nbsp;<span class="accent">2025–26</span></span>
+          <span class="card-meta">{recentGames.length} games</span>
+        </div>
+        <PlayerGameLogTable
+          client:load
+          games={recentGames}
+          playerTeam={player.team_abbrev}
+        />
+      </div>
+
+    </div>
+
+    <!-- CARD GENERATOR (sidebar on desktop, top on mobile via CSS order) -->
+    <div class="cta-card">
+      <button id="download-rating-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
+        Rating Card →
+      </button>
+      <button id="download-history-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:700;`}>
+        History Card →
+      </button>
+      <button id="download-expanded-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:700;`}>
+        Expanded Card →
+      </button>
+      <button id="download-rapm-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:700;`}>
+        RAPM Card →
+      </button>
+      <div class="cta-note" id="card-status" style="display:none"></div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <aside class="content-side">
+
+      <!-- Similar Players -->
+      {peers.length > 0 && (
+        <div class="card" id="peers-card">
+          <div class="card-head">
+            <span class="card-eyebrow">Similar &nbsp;<span class="accent">{posPlural}</span></span>
+            <ChipGroup
+              id="peers-mode-filter"
+              name="peers-mode"
+              className="peers-mode-chips"
+              items={[
+                { label: 'WAR', value: 'war', active: true },
+                { label: 'Rating', value: 'rating' },
+              ]}
+            />
+          </div>
+          {/* WAR peers */}
+          <div class="peer-strip" id="peers-war">
+            {peers.map(peer => (
+              <a href={`/stats/player/${peer.slug}`} class="peer-row">
+                <div style="flex:1">
+                  <div class="peer-name">{peer.first_name[0]}. {peer.last_name}</div>
+                  <div class="peer-meta">{peer.team_abbrev} · {peer.pos} · {peer.gp} GP</div>
+                </div>
+                {peer.war != null
+                  ? <span class={`peer-rapm ${peer.war >= 0 ? 'pos' : 'neg'}`}>{sign(peer.war)}{peer.war.toFixed(2)}</span>
+                  : <span class="peer-rapm" style="color:var(--ink-32)">—</span>}
+              </a>
+            ))}
+          </div>
+          {/* Rating peers */}
+          <div class="peer-strip" id="peers-rating" style="display:none">
+            {peersRating.map(peer => (
+              <a href={`/stats/player/${peer.slug}`} class="peer-row">
+                <div style="flex:1">
+                  <div class="peer-name">{peer.first_name[0]}. {peer.last_name}</div>
+                  <div class="peer-meta">{peer.team_abbrev} · {peer.pos} · {peer.gp} GP</div>
+                </div>
+                {peer.hgb_rating != null
+                  ? <span class={`peer-rapm ${peer.hgb_rating >= 0 ? 'pos' : 'neg'}`}>{sign(peer.hgb_rating)}{peer.hgb_rating.toFixed(2)}</span>
+                  : <span class="peer-rapm" style="color:var(--ink-32)">—</span>}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+
+      <!-- Methodology note -->
+      <div class="card">
+        <div class="method-card">
+          <p class="method-text">
+            HGB Impact combines individual shot quality, on-ice xG, finishing skill, and penalties — rate-adjusted per 60 min. WAR isolates contribution controlling for linemates and opponents. Percentiles vs {posPlural} with ≥20 GP.
+          </p>
+          <a href="/stats" class="method-link">Methodology →</a>
+        </div>
+      </div>
+
+    </aside>
+  </div>
+</div>
+
+<footer>hockeygamebot.com · HGB Stats · 2025–26 · <a href="/methodology" style="color:inherit;text-decoration:none;opacity:0.6;transition:opacity .15s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">Methodology →</a></footer>
+
+<script define:vars={{
+  // Season-by-season RAPM percentile data for the EV bar season selector
+  // Shape: { season: string, rapm_off_pct: number|null, rapm_def_pct: number|null, ... }[]
+  _seasonStats: seasonStatsSorted.map((s, idx) => {
+    const isCurrent = idx === 0; // first entry = most recent season
+    return {
+      season:            s.season,
+      rapm_off_pct:      s.rapm_off_pct       ?? null,
+      rapm_def_pct:      s.rapm_def_pct       ?? null,
+      rapm_net_pct:      s.rapm_net_pct       ?? null,
+      rapm_finishing_pct: s.rapm_finishing_pct ?? null,
+      rapm_pp_pct:       s.rapm_pp_pct        ?? null,
+      rapm_pk_pct:       s.rapm_pk_pct        ?? null,
+      // For current season use authoritative players.json values (match page hero)
+      hgb_rating_pct: isCurrent ? (player.hgb_rating_percentile ?? null) : (s.hgb_rating_pct ?? null),
+      war_pct:        isCurrent ? (warPct ?? null)                        : (s.war_pct        ?? null),
+      impact_pct:     isCurrent ? Math.round(player.percentiles_vs_pos.game_score) : (s.impact_pct ?? null),
+      gp:                s.gp ?? null,
+    };
+  }),
+  // Fallback percentiles from players.json (used when season RAPM is null)
+  _evOffFallback: player.percentiles_vs_pos.ev_offence,
+  _evDefFallback: player.percentiles_vs_pos.ev_defence,
+  _card: {
+    firstName:   player.first_name,
+    lastName:    player.last_name,
+    pos:         player.pos,
+    posLabel:    posLabel,
+    team:        player.team_abbrev,
+    gp:          player.gp,
+    toiAvgSec:   player.toi_avg_sec,
+    war:                    player.war,
+    warPct:                 warPct,
+    hgb_rating:             player.hgb_rating ?? null,
+    hgb_rating_percentile:  player.hgb_rating_percentile ?? null,
+    hgb_rating_confidence:  player.hgb_rating_confidence ?? 'full',
+    impact:        player.avg_gs_centered,
+    impactPct:     player.percentiles_vs_pos.game_score,
+    avgGsDisplay:  player.avg_gs_display,
+    penDrawn:      player.penalties_drawn ?? 0,
+    penTaken:      player.penalties_taken ?? 0,
+    totalG:        totalGoals,
+    totalA:        totalAssists,
+    totalS:        player.rates_per_60.shots * (player.toi_avg_sec * player.gp / 3600),
+    ratesG:        player.rates_per_60.goals,
+    ratesA1:       player.rates_per_60.a1,
+    ratesXg:       player.rates_per_60.ixg,
+    finishing:     player.rates_per_60.finishing,
+    ppToiSec:      player.toi_pp_sec_total ?? 0,
+    totalToiSec:   player.toi_avg_sec * player.gp,
+    percentiles: {
+      ...player.percentiles_vs_pos,
+      pp_off: player.percentiles_vs_pos.pp_off ?? null,
+      pk_def: player.percentiles_vs_pos.pk_def ?? null,
+    },
+    qoc: player.qoc ?? null,
+    qot: player.qot ?? null,
+    hgb_rating_off_pct: player.hgb_rating_off_pct ?? (player as any).hgb_rating_components?.rating_off_pct ?? null,
+    hgb_rating_def_pct: player.hgb_rating_def_pct ?? (player as any).hgb_rating_components?.rating_def_pct ?? null,
+    hgb_rating_n_prior: (player as any).hgb_rating_components?.n_prior_seasons ?? null,
+    // 3-year profile percentiles (fall back to season percentiles when null)
+    g_60_pct_3yr:        (player as any).g_60_pct_3yr        ?? null,
+    a1_60_pct_3yr:       (player as any).a1_60_pct_3yr       ?? null,
+    xg_60_pct_3yr:       (player as any).xg_60_pct_3yr       ?? null,
+    finishing_pct_3yr:   (player as any).finishing_pct_3yr   ?? null,
+    s_60_pct_3yr:        (player as any).s_60_pct_3yr        ?? null,
+    pen_diff_pct_3yr:    (player as any).pen_diff_pct_3yr    ?? null,
+    qoc_pct_3yr:         (player as any).qoc_pct_3yr         ?? null,
+    qot_pct_3yr:         (player as any).qot_pct_3yr         ?? null,
+    posGroup:            player.pos_group,
+    edge: player.edge ?? null,
+    recentGS:    allGames.slice(-10).map(g => g.gs_display),
+    teamColor:   teamColor,
+    headshotUrl: headshotUrl,
+    playerId:    player.player_id,
+    slug:        player.slug,
+    rapm: {
+      ev_gf60_z:   (player as any).rapm_ev_gf60_z   ?? null,
+      ev_xgf60_z:  (player as any).rapm_ev_xgf60_z  ?? null,
+      ev_cf60_z:   (player as any).rapm_ev_cf60_z   ?? null,
+      ev_xga60_z:  (player as any).rapm_ev_xga60_z  ?? null,
+      ev_ca60_z:   (player as any).rapm_ev_ca60_z   ?? null,
+      pp_xgf60_z:  (player as any).rapm_pp_xgf60_z  ?? null,
+      pp_cf60_z:   (player as any).rapm_pp_cf60_z   ?? null,
+      pp_gf60_z:   (player as any).rapm_pp_gf60_z   ?? null,
+      ev_toi:      (player as any).rapm_ev_toi       ?? null,
+      pp_toi:      (player as any).rapm_pp_toi       ?? null,
+    },
+  }
+}}>
+  // ── Player card download ────────────────────────────────────────────────
+  (function() {
+    const status = document.getElementById('card-status');
+
+    const D = _card;
+
+    // ── shared color constants (used by all card drawing functions) ───────
+    const INK    = '#0D0D14';
+    const RED    = '#E8002D';
+    const INK48  = 'rgba(13,13,20,0.48)';
+    const INK45  = 'rgba(13,13,20,0.45)';
+    const INK32  = 'rgba(13,13,20,0.32)';
+    const INK14  = 'rgba(13,13,20,0.14)';
+    const INK10  = 'rgba(13,13,20,0.10)';
+    const INK06  = 'rgba(13,13,20,0.06)';
+    const TEAM_C = D.teamColor || INK;
+
+    // ── helpers ──────────────────────────────────────────────────────────
+    function fmtToi(sec) {
+      const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+      return m + ':' + String(s).padStart(2, '0');
+    }
+    function ordinal(n) {
+      const a = Math.round(n), m10 = a % 10, m100 = a % 100;
+      if (m100 >= 11 && m100 <= 13) return a + 'th';
+      if (m10 === 1) return a + 'st';
+      if (m10 === 2) return a + 'nd';
+      if (m10 === 3) return a + 'rd';
+      return a + 'th';
+    }
+    function rrect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') { ctx.roundRect(x, y, w, h, r); }
+      else {
+        ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+        ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+        ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+        ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+      }
+    }
+    function loadImg(src) {
+      return new Promise(res => {
+        const img = new Image(); img.crossOrigin = 'anonymous';
+        img.onload = () => res(img); img.onerror = () => res(null);
+        img.src = src;
+      });
+    }
+
+    async function drawCard() {
+      const BG      = '#EFEEE8';
+      const SURFACE = '#FFFFFF';
+      const INK72   = 'rgba(13,13,20,0.72)';
+      const INK20   = 'rgba(13,13,20,0.20)';
+
+      const SCALE = 2;
+      const W     = 750;   // wider for Discord embeds (was 560)
+      const PAD   = 28;
+
+      // Heights targeting 750×~900 for Discord embed friendliness.
+      // 2-col percentile bars halve the pct section height vs the old single-column layout.
+      const HDR_H    = 52;
+      const CHIP_H   = 34;
+      const HERO_H   = 130;   // taller hero, bigger headshot + stats
+      const SEP_H    = 1;
+      const COUNTS_H = 68;    // season G/A/PTS counting stats strip
+      const KPI_LH   = 24;
+      const KPI_VH   = 50;
+      const SEC_SEP  = 20;
+      const PCT_LBL  = 22;
+      // 2-column percentile bars: 5 rows × 2 cols = 10 bars total
+      const BAR_ROW  = 48;
+      const N_ROWS   = 5;
+      const PCT_H    = N_ROWS * BAR_ROW;
+      const SP_LBL   = 22;
+      const SP_H     = 100;
+      const FOOT_H   = 36;
+      // 3-year blended section: 2 bars side-by-side (1 row)
+      const hasBlended = D.hgb_rating_off_pct != null || D.hgb_rating_def_pct != null;
+      const BLEND_BAR_ROW = 32;
+      const BLEND_H  = hasBlended ? (SEC_SEP + PCT_LBL + BLEND_BAR_ROW) : 0;
+
+      const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + COUNTS_H + KPI_LH + KPI_VH +
+                      BLEND_H + SEC_SEP + PCT_LBL + PCT_H + SEC_SEP + SP_LBL + SP_H + FOOT_H;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = W * SCALE;
+      canvas.height = TOTAL_H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      // ── background ──────────────────────────────────────────────────────
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, TOTAL_H);
+
+      let y = 0;
+
+      // team full name lookup
+      const TEAM_NAMES = {
+        ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
+        BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',
+        CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',
+        DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',
+        FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',
+        MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',
+        NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',
+        PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',
+        SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',
+        TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',
+        VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
+      };
+      const teamFullName = TEAM_NAMES[D.team] || D.team;
+
+      // ── WHITE BAND: orange accent bar + name + chips ────────────────────
+      // White fills the full name+chips area; accent bar is here (not in hero)
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, y, W, HDR_H + CHIP_H);
+      // Orange left accent bar — 4px, full height of white band
+      ctx.fillStyle = TEAM_C;
+      ctx.fillRect(0, y, 4, HDR_H + CHIP_H);
+      // Player name
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
+      y += HDR_H;
+
+      // Chips row (still inside the white band)
+      const chipH = 18, chipY0 = y + (CHIP_H - chipH) / 2;
+      const chips = [teamFullName, D.posLabel.toUpperCase(), '2025-26'];
+      let cx = PAD;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      for (let ci = 0; ci < chips.length; ci++) {
+        const tw = ctx.measureText(chips[ci]).width;
+        const cw = tw + 18;
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci === 0 ? TEAM_C : INK;
+        ctx.fill();
+        ctx.fillStyle = BG;
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+        cx += cw + 8;
+      }
+      const brand = 'HOCKEYGAMEBOT';
+      const btw = ctx.measureText(brand).width;
+      const bcw = btw + 18;
+      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
+      // Bottom border of white band
+      ctx.fillStyle = 'rgba(13,13,20,0.08)';
+      ctx.fillRect(0, y + CHIP_H - 1, W, 1);
+      y += CHIP_H;
+
+      // ── CREAM BAND: headshot + 3 headline stats (NO accent bar here) ─────
+      // (accent bar moved to white band above)
+      const R = 38, HS_CX = PAD + R, HS_CY = y + HERO_H / 2;
+      const hsImg = await loadImg(D.headshotUrl);
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
+      } else {
+        ctx.fillStyle = INK10; ctx.fill();
+        ctx.font = '800 24px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
+      }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+      // 3 hero stats to the right of headshot: Rating | WAR | Game Impact
+      const statX = HS_CX + R + 18;
+      const statW = (W - statX - PAD) / 3;
+      const ratingPctVal = D.hgb_rating_percentile ?? null;
+      const ratingRawStr = D.hgb_rating != null
+        ? (D.hgb_rating > 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating'
+        : '—';
+      const ratingConfStr = (D.hgb_rating_confidence === 'limited' || D.hgb_rating_confidence === 'limited_sample') ? ' limited sample' : '';
+      const warPctVal  = D.warPct  ?? Math.round(D.impactPct);
+      const impPctVal  = Math.round(D.impactPct);
+      const warRawStr  = D.war != null ? D.war.toFixed(2) + ' WAR' : '—';
+      const gsAvgStr   = D.avgGsDisplay != null ? D.avgGsDisplay.toFixed(2) + ' avg' : '—';
+      const heroStats  = [
+        { label: 'HGB RATING',      big: ratingPctVal != null ? ratingPctVal + '%' : '—', small: ratingRawStr, small2: ratingConfStr, color: TEAM_C },
+        { label: 'HGB WAR',         big: warPctVal + '%',                                 small: warRawStr,    small2: '',            color: TEAM_C },
+        { label: 'HGB GAME IMPACT', big: impPctVal + '%',                                 small: gsAvgStr,     small2: '',            color: TEAM_C },
+      ];
+      for (let i = 0; i < heroStats.length; i++) {
+        const s  = heroStats[i];
+        const sx = statX + i * statW + statW / 2;
+        if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(statX + i * statW, y + 14, 1, HERO_H - 28); }
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(s.label, sx, y + 14);
+        ctx.font = '800 30px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = s.color; ctx.textBaseline = 'top';
+        ctx.fillText(s.big, sx, y + 27);
+        ctx.font = '800 12px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK48; ctx.textBaseline = 'top';
+        ctx.fillText(s.small, sx, y + 66);
+        if (s.small2) {
+          ctx.font = '700 9px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+          ctx.fillText(s.small2, sx, y + 82);
+        }
+      }
+      y += HERO_H;
+
+      // separator
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, W, SEP_H); y += SEP_H;
+
+      // ── Season counting stats strip — G / A / PTS / GP / TOI/GP ──────────
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, y, W, COUNTS_H);
+      const totalPts  = D.totalG + D.totalA;
+      const toiAvgStr = (() => { const m = Math.floor(D.toiAvgSec/60), s = Math.round(D.toiAvgSec%60); return m+':'+(s<10?'0':'')+s; })();
+      const countCols = [
+        { label: 'GOALS',   val: String(D.totalG),  color: INK },
+        { label: 'ASSISTS', val: String(D.totalA),  color: INK },
+        { label: 'POINTS',  val: String(totalPts),  color: TEAM_C },
+        { label: 'GP',      val: String(D.gp),      color: INK },
+        { label: 'TOI/GP',  val: toiAvgStr,         color: INK },
+      ];
+      const cColW = (W - PAD * 2) / countCols.length;
+      for (let ci = 0; ci < countCols.length; ci++) {
+        const cc = countCols[ci];
+        const cx2 = PAD + ci * cColW + cColW / 2;
+        if (ci > 0) { ctx.fillStyle = INK06; ctx.fillRect(PAD + ci * cColW, y + 10, 1, COUNTS_H - 20); }
+        ctx.font = '800 32px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = cc.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText(cc.val, cx2, y + COUNTS_H / 2 - 8);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
+        ctx.fillText(cc.label, cx2, y + COUNTS_H / 2 + 16);
+      }
+      ctx.fillStyle = INK06; ctx.fillRect(0, y + COUNTS_H - 1, W, 1);
+      y += COUNTS_H;
+
+      // ── KPI row — 5 rate stats ────────────────────────────────────────────
+      const finVal = D.finishing != null
+        ? (D.finishing >= 0 ? '+' : '') + D.finishing.toFixed(2)
+        : '—';
+      const penDiff = (D.penDrawn ?? 0) - (D.penTaken ?? 0);
+      const penStr  = (penDiff >= 0 ? '+' : '') + penDiff;
+
+      const kpis = [
+        { label: 'G / 60',   val: D.ratesG.toFixed(2),  warn: false },
+        { label: 'A1 / 60',  val: D.ratesA1.toFixed(2), warn: false },
+        { label: 'xG / 60',  val: D.ratesXg.toFixed(2), warn: false },
+        { label: 'FINISHING', val: finVal, warn: D.finishing != null && D.finishing < 0 },
+        { label: 'PEN DIFF',  val: penStr, warn: false },
+      ];
+
+      const kColW = (W - PAD * 2) / 5;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'middle';
+      for (let ki = 0; ki < kpis.length; ki++) {
+        const kx = PAD + ki * kColW + kColW / 2;
+        if (ki > 0) {
+          ctx.fillStyle = INK10;
+          ctx.fillRect(PAD + ki * kColW, y + 4, 1, KPI_LH + KPI_VH - 8);
+          ctx.fillStyle = INK48;
+        }
+        ctx.textAlign = 'center';
+        ctx.fillText(kpis[ki].label, kx, y + KPI_LH / 2);
+      }
+      y += KPI_LH;
+
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.textBaseline = 'middle';
+      for (let ki = 0; ki < kpis.length; ki++) {
+        const kx = PAD + ki * kColW + kColW / 2;
+        ctx.fillStyle = kpis[ki].warn ? RED : INK;
+        ctx.textAlign = 'center';
+        ctx.fillText(kpis[ki].val, kx, y + KPI_VH / 2);
+      }
+      y += KPI_VH;
+
+      // ── 3-year blended RAPM section ──────────────────────────────────────
+      const ratingOffPct = D.hgb_rating_off_pct;
+      const ratingDefPct = D.hgb_rating_def_pct;
+      if (ratingOffPct != null || ratingDefPct != null) {
+        y += SEC_SEP;
+        const rapmLabel = '3-YEAR WEIGHTED';
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = RED; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(rapmLabel, PAD, y + PCT_LBL / 2);
+        ctx.fillStyle = 'rgba(232,0,45,0.25)';
+        ctx.fillRect(PAD + ctx.measureText(rapmLabel).width + 8,
+                     y + PCT_LBL / 2, W - PAD * 2 - ctx.measureText(rapmLabel).width - 8, 1);
+        y += PCT_LBL;
+        const blendedBars = [
+          { label: 'EV Offense', val: ratingOffPct ?? 0, blue: false },
+          { label: 'EV Defense', val: ratingDefPct ?? 0, blue: true  },
+        ];
+        // 2-column layout for blended bars too
+        const BLEND_COL_GAP = 16;
+        const BLEND_COL_W = (W - PAD * 2 - BLEND_COL_GAP) / 2;
+        const BLEND_LABEL_W = 82, BLEND_RANK_W = 42;
+        const BLEND_AVAIL = BLEND_COL_W - BLEND_LABEL_W - BLEND_RANK_W - 8;
+        const BAR_H_PX2 = 12;
+        for (let bi = 0; bi < blendedBars.length; bi++) {
+          const row = blendedBars[bi];
+          const colX = PAD + bi * (BLEND_COL_W + BLEND_COL_GAP);
+          const by2 = y + (BLEND_BAR_ROW - BAR_H_PX2) / 2;
+          ctx.font = '600 10px "Barlow", sans-serif';
+          ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+          ctx.fillText(row.label, colX, y + BLEND_BAR_ROW / 2);
+          const bx2 = colX + BLEND_LABEL_W;
+          rrect(ctx, bx2, by2, BLEND_AVAIL, BAR_H_PX2, 3);
+          ctx.fillStyle = INK10; ctx.fill();
+          const fillW2 = Math.max(0, Math.min(1, row.val / 100)) * BLEND_AVAIL;
+          rrect(ctx, bx2, by2, fillW2, BAR_H_PX2, 3);
+          ctx.fillStyle = row.blue ? '#4285f4' : '#137333'; ctx.fill();
+          ctx.font = '700 12px "JetBrains Mono", monospace';
+          ctx.fillStyle = row.blue ? '#4285f4' : '#137333';
+          ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+          ctx.fillText(Math.round(row.val) + '%', colX + BLEND_COL_W, y + BLEND_BAR_ROW / 2);
+        }
+        y += BLEND_BAR_ROW;
+      }
+
+      // ── percentile section — 2-column layout ─────────────────────────────
+      y += SEC_SEP;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = RED; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText('PERCENTILE PROFILE vs ' + D.posLabel.toUpperCase() + 'S', PAD, y + PCT_LBL / 2);
+      ctx.fillStyle = 'rgba(232,0,45,0.25)';
+      ctx.fillRect(PAD + ctx.measureText('PERCENTILE PROFILE vs ' + D.posLabel.toUpperCase() + 'S').width + 8,
+                   y + PCT_LBL / 2, W - PAD * 2 - ctx.measureText('PERCENTILE PROFILE vs ' + D.posLabel.toUpperCase() + 'S').width - 8, 1);
+      y += PCT_LBL;
+
+      const pct = D.percentiles;
+      // Left column: EV Offense, EV Defense, Goals/60, A1/60, xG/60
+      const leftBarRows = [
+        { label: 'EV Offense', val: pct.ev_offence, blue: false },
+        { label: 'EV Defense', val: pct.ev_defence, blue: true  },
+        { label: 'Goals / 60', val: pct.goals,      blue: false },
+        { label: 'A1 / 60',    val: pct.a1,         blue: false },
+        { label: 'xG / 60',    val: pct.ixg,        blue: false },
+      ];
+      // Right column: Finishing, Shots/60, Pen.Diff, Opp.Quality, Mate Quality
+      const rightBarRows = [
+        { label: 'Finishing',  val: pct.finishing,  blue: false },
+        { label: 'Shots / 60', val: pct.shots,      blue: false },
+        { label: 'Pen. Diff',  val: pct.pen_diff,   blue: false },
+        ...(D.qoc != null ? [{ label: 'Opp. Quality', val: D.qoc, blue: false, red: true  }] : [{ label: 'Opp. Quality', val: 50, blue: false, red: true,  skip: true }]),
+        ...(D.qot != null ? [{ label: 'Mate Quality', val: D.qot, blue: true               }] : [{ label: 'Mate Quality', val: 50, blue: true,              skip: true }]),
+      ];
+
+      // 2-column bar geometry
+      const COL_GAP     = 20;  // gap between columns
+      const COL_W       = (W - PAD * 2 - COL_GAP) / 2;
+      const BAR_LABEL_W = 76;
+      const BAR_RANK_W  = 40;
+      const BAR_AVAIL   = COL_W - BAR_LABEL_W - BAR_RANK_W - 8;
+      const BAR_H_PX    = 12;
+      const BAR_ROW_H   = BAR_ROW;
+
+      function drawBarCol(rows, colX) {
+        for (let ri = 0; ri < rows.length; ri++) {
+          const row = rows[ri];
+          if (row.skip) { /* empty slot — keep row height */ }
+          else {
+            const rowY = y + ri * BAR_ROW_H;
+            const by = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
+            // label
+            ctx.font = '600 10px "Barlow", sans-serif';
+            ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+            ctx.fillText(row.label, colX, rowY + BAR_ROW_H / 2);
+            // track
+            const bx = colX + BAR_LABEL_W;
+            rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
+            ctx.fillStyle = INK10; ctx.fill();
+            // fill
+            const fillW = Math.max(6, (row.val / 100) * BAR_AVAIL);
+            rrect(ctx, bx, by, fillW, BAR_H_PX, 3);
+            const tierC = row.val >= 75 ? (row.blue ? '#4285f4' : row.red ? '#842029' : '#14803c')
+                        : row.val >= 50 ? (row.blue ? '#7baaf7' : row.red ? '#c03244' : '#34a853')
+                        : row.val >= 25 ? INK32 : RED;
+            ctx.fillStyle = tierC; ctx.fill();
+            // percentage
+            ctx.font = '800 14px "Barlow Condensed", sans-serif';
+            ctx.fillStyle = tierC; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            ctx.fillText(Math.round(row.val) + '%', colX + COL_W, rowY + BAR_ROW_H / 2);
+          }
+        }
+      }
+
+      drawBarCol(leftBarRows,  PAD);
+      // center divider
+      ctx.fillStyle = INK10; ctx.fillRect(PAD + COL_W + COL_GAP / 2, y, 1, N_ROWS * BAR_ROW_H);
+      drawBarCol(rightBarRows, PAD + COL_W + COL_GAP);
+
+      y += N_ROWS * BAR_ROW_H;
+
+      // ── sparkline (last 10 games) ────────────────────────────────────────
+      y += SEC_SEP;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText('LAST 10 GAMES — HGB IMPACT', PAD, y + SP_LBL / 2);
+      y += SP_LBL;
+
+      const gs = D.recentGS;
+      if (gs.length >= 2) {
+        const spMin = -5, spMax = 12;
+        const spW = W - PAD * 2, spH = SP_H;
+        const spX = i => PAD + (i / (gs.length - 1)) * spW;
+        const spY = v => y + spH - ((Math.min(spMax, Math.max(spMin, v)) - spMin) / (spMax - spMin)) * spH;
+        const sp0 = spY(0);
+
+        // area fill
+        ctx.beginPath();
+        ctx.moveTo(spX(0), spY(gs[0]));
+        for (let i = 1; i < gs.length; i++) ctx.lineTo(spX(i), spY(gs[i]));
+        ctx.lineTo(spX(gs.length - 1), sp0);
+        ctx.lineTo(spX(0), sp0);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(20,128,60,0.12)';
+        ctx.fill();
+
+        // zero line
+        ctx.strokeStyle = INK14; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(PAD, sp0); ctx.lineTo(W - PAD, sp0); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // line
+        ctx.beginPath();
+        ctx.moveTo(spX(0), spY(gs[0]));
+        for (let i = 1; i < gs.length; i++) ctx.lineTo(spX(i), spY(gs[i]));
+        ctx.strokeStyle = '#14803c'; ctx.lineWidth = 2; ctx.stroke();
+
+        // dots
+        for (let i = 0; i < gs.length; i++) {
+          ctx.beginPath(); ctx.arc(spX(i), spY(gs[i]), 3, 0, Math.PI * 2);
+          ctx.fillStyle = gs[i] >= 0 ? '#14803c' : RED; ctx.fill();
+        }
+      }
+      y += SP_H;
+
+      // ── footer ───────────────────────────────────────────────────────────
+      ctx.fillStyle = INK06; ctx.fillRect(0, y, W, FOOT_H);
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26', W / 2, y + FOOT_H / 2);
+
+      return canvas;
+    }
+
+    // ── Landscape card (900×500) ─────────────────────────────────────────
+    async function drawCardWide() {
+      const BG      = '#EFEEE8';
+      const SURFACE = '#FFFFFF';
+      const SCALE = 2;
+      const W = 900, H = 500;
+      const DIVX = 280;  // left column width
+      const PAD  = 28;
+      const FOOT = 20;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      // background
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+
+      // white right panel inset
+      ctx.fillStyle = SURFACE; ctx.fillRect(DIVX + 12, 16, W - DIVX - 28, H - FOOT - 32);
+
+      // 6px team-color left border strip
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, 6, H - FOOT);
+
+      // ── LEFT COLUMN ─────────────────────────────────────────────────────
+      const hsImg = await loadImg(D.headshotUrl);
+      const R = 58, HS_CX = DIVX / 2, HS_CY = 88;
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
+      } else {
+        ctx.fillStyle = INK10; ctx.fill();
+        ctx.font = '800 36px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
+      }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 3; ctx.stroke();
+
+      // first name small above last name
+      const LX = 34;
+      ctx.font = '600 13px "Barlow", sans-serif';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      ctx.fillText(D.firstName.toUpperCase(), LX, 162);
+      ctx.font = '800 52px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK;
+      ctx.fillText(D.lastName.toUpperCase(), LX, 174);
+
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.letterSpacing = '0.06em';
+      ctx.fillText(D.team + ' · ' + D.pos + ' · 2025-26', LX, 234);
+
+      // hairline separator
+      ctx.fillStyle = INK14; ctx.fillRect(LX, 252, DIVX - LX - 12, 1);
+
+      // WAR hero number
+      const warNum = D.war != null ? D.war.toFixed(1) : '—';
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+      ctx.fillText('WAR', LX, 263);
+      ctx.font = '800 58px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = D.war != null && D.war > 0 ? TEAM_C : INK;
+      ctx.fillText(warNum, LX, 272);
+      ctx.font = '700 11px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32;
+      ctx.fillText(ordinal(D.impactPct) + ' vs ' + D.posLabel.toLowerCase() + 's', LX, 338);
+
+      // ── RIGHT COLUMN ────────────────────────────────────────────────────
+      const RX = DIVX + 24;  // right content start x
+      const RW = W - RX - 16;  // right content width
+
+      // 4 headline KPIs
+      const hKpis = [
+        { label: 'G / 60',  val: D.ratesG.toFixed(2),  pct: ordinal(D.percentiles.goals) },
+        { label: 'A1 / 60', val: D.ratesA1.toFixed(2), pct: ordinal(D.percentiles.a1) },
+        { label: 'xG / 60', val: D.ratesXg.toFixed(2), pct: ordinal(D.percentiles.ixg) },
+        { label: 'TOI / GP',val: fmtToi(D.toiAvgSec),  pct: String(D.gp) + ' GP' },
+      ];
+      const kW = RW / 4;
+      for (let i = 0; i < hKpis.length; i++) {
+        const kx = RX + i * kW + kW / 2;
+        if (i > 0) { ctx.fillStyle = INK14; ctx.fillRect(RX + i * kW, 28, 1, 118); }
+        ctx.font = '800 38px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText(hKpis[i].val, kx, 82);
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK48;
+        ctx.fillText(hKpis[i].label, kx, 112);
+        ctx.font = '700 12px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32;
+        ctx.fillText(hKpis[i].pct, kx, 128);
+      }
+
+      // divider below KPIs
+      ctx.fillStyle = INK14; ctx.fillRect(RX, 148, RW, 1);
+
+      // 10 percentile bars in 2 columns of 5
+      const pct = D.percentiles;
+      const leftBars = [
+        { label: 'EV Offense', val: pct.ev_offence, rate: D.ratesG.toFixed(2),  blue: false },
+        { label: 'EV Defense', val: pct.ev_defence, rate: '',                    blue: true  },
+        { label: 'Goals / 60', val: pct.goals,      rate: D.ratesG.toFixed(2),  blue: false },
+        { label: 'A1 / 60',   val: pct.a1,         rate: D.ratesA1.toFixed(2), blue: false },
+        { label: 'xG / 60',   val: pct.ixg,        rate: D.ratesXg.toFixed(2), blue: false },
+      ];
+      const ppPct  = pct.pp_off ?? null;
+      const pkPct  = pct.pk_def ?? null;
+      const finStr = (D.finishing >= 0 ? '+' : '') + D.finishing.toFixed(2);
+      const rightBars = [
+        { label: 'Finishing',  val: pct.finishing,  rate: finStr, blue: false },
+        { label: 'Shots / 60', val: pct.shots,      rate: '',     blue: false },
+        { label: 'Pen. Diff',  val: pct.pen_diff,   rate: '',     blue: false },
+        ...(ppPct !== null ? [{ label: 'PP RAPM', val: ppPct, rate: '', blue: false }] : []),
+        ...(pkPct !== null ? [{ label: 'PK RAPM', val: pkPct, rate: '', blue: false }] : []),
+      ];
+
+      const BAR_COL_W  = RW / 2 - 8;
+      const BAR_H_PX   = 10;
+      const BAR_ROW_H  = 54;
+      const BAR_LABEL_W = 76;
+      const BAR_TRACK_W = BAR_COL_W - BAR_LABEL_W - 34;
+      const BAR_Y0     = 160;
+
+      function drawBarColumn(bars, colX) {
+        for (let bi = 0; bi < bars.length; bi++) {
+          const row = bars[bi];
+          const ry = BAR_Y0 + bi * BAR_ROW_H;
+          const barY = ry + 30;
+
+          // label
+          ctx.font = '600 9px "Barlow", sans-serif';
+          ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+          ctx.fillText(row.label, colX, ry + 8);
+
+          // rate value right of label
+          if (row.rate) {
+            ctx.font = '700 9px "JetBrains Mono", monospace';
+            ctx.fillStyle = INK32; ctx.textAlign = 'left';
+            ctx.fillText(row.rate, colX + BAR_LABEL_W - 4, ry + 8);
+          }
+
+          // bar track
+          const bx = colX + BAR_LABEL_W;
+          rrect(ctx, bx, barY, BAR_TRACK_W, BAR_H_PX, 3);
+          ctx.fillStyle = INK10; ctx.fill();
+
+          // bar fill
+          const fillW = Math.max(6, (row.val / 100) * BAR_TRACK_W);
+          rrect(ctx, bx, barY, fillW, BAR_H_PX, 3);
+          const isNeg = row.val < 25;
+          ctx.fillStyle = row.val >= 75 ? (row.blue ? '#4285f4' : '#14803c')
+                        : row.val >= 50 ? (row.blue ? '#7baaf7' : '#34a853')
+                        : row.val >= 25 ? INK32 : RED;
+          ctx.fill();
+
+          // ordinal — big and right-aligned
+          ctx.font = '800 14px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = row.val >= 50 ? INK : (row.val >= 25 ? INK32 : RED);
+          ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+          ctx.fillText(ordinal(row.val), colX + BAR_COL_W, barY + BAR_H_PX / 2);
+        }
+      }
+
+      drawBarColumn(leftBars,  RX);
+      // center divider between bar columns
+      ctx.fillStyle = INK10; ctx.fillRect(RX + BAR_COL_W + 8, 148, 1, H - 148 - FOOT - 20);
+      drawBarColumn(rightBars, RX + BAR_COL_W + 16);
+
+      // ── footer ──────────────────────────────────────────────────────────
+      ctx.fillStyle = INK06; ctx.fillRect(0, H - FOOT, W, FOOT);
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26', W / 2, H - FOOT / 2);
+
+      return canvas;
+    }
+
+    // ── EDGE drawing helpers ─────────────────────────────────────────────
+    function edgeTierColor(pct, blue) {
+      if (pct == null) return INK32;
+      if (pct >= 75) return blue ? '#4285f4' : '#137333';
+      if (pct >= 50) return blue ? '#7baaf7' : '#34a853';
+      if (pct >= 25) return INK32;
+      return RED;
+    }
+
+    function drawEdgeStatBox(ctx, x, y, w, h, lbl, valStr, pct, avgStr, blue) {
+      const PAD = 10;
+      // box background
+      ctx.fillStyle = '#FFFFFF'; ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 4); ctx.fill();
+      ctx.strokeStyle = INK10; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.stroke();
+      // label
+      ctx.font = '700 7.5px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(lbl.toUpperCase(), x + PAD, y + 9);
+      // value
+      ctx.font = '800 28px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textBaseline = 'top';
+      ctx.fillText(valStr, x + PAD, y + 20);
+      // bar
+      const bx = x + PAD, bw = w - PAD * 2, bh = 6, by = y + h - 30;
+      ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 2); ctx.fill();
+      if (pct != null) {
+        const fc = edgeTierColor(pct, blue);
+        ctx.fillStyle = fc;
+        ctx.beginPath(); ctx.roundRect(bx, by, Math.max(6, (pct / 100) * bw), bh, 2); ctx.fill();
+        // pct label
+        ctx.font = '600 10px "Barlow", sans-serif';
+        ctx.fillStyle = fc; ctx.textBaseline = 'top';
+        ctx.fillText(`${Math.round(pct)}th percentile`, x + PAD, y + h - 22);
+      }
+      // avg
+      if (avgStr) {
+        ctx.font = '400 7.5px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'bottom';
+        ctx.fillText(avgStr, x + PAD, y + h - 4);
+      }
+    }
+
+    function drawEdgePairs(ctx, y, W, PAD, e) {
+      const bw = (W - PAD * 2 - 10) / 2;
+      const bh = 86;
+      const pairs = [
+        ['TOP SPEED', e.speed_max_mph != null ? `${e.speed_max_mph} mph` : '—', e.speed_max_pct, e.speed_max_league_avg_mph != null ? `avg ${e.speed_max_league_avg_mph} mph` : '', false],
+        ['MILES SKATED', e.distance_mi != null ? `${e.distance_mi} mi` : '—', e.distance_pct, e.distance_league_avg_mi != null ? `avg ${e.distance_league_avg_mi} mi` : '', false],
+        ['BURSTS > 20 MPH', e.bursts_over_20 != null ? `${e.bursts_over_20}` : '—', e.bursts_over_20_pct, e.bursts_over_20_league_avg != null ? `avg ${e.bursts_over_20_league_avg}` : '', false],
+        ['HARDEST SHOT', e.shot_speed_max_mph != null ? `${e.shot_speed_max_mph} mph` : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? `avg ${e.shot_speed_max_league_avg_mph} mph` : '', false],
+      ];
+      for (let i = 0; i < pairs.length; i++) {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const x = PAD + col * (bw + 10);
+        const by = y + row * (bh + 10);
+        drawEdgeStatBox(ctx, x, by, bw, bh, pairs[i][0], pairs[i][1], pairs[i][2], pairs[i][3], pairs[i][4]);
+      }
+      return y + 2 * (bh + 10) - 10;
+    }
+
+    function drawZoneBar(ctx, y, W, PAD, e, TEAM_C) {
+      const oz = e.oz_pct ?? 45, nz = e.nz_pct ?? 32, dz = e.dz_pct ?? 23;
+      const bw = W - PAD * 2, bh = 20, bx = PAD;
+      // background rounded rect
+      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 90, 4); ctx.fill();
+      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 90, 4); ctx.stroke();
+      // title
+      ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('ZONE TIME — EVEN STRENGTH', PAD + 6, y - 4);
+      y += 14;
+      // segmented bar
+      ctx.save(); ctx.beginPath(); ctx.roundRect(bx, y, bw, bh, 3); ctx.clip();
+      ctx.fillStyle = TEAM_C; ctx.fillRect(bx, y, bw * oz / 100, bh);
+      ctx.fillStyle = 'rgba(13,13,20,0.18)'; ctx.fillRect(bx + bw * oz / 100, y, bw * nz / 100, bh);
+      ctx.fillStyle = 'rgba(232,0,45,0.30)'; ctx.fillRect(bx + bw * (oz + nz) / 100, y, bw * dz / 100, bh);
+      ctx.restore();
+      y += bh + 8;
+      // labels
+      const segs = [['OFFENSIVE ZONE', `${oz.toFixed(0)}%`, oz], ['NEUTRAL ZONE', `${nz.toFixed(0)}%`, nz], ['DEFENSIVE ZONE', `${dz.toFixed(0)}%`, dz]];
+      let lx = PAD + 6;
+      for (const [name, pct, w] of segs) {
+        ctx.font = '800 16px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+        ctx.fillText(pct, lx, y);
+        ctx.font = '600 8px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+        ctx.fillText(name, lx, y + 18);
+        lx += bw * w / 100;
+      }
+      // OZ percentile note
+      if (e.oz_ev_pct_pct != null) {
+        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = TEAM_C; ctx.textBaseline = 'bottom';
+        ctx.fillText(`OZ time: ${Math.round(e.oz_ev_pct_pct)}th percentile`, PAD + 6, y + 40);
+      }
+      return y + 44;
+    }
+
+    function drawShotDanger(ctx, y, W, PAD, e) {
+      const colW = (W - PAD * 2 - 16) / 3;
+      const zones = [
+        { lbl: 'HIGH DANGER', color: TEAM_C,    n: e.shots_high,  np: e.shots_high_pct,  sh: e.shooting_pct_high,  shp: e.shooting_pct_high_pct },
+        { lbl: 'MID RANGE',   color: INK32,     n: e.shots_mid,   np: e.shots_mid_pct,   sh: e.shooting_pct_mid,   shp: e.shooting_pct_mid_pct },
+        { lbl: 'LONG RANGE',  color: INK32,     n: e.shots_long,  np: e.shots_long_pct,  sh: e.shooting_pct_long,  shp: e.shooting_pct_long_pct },
+      ];
+      // background card
+      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 185, 4); ctx.fill();
+      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 185, 4); ctx.stroke();
+      ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('SHOT LOCATION BY DANGER ZONE', PAD + 6, y - 4);
+      y += 12;
+      for (let i = 0; i < 3; i++) {
+        const z = zones[i];
+        const cx = PAD + i * (colW + 8);
+        const ry = y;
+        // zone chip
+        const chipColor = i === 0 ? `rgba(${parseInt(TEAM_C.slice(1,3),16)},${parseInt(TEAM_C.slice(3,5),16)},${parseInt(TEAM_C.slice(5,7),16)},0.14)` : 'rgba(13,13,20,0.06)';
+        ctx.fillStyle = chipColor; ctx.beginPath(); ctx.roundRect(cx, ry, colW, 16, 2); ctx.fill();
+        ctx.font = '700 7px "JetBrains Mono", monospace'; ctx.fillStyle = i === 0 ? TEAM_C : INK45;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(z.lbl, cx + colW / 2, ry + 8);
+        // Attempts
+        ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText('ATTEMPTS', cx, ry + 22);
+        ctx.font = '800 24px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+        ctx.fillText(z.n != null ? `${z.n}` : '—', cx, ry + 30);
+        const npColor = edgeTierColor(z.np, false);
+        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = npColor;
+        ctx.fillText(z.np != null ? `${Math.round(z.np)}th` : '', cx, ry + 56);
+        const abw = colW, abh = 5;
+        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, ry + 66, abw, abh, 2); ctx.fill();
+        if (z.np != null) { ctx.fillStyle = npColor; ctx.beginPath(); ctx.roundRect(cx, ry + 66, Math.max(4, (z.np/100)*abw), abh, 2); ctx.fill(); }
+        // Shooting %
+        ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+        ctx.fillText('SHOOTING %', cx, ry + 78);
+        ctx.font = '800 20px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+        ctx.fillText(z.sh != null ? `${z.sh}%` : '—', cx, ry + 88);
+        const shpColor = edgeTierColor(z.shp, false);
+        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = shpColor;
+        ctx.fillText(z.shp != null ? `${Math.round(z.shp)}th` : '', cx, ry + 110);
+        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, ry + 121, abw, abh, 2); ctx.fill();
+        if (z.shp != null) { ctx.fillStyle = shpColor; ctx.beginPath(); ctx.roundRect(cx, ry + 121, Math.max(4, (z.shp/100)*abw), abh, 2); ctx.fill(); }
+      }
+      return y + 133;
+    }
+
+    function drawEdgeDivider(ctx, y, W) {
+      ctx.fillStyle = INK10; ctx.fillRect(20, y + 10, (W - 40) / 2 - 80, 1);
+      ctx.font = '700 8px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('NHL EDGE ATHLETE TRACKING', W / 2, y + 10);
+      ctx.fillStyle = INK10; ctx.fillRect(W / 2 + 80, y + 10, (W - 40) / 2 - 80, 1);
+      return y + 24;
+    }
+
+    // ── Expanded card: existing card + EDGE section appended ─────────────
+    async function drawEdgeCombinedCard() {
+      const e = D.edge;
+      const W = 560, SCALE = 2, PAD = 20;
+      // draw the base portrait card first
+      const base = await drawCard();
+      const baseH = base.height / SCALE;
+      // compute EDGE section height
+      // Traced: divider(24)+gap(8)+pairs(194)+gap(12)+zone(86)+gap(12)+shot(145)+gap(10)+footer(36)+init(6) = 533 + 8 buffer
+      const EDGE_H = e ? 541 : 60;
+      const TOTAL_H = baseH + EDGE_H;
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = TOTAL_H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+      // copy base card
+      ctx.drawImage(base, 0, 0, W * SCALE, baseH * SCALE, 0, 0, W, baseH);
+      if (!e) {
+        ctx.fillStyle = INK10; ctx.fillRect(0, baseH, W, EDGE_H);
+        ctx.font = '700 10px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('EDGE DATA NOT YET AVAILABLE', W / 2, baseH + EDGE_H / 2);
+        return canvas;
+      }
+      // EDGE section background
+      ctx.fillStyle = '#EFEEE8'; ctx.fillRect(0, baseH, W, EDGE_H);
+      let y = baseH + 6;
+      y = drawEdgeDivider(ctx, y, W);
+      y += 8;
+      // draw pairs
+      const bw = (W - PAD * 2 - 10) / 2, bh = 86;
+      const pairs = [
+        ['TOP SPEED', e.speed_max_mph != null ? `${e.speed_max_mph} mph` : '—', e.speed_max_pct, e.speed_max_league_avg_mph != null ? `avg ${e.speed_max_league_avg_mph} mph` : ''],
+        ['MILES SKATED', e.distance_mi != null ? `${e.distance_mi} mi` : '—', e.distance_pct, e.distance_league_avg_mi != null ? `avg ${e.distance_league_avg_mi} mi` : ''],
+        ['BURSTS > 20 MPH', e.bursts_over_20 != null ? `${e.bursts_over_20}` : '—', e.bursts_over_20_pct, e.bursts_over_20_league_avg != null ? `avg ${e.bursts_over_20_league_avg}` : ''],
+        ['HARDEST SHOT', e.shot_speed_max_mph != null ? `${e.shot_speed_max_mph} mph` : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? `avg ${e.shot_speed_max_league_avg_mph} mph` : ''],
+      ];
+      for (let i = 0; i < 4; i++) {
+        const col = i % 2, row = Math.floor(i / 2);
+        drawEdgeStatBox(ctx, PAD + col * (bw + 10), y + row * (bh + 10), bw, bh, pairs[i][0], pairs[i][1], pairs[i][2], pairs[i][3], false);
+      }
+      y += 2 * (bh + 10) - 10 + 12;
+      y = drawZoneBar(ctx, y, W, PAD, e, TEAM_C);
+      y += 12;
+      y = drawShotDanger(ctx, y, W, PAD, e);
+      y += 10;
+      // footer
+      ctx.fillStyle = INK10; ctx.fillRect(0, y, W, 36);
+      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26 · EDGE DATA: NHL, INC.', W / 2, y + 18);
+      return canvas;
+    }
+
+    // ── EDGE card: hero + EDGE data (no percentile bars) ─────────────────
+    async function drawEdgeCard() {
+      const e = D.edge;
+      const W = 560, SCALE = 2, PAD = 20;
+      // heights
+      const HDR_H = 48, CHIP_H = 32, HERO_H = 88, SEP_H = 1, KPI_H = 60;
+      // Traced: divider(24)+gap(8)+pairs(194)+gap(12)+zone(86)+gap(12)+shot(145) = 481 + 8 buffer
+      const EDGE_SEC_H = e ? 489 : 80;
+      const FOOT_H = 36;
+      const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + KPI_H + 16 + EDGE_SEC_H + 12 + FOOT_H;
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = TOTAL_H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+      ctx.fillStyle = '#EFEEE8'; ctx.fillRect(0, 0, W, TOTAL_H);
+      let y = 0;
+      // uses INK, RED, INK06..INK48, TEAM_C from outer IIFE scope
+      const rrect = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
+      // ── Header ───────────────────────────────────────────────────────────
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, y, W, HDR_H);
+      ctx.font = '800 22px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(`${D.firstName.toUpperCase()} ${D.lastName.toUpperCase()}`, PAD, y + HDR_H / 2);
+      ctx.fillStyle = INK14; ctx.fillRect(0, y + HDR_H - 1, W, 1);
+      y += HDR_H;
+      // ── Chips ────────────────────────────────────────────────────────────
+      const chips = [D.team, D.posLabel.toUpperCase(), '2025-26', 'HOCKEYGAMEBOT'];
+      let cx2 = PAD;
+      chips.forEach((txt, i) => {
+        ctx.font = '700 8px "JetBrains Mono", monospace';
+        const tw = ctx.measureText(txt).width + 16;
+        ctx.fillStyle = i === 0 ? TEAM_C : i < 3 ? INK : INK10;
+        rrect(ctx, cx2, y + 7, tw, 18, 2); ctx.fill();
+        ctx.fillStyle = i < 3 ? '#FFFFFF' : INK;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(txt, cx2 + 8, y + 16);
+        cx2 += tw + 6;
+      });
+      y += CHIP_H;
+      // ── Hero row ────────────────────────────────────────────────────────
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, y, W, HERO_H);
+      ctx.fillStyle = INK06; ctx.fillRect(0, y, W, 1);
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, y, 6, HERO_H);
+      // headshot circle
+      ctx.save();
+      ctx.beginPath(); ctx.arc(6 + 14 + 34, y + HERO_H / 2, 34, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = INK10; ctx.fillRect(6, y, 82, HERO_H);
+      ctx.restore();
+      ctx.strokeStyle = INK14; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(6 + 14 + 34, y + HERO_H / 2, 34, 0, Math.PI * 2); ctx.stroke();
+      // hero tiles
+      const tileX = 100;
+      const tiles = [
+        [D.warPct != null ? `${D.warPct}%` : '—', D.war != null ? `${D.war >= 0 ? '+' : ''}${D.war.toFixed(2)} WAR` : '—', TEAM_C],
+        [D.impactPct != null ? `${Math.round(D.impactPct)}%` : '—', `${D.avgGsDisplay?.toFixed(2) ?? '—'} GS avg`, INK],
+        [`${D.gp} GP`, `${D.totalG}G · ${D.totalA}A`, INK],
+      ];
+      const tileW = (W - tileX) / 3;
+      tiles.forEach(([big, small, color], i) => {
+        const tx = tileX + i * tileW;
+        if (i > 0) { ctx.fillStyle = INK06; ctx.fillRect(tx, y + 16, 1, HERO_H - 32); }
+        ctx.font = '800 32px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(big, tx + tileW / 2, y + HERO_H / 2 - 8);
+        ctx.font = '400 8.5px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK48; ctx.fillText(small, tx + tileW / 2, y + HERO_H / 2 + 14);
+      });
+      ctx.fillStyle = INK14; ctx.fillRect(0, y + HERO_H - 1, W, 1);
+      y += HERO_H + SEP_H;
+      // ── KPI strip ────────────────────────────────────────────────────────
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, y, W, KPI_H);
+      const kpis = [
+        ['G / 60', D.ratesG?.toFixed(2) ?? '—'],['A1 / 60', D.ratesA1?.toFixed(2) ?? '—'],
+        ['xG / 60', D.ratesXg?.toFixed(2) ?? '—'],['Finishing', (D.finishing >= 0 ? '+' : '') + D.finishing?.toFixed(2)],
+        ['Shots / 60', ((D.totalS ?? 0) / Math.max(D.gp * D.toiAvgSec / 3600, 0.01)).toFixed(1)],
+      ];
+      kpis.forEach(([lbl, val], i) => {
+        const kx = PAD + i * ((W - PAD * 2) / 5);
+        if (i > 0) { ctx.fillStyle = INK06; ctx.fillRect(kx, y + 10, 1, KPI_H - 20); }
+        ctx.font = '800 20px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(val, kx + (W - PAD * 2) / 10, y + KPI_H / 2 - 6);
+        ctx.font = '700 8px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK48;
+        ctx.fillText(lbl.toUpperCase(), kx + (W - PAD * 2) / 10, y + KPI_H / 2 + 10);
+      });
+      ctx.fillStyle = INK14; ctx.fillRect(0, y + KPI_H - 1, W, 1);
+      y += KPI_H + 16;
+      // ── EDGE section ─────────────────────────────────────────────────────
+      if (!e) {
+        ctx.fillStyle = INK10; ctx.fillRect(PAD, y, W - PAD * 2, 60);
+        ctx.font = '700 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('EDGE DATA NOT YET AVAILABLE', W / 2, y + 30);
+        y += 72;
+      } else {
+        y = drawEdgeDivider(ctx, y, W);
+        y += 8;
+        const bw2 = (W - PAD * 2 - 10) / 2, bh2 = 86;
+        const pairs2 = [
+          ['TOP SPEED', e.speed_max_mph != null ? `${e.speed_max_mph} mph` : '—', e.speed_max_pct, e.speed_max_league_avg_mph != null ? `avg ${e.speed_max_league_avg_mph} mph` : ''],
+          ['MILES SKATED', e.distance_mi != null ? `${e.distance_mi} mi` : '—', e.distance_pct, e.distance_league_avg_mi != null ? `avg ${e.distance_league_avg_mi} mi` : ''],
+          ['BURSTS > 20 MPH', e.bursts_over_20 != null ? `${e.bursts_over_20}` : '—', e.bursts_over_20_pct, e.bursts_over_20_league_avg != null ? `avg ${e.bursts_over_20_league_avg}` : ''],
+          ['HARDEST SHOT', e.shot_speed_max_mph != null ? `${e.shot_speed_max_mph} mph` : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? `avg ${e.shot_speed_max_league_avg_mph} mph` : ''],
+        ];
+        for (let i = 0; i < 4; i++) {
+          const col = i % 2, row = Math.floor(i / 2);
+          drawEdgeStatBox(ctx, PAD + col * (bw2 + 10), y + row * (bh2 + 10), bw2, bh2, pairs2[i][0], pairs2[i][1], pairs2[i][2], pairs2[i][3], false);
+        }
+        y += 2 * (bh2 + 10) - 10 + 12;
+        y = drawZoneBar(ctx, y, W, PAD, e, TEAM_C);
+        y += 12;
+        y = drawShotDanger(ctx, y, W, PAD, e);
+        y += 10;
+      }
+      // ── Footer ───────────────────────────────────────────────────────────
+      ctx.fillStyle = INK10; ctx.fillRect(0, y, W, FOOT_H);
+      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26 · EDGE DATA: NHL, INC.', W / 2, y + FOOT_H / 2);
+      return canvas;
+    }
+
+    // ── Landscape card: portrait left (560px) + teal divider + EDGE right (339px) ──
+    async function drawLandscapeCard() {
+      const SCALE   = 2;
+      const PORT_W  = 560;
+      const DIV_W   = 1;
+      const RIGHT_W = 339;
+      const TOTAL_W = PORT_W + DIV_W + RIGHT_W;   // 900
+      const FOOT_H  = 36;
+      const PAD     = 16;
+      const TEAL    = '#006D75';
+
+      // Build portrait first — its height determines the landscape height
+      const portrait = await drawCard();
+      const TOTAL_H  = portrait.height / SCALE;
+
+      const canvas  = document.createElement('canvas');
+      canvas.width  = TOTAL_W * SCALE;
+      canvas.height = TOTAL_H * SCALE;
+      const ctx     = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      ctx.fillStyle = '#EFEEE8'; ctx.fillRect(0, 0, TOTAL_W, TOTAL_H);
+      // Copy portrait to the left
+      ctx.drawImage(portrait, 0, 0, PORT_W * SCALE, TOTAL_H * SCALE, 0, 0, PORT_W, TOTAL_H);
+      // Teal 1px divider
+      ctx.fillStyle = TEAL; ctx.fillRect(PORT_W, 0, DIV_W, TOTAL_H);
+
+      const RX = PORT_W + DIV_W;
+      const e  = D.edge;
+
+      if (!e) {
+        ctx.fillStyle = INK10; ctx.fillRect(RX, 0, RIGHT_W, TOTAL_H);
+        ctx.font = '700 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('EDGE DATA NOT AVAILABLE', RX + RIGHT_W / 2, TOTAL_H / 2);
+        return canvas;
+      }
+
+      let ry = 0;
+
+      // ── Edge header (40px) ───────────────────────────────────────────────
+      const EDGE_HDR_H = 40;
+      ctx.fillStyle = INK14; ctx.fillRect(RX, ry + EDGE_HDR_H - 1, RIGHT_W, 1);
+      ctx.font = '800 13px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('NHL EDGE', RX + PAD, ry + EDGE_HDR_H / 2);
+      ctx.fillStyle = TEAL; ctx.textAlign = 'right';
+      ctx.fillText('TRACKING', RX + RIGHT_W - PAD, ry + EDGE_HDR_H / 2);
+      ry += EDGE_HDR_H;
+
+      // ── 2×2 stat tiles ───────────────────────────────────────────────────
+      const TILE_PAD_V = 10;
+      const TILE_GAP   = 8;
+      const tileW      = (RIGHT_W - PAD * 2 - TILE_GAP) / 2;
+      const TILE_H     = 80;
+      const tilePairs  = [
+        ['TOP SPEED',      e.speed_max_mph    != null ? `${e.speed_max_mph} mph`     : '—', e.speed_max_pct,       e.speed_max_league_avg_mph   != null ? `avg ${e.speed_max_league_avg_mph} mph`   : ''],
+        ['MILES SKATED',   e.distance_mi      != null ? `${e.distance_mi} mi`        : '—', e.distance_pct,        e.distance_league_avg_mi     != null ? `avg ${e.distance_league_avg_mi} mi`     : ''],
+        ['BURSTS >20 MPH', e.bursts_over_20   != null ? `${e.bursts_over_20}`        : '—', e.bursts_over_20_pct,  e.bursts_over_20_league_avg  != null ? `avg ${e.bursts_over_20_league_avg}`     : ''],
+        ['HARDEST SHOT',   e.shot_speed_max_mph != null ? `${e.shot_speed_max_mph} mph` : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? `avg ${e.shot_speed_max_league_avg_mph} mph` : ''],
+      ];
+      const tilesStartY = ry + TILE_PAD_V;
+      for (let i = 0; i < 4; i++) {
+        const col = i % 2, row = Math.floor(i / 2);
+        drawEdgeStatBox(ctx, RX + PAD + col * (tileW + TILE_GAP), tilesStartY + row * (TILE_H + TILE_GAP), tileW, TILE_H, ...tilePairs[i]);
+      }
+      ry = tilesStartY + 2 * (TILE_H + TILE_GAP) - TILE_GAP + TILE_PAD_V;
+
+      // ── Zone time ─────────────────────────────────────────────────────────
+      ctx.fillStyle = INK14; ctx.fillRect(RX + PAD, ry, RIGHT_W - PAD * 2, 1); ry += 9;
+      ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('ZONE TIME — EVEN STRENGTH', RX + PAD, ry);
+      if (e.oz_ev_pct_pct != null) {
+        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = TEAL; ctx.textAlign = 'right';
+        ctx.fillText(`OZ: ${Math.round(e.oz_ev_pct_pct)}th`, RX + RIGHT_W - PAD, ry);
+      }
+      ry += 14;
+      const oz = e.oz_pct ?? 45, nz = e.nz_pct ?? 32, dz = e.dz_pct ?? 23;
+      const zbw = RIGHT_W - PAD * 2, zbx = RX + PAD;
+      ctx.save(); ctx.beginPath(); ctx.roundRect(zbx, ry, zbw, 20, 3); ctx.clip();
+      ctx.fillStyle = TEAL;                       ctx.fillRect(zbx,                     ry, zbw * oz / 100,   20);
+      ctx.fillStyle = 'rgba(13,13,20,0.18)';      ctx.fillRect(zbx + zbw * oz / 100,    ry, zbw * nz / 100,   20);
+      ctx.fillStyle = 'rgba(232,0,45,0.30)';      ctx.fillRect(zbx + zbw*(oz+nz)/100,   ry, zbw * dz / 100,   20);
+      ctx.restore();
+      ry += 26;
+      const zSegs = [['OZ', `${oz.toFixed(0)}%`, oz], ['NZ', `${nz.toFixed(0)}%`, nz], ['DZ', `${dz.toFixed(0)}%`, dz]];
+      let lx2 = zbx;
+      for (const [name, pctStr, w] of zSegs) {
+        ctx.font = '800 14px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(pctStr, lx2, ry);
+        ctx.font = '600 7px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+        ctx.fillText(name, lx2, ry + 16); lx2 += zbw * w / 100;
+      }
+      ry += 30;
+
+      // ── Shot location — 3 horizontal rows (fills remaining height) ────────
+      ctx.fillStyle = INK14; ctx.fillRect(RX + PAD, ry, RIGHT_W - PAD * 2, 1); ry += 9;
+      ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('SHOT LOCATION BY DANGER ZONE', RX + PAD, ry); ry += 14;
+
+      const shotZones = [
+        { chip: 'HIGH DGR',  n: e.shots_high, np: e.shots_high_pct, sh: e.shooting_pct_high, shp: e.shooting_pct_high_pct, hi: true  },
+        { chip: 'MID RANGE', n: e.shots_mid,  np: e.shots_mid_pct,  sh: e.shooting_pct_mid,  shp: e.shooting_pct_mid_pct,  hi: false },
+        { chip: 'LNG RANGE', n: e.shots_long, np: e.shots_long_pct, sh: e.shooting_pct_long, shp: e.shooting_pct_long_pct, hi: false },
+      ];
+      const shotRowH = (TOTAL_H - FOOT_H - ry) / 3;
+      const CHIP_W   = 72;
+      const STAT_GAP = 8;
+      const statW    = (RIGHT_W - PAD * 2 - CHIP_W - 10 - STAT_GAP) / 2;
+
+      for (let zi = 0; zi < 3; zi++) {
+        const z    = shotZones[zi];
+        const rowY = ry + zi * shotRowH;
+        if (zi > 0) { ctx.fillStyle = INK06; ctx.fillRect(RX + PAD, rowY, RIGHT_W - PAD * 2, 1); }
+
+        // zone chip
+        const chipX = RX + PAD;
+        const chipY = rowY + (shotRowH - 22) / 2;
+        ctx.beginPath(); ctx.roundRect(chipX, chipY, CHIP_W, 22, 3);
+        if (z.hi) {
+          const r2 = parseInt(TEAM_C.slice(1,3),16), g3 = parseInt(TEAM_C.slice(3,5),16), b3 = parseInt(TEAM_C.slice(5,7),16);
+          ctx.fillStyle = `rgba(${r2},${g3},${b3},0.14)`;
+        } else {
+          ctx.fillStyle = INK06;
+        }
+        ctx.fill();
+        ctx.font = '800 7px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = z.hi ? TEAM_C : INK45;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(z.chip, chipX + CHIP_W / 2, chipY + 11);
+
+        // two mini-stat blocks (ATTEMPTS | SHOOT%)
+        const contentH   = 56;
+        const contentTop = rowY + (shotRowH - contentH) / 2;
+        const stat1X = RX + PAD + CHIP_W + 10;
+        const stat2X = stat1X + statW + STAT_GAP;
+
+        function drawMiniStat(sx, displayVal, pctVal, label) {
+          const pctC = edgeTierColor(pctVal, false);
+          ctx.font = '600 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+          ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+          ctx.fillText(label, sx, contentTop);
+          ctx.font = '800 24px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+          ctx.fillText(displayVal != null ? `${displayVal}` : '—', sx, contentTop + 11);
+          ctx.font = '600 11px "Barlow", sans-serif'; ctx.fillStyle = pctC;
+          ctx.fillText(pctVal != null ? `${Math.round(pctVal)}th` : '', sx, contentTop + 36);
+          ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(sx, contentTop + 50, statW - 2, 4, 2); ctx.fill();
+          if (pctVal != null) {
+            ctx.fillStyle = pctC; ctx.beginPath();
+            ctx.roundRect(sx, contentTop + 50, Math.max(3, (pctVal / 100) * (statW - 2)), 4, 2); ctx.fill();
+          }
+        }
+
+        drawMiniStat(stat1X, z.n,                              z.np,  'ATTEMPTS');
+        drawMiniStat(stat2X, z.sh != null ? `${z.sh}%` : null, z.shp, 'SHOOTING%');
+      }
+
+      // ── Footer ───────────────────────────────────────────────────────────
+      ctx.fillStyle = INK06; ctx.fillRect(RX, TOTAL_H - FOOT_H, RIGHT_W, FOOT_H);
+      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('EDGE DATA: NHL, INC.', RX + RIGHT_W / 2, TOTAL_H - FOOT_H / 2);
+
+      return canvas;
+    }
+
+    // ── HGB Rating Card (JFresh-style blended component card) ────────────
+    // ── Rating Card — portrait 520×720, 3-year talent profile ──────────────
+    // Clean shareable card focused on the 3-year weighted talent profile.
+    // Header is copied exactly from drawCard's header/chips block.
+    async function drawRatingCard() {
+      const BG      = '#EFEEE8';
+      const SURFACE = '#FFFFFF';
+      const SCALE   = 2;
+      const W       = 520;
+      const PAD     = 28;
+
+      // Compute content height: header+chips(86) + gap(6) + identity(122) + sep(1)
+      // + section gap(20) + section label(12) + 11 bars(363) + bottom pad(12) + footer(36)
+      const _HDR = 52, _CHIP = 34, _ID = 122, _BAR_ROWS = 11, _BAR_ROW = 33, _FOOT = 36;
+      const H = _HDR + _CHIP + 6 + _ID + 1 + 20 + 12 + _BAR_ROWS * _BAR_ROW + 12 + _FOOT;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = W * SCALE;
+      canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      // background
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, H);
+
+      // team full name lookup (same table as drawCard)
+      const TEAM_NAMES = {
+        ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
+        BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',
+        CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',
+        DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',
+        FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',
+        MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',
+        NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',
+        PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',
+        SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',
+        TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',
+        VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
+      };
+      const teamFullName = TEAM_NAMES[D.team] || D.team;
+
+      let y = 0;
+
+      // ════════ SECTION 1 — WHITE BAND: orange accent bar + name + chips ════════
+      const HDR_H  = 52;
+      const CHIP_H = 34;
+
+      // White fills the full name+chips area; orange accent bar spans the full white band
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, y, W, HDR_H + CHIP_H);
+      // Orange left accent bar — 4px, full height of white band
+      ctx.fillStyle = TEAM_C;
+      ctx.fillRect(0, y, 4, HDR_H + CHIP_H);
+      // Player name
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
+      y += HDR_H;
+
+      // Chips row — team | position | season  +  HOCKEYGAMEBOT (right)
+      // Still inside the white band (white fill covers HDR_H + CHIP_H)
+      const chipH = 18, chipY0 = y + (CHIP_H - chipH) / 2;
+      const chips = [teamFullName, D.posLabel.toUpperCase(), '2025-26'];
+      let cx = PAD;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      for (let ci = 0; ci < chips.length; ci++) {
+        const tw = ctx.measureText(chips[ci]).width;
+        const cw = tw + 18;
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci === 0 ? TEAM_C : INK;
+        ctx.fill();
+        ctx.fillStyle = BG;
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+        cx += cw + 8;
+      }
+      const brand = 'HOCKEYGAMEBOT';
+      const btw = ctx.measureText(brand).width;
+      const bcw = btw + 18;
+      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
+      // Bottom border of white band
+      ctx.fillStyle = 'rgba(13,13,20,0.08)';
+      ctx.fillRect(0, y + CHIP_H - 1, W, 1);
+      y += CHIP_H;
+
+      // ════════ SECTION 2 — IDENTITY ROW (headshot + 3 hero tiles) ════════
+      const ID_H = 122;
+      y += 6;
+
+      // headshot circle (same style as drawCard — team-color border)
+      const R = 36, HS_CX = PAD + R, HS_CY = y + ID_H / 2;
+      const hsImg = await loadImg(D.headshotUrl);
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
+      } else {
+        ctx.fillStyle = INK10; ctx.fill();
+        ctx.font = '800 24px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
+      }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+      // 3 hero tiles to the right of headshot
+      const heroX  = HS_CX + R + 18;
+      const heroW  = (W - heroX - PAD) / 3;
+
+      const ratingPctVal = D.hgb_rating_percentile;
+      const ratingRawStr = D.hgb_rating != null
+        ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating'
+        : '—';
+      const warPctVal  = D.warPct  ?? (D.impactPct != null ? Math.round(D.impactPct) : null);
+      const impPctVal  = D.impactPct != null ? Math.round(D.impactPct) : null;
+      const warRawStr  = D.war != null ? D.war.toFixed(2) + ' WAR' : '—';
+      const impRawStr  = D.avgGsDisplay != null ? D.avgGsDisplay.toFixed(2) + ' Avg' : '—';
+
+      const heroTiles = [
+        { label: 'HGB RATING', pct: ratingPctVal, sub: ratingRawStr, tag: '' },
+        { label: 'HGB WAR',    pct: warPctVal,    sub: warRawStr,    tag: '2025-26' },
+        { label: 'HGB IMPACT', pct: impPctVal,    sub: impRawStr,    tag: '2025-26' },
+      ];
+      for (let i = 0; i < heroTiles.length; i++) {
+        const t  = heroTiles[i];
+        const tcx = heroX + i * heroW + heroW / 2;
+        if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(heroX + i * heroW, y + 18, 1, ID_H - 36); }
+        // label
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(t.label, tcx, y + 20);
+        // big percentile
+        ctx.font = '900 36px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = t.pct != null ? TEAM_C : INK32;
+        ctx.fillText(t.pct != null ? t.pct + '%' : '—', tcx, y + 33);
+        // sub raw value
+        ctx.font = '800 12px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK48; ctx.textBaseline = 'top';
+        ctx.fillText(t.sub, tcx, y + 78);
+        // small season tag (current-season signal)
+        if (t.tag) {
+          ctx.font = '700 8px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+          ctx.fillText(t.tag, tcx, y + 96);
+        }
+      }
+      y += ID_H;
+
+      // separator
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, W, 1); y += 1;
+
+      // ════════ SECTION 3 — 3-YEAR PROFILE BARS ════════
+      y += 20;
+
+      // section header: eyebrow + red "VS. X" + right-aligned meta
+      const isF = D.posGroup === 'F';
+      const vsLabel = isF ? 'VS. FORWARDS' : 'VS. DEFENSEMEN';
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      ctx.fillText('3-YEAR PROFILE', PAD, y);
+      const eyeW = ctx.measureText('3-YEAR PROFILE').width;
+      ctx.fillStyle = RED;
+      ctx.fillText('  ' + vsLabel, PAD + eyeW, y);
+      // right-aligned meta: clarifies the Rating blend window per strength state
+      ctx.font = '400 8px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textAlign = 'right';
+      ctx.fillText('Rating: EV 3yr blended · PP/PK current season', W - PAD, y);
+      ctx.textAlign = 'left';
+      y += 12;
+
+      // 11 bars, single column. Fall back to season percentiles when 3yr null.
+      const pct3 = D.percentiles;
+      const v3 = (a, b) => (a != null ? a : (b != null ? b : null));
+      // kind: 'context' → blue (deployment context / QoC / QoT / EV-defense isn't
+      // raw player skill, so it shouldn't use the green→red "good/bad" scale).
+      // All other bars default to the 5-tier green/gray/red performance scale.
+      const profileBars = [
+        { label: 'EV Offense',   val: D.hgb_rating_off_pct,                            kind: 'performance' },
+        { label: 'EV Defense',   val: D.hgb_rating_def_pct,                            kind: 'perf'        },
+        { label: 'Goals / 60',   val: v3(D.g_60_pct_3yr,      pct3.goals),             kind: 'performance' },
+        { label: 'A1 / 60',      val: v3(D.a1_60_pct_3yr,     pct3.a1),                kind: 'performance' },
+        { label: 'xG / 60',      val: v3(D.xg_60_pct_3yr,     pct3.ixg),               kind: 'performance' },
+        { label: 'Finishing',    val: v3(D.finishing_pct_3yr, pct3.finishing),         kind: 'performance' },
+        { label: 'Pen. Diff',    val: v3(D.pen_diff_pct_3yr,  pct3.pen_diff),          kind: 'performance' },
+        { label: 'Power Play',   val: pct3.pp_off ?? null,                             kind: 'performance' },
+        { label: 'Penalty Kill', val: pct3.pk_def ?? null,                             kind: 'performance' },
+        { label: 'Opp. Quality', val: v3(D.qoc_pct_3yr,       D.qoc),                  kind: 'context'     },
+        { label: 'Mate Quality', val: v3(D.qot_pct_3yr,       D.qot),                  kind: 'context'     },
+      ];
+
+      const BAR_ROW_H   = 33;
+      const BAR_H_PX    = 13;
+      const BAR_LABEL_W = 96;
+      const BAR_RANK_W  = 44;
+      const BAR_AVAIL   = W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
+
+      function barFill(pct, kind) {
+        // contextual metrics (EV Defense, QoC, QoT) — always blue.
+        // High here is "tough deployment / context", not "good player skill".
+        if (kind === 'context') return '#4285f4';
+        if (pct == null) return 'rgba(13,13,20,0.20)';
+        if (pct >= 75) return '#137333';           // elite — dark green
+        if (pct >= 55) return '#4CAF50';           // above avg — light green
+        if (pct >= 40) return 'rgba(13,13,20,0.35)'; // average — neutral gray
+        if (pct >= 25) return '#E57373';           // below avg — light red
+        return '#E8002D';                          // poor — dark red
+      }
+      function pctColor(pct, kind) {
+        if (kind === 'context') return '#4285f4';
+        if (pct == null) return 'rgba(13,13,20,0.35)';
+        if (pct >= 75) return '#137333';
+        if (pct >= 55) return '#4CAF50';
+        if (pct >= 40) return 'rgba(13,13,20,0.50)';
+        if (pct >= 25) return '#E57373';
+        return '#E8002D';
+      }
+
+      function makeHatchPattern(ctx) {
+        const sz = 6;
+        const pc = document.createElement('canvas');
+        pc.width = sz; pc.height = sz;
+        const px = pc.getContext('2d');
+        px.strokeStyle = 'rgba(13,13,20,0.18)';
+        px.lineWidth = 1;
+        px.beginPath();
+        px.moveTo(0, sz); px.lineTo(sz, 0);
+        px.stroke();
+        return ctx.createPattern(pc, 'repeat');
+      }
+
+      for (let bi = 0; bi < profileBars.length; bi++) {
+        const b = profileBars[bi];
+        const rowY = y + bi * BAR_ROW_H;
+        const by   = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
+        const val  = b.val;
+
+        // label
+        ctx.font = '600 11px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(b.label, PAD, rowY + BAR_ROW_H / 2);
+
+        // track
+        const bx = PAD + BAR_LABEL_W;
+        rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
+        ctx.fillStyle = INK10; ctx.fill();
+
+        if (val == null) {
+          // hatch pattern fill for no-data bars
+          const hatch = makeHatchPattern(ctx);
+          rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
+          ctx.fillStyle = hatch; ctx.fill();
+        } else {
+          const tierC = barFill(val, b.kind);
+          // fill
+          const fillW = Math.max(6, (val / 100) * BAR_AVAIL);
+          rrect(ctx, bx, by, fillW, BAR_H_PX, 3);
+          ctx.fillStyle = tierC; ctx.fill();
+        }
+
+        // percentage (right-aligned) — skip for null bars, show muted dash instead
+        ctx.font = '800 15px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        if (val == null) {
+          ctx.fillStyle = 'rgba(13,13,20,0.32)';
+          ctx.fillText('—', W - PAD, rowY + BAR_ROW_H / 2);
+        } else {
+          ctx.fillStyle = pctColor(val, b.kind);
+          ctx.fillText(Math.round(val) + '%', W - PAD, rowY + BAR_ROW_H / 2);
+        }
+      }
+      y += profileBars.length * BAR_ROW_H + 12;
+
+      // ════════ SECTION 4 — FOOTER ════════
+      const FOOT_H = 36;
+      const footY = y;
+      ctx.fillStyle = INK06; ctx.fillRect(0, footY, W, FOOT_H);
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText('HOCKEYGAMEBOT · HGB STATS · 2025-26', W / 2, footY + FOOT_H / 2);
+
+      return canvas;
+    }
+
+    // ── shared card modal — shows PNG in overlay, easier to save on iOS ──
+    function showCardModal(canvas, filename) {
+      // Remove any existing modal
+      document.getElementById('hgb-card-modal')?.remove();
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+      const overlay = document.createElement('div');
+      overlay.id = 'hgb-card-modal';
+      overlay.style.cssText = `position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;`;
+
+      overlay.innerHTML = `
+        <div style="position:relative;max-width:min(90vw,820px);width:100%;">
+          <button id="hgb-modal-close" style="position:absolute;top:-40px;right:0;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;opacity:0.7;">×</button>
+          <img src="${dataUrl}" alt="${filename}" style="width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,0.12);" />
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:12px;">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.06em;">
+              ${isIOS ? 'Long-press image to save · ' : ''}${filename}
+            </span>
+            ${!isIOS ? `<a href="${dataUrl}" download="${filename}" style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.10em;text-transform:uppercase;padding:6px 14px;background:#fff;color:#0d0d14;text-decoration:none;white-space:nowrap;">↓ Download</a>` : ''}
+          </div>
+        </div>`;
+
+      document.body.appendChild(overlay);
+      document.getElementById('hgb-modal-close').addEventListener('click', () => overlay.remove());
+      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+      document.addEventListener('keydown', function esc(e) {
+        if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
+      });
+    }
+
+    // ── shared canvas download helper (kept for non-card uses) ───────────
+    function downloadCanvas(canvas, filename) {
+      showCardModal(canvas, filename);
+    }
+
+    // ── RAPM z-score horizontal bar card ─────────────────────────────────────
+    async function drawRapmCard() {
+      const R = D.rapm;
+      if (!R || R.ev_xgf60_z == null) throw new Error('No RAPM data for this player');
+
+      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const RED = '#CC0000', BAR_NEG = 'rgba(13,13,20,0.18)';
+      const MUTED = 'rgba(13,13,20,0.45)', GRID = 'rgba(13,13,20,0.09)';
+      const SCALE = 2, W = 780;
+      const PAD = 36, LABEL_W = 76, VAL_W = 58;
+      const CHART_L = PAD + LABEL_W, CHART_R = W - PAD - VAL_W;
+      const CHART_W = CHART_R - CHART_L;
+      const Z_MAX = 3, ZERO_X = CHART_L + CHART_W / 2;
+      const PX_PER_Z = CHART_W / (Z_MAX * 2);
+      const ROW_H = 52, AXIS_H = 32, SEC_H = 36;
+
+      const evRows = [
+        { label: 'GF/60',  z: R.ev_gf60_z  },
+        { label: 'xGF/60', z: R.ev_xgf60_z },
+        { label: 'xGA/60', z: R.ev_xga60_z },
+        { label: 'CF/60',  z: R.ev_cf60_z  },
+        { label: 'CA/60',  z: R.ev_ca60_z  },
+      ].filter(r => r.z != null);
+      const ppRows = [
+        { label: 'GF/60',  z: R.pp_gf60_z  },
+        { label: 'xGF/60', z: R.pp_xgf60_z },
+        { label: 'CF/60',  z: R.pp_cf60_z  },
+      ].filter(r => r.z != null);
+
+      const HERO_H = 86; // 52 name row + 34 chip row, matches Rating Card
+      const EV_H = SEC_H + evRows.length * ROW_H + AXIS_H;
+      const PP_H = ppRows.length > 0 ? SEC_H + ppRows.length * ROW_H + AXIS_H + 20 : 0;
+      const H = HERO_H + EV_H + PP_H + 28;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      const TEAM_C = D.teamColor || '#CC0000';
+      const TEAM_NAMES_R = { ANA:'ANAHEIM DUCKS',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SJS:'SAN JOSE SHARKS',SEA:'SEATTLE KRAKEN',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
+      const teamFull = TEAM_NAMES_R[D.team] || D.team;
+
+      // ── Background ──
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+
+      // ── Hero: white band + 4px team accent (matches Rating Card) ──
+      ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, HERO_H);
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, 4, HERO_H);
+
+      // Name row
+      const fn = D.firstName && D.lastName ? `${D.firstName} ${D.lastName}` : (D.firstName || '');
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = '#0D0D14'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(fn.toUpperCase(), PAD, HERO_H / 2 - 12);
+
+      // Chips row
+      const chipH = 18, chipY0 = HERO_H / 2 + 4;
+      const chips = [teamFull, D.posLabel ? D.posLabel.toUpperCase() : D.pos, '2025-26', 'REG SEASON'];
+      let cx2 = PAD;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      chips.forEach((chip, ci) => {
+        const tw = ctx.measureText(chip).width, cw = tw + 18;
+        rrect(ctx, cx2, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci === 0 ? TEAM_C : '#0D0D14'; ctx.fill();
+        ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chip, cx2 + 9, chipY0 + chipH / 2);
+        cx2 += cw + 8;
+      });
+      // RAPM label pill right-aligned
+      const rapmLabel = ppRows.length > 0 ? 'EV & PP RAPM' : 'EV RAPM';
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      const rtw = ctx.measureText(rapmLabel).width, rcw = rtw + 18;
+      rrect(ctx, W - PAD - rcw, chipY0, rcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(rapmLabel, W - PAD - rcw + 9, chipY0 + chipH / 2);
+
+      // Bottom border
+      ctx.fillStyle = 'rgba(13,13,20,0.08)'; ctx.fillRect(0, HERO_H - 1, W, 1);
+
+      function drawSection(label, rows, toi, yStart) {
+        // Section header
+        ctx.textAlign = 'left';
+        ctx.font = '800 13px "Barlow Condensed", sans-serif'; ctx.fillStyle = RED;
+        ctx.fillText(label.toUpperCase(), PAD, yStart + 24);
+        if (toi != null) {
+          ctx.textAlign = 'right';
+          ctx.font = '400 10px "JetBrains Mono", monospace'; ctx.fillStyle = MUTED;
+          ctx.fillText(`${label === 'Even Strength' ? 'EV' : 'PP'} TOI: ${toi.toFixed(1)} min`, W - PAD, yStart + 24);
+        }
+
+        const chartTop = yStart + SEC_H;
+
+        // Chart bg + gridlines
+        ctx.fillStyle = SURFACE; ctx.fillRect(CHART_L, chartTop, CHART_W, rows.length * ROW_H);
+        [-3,-2,-1,0,1,2,3].forEach(v => {
+          const x = Math.round(ZERO_X + v * PX_PER_Z) + 0.5;
+          ctx.beginPath(); ctx.strokeStyle = v === 0 ? 'rgba(13,13,20,0.22)' : GRID;
+          ctx.lineWidth = v === 0 ? 1.5 : 1;
+          ctx.setLineDash(v === 0 ? [5, 4] : []);
+          ctx.moveTo(x, chartTop); ctx.lineTo(x, chartTop + rows.length * ROW_H);
+          ctx.stroke(); ctx.setLineDash([]);
+        });
+
+        // Row separators
+        rows.forEach((_, i) => {
+          if (i > 0) { ctx.fillStyle = GRID; ctx.fillRect(CHART_L, chartTop + i * ROW_H, CHART_W, 1); }
+        });
+
+        // Bars + labels + values
+        rows.forEach((r, i) => {
+          const cy = chartTop + i * ROW_H + ROW_H / 2;
+          const z = Math.max(-3, Math.min(3, r.z));
+          const barW = Math.abs(z) * PX_PER_Z;
+          const barX = z >= 0 ? ZERO_X : ZERO_X - barW;
+          const barH = ROW_H * 0.42;
+
+          ctx.fillStyle = z >= 0 ? TEAM_C : BAR_NEG;
+          ctx.fillRect(barX, cy - barH / 2, barW, barH);
+
+          // Metric label — Barlow Condensed at ≥12px, JetBrains Mono only for tiny text
+          ctx.textAlign = 'right'; ctx.fillStyle = MUTED;
+          ctx.font = '600 12px "Barlow Condensed", sans-serif';
+          ctx.fillText(r.label, CHART_L - 10, cy + 5);
+
+          // Value — bold, larger
+          const sign = r.z >= 0 ? '+' : '';
+          ctx.textAlign = 'left';
+          ctx.fillStyle = r.z >= 0 ? TEAM_C : MUTED;
+          ctx.font = '700 13px "Barlow Condensed", sans-serif';
+          ctx.fillText(`${sign}${r.z.toFixed(2)}`, CHART_R + 10, cy + 5);
+        });
+
+        // Axis numbers — JetBrains Mono (numeric data, small)
+        const axisY = chartTop + rows.length * ROW_H + 20;
+        ctx.font = '400 10px "JetBrains Mono", monospace'; ctx.fillStyle = MUTED; ctx.textAlign = 'center';
+        [-3,-2,-1,0,1,2,3].forEach(v => {
+          ctx.fillText(String(v), ZERO_X + v * PX_PER_Z, axisY);
+        });
+      }
+
+      let y = HERO_H + 6;
+      drawSection('Even Strength', evRows, R.ev_toi, y);
+      y += SEC_H + evRows.length * ROW_H + AXIS_H + 16;
+      if (ppRows.length > 0) drawSection('Power Play', ppRows, R.pp_toi, y);
+
+      return canvas;
+    }
+
+    function bindCardBtn(id, label, drawFn, filename, sizeLabel = '560px · 2× retina PNG') {
+      const b = document.getElementById(id);
+      if (!b) return;
+      b.addEventListener('click', async () => {
+        b.textContent = 'Generating…'; b.disabled = true;
+        status.textContent = 'Drawing…';
+        try {
+          if (document.fonts && document.fonts.ready) await document.fonts.ready;
+          const canvas = await drawFn();
+          downloadCanvas(canvas, filename);
+          status.textContent = 'Downloaded ✓';
+          setTimeout(() => { status.textContent = sizeLabel; }, 3000);
+        } catch (e) {
+          console.error(e);
+          status.textContent = 'Error — try again';
+        } finally {
+          b.textContent = label; b.disabled = false;
+        }
+      });
+    }
+
+    bindCardBtn('download-card-btn',     'Player Card →',      drawCard,              `hgb_${D.slug}_25-26.png`);
+    bindCardBtn('download-expanded-btn', 'Expanded Card →',    drawLandscapeCard,     `hgb_${D.slug}_expanded_25-26.png`, '900px · 2× retina PNG');
+    bindCardBtn('download-edge-btn',     'NHL EDGE Card →',    drawEdgeCard,          `hgb_${D.slug}_edge_25-26.png`);
+    bindCardBtn('download-rating-card-btn', 'Rating Card →',   drawRatingCard,        `hgb_rating_${D.slug}_25-26.png`, '520×720px · 2× retina PNG');
+    bindCardBtn('download-rapm-card-btn',   'RAPM Card →',     drawRapmCard,          `hgb_rapm_${D.slug}_25-26.png`,   '760px · 2× retina PNG');
+    bindCardBtn('download-history-card-btn','History Card →',  drawHistoryCard,       `hgb_history_${D.slug}.png`,      '560×auto · 2× retina PNG');
+    bindCardBtn('download-expanded-card-btn','Expanded Card →', drawExpandedCard,     `hgb_expanded_${D.slug}.png`,     '1040×auto · 2× retina PNG');
+  })();
+
+  // ── HISTORY CARD draw function ─────────────────────────────────────────────
+  // Defined outside the main IIFE so it can reference _seasonStats + _card.
+  async function drawHistoryCard() {
+    const D = _card;
+    const seasons = _seasonStats; // sorted descending by season
+
+    const INK    = '#0D0D14';
+    const RED    = '#E8002D';
+    const INK06  = 'rgba(13,13,20,0.06)';
+    const INK10  = 'rgba(13,13,20,0.10)';
+    const INK14  = 'rgba(13,13,20,0.14)';
+    const INK32  = 'rgba(13,13,20,0.32)';
+    const INK48  = 'rgba(13,13,20,0.48)';
+    const TEAM_C = D.teamColor || INK;
+
+    function tierColor(val) {
+      if (val == null) return INK32;
+      if (val >= 70) return '#137333';
+      if (val <= 30) return '#E8002D';
+      return INK48;
+    }
+
+    const SCALE = 2;
+    const W = 560;
+    const PAD = 28;
+
+    // Header: 52px name + 34px chips = 86px
+    const HDR_H  = 52;
+    const CHIP_H = 34;
+    const HERO_H = 88;  // 3-tile hero: HGB RATING | HGB WAR | HGB IMPACT
+    const SEP_H  = 1;
+    const COL_H  = 36;  // column headers
+    const ROW_H  = 36;  // each season row
+    const FOOT_H = 36;
+
+    const displaySeasons = seasons.slice(0, 10);
+    const N = displaySeasons.length;
+
+    const TOTAL_H = HDR_H + CHIP_H + HERO_H + SEP_H + COL_H + N * ROW_H + FOOT_H;
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = W * SCALE;
+    canvas.height = TOTAL_H * SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+
+    // ── Background (light card — cream editorial style) ─────────────────
+    ctx.fillStyle = '#EFEEE8';
+    ctx.fillRect(0, 0, W, TOTAL_H);
+
+    // 4px left accent bar (team color, full height)
+    ctx.fillStyle = TEAM_C;
+    ctx.fillRect(0, 0, 4, TOTAL_H);
+
+    let y = 0;
+
+    // ── HEADER (white band) ─────────────────────────────────────────────
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, y, W, HDR_H + CHIP_H);
+    // Bottom border of header
+    ctx.fillStyle = INK14;
+    ctx.fillRect(0, y + HDR_H + CHIP_H - 1, W, 1);
+
+    // Player name
+    ctx.font = '800 24px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
+    // "SEASON HISTORY" label right-aligned
+    ctx.font = '700 10px "JetBrains Mono", monospace';
+    ctx.fillStyle = TEAM_C;
+    ctx.textAlign = 'right';
+    ctx.fillText('SEASON HISTORY', W - PAD, y + HDR_H / 2);
+    y += HDR_H;
+
+    // Chips row
+    const chipH = 18;
+    const chipY0 = y + (CHIP_H - chipH) / 2;
+    const TEAM_NAMES_H = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
+    const teamFull = TEAM_NAMES_H[D.team] || D.team;
+    const chips = [teamFull, (D.posLabel || D.pos).toUpperCase()];
+    let cx = PAD;
+    ctx.font = '700 9px "Barlow Condensed", sans-serif';
+    for (let ci = 0; ci < chips.length; ci++) {
+      const tw = ctx.measureText(chips[ci]).width;
+      const cw = tw + 18;
+      ctx.beginPath(); ctx.roundRect(cx, chipY0, cw, chipH, 3);
+      ctx.fillStyle = ci === 0 ? TEAM_C : INK;
+      ctx.fill();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+      cx += cw + 8;
+    }
+    const brand = 'HOCKEYGAMEBOT';
+    const btw = ctx.measureText(brand).width;
+    const bcw = btw + 18;
+    ctx.beginPath(); ctx.roundRect(W - PAD - bcw, chipY0, bcw, chipH, 3);
+    ctx.fillStyle = RED; ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
+    y += CHIP_H;
+
+    // ── HERO ROW — exact same pattern as Rating Card: headshot + 3 stat tiles ──
+    const heroR = 38, hsCX = PAD + heroR, hsCY = y + HERO_H / 2;
+    const hsImgH = await (function li(src) {
+      return new Promise(res => { const i = new Image(); i.crossOrigin='anonymous'; i.onload=()=>res(i); i.onerror=()=>res(null); i.src=src; });
+    })(D.headshotUrl);
+    ctx.save(); ctx.beginPath(); ctx.arc(hsCX, hsCY, heroR, 0, Math.PI*2); ctx.clip();
+    if (hsImgH) {
+      ctx.drawImage(hsImgH, hsCX-heroR, hsCY-heroR, heroR*2, heroR*2);
+    } else {
+      ctx.fillStyle = INK10; ctx.fill();
+      ctx.font = '800 24px "Barlow Condensed",sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline='middle'; ctx.textAlign='center';
+      ctx.fillText((D.firstName[0]+D.lastName[0]).toUpperCase(), hsCX, hsCY);
+    }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(hsCX, hsCY, heroR, 0, Math.PI*2);
+    ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+    // 3 stat tiles to the right of headshot
+    const statX = hsCX + heroR + 18;
+    const statW = (W - statX - PAD) / 3;
+    const ratingPctVal = D.hgb_rating_percentile ?? null;
+    const ratingRawStr = D.hgb_rating != null ? (D.hgb_rating>0?'+':'') + D.hgb_rating.toFixed(2) + ' Rating' : '—';
+    const warPctVal  = D.warPct ?? Math.round(D.impactPct);
+    const impPctVal  = Math.round(D.impactPct);
+    const warRawStr  = D.war != null ? (D.war>=0?'+':'') + D.war.toFixed(2) + ' WAR' : '—';
+    const gsAvgStr   = D.avgGsDisplay != null ? (D.avgGsDisplay>=0?'+':'') + D.avgGsDisplay.toFixed(2) + ' Avg' : '—';
+    const heroStats  = [
+      { label: 'HGB RATING',      big: ratingPctVal != null ? ratingPctVal+'%' : '—', small: ratingRawStr },
+      { label: 'HGB WAR',         big: warPctVal+'%',                                  small: warRawStr   },
+      { label: 'HGB GAME IMPACT', big: impPctVal+'%',                                  small: gsAvgStr    },
+    ];
+    for (let i = 0; i < heroStats.length; i++) {
+      const hs = heroStats[i];
+      const sx = statX + i * statW + statW / 2;
+      if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(statX + i*statW, y+14, 1, HERO_H-28); }
+      ctx.font = '700 9px "Barlow Condensed",sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline='top'; ctx.textAlign='center';
+      ctx.fillText(hs.label, sx, y+14);
+      ctx.font = '800 30px "Barlow Condensed",sans-serif';
+      ctx.fillStyle = TEAM_C; ctx.textBaseline='top';
+      ctx.fillText(hs.big, sx, y+27);
+      ctx.font = '800 12px "Barlow Condensed",sans-serif';
+      ctx.fillStyle = INK48; ctx.textBaseline='top';
+      ctx.fillText(hs.small, sx, y+66);
+    }
+    ctx.fillStyle = INK14; ctx.fillRect(0, y+HERO_H-1, W, 1);
+    y += HERO_H;
+
+    // separator
+    ctx.fillStyle = INK10;
+    ctx.fillRect(0, y, W, SEP_H);
+    y += SEP_H;
+
+    // ── COLUMN HEADERS ───────────────────────────────────────────────────
+    const COL1_X = PAD;              // SEASON label
+    const COL2_X = PAD + 80;         // HGB RATING
+    const COL3_X = PAD + 80 + 130;   // HGB WAR
+    const COL4_X = PAD + 80 + 260;   // HGB IMPACT
+    const COL_VAL_W = 120;
+
+    ctx.font = '700 10px "JetBrains Mono", monospace';
+    ctx.fillStyle = INK32;
+    ctx.textBaseline = 'middle';
+    ['SEASON', 'RATING', 'WAR', 'IMPACT'].forEach((label, i) => {
+      const x = [COL1_X, COL2_X, COL3_X, COL4_X][i];
+      ctx.textAlign = i === 0 ? 'left' : 'right';
+      ctx.fillText(label, i === 0 ? x : x + COL_VAL_W, y + COL_H / 2);
+    });
+    // header bottom border
+    ctx.fillStyle = INK10;
+    ctx.fillRect(0, y + COL_H - 1, W, 1);
+    y += COL_H;
+
+    // ── SEASON ROWS ──────────────────────────────────────────────────────
+    for (let ri = 0; ri < displaySeasons.length; ri++) {
+      const s = displaySeasons[ri];
+      const ry = y + ri * ROW_H;
+      const rowY = ry + ROW_H / 2;
+
+      // alternating subtle row background
+      if (ri % 2 === 0) {
+        ctx.fillStyle = INK06;
+        ctx.fillRect(0, ry, W, ROW_H);
+      }
+
+      // Highlight current season (most recent = first row) — background only, no bar
+      if (ri === 0) {
+        ctx.fillStyle = `rgba(${parseInt(TEAM_C.slice(1,3)||'0',16)},${parseInt(TEAM_C.slice(3,5)||'0',16)},${parseInt(TEAM_C.slice(5,7)||'0',16)},0.08)`;
+        ctx.fillRect(0, ry, W, ROW_H);
+      }
+
+      // row bottom border
+      ctx.fillStyle = INK06;
+      ctx.fillRect(0, ry + ROW_H - 1, W, 1);
+
+      // Season label (e.g. "2025-26")
+      const seasonLabel = s.season ? s.season.replace('-', '–') : '—';
+      ctx.font = ri === 0 ? '700 12px "JetBrains Mono", monospace' : '500 12px "JetBrains Mono", monospace';
+      ctx.fillStyle = ri === 0 ? INK : INK48;
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(seasonLabel, COL1_X, rowY);
+
+      // GP sub-label
+      if (s.gp != null) {
+        ctx.font = '400 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32;
+        ctx.fillText(s.gp + ' GP', COL1_X + 56, rowY);
+      }
+
+      // Helper to draw a percentile value cell
+      function drawPctCell(colX, val) {
+        const displayVal = val != null ? Math.round(val) + '%' : '—';
+        const color = val != null ? tierColor(val) : INK32;
+        ctx.font = val != null ? '700 13px "JetBrains Mono", monospace' : '400 13px "JetBrains Mono", monospace';
+        ctx.fillStyle = color;
+        ctx.textAlign = 'right';
+        ctx.fillText(displayVal, colX + COL_VAL_W, rowY);
+      }
+
+      // hgb_rating_pct / war_pct / impact_pct will be null until pipeline writes them
+      drawPctCell(COL2_X, s.hgb_rating_pct);
+      drawPctCell(COL3_X, s.war_pct);
+      drawPctCell(COL4_X, s.impact_pct);
+    }
+
+    y += N * ROW_H;
+
+    // ── FOOTER ──────────────────────────────────────────────────────────
+    ctx.fillStyle = INK06;
+    ctx.fillRect(0, y, W, FOOT_H);
+    ctx.font = '700 8px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK32;
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · RATING/WAR/IMPACT PERCENTILE VS. FORWARDS', W / 2, y + FOOT_H / 2);
+
+    return canvas;
+  }
+
+  // ── EXPANDED CARD — Rating Card (left) + History Table (right) in one landscape card ──
+  async function drawExpandedCard() {
+    const D = _card;
+    const seasons = _seasonStats;
+
+    const INK     = '#0D0D14';
+    const BG      = '#EFEEE8';
+    const SURFACE = '#FFFFFF';
+    const RED     = '#E8002D';
+    const INK06   = 'rgba(13,13,20,0.06)';
+    const INK10   = 'rgba(13,13,20,0.10)';
+    const INK14   = 'rgba(13,13,20,0.14)';
+    const INK32   = 'rgba(13,13,20,0.32)';
+    const INK48   = 'rgba(13,13,20,0.48)';
+    const TEAM_C  = D.teamColor || INK;
+    const SCALE   = 2;
+
+    const L_W = 520, R_W = 520, W = L_W + R_W;
+    const PAD = 24, R_PAD = 20;
+
+    // Shared header
+    const HDR_H = 52, CHIP_H = 34;
+
+    // Left panel content (below header): gap + identity + sep + section-hdr + 11 bars + pad
+    const ID_H = 122, BAR_ROW_H = 33, BAR_ROWS = 11;
+    const L_CONTENT_H = 6 + ID_H + 1 + 20 + 12 + BAR_ROWS * BAR_ROW_H + 12;
+
+    // Right panel content (below header): col headers + rows
+    const COL_H = 36, ROW_H = 36;
+    const displaySeasons = seasons.slice(0, 10);
+    const N = displaySeasons.length;
+    const R_CONTENT_H = COL_H + N * ROW_H;
+
+    const FOOT_H    = 36;
+    const CONTENT_H = Math.max(L_CONTENT_H, R_CONTENT_H);
+    const H         = HDR_H + CHIP_H + CONTENT_H + FOOT_H;
+
+    // Local helpers (rrect / loadImg not in scope outside the IIFE)
+    function rrect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') { ctx.roundRect(x, y, w, h, r); }
+      else {
+        ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+        ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+        ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+        ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+      }
+    }
+    function loadImg(src) {
+      return new Promise(res => {
+        const img = new Image(); img.crossOrigin = 'anonymous';
+        img.onload = () => res(img); img.onerror = () => res(null);
+        img.src = src;
+      });
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = W * SCALE;
+    canvas.height = H * SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+
+    // Background
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W, H);
+
+    // Left accent bar (full card height)
+    ctx.fillStyle = TEAM_C;
+    ctx.fillRect(0, 0, 4, H);
+
+    // ── SHARED HEADER (white band) ──────────────────────────────────────────
+    ctx.fillStyle = SURFACE;
+    ctx.fillRect(0, 0, W, HDR_H + CHIP_H);
+    ctx.fillStyle = INK14;
+    ctx.fillRect(0, HDR_H + CHIP_H - 1, W, 1);
+
+    ctx.font = '800 24px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, HDR_H / 2);
+
+    ctx.font = '700 10px "JetBrains Mono", monospace';
+    ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
+    ctx.fillText('EXPANDED PROFILE', W - PAD, HDR_H / 2);
+
+    // Chips row
+    const TEAM_NAMES = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
+    const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
+    const chips = [(TEAM_NAMES[D.team] || D.team), D.posLabel.toUpperCase(), '2025-26'];
+    let cx = PAD;
+    ctx.font = '700 9px "Barlow Condensed", sans-serif';
+    for (let ci = 0; ci < chips.length; ci++) {
+      const cw = ctx.measureText(chips[ci]).width + 18;
+      rrect(ctx, cx, chipY0, cw, chipH, 3);
+      ctx.fillStyle = ci === 0 ? TEAM_C : INK; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+      cx += cw + 8;
+    }
+    const brand = 'HOCKEYGAMEBOT';
+    const bcw = ctx.measureText(brand).width + 18;
+    rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+    ctx.fillStyle = RED; ctx.fill();
+    ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
+
+    // Panel divider
+    ctx.fillStyle = INK14;
+    ctx.fillRect(L_W, HDR_H + CHIP_H, 1, CONTENT_H);
+
+    // ── LEFT PANEL — identity row ────────────────────────────────────────────
+    let y = HDR_H + CHIP_H + 6;
+
+    const R = 36, HS_CX = PAD + R, HS_CY = y + ID_H / 2;
+    const hsImg = await loadImg(D.headshotUrl);
+    ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+    if (hsImg) {
+      ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
+    } else {
+      ctx.fillStyle = INK10; ctx.fill();
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
+    }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+    ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+    const heroX = HS_CX + R + 18;
+    const heroW = (L_W - heroX - PAD) / 3;
+    const ratingPctVal = D.hgb_rating_percentile;
+    const warPctVal    = D.warPct ?? (D.impactPct != null ? Math.round(D.impactPct) : null);
+    const impPctVal    = D.impactPct != null ? Math.round(D.impactPct) : null;
+    const heroTiles = [
+      { label: 'HGB RATING', pct: ratingPctVal, sub: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating' : '—' },
+      { label: 'HGB WAR',    pct: warPctVal,    sub: D.war != null ? D.war.toFixed(2) + ' WAR' : '—' },
+      { label: 'HGB IMPACT', pct: impPctVal,    sub: D.avgGsDisplay != null ? D.avgGsDisplay.toFixed(2) + ' Avg' : '—' },
+    ];
+    for (let i = 0; i < heroTiles.length; i++) {
+      const t = heroTiles[i];
+      const tcx = heroX + i * heroW + heroW / 2;
+      if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(heroX + i * heroW, y + 18, 1, ID_H - 36); }
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+      ctx.fillText(t.label, tcx, y + 20);
+      ctx.font = '900 36px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = t.pct != null ? TEAM_C : INK32;
+      ctx.fillText(t.pct != null ? t.pct + '%' : '—', tcx, y + 33);
+      ctx.font = '800 12px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'top';
+      ctx.fillText(t.sub, tcx, y + 78);
+    }
+    y += ID_H;
+
+    ctx.fillStyle = INK14; ctx.fillRect(0, y, L_W, 1); y += 1;
+    y += 20;
+
+    // Section header
+    const isF = D.posGroup === 'F';
+    ctx.font = '700 10px "JetBrains Mono", monospace';
+    ctx.fillStyle = INK48; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillText('3-YEAR PROFILE', PAD, y);
+    const eyeW = ctx.measureText('3-YEAR PROFILE').width;
+    ctx.fillStyle = RED;
+    ctx.fillText('  ' + (isF ? 'VS. FORWARDS' : 'VS. DEFENSEMEN'), PAD + eyeW, y);
+    y += 12;
+
+    // 11 profile bars
+    const pct3 = D.percentiles;
+    const v3 = (a, b) => (a != null ? a : (b != null ? b : null));
+    const profileBars = [
+      { label: 'EV Offense',   val: D.hgb_rating_off_pct,                   kind: 'performance' },
+      { label: 'EV Defense',   val: D.hgb_rating_def_pct,                   kind: 'context'     },
+      { label: 'Goals / 60',   val: v3(D.g_60_pct_3yr,   pct3.goals),       kind: 'performance' },
+      { label: 'A1 / 60',      val: v3(D.a1_60_pct_3yr,  pct3.a1),          kind: 'performance' },
+      { label: 'xG / 60',      val: v3(D.xg_60_pct_3yr,  pct3.ixg),         kind: 'performance' },
+      { label: 'Finishing',    val: v3(D.finishing_pct_3yr, pct3.finishing), kind: 'performance' },
+      { label: 'Pen. Diff',    val: v3(D.pen_diff_pct_3yr, pct3.pen_diff),   kind: 'performance' },
+      { label: 'Power Play',   val: pct3.pp_off ?? null,                     kind: 'performance' },
+      { label: 'Penalty Kill', val: pct3.pk_def ?? null,                     kind: 'performance' },
+      { label: 'Opp. Quality', val: v3(D.qoc_pct_3yr, D.qoc),               kind: 'context'     },
+      { label: 'Mate Quality', val: v3(D.qot_pct_3yr, D.qot),               kind: 'context'     },
+    ];
+
+    const BAR_H_PX = 13, BAR_LABEL_W = 96, BAR_RANK_W = 40;
+    const BAR_AVAIL = L_W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
+
+    function barFill(pct, kind) {
+      if (kind === 'context') return '#4285f4';
+      if (pct == null) return 'rgba(13,13,20,0.20)';
+      if (pct >= 75) return '#137333';
+      if (pct >= 55) return '#4CAF50';
+      if (pct >= 40) return 'rgba(13,13,20,0.35)';
+      if (pct >= 25) return '#E57373';
+      return '#E8002D';
+    }
+    function pctColorL(pct, kind) {
+      if (kind === 'context') return '#4285f4';
+      if (pct == null) return 'rgba(13,13,20,0.35)';
+      if (pct >= 75) return '#137333';
+      if (pct >= 55) return '#4CAF50';
+      if (pct >= 40) return 'rgba(13,13,20,0.50)';
+      if (pct >= 25) return '#E57373';
+      return '#E8002D';
+    }
+
+    for (let bi = 0; bi < profileBars.length; bi++) {
+      const b = profileBars[bi];
+      const rowY = y + bi * BAR_ROW_H;
+      const bby  = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
+      const val  = b.val;
+      ctx.font = '600 11px "Barlow", sans-serif';
+      ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(b.label, PAD, rowY + BAR_ROW_H / 2);
+      const bx = PAD + BAR_LABEL_W;
+      rrect(ctx, bx, bby, BAR_AVAIL, BAR_H_PX, 3); ctx.fillStyle = INK10; ctx.fill();
+      if (val != null) {
+        rrect(ctx, bx, bby, Math.max(6, (val / 100) * BAR_AVAIL), BAR_H_PX, 3);
+        ctx.fillStyle = barFill(val, b.kind); ctx.fill();
+      }
+      ctx.font = '800 15px "Barlow Condensed", sans-serif';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      if (val == null) {
+        ctx.fillStyle = 'rgba(13,13,20,0.32)';
+        ctx.fillText('—', L_W - PAD, rowY + BAR_ROW_H / 2);
+      } else {
+        ctx.fillStyle = pctColorL(val, b.kind);
+        ctx.fillText(Math.round(val) + '%', L_W - PAD, rowY + BAR_ROW_H / 2);
+      }
+    }
+
+    // ── RIGHT PANEL — season history table ──────────────────────────────────
+    const RX = L_W;
+    const R_COL_VAL_W = 115;
+    const COL1_X = RX + R_PAD;
+    const COL2_X = RX + 105;   // RATING right edge = RX+220
+    const COL3_X = RX + 240;   // WAR right edge = RX+355
+    const COL4_X = RX + 375;   // IMPACT right edge = RX+490
+
+    function tierColor(val) {
+      if (val == null) return INK32;
+      if (val >= 70)  return '#137333';
+      if (val <= 30)  return '#E8002D';
+      return INK48;
+    }
+
+    const ry0 = HDR_H + CHIP_H;
+
+    ctx.font = '700 10px "JetBrains Mono", monospace';
+    ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
+    ['SEASON', 'RATING', 'WAR', 'IMPACT'].forEach((label, i) => {
+      const x = [COL1_X, COL2_X, COL3_X, COL4_X][i];
+      ctx.textAlign = i === 0 ? 'left' : 'right';
+      ctx.fillText(label, i === 0 ? x : x + R_COL_VAL_W, ry0 + COL_H / 2);
+    });
+    ctx.fillStyle = INK10;
+    ctx.fillRect(RX, ry0 + COL_H - 1, R_W, 1);
+
+    for (let ri = 0; ri < displaySeasons.length; ri++) {
+      const s = displaySeasons[ri];
+      const rowStartY = ry0 + COL_H + ri * ROW_H;
+      const rowCY = rowStartY + ROW_H / 2;
+
+      if (ri % 2 === 0) { ctx.fillStyle = INK06; ctx.fillRect(RX, rowStartY, R_W, ROW_H); }
+      if (ri === 0) {
+        const [rc, gc, bc2] = [parseInt(TEAM_C.slice(1,3),16), parseInt(TEAM_C.slice(3,5),16), parseInt(TEAM_C.slice(5,7),16)];
+        ctx.fillStyle = 'rgba(' + rc + ',' + gc + ',' + bc2 + ',0.08)';
+        ctx.fillRect(RX, rowStartY, R_W, ROW_H);
+      }
+      ctx.fillStyle = INK06; ctx.fillRect(RX, rowStartY + ROW_H - 1, R_W, 1);
+
+      // Gap indicator between non-consecutive seasons
+      if (ri > 0) {
+        const prevSeason = displaySeasons[ri - 1].season || '';
+        const currSeason = s.season || '';
+        const prevYear = parseInt(prevSeason.slice(0, 4));
+        const currYear = parseInt(currSeason.slice(0, 4));
+        if (prevYear - currYear > 1) {
+          ctx.fillStyle = INK14;
+          ctx.fillRect(RX + R_PAD, rowStartY, R_W - R_PAD * 2, 1);
+        }
+      }
+
+      const seasonLabel = s.season ? s.season.replace('-', '–') : '—';
+      ctx.font = ri === 0 ? '700 12px "JetBrains Mono", monospace' : '500 12px "JetBrains Mono", monospace';
+      ctx.fillStyle = ri === 0 ? INK : INK48;
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(seasonLabel, COL1_X, rowCY);
+
+      if (s.gp != null) {
+        ctx.font = '400 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32;
+        ctx.fillText(s.gp + ' GP', COL1_X + 58, rowCY);
+      }
+
+      const drawPctCell = (colX, val) => {
+        ctx.font = val != null ? '700 13px "JetBrains Mono", monospace' : '400 13px "JetBrains Mono", monospace';
+        ctx.fillStyle = val != null ? tierColor(val) : INK32;
+        ctx.textAlign = 'right';
+        ctx.fillText(val != null ? Math.round(val) + '%' : '—', colX + R_COL_VAL_W, rowCY);
+      };
+      drawPctCell(COL2_X, s.hgb_rating_pct);
+      drawPctCell(COL3_X, s.war_pct);
+      drawPctCell(COL4_X, s.impact_pct);
+    }
+
+    // ── FOOTER ──────────────────────────────────────────────────────────────
+    const footY = HDR_H + CHIP_H + CONTENT_H;
+    ctx.fillStyle = INK06; ctx.fillRect(0, footY, W, FOOT_H);
+    ctx.font = '700 8px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+    ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · RATING / WAR / IMPACT PERCENTILE VS. POSITION · 2025-26', W / 2, footY + FOOT_H / 2);
+
+    return canvas;
+  }
+</script>
+
+<script>
+  // ── SEASON / RATING·3yr toggle ─────────────────────────────────────────
+  // Drives the unified PERCENTILE PROFILE card. All bars (EV Offence/Defence
+  // + counting stats) live in #pct-profile-card. In RATING·3yr mode:
+  //   • RAPM bars  → hgb_rating_off/def_pct (data-rating-val on [data-bar-key])
+  //   • Counting bars → 3yr weighted percentiles + 3yr raw rate
+  (function() {
+    function tierColor(val, isBlue, isRed) {
+      if (val >= 75) return isBlue ? '#4285f4' : isRed ? '#842029' : '#137333';
+      if (val >= 50) return isBlue ? '#7baaf7' : isRed ? '#c03244' : '#34a853';
+      if (val >= 25) return 'rgba(13,13,20,0.32)';
+      return '#E8002D';
+    }
+
+    function updateBar(row, isRating, opts) {
+      const isBlue    = row.dataset.isBlue === 'true';
+      const isRed     = row.dataset.isRed === 'true';
+      const seasonVal = parseFloat(row.dataset.seasonVal ?? '0');
+      const ratingRaw = row.dataset.ratingVal;
+      const hasRating = ratingRaw !== '' && ratingRaw != null;
+
+      const val    = (isRating && hasRating) ? parseFloat(ratingRaw) : seasonVal;
+      const isNull = isRating && !hasRating;
+
+      const fill  = row.querySelector('.pct-fill');
+      const pctEl = row.querySelector('.pct-pct');
+
+      // Swap the raw rate column for counting-stat bars between season / 3yr.
+      if (opts && opts.swapRate) {
+        const rateEl = row.querySelector('.pct-rate');
+        if (rateEl) {
+          const seasonRate = row.dataset.seasonRate;
+          const ratingRate = row.dataset.ratingRate;
+          if (isRating) {
+            rateEl.textContent = (ratingRate !== '' && ratingRate != null) ? ratingRate : '—';
+          } else {
+            rateEl.textContent = (seasonRate !== '' && seasonRate != null) ? seasonRate : '—';
+          }
+        }
+      }
+
+      if (isNull) {
+        if (fill)  { fill.style.width = '0%'; fill.style.background = 'rgba(13,13,20,0.14)'; }
+        if (pctEl) { pctEl.textContent = '—'; pctEl.style.color = 'rgba(13,13,20,0.32)'; }
+      } else {
+        const color = tierColor(val, isBlue, isRed);
+        if (fill)  { fill.style.width = val.toFixed(1) + '%'; fill.style.background = color; }
+        if (pctEl) { pctEl.textContent = Math.round(val) + '%'; pctEl.style.color = color; }
+      }
+    }
+
+    function applyRapmMode(mode) {
+      const isRating = mode === 'rating';
+
+      document.querySelectorAll<HTMLElement>('#rapm-mode-filter button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.rapmMode === mode);
+      });
+
+      // RAPM bars (EV Offence / Defence — identified by data-bar-key)
+      document.querySelectorAll<HTMLElement>('#pct-profile-card .pct-row[data-bar-key]').forEach(row => {
+        const suffix = row.querySelector<HTMLElement>('.rapm-bar-3yr-suffix');
+        if (suffix) suffix.style.display = isRating ? 'inline' : 'none';
+        // Hide the single-season RAPM note when in HGB RATING mode
+        const seasonNote = row.querySelector<HTMLElement>('.rapm-bar-season-note');
+        if (seasonNote) seasonNote.style.display = isRating ? 'none' : '';
+        updateBar(row, isRating, null);
+      });
+
+      // Counting-stat bars (identified by data-rate-key) — also swap raw rate
+      document.querySelectorAll('#pct-profile-card .pct-row[data-rate-key]').forEach(row => {
+        updateBar(row, isRating, { swapRate: true });
+      });
+    }
+
+    document.querySelectorAll<HTMLElement>('#rapm-mode-filter button').forEach(btn => {
+      btn.addEventListener('click', () => applyRapmMode(btn.dataset.rapmMode));
+    });
+  })();
+
+  // Similar Players WAR / Rating toggle
+  (() => {
+    const filter = document.getElementById('peers-mode-filter');
+    if (!filter) return;
+    filter.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.peersMode;
+        filter.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+        document.getElementById('peers-war').style.display    = mode === 'war'    ? '' : 'none';
+        document.getElementById('peers-rating').style.display = mode === 'rating' ? '' : 'none';
+      });
+    });
+  })();
+
+  // ── Season selector — drives EV Offense/Defense RAPM bars ─────────────────
+  // When the user clicks a season row in the career stats table (dispatched as
+  // a custom event), or in the history card table, we update the SEASON tab EV
+  // bars to reflect that season's single-season RAPM percentiles.
+  (() => {
+    // _seasonStats and _evOffFallback / _evDefFallback come from define:vars above
+    // (they are globals serialized into this script's scope by Astro).
+    const seasonMap = {};
+    (_seasonStats || []).forEach(s => { seasonMap[s.season] = s; });
+
+    // Current RAPM mode — we only update EV bars in SEASON mode
+    let currentRapmMode = 'season';
+    document.querySelectorAll('#rapm-mode-filter button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentRapmMode = btn.dataset.rapmMode || 'season';
+      });
+    });
+
+    function tierColor(val, isBlue) {
+      if (val >= 75) return isBlue ? '#4285f4' : '#137333';
+      if (val >= 50) return isBlue ? '#7baaf7' : '#34a853';
+      if (val >= 25) return 'rgba(13,13,20,0.32)';
+      return '#E8002D';
+    }
+
+    // Apply a season's RAPM data to the EV bars (SEASON mode only)
+    function applySeasonToEvBars(seasonStr) {
+      const entry = seasonMap[seasonStr];
+      const offVal = (entry?.rapm_off_pct != null) ? entry.rapm_off_pct : _evOffFallback;
+      const defVal = (entry?.rapm_def_pct != null) ? entry.rapm_def_pct : _evDefFallback;
+
+      document.querySelectorAll('#pct-profile-card .pct-row[data-bar-key]').forEach(row => {
+        const key    = row.dataset.barKey;
+        const isBlue = row.dataset.isBlue === 'true';
+        const val    = key === 'ev_offence' ? offVal : defVal;
+
+        // Update data-season-val for future mode toggles
+        row.dataset.seasonVal = val.toFixed(1);
+
+        // Only update DOM if currently in SEASON mode
+        if (currentRapmMode !== 'season') return;
+
+        const fill  = row.querySelector('.pct-fill');
+        const pctEl = row.querySelector('.pct-pct');
+        const color = tierColor(val, isBlue);
+        if (fill)  { fill.style.width = val.toFixed(1) + '%'; fill.style.background = color; }
+        if (pctEl) { pctEl.textContent = Math.round(val) + '%'; pctEl.style.color = color; }
+      });
+    }
+
+    // Listen for season selection events dispatched by the career table.
+    // React (PlayerCareerTable) owns its own row highlight via activeSeason state.
+    // This handler only needs to update the EV bars.
+    document.addEventListener('hgb:season-select', (e) => {
+      const season = e.detail?.season;
+      if (!season) return;
+      applySeasonToEvBars(season);
+    });
+  })();
+
+  // Impact trend chart — dot hover tooltips
+  const tip = document.getElementById('imp-tip');
+  if (tip) {
+    document.querySelectorAll<HTMLElement>('.impact-dot').forEach(dot => {
+      dot.addEventListener('mouseenter', e => {
+        const me = e as MouseEvent;
+        const val = parseFloat(dot.dataset.val ?? '0');
+        const tipText = dot.dataset.tip ?? '';
+        // Split "2025-10-30 vs NYR · -0.69" into context + value
+        const parts = tipText.split(' · ');
+        const ctx = parts.slice(0, -1).join(' · ');
+        const valStr = parts[parts.length - 1];
+        const valColor = val >= 0 ? '#1a7a3e' : '#E8002D';
+        tip.innerHTML = `<span class="tip-ctx">${ctx}</span><span class="tip-val" style="color:${valColor}">${valStr}</span>`;
+        tip.style.display = 'block';
+        const x = me.clientX + 12, y = me.clientY - 28;
+        tip.style.left = (x + tip.offsetWidth > window.innerWidth - 8 ? me.clientX - tip.offsetWidth - 8 : x) + 'px';
+        tip.style.top  = Math.max(4, y) + 'px';
+      });
+      dot.addEventListener('mousemove', e => {
+        const mm = e as MouseEvent;
+        const x = mm.clientX + 12, y = mm.clientY - 28;
+        tip.style.left = (x + tip.offsetWidth > window.innerWidth - 8 ? mm.clientX - tip.offsetWidth - 8 : x) + 'px';
+        tip.style.top  = Math.max(4, y) + 'px';
+      });
+      dot.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    });
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,589 @@
+---
+import Nav from '../components/Nav.astro';
+import ThemeScript from '../components/ThemeScript.astro';
+import Fonts from '../components/Fonts.astro';
+const currentPath = Astro.url.pathname;
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HockeyGameBot · Results — NHL Scores Archive</title>
+  <meta name="description" content="Browse recent NHL scores and results. Click any game to see win probability, xG flow charts, and advanced analytics.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HockeyGameBot">
+  <meta property="og:title" content="HockeyGameBot · Results">
+  <meta property="og:url" content="https://hockeygamebot.com/results">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+<style is:global>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --red:     #E8002D;
+  --ink-04:  rgba(13,13,20,0.04);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-72:  rgba(13,13,20,0.72);
+  --display: 'Barlow Condensed', sans-serif;
+  --body:    'Barlow', sans-serif;
+  --mono:    'JetBrains Mono', monospace;
+}
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+img { display: block; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+</style>
+
+<style is:global>
+/* ── MAST ── */
+.mast {
+  border-bottom: 2px solid var(--ink);
+  padding: 40px 0 32px;
+  position: relative;
+}
+.mast::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--ink-06);
+}
+.mast-corners { position: absolute; inset: 0; pointer-events: none; }
+.corner {
+  position: absolute;
+  width: 18px; height: 18px;
+  border-color: var(--ink-20);
+  border-style: solid;
+}
+.corner.tl { top: 10px; left: 10px; border-width: 1.5px 0 0 1.5px; }
+.corner.tr { top: 10px; right: 10px; border-width: 1.5px 1.5px 0 0; }
+.corner.bl { bottom: 10px; left: 10px; border-width: 0 0 1.5px 1.5px; }
+.corner.br { bottom: 10px; right: 10px; border-width: 0 1.5px 1.5px 0; }
+.mast-inner { padding: 0 8px; }
+.mast-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-48);
+  margin-bottom: 10px;
+}
+.mast-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 0.9;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+.mast-title em { color: var(--red); font-style: normal; }
+.mast-sub {
+  font-family: var(--body);
+  font-size: 13px;
+  color: var(--ink-48);
+  margin-top: 12px;
+  letter-spacing: 0.01em;
+}
+
+/* ── DATE NAV ── */
+.date-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 4px;
+  border-bottom: 1px solid var(--ink-14);
+  margin-bottom: 0;
+}
+.date-nav-range {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-56);
+}
+.date-nav-btns { display: flex; gap: 8px; }
+.date-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-48);
+  background: none;
+  border: 1px solid var(--ink-14);
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.date-btn:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
+.date-btn:disabled { opacity: 0.3; cursor: default; }
+
+/* ── CONTENT ── */
+.results-body { padding: 0 0 64px; }
+
+/* Loading / empty */
+.state-msg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-32);
+}
+#results-loading { display: flex; }
+#results-empty   { display: none; }
+
+/* Day group */
+.day-group { border-bottom: 1px solid var(--ink-10); }
+.day-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 22px 0 12px;
+}
+.day-label {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.day-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-32);
+}
+
+/* Game rows */
+.games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 16px;
+}
+.game-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto;
+  align-items: center;
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--ink-10);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color .15s, background .15s;
+  cursor: pointer;
+}
+.game-row:hover { border-color: var(--ink-32); background: var(--bg-2); }
+
+/* Team side (away on left, home on right) */
+.team-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+}
+.team-side.home {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+.team-logo-sm {
+  width: 32px; height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.team-nickname {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  color: var(--ink);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.team-city {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-48);
+  white-space: nowrap;
+}
+
+/* Score block */
+.score-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 20px;
+  min-width: 110px;
+}
+.score-line {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.score-sep {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-32);
+}
+.score-winner { color: var(--ink); }
+.score-loser  { color: var(--ink-32); }
+.score-status {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-48);
+  white-space: nowrap;
+}
+.score-status.live {
+  color: var(--red);
+  animation: blink 1.4s infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* xG bar */
+.xg-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 3px;
+  background: var(--ink-06);
+}
+.xg-away, .xg-home { height: 100%; transition: width .3s; }
+.xg-away { background: var(--ink-32); }
+.xg-home { background: var(--ink-56); }
+
+/* Status-only view (upcoming) */
+.time-only {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 20px;
+  min-width: 110px;
+}
+.time-val {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+.time-tz {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-32);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 600px) {
+  .team-city { display: none; }
+  .team-nickname { font-size: 16px; }
+  .score-line { font-size: 24px; gap: 10px; }
+  .score-block { padding: 8px 12px; min-width: 90px; }
+  .team-side { padding: 10px 12px; gap: 8px; }
+}
+</style>
+</head>
+<body>
+<Nav currentPath={currentPath} />
+
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="wrap">
+    <div class="mast-inner">
+      <div class="mast-eyebrow">HGB · NHL Scores</div>
+      <h1 class="mast-title">Recent <em>Results</em></h1>
+      <p class="mast-sub">7-day rolling window · Click any game for charts, xG flow, and play-by-play</p>
+    </div>
+  </div>
+</section>
+
+<main class="wrap">
+  <div class="date-nav">
+    <span class="date-nav-range" id="date-range">Loading…</span>
+    <div class="date-nav-btns">
+      <button class="date-btn" id="btn-prev">← Prev Week</button>
+      <button class="date-btn" id="btn-next" disabled>Next Week →</button>
+    </div>
+  </div>
+
+  <div class="results-body">
+    <div class="state-msg" id="results-loading">Loading scores…</div>
+    <div class="state-msg" id="results-empty">No games in this window</div>
+    <div id="results-container"></div>
+  </div>
+</main>
+
+<script>
+const API = 'https://api.hockeygamebot.com';
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MON_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// ── date helpers ─────────────────────────────────────────────
+function todayStr(): string {
+  // Use Pacific Time as the hockey-date boundary — all NHL games finish before
+  // midnight PT, so this never rolls over mid-slate.
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date());
+}
+function addDays(iso: string, n: number): string {
+  const d = new Date(iso + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function parseDate(iso: string): Date {
+  return new Date(iso + 'T12:00:00Z');
+}
+function formatDateLabel(iso: string): string {
+  const d = parseDate(iso);
+  return `${DAY_NAMES[d.getUTCDay()]} · ${MON_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+function formatShort(iso: string): string {
+  const d = parseDate(iso);
+  return `${MON_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+// Local timezone abbreviation for display next to game times
+const _localTZ = (() => {
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+      .formatToParts(new Date())
+      .find(p => p.type === 'timeZoneName')?.value ?? '';
+  } catch { return ''; }
+})();
+
+function formatGameTime(utcStr: string): string {
+  if (!utcStr) return '';
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    }).format(new Date(utcStr));
+  } catch { return ''; }
+}
+
+// ── fetch ─────────────────────────────────────────────────────
+type Team = { abbrev: string; name: string; short_name: string; score: number };
+type Game = { game_id: string; status: string; period: number; last_period_type?: string | null; start_time: string; home_team: Team; away_team: Team; xg_home?: number; xg_away?: number };
+
+async function fetchDate(date: string): Promise<{ date: string; games: Game[] }> {
+  try {
+    const r = await fetch(`${API}/v1/games/today?date=${date}`, { cache: 'default' });
+    if (!r.ok) return { date, games: [] };
+    const data = await r.json();
+    return { date, games: data.games ?? [] };
+  } catch { return { date, games: [] }; }
+}
+
+async function loadWeek(anchorDate: string): Promise<{ date: string; games: Game[] }[]> {
+  // 7-day window ending on anchorDate, most recent first
+  const dates: string[] = [];
+  for (let i = 6; i >= 0; i--) dates.push(addDays(anchorDate, -i));
+  const results = await Promise.all(dates.map(fetchDate));
+  return results.filter(d => d.games.length > 0).reverse();
+}
+
+// ── status helpers ────────────────────────────────────────────
+function statusLabel(game: Game): string {
+  if (game.status === 'final') {
+    // last_period_type from NHL API is authoritative for past games
+    const lpt = game.last_period_type;
+    if (lpt === 'SO') return 'FINAL/SO';
+    if (lpt === 'OT') return 'FINAL/OT';
+    // Fallback: use period from D1 game_state (bot-tracked games)
+    const p = game.period ?? 3;
+    if (p >= 5) return 'FINAL/SO';
+    if (p >= 4) return 'FINAL/OT';
+    return 'FINAL';
+  }
+  if (game.status === 'live') {
+    const p = game.period ?? 1;
+    const tr = (game as any).time_remaining;
+    if (tr && tr !== '--:--') return `P${p} · ${tr}`;
+    return `P${p}`;
+  }
+  if (game.status === 'postponed') return 'PPD';
+  return formatGameTime(game.start_time) || 'TBD';
+}
+
+function isLive(g: Game) { return g.status === 'live'; }
+function isFinal(g: Game) { return g.status === 'final'; }
+
+function logoUrl(abbrev: string): string {
+  return `https://assets.nhle.com/logos/nhl/svg/${abbrev}_light.svg`;
+}
+
+// ── render ────────────────────────────────────────────────────
+function renderGame(g: Game): string {
+  const away = g.away_team, home = g.home_team;
+  const live = isLive(g), final = isFinal(g);
+  const awayWins = final && away.score > home.score;
+  const homeWins = final && home.score > away.score;
+  const statusTxt = statusLabel(g);
+  const gameId = g.game_id;
+
+  const awayScoreCls = final ? (awayWins ? 'score-winner' : 'score-loser') : '';
+  const homeScoreCls = final ? (homeWins ? 'score-winner' : 'score-loser') : '';
+
+  let scoreHtml = '';
+  if (final || live) {
+    scoreHtml = `
+      <div class="score-block">
+        <div class="score-line">
+          <span class="${awayScoreCls}">${away.score}</span>
+          <span class="score-sep">—</span>
+          <span class="${homeScoreCls}">${home.score}</span>
+        </div>
+        <div class="score-status${live ? ' live' : ''}">${statusTxt}</div>
+      </div>`;
+  } else {
+    const t = formatGameTime(g.start_time);
+    scoreHtml = `
+      <div class="time-only">
+        <div class="time-val">${t || 'TBD'}</div>
+        <div class="time-tz">${_localTZ}</div>
+      </div>`;
+  }
+
+  // xG bar (only if data present)
+  const xgA = g.xg_away ?? 0, xgH = g.xg_home ?? 0;
+  const xgTotal = xgA + xgH;
+  let xgBar = '';
+  if (final && xgTotal > 0.1) {
+    const awayPct = Math.round(xgA / xgTotal * 100);
+    xgBar = `<div class="xg-bar" style="grid-column:1/-1">
+      <div class="xg-away" style="width:${awayPct}%"></div>
+      <div class="xg-home" style="width:${100-awayPct}%"></div>
+    </div>`;
+  }
+
+  const awayCity = away.name.replace(away.short_name, '').trim();
+  const homeCity = home.name.replace(home.short_name, '').trim();
+
+  return `<a class="game-row" href="/games/${gameId}" style="display:grid">
+    <div class="team-side away">
+      <img class="team-logo-sm" src="${logoUrl(away.abbrev)}" alt="${away.abbrev}" loading="lazy" onerror="this.style.visibility='hidden'">
+      <div>
+        <div class="team-city">${awayCity}</div>
+        <div class="team-nickname">${away.short_name}</div>
+      </div>
+    </div>
+    ${scoreHtml}
+    <div class="team-side home">
+      <img class="team-logo-sm" src="${logoUrl(home.abbrev)}" alt="${home.abbrev}" loading="lazy" onerror="this.style.visibility='hidden'">
+      <div>
+        <div class="team-city">${homeCity}</div>
+        <div class="team-nickname">${home.short_name}</div>
+      </div>
+    </div>
+    ${xgBar}
+  </a>`;
+}
+
+function renderDay(day: { date: string; games: Game[] }): string {
+  const gameCount = day.games.length;
+  const gamesHtml = day.games.map(renderGame).join('');
+  return `<div class="day-group">
+    <div class="day-header">
+      <span class="day-label">${formatDateLabel(day.date)}</span>
+      <span class="day-count">${gameCount} game${gameCount !== 1 ? 's' : ''}</span>
+    </div>
+    <div class="games-list">${gamesHtml}</div>
+  </div>`;
+}
+
+function renderWeek(days: { date: string; games: Game[] }[]) {
+  const container = document.getElementById('results-container')!;
+  const loading = document.getElementById('results-loading')!;
+  const empty = document.getElementById('results-empty')!;
+  loading.style.display = 'none';
+  if (days.length === 0) {
+    empty.style.display = 'flex';
+    container.innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none';
+  container.innerHTML = days.map(renderDay).join('');
+}
+
+// ── state ─────────────────────────────────────────────────────
+let _anchor = '';
+
+function updateDateRange(anchor: string) {
+  const start = addDays(anchor, -6);
+  const rangeEl = document.getElementById('date-range')!;
+  rangeEl.textContent = `${formatShort(start)} – ${formatShort(anchor)}`;
+
+  const today = todayStr();
+  const nextAnchor = addDays(anchor, 7);
+  (document.getElementById('btn-next') as HTMLButtonElement).disabled = nextAnchor > today;
+  (document.getElementById('btn-prev') as HTMLButtonElement).disabled = false;
+
+  // Sync URL without reload
+  const url = new URL(window.location.href);
+  url.searchParams.set('date', anchor);
+  window.history.replaceState({}, '', url.toString());
+}
+
+async function navigate(anchor: string) {
+  _anchor = anchor;
+  updateDateRange(anchor);
+
+  const loading = document.getElementById('results-loading')!;
+  const container = document.getElementById('results-container')!;
+  loading.style.display = 'flex';
+  container.innerHTML = '';
+  document.getElementById('results-empty')!.style.display = 'none';
+
+  const days = await loadWeek(anchor);
+  if (_anchor !== anchor) return; // stale — navigation happened
+  renderWeek(days);
+}
+
+// ── init ──────────────────────────────────────────────────────
+document.getElementById('btn-prev')?.addEventListener('click', () => {
+  navigate(addDays(_anchor, -7));
+});
+document.getElementById('btn-next')?.addEventListener('click', () => {
+  navigate(addDays(_anchor, 7));
+});
+
+// Read ?date param, default to today
+const initDate = new URLSearchParams(window.location.search).get('date') || todayStr();
+navigate(initDate);
+</script>
+</body>
+</html>

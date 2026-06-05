@@ -1,0 +1,409 @@
+---
+import Nav from '../../components/Nav.astro';
+import StatsSubnav from '../../components/StatsSubnav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import Table from '../../components/Table.astro';
+import ChipGroup from '../../components/ChipGroup.astro';
+import { loadPlayers, loadMeta, loadIsPlayoffSeason } from '../../lib/stats-loader';
+import SkatersTable from '../../components/react/SkatersTable';
+
+const allPlayers = loadPlayers();
+const eligible   = allPlayers.filter(p => p.gp >= 20 || ((p as any).playoff_gp ?? 0) > 0);
+const _meta      = loadMeta();
+const isPlayoffSeason = loadIsPlayoffSeason();
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
+
+// Pre-sort rapm arrays for O(n log n) percentile lookup at build time
+const fwdWar = eligible.filter(p => p.pos_group === 'F' && p.war != null).map(p => p.war as number).sort((a,b) => a - b);
+const defWar = eligible.filter(p => p.pos_group === 'D' && p.war != null).map(p => p.war as number).sort((a,b) => a - b);
+
+function warPct(war: number | null, group: 'F' | 'D'): number | null {
+  if (war == null) return null;
+  const arr = group === 'F' ? fwdWar : defWar;
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (arr[mid] <= war) lo = mid + 1; else hi = mid; }
+  return Math.round((lo / arr.length) * 100);
+}
+
+const toi60 = (p: typeof eligible[0]) => (p.toi_avg_sec * p.gp) / 3600 || 1;
+
+const tableRows = eligible.map(p => {
+  const evOff    = p.rates_per_60.ev_offence;
+  const evDef    = p.rates_per_60.ev_defence;
+  const xgfTotal = evOff + evDef;
+  const tot60    = toi60(p);
+  const goals    = p.goals;
+  const assists  = p.assists;
+  const rawSog   = Math.round(p.rates_per_60.shots * tot60);
+  const rawIxg   = p.rates_per_60.ixg * tot60;
+
+  // Strength-state splits
+  const goalsPp  = p.goals_pp  ?? 0;
+  const goalsSh  = p.goals_sh  ?? 0;
+  const goalsEv  = p.goals_ev  ?? 0;
+  const aPp      = (p.a1_pp ?? 0) + (p.a2_pp ?? 0);
+  const aPk      = (p.a1_pk ?? 0) + (p.a2_pk ?? 0);
+  const aEv      = Math.max(0, assists - aPp - aPk);
+  const shotsPp  = p.shots_pp ?? 0;
+  const shotsPk  = p.shots_pk ?? 0;
+  const shotsEv  = Math.max(0, rawSog - shotsPp - shotsPk);
+  const ixgPp    = p.sum_xg_pp ?? 0;
+  const ixgPk    = p.sum_xg_pk ?? 0;
+  const ixgEv    = Math.max(0, rawIxg - ixgPp - ixgPk);
+  const toiPpSec = p.toi_pp_sec_total ?? 0;
+  const toiPkSec = p.toi_pk_sec_total ?? 0;
+  const toiEvSec = p.toi_ev_sec_total ?? 0;
+
+  return {
+    slug:     p.slug,
+    name:     p.display_name,
+    first_name: p.first_name,
+    last_name:  p.last_name,
+    searchText: `${p.first_name} ${p.last_name} ${p.display_name} ${p.team_abbrev}`.toLowerCase(),
+    team:     p.team_abbrev,
+    pos:      p.pos,
+    group:    p.pos_group,
+    gp:       p.gp,
+    // Counting stats (all-situations)
+    goals,
+    assists,
+    points:   goals + assists,
+    sog:      rawSog,
+    ixg:      +rawIxg.toFixed(2),
+    toi_pg:   +(p.toi_avg_sec / 60).toFixed(1),
+    // Rates
+    g60:      +p.rates_per_60.goals.toFixed(2),
+    a60:      +(assists / tot60).toFixed(2),
+    p60:      +((goals + assists) / tot60).toFixed(2),
+    x60:      +p.rates_per_60.ixg.toFixed(2),
+    sog60:    +p.rates_per_60.shots.toFixed(2),
+    // Advanced
+    war:      p.war ?? null,
+    war_p:    warPct(p.war ?? null, p.pos_group),
+    fin:      +p.rates_per_60.finishing.toFixed(2),
+    fin_p:    Math.round(p.percentiles_vs_pos.finishing),
+    imp:      +p.avg_gs_display.toFixed(2),
+    imp_p:    Math.round(p.gs_pct),
+    rapm:     p.rapm != null ? +p.rapm.toFixed(3) : null,
+    rating:   p.hgb_rating != null ? +p.hgb_rating.toFixed(2) : null,
+    rating_p: p.hgb_rating_percentile != null ? Math.round(p.hgb_rating_percentile) : null,
+    // 5v5 on-ice
+    xgf_pct:  xgfTotal > 0 ? +(evOff / xgfTotal * 100).toFixed(1) : 50.0,
+    xgf60:    +evOff.toFixed(2),
+    xga60:    +evDef.toFixed(2),
+    sc60:     +(p.rates_per_60.sc_per60 ?? 0).toFixed(2),
+    hdc60:    +(p.rates_per_60.hdc_per60 ?? 0).toFixed(2),
+    hdc_pct:  +(p.hdc_pct ?? 50).toFixed(1),
+    // PP (legacy fields kept for compat)
+    pp_toi:   toiPpSec > 0 ? +(toiPpSec / p.gp / 60).toFixed(1) : 0,
+    pp_g:     goalsPp,
+    pp_xg60:  +(p.rates_per_60.xg_pp_per60 ?? 0).toFixed(2),
+    // Strength-state raw fields (used by client-side filter)
+    goals_ev: goalsEv,  goals_pp: goalsPp,  goals_sh: goalsSh,
+    a_ev:     aEv,      a_pp:     aPp,      a_pk:     aPk,
+    shots_ev: shotsEv,  shots_pp: shotsPp,  shots_pk: shotsPk,
+    ixg_ev:   +ixgEv.toFixed(2),
+    ixg_pp:   +ixgPp.toFixed(2),
+    ixg_pk:   +ixgPk.toFixed(2),
+    toi_ev_sec: toiEvSec,
+    toi_pp_sec: toiPpSec,
+    toi_pk_sec: toiPkSec,
+    // Playoff counting — null if player didn't play playoffs
+    po_gp:      p.playoff_gp      ?? null,
+    po_goals:   p.playoff_goals   ?? null,
+    po_assists: p.playoff_assists  ?? null,
+    po_points:  p.playoff_points   ?? null,
+    po_sog:     p.playoff_sog      ?? null,
+    po_ixg:     p.playoff_ixg      ?? null,
+    po_toi_pg:  p.playoff_toi_sec != null && p.playoff_gp
+                  ? +(p.playoff_toi_sec / p.playoff_gp / 60).toFixed(1)
+                  : null,
+  };
+});
+
+// SSR initial: counting tab, sorted by points desc, top 50.
+const ssrRows = tableRows
+  .slice()
+  .sort((a, b) => (b.points ?? 0) - (a.points ?? 0))
+  .slice(0, 50)
+  .map((r, i) => ({ ...r, _rank: i + 1 }));
+
+// SSR column set: counting tab (gets swapped by JS on tab change).
+const initialColumns = [
+  { key: '_rank',  label: '#',      type: 'rank' as const, sortable: false },
+  { key: 'name',   label: 'Player', type: 'player' as const, sub: (r: any) => `${r.team} · ${r.pos} · ${r.gp} GP` },
+  { key: 'pos',    label: 'Pos',    type: 'position' as const, sortable: true },
+  { key: 'gp',     label: 'GP',     type: 'number' as const },
+  { key: 'goals',  label: 'G',      type: 'number' as const },
+  { key: 'assists',label: 'A',      type: 'number' as const },
+  { key: 'points', label: 'P',      type: 'number' as const, bold: true },
+  { key: 'sog',    label: 'SOG',    type: 'number' as const },
+  { key: 'ixg',    label: 'ixG',    type: 'number' as const, format: (v: any) => v != null ? Number(v).toFixed(2) : '—' },
+  { key: 'toi_pg', label: 'TOI',    type: 'number' as const, format: (v: any) => v != null ? Number(v).toFixed(1) : '—' },
+];
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Leaderboards — HGB Stats — HockeyGameBot</title>
+  <meta name="description" content="All NHL skaters ranked by WAR, Goals/60, xG/60, finishing, and HGB Impact. Sortable table, min 20 GP, 2025–26 season." />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #EFEEE8;
+      --ink:      #0d0d14;
+      --red:      #E8002D;
+      --surface:  #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    /* ── Masthead ── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.12em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
+    .mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
+
+    /* ── Layout ── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+    /* ── Table section ── */
+    .lb-section { padding: 40px 0 0; }
+    .lb-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+      margin-bottom: 8px; }
+    .lb-title { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.5vw, 28px);
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .lb-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32);
+      letter-spacing: 0.12em; text-transform: uppercase; }
+    .dl-limit-note { font-family: var(--mono); font-size: 10px; color: var(--ink-48); white-space: nowrap; }
+
+    /* ── Filter controls bar ── */
+    .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    select { background: var(--surface); border: 1px solid var(--ink-14); padding: 6px 10px;
+      font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
+      color: var(--ink); cursor: pointer; outline: none; }
+    .slider-wrap { display: inline-flex; align-items: center; gap: 8px;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
+    .slider-wrap input[type=range] { width: 100px; accent-color: var(--red); }
+    #name-search { background: var(--surface); border: 1px solid var(--ink-14); padding: 6px 10px;
+      font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
+      color: var(--ink); outline: none; width: 160px; }
+    #name-search::placeholder { color: var(--ink-32); font-weight: 400; }
+
+    /* ── Mobile filter grouping ─────────────────────────────────────────── */
+    /* Desktop: wrapper divs are transparent — children flow into .controls  */
+    .filter-group { display: contents; }
+    .filter-toggle-row { display: none; }
+
+    @media (max-width: 768px) {
+      .controls { flex-direction: column; align-items: stretch; gap: 0; margin-bottom: 8px; }
+
+      .filter-group {
+        display: flex; flex-wrap: wrap; gap: 8px;
+        padding: 10px 0;
+      }
+      .filter-group--primary { padding-top: 12px; padding-bottom: 8px; }
+      .filter-group--secondary {
+        display: none;
+        border-top: 1px solid var(--ink-10);
+        padding-top: 12px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .filter-group--secondary.is-open { display: flex; }
+      /* Hide player count in header on mobile — redundant with mast copy */
+      .lb-count-desktop { display: none; }
+      .filter-group--search { padding-top: 10px; }
+
+      .filter-toggle-row {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 7px 0;
+        border-top: 1px solid var(--ink-10);
+        border-bottom: 1px solid var(--ink-10);
+        gap: 12px;
+      }
+      .filter-summary {
+        font-family: var(--mono); font-size: 10px; color: var(--ink-48);
+        letter-spacing: 0.06em; flex: 1; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .filter-toggle-btn {
+        flex-shrink: 0;
+        font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+        text-transform: uppercase; white-space: nowrap;
+        background: none; border: 1px solid var(--ink-20); color: var(--ink-48);
+        cursor: pointer; padding: 5px 10px; display: flex; align-items: center; gap: 4px;
+      }
+      .filter-toggle-arrow { display: inline-block; font-size: 8px; transition: transform 0.15s; }
+      .filter-toggle-btn[aria-expanded="true"] .filter-toggle-arrow { transform: rotate(180deg); }
+
+    }
+
+    /* ── Show-all row ── */
+    .lb-more { padding: 14px 18px; border-top: 1px solid var(--ink-06); text-align: center; }
+    .lb-more-btn {
+      font-family: var(--mono); font-weight: 500; font-size: 10.5px;
+      letter-spacing: 0.12em; text-transform: uppercase; padding: 7px 20px;
+      border: 1px solid var(--ink-14); background: transparent; color: var(--ink-48);
+      cursor: pointer; transition: all 0.1s;
+    }
+    .lb-more-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* ── Stat cell percentile sub-line (Round 3) ─────────────────────────
+       The skaters page renders "Advanced" cells as a two-line stack: the
+       value (Impact, WAR, etc.) over the percentile rank ("90th"). Lives
+       inside the .tbl-td so cells stay aligned with everything else. */
+    .stat-stack { display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.2; }
+    .stat-stack .sp {
+      display: block; font-family: var(--mono); font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-stack .pe { color: #00c078; }   /* 90th+ */
+    .stat-stack .pg { color: #60a5fa; }   /* 70th+ */
+    .stat-stack .pa { color: var(--ink-32); } /* 40th+ */
+    .stat-stack .pl { color: var(--red); opacity: 0.65; } /* <40th */
+    .stat-stack .nil { color: var(--ink-32); }
+
+    /* ── Methodology ── */
+    .lb-method { background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; margin-top: 40px; }
+    .lb-method-h { padding: 12px 18px; border-bottom: 1px solid var(--ink-06);
+      display: flex; justify-content: space-between; align-items: center; }
+    .lb-method-h .title { font-family: var(--mono); font-weight: 500; font-size: 11px;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-72); }
+    .lb-method-h .tag  { font-family: var(--mono); font-size: 10px; color: var(--ink-32); }
+    .lb-method-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 640px) { .lb-method-grid { grid-template-columns: 1fr; } }
+    .lb-method-card { padding: 20px; border-right: 1px solid var(--ink-06); }
+    .lb-method-card:last-child { border-right: none; }
+    .lb-method-card .k { font-family: var(--display); font-weight: 700; font-size: 13px;
+      color: var(--ink); letter-spacing: 0.02em; text-transform: uppercase;
+      margin-bottom: 6px; display: flex; align-items: baseline; justify-content: space-between; }
+    .badge { font-family: var(--mono); font-size: 10px; padding: 1px 5px; letter-spacing: 0.1em; font-weight: 700; }
+    .badge-core { color: var(--red); border: 1px solid rgba(232,0,45,0.4); }
+    .lb-method-card .v { font-size: 12.5px; color: var(--ink-48); line-height: 1.55; }
+
+    /* ── Footer ── */
+    .lb-footer { text-align: center; margin-top: 48px; color: var(--ink-32);
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+    @media (max-width: 768px) {
+      .mast-inner { padding: 28px 20px; }
+      .mast-card  { padding: 24px 20px 20px; }
+      .wrap { padding: 0 20px 60px; }
+    }
+    @media (max-width: 480px) {
+      .mast-inner { padding: 20px 16px; }
+      .mast-card  { padding: 18px 14px 16px; }
+      .wrap { padding: 0 16px 48px; }
+    }
+  </style>
+<script src="/js/table-export.js" defer></script>
+
+  <meta property="og:title" content="Skater Leaderboards · HGB Stats · HockeyGameBot" />
+  <meta property="og:description" content="Full skater production — RAPM, WAR, Impact, xG/60, TOI/GP. Updated nightly." />
+  <meta property="og:image" content="https://hockeygamebot.com/og/skaters.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://hockeygamebot.com/og/skaters.png" />
+</head>
+<body>
+
+<Nav currentPath={Astro.url.pathname} />
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Skaters</div>
+      <div>min 20 GP · 2025–2026</div>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">All skaters.<br><em>Every stat.</em></h1>
+      <p class="mast-lede">All {eligible.length} skaters sortable by counting stats, rates, or advanced metrics. Switch views with the tabs below.</p>
+    </div>
+  </div>
+</section>
+<StatsSubnav currentPath={Astro.url.pathname} />
+<main class="wrap">
+
+  <!-- SKATER TABLE — React TanStack island -->
+  <section class="lb-section">
+    <div class="lb-head">
+      <span class="lb-title">Skater Stats</span>
+    </div>
+    <SkatersTable rows={tableRows} statsDate={_statsDate} currentSeason={_meta.season} isPlayoffSeason={isPlayoffSeason} client:load />
+  </section>
+
+  <!-- METHODOLOGY -->
+  <div class="lb-method">
+    <div class="lb-method-h">
+      <span class="title">How we measure</span>
+      <span class="tag">methodology · 2025–2026</span>
+    </div>
+    <div class="lb-method-grid">
+      <div class="lb-method-card">
+        <div class="k">WAR <span class="badge badge-core">CORE</span></div>
+        <div class="v">Wins Above Replacement — RAPM × total 5v5 TOI × 0.1, where RAPM (Regularized Adjusted Plus-Minus) controls for linemates and opponents via ridge regression. Cumulative season value; use for overall impact comparisons.</div>
+      </div>
+      <div class="lb-method-card">
+        <div class="k">Expected goals (xG)</div>
+        <div class="v">Probability a shot scores, based on location, angle, shot type, and context. Better signal than raw shot count — Tkachuk getting 16 shots/60 and only 1.44 xG/60 tells the real story.</div>
+      </div>
+      <div class="lb-method-card">
+        <div class="k">Finishing</div>
+        <div class="v">Goals/60 minus xG/60 — how much a player over- or under-performs their shot quality. Positive means they're converting at a rate above expected; negative suggests regression risk.</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · SKATERS V1</footer>
+
+<!-- Client dataset -->
+
+</body>
+</html>

@@ -1,0 +1,161 @@
+---
+// HockeyGameBot — /stats/series — Playoff Series Index
+// Lists all generated series pages grouped by round.
+import Nav from '../../../components/Nav.astro';
+import ThemeScript from '../../../components/ThemeScript.astro';
+import Fonts from '../../../components/Fonts.astro';
+
+const API = 'https://api.hockeygamebot.com';
+
+type SeriesData = {
+  series_id: string; round: number; season: string;
+  team_a: string; team_b: string;
+  is_complete: boolean; winner: string | null; winner_in: number | null;
+  win_pct_a: number; win_pct_b: number;
+};
+
+function roundCode(r: number) { return r === 4 ? 'scf' : `r${r}`; }
+function seriesSlug(s: SeriesData) {
+  return `/stats/series/${s.season.slice(4)}-${roundCode(s.round)}-${s.series_id}`;
+}
+function roundLabel(r: number) {
+  return r === 4 ? 'Stanley Cup Final' : r === 3 ? 'Conference Finals' : r === 2 ? 'Second Round' : 'First Round';
+}
+
+const rounds = await Promise.all(
+  [1, 2, 3, 4].map(n =>
+    fetch(`${API}/v1/playoffs/round/${n}`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null)
+  )
+);
+
+const seen = new Set<string>();
+const allSeries: SeriesData[] = [];
+for (const data of rounds) {
+  if (!data?.series) continue;
+  for (const s of data.series as SeriesData[]) {
+    const key = [s.team_a, s.team_b].sort().join('-') + `-${s.round}-${s.season}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    allSeries.push(s);
+  }
+}
+
+const byRound: Record<number, SeriesData[]> = { 4: [], 3: [], 2: [], 1: [] };
+for (const s of allSeries) { byRound[s.round]?.push(s); }
+
+const TEAM_COLORS: Record<string, string> = {
+  CAR:'#CC0000', VGK:'#B4975A', MTL:'#AF1E2D', COL:'#6F263D', BUF:'#003087',
+  PHI:'#F74902', MIN:'#A6192E', ANA:'#FCD116', VAN:'#00843D', TOR:'#003E7E',
+  EDM:'#FF4C00', OTT:'#C2912C', BOS:'#FCB514', TBL:'#0038A8', PIT:'#FCB514',
+  DAL:'#006847', LAK:'#A2AAAD', UTA:'#69B3E7', WSH:'#C8102E', FLA:'#041E42',
+  NJD:'#CC0000', NYR:'#0038A8', CBJ:'#002654', DET:'#CE1126', CHI:'#CF0A2C',
+  CGY:'#C8102E', WPG:'#004C97', STL:'#003087', NSH:'#FFB81C', SJS:'#006D75',
+};
+const clr = (t: string) => TEAM_COLORS[t] ?? '#888';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>2026 Playoff Series Stats · HGB Stats</title>
+  <meta name="description" content="All 2026 Stanley Cup Playoffs series — 5v5 xGF, top lines, top players, and model predictions for every matchup. HockeyGameBot." />
+  <link rel="canonical" href="https://hockeygamebot.com/stats/series" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #EFEEE8; --ink: #0d0d14; --red: #E8002D; --surface: #FFFFFF;
+      --ink-06: rgba(13,13,20,0.06); --ink-10: rgba(13,13,20,0.10);
+      --ink-14: rgba(13,13,20,0.14); --ink-20: rgba(13,13,20,0.20);
+      --ink-32: rgba(13,13,20,0.32); --ink-48: rgba(13,13,20,0.48);
+      --display: 'Barlow Condensed', sans-serif;
+      --body:    'Barlow', sans-serif;
+      --mono:    'JetBrains Mono', monospace;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    .mast { border-bottom: 2px solid var(--ink); background: var(--bg);
+      background-image: linear-gradient(rgba(13,13,20,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(13,13,20,0.04) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-inner { max-width: 900px; margin: 0 auto; padding: 36px 32px; }
+    .mast-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }
+    .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-title { font-family: var(--display); font-weight: 800; font-size: clamp(32px, 5vw, 56px); text-transform: uppercase; letter-spacing: -0.005em; line-height: 1; }
+    .mast-title em { color: var(--red); font-style: normal; }
+    .mast-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-48); margin-top: 10px; letter-spacing: 0.06em; }
+
+    .wrap { max-width: 900px; margin: 0 auto; padding: 40px 32px 80px; }
+    @media (max-width: 640px) { .mast-inner { padding: 24px 16px; } .mast-card { padding: 20px 16px; } .wrap { padding: 24px 16px 60px; } }
+
+    .round-section { margin-bottom: 40px; }
+    .round-label { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.20em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 12px; display: block; }
+
+    .series-list { display: flex; flex-direction: column; gap: 2px; }
+    .series-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--ink-14); padding: 14px 20px; text-decoration: none; color: var(--ink); transition: background 0.1s; }
+    .series-row:hover { background: var(--ink-06); }
+    .series-teams { display: flex; align-items: center; gap: 10px; }
+    .series-team { display: flex; align-items: center; gap: 8px; }
+    .series-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .series-abbr { font-family: var(--display); font-weight: 800; font-size: 18px; text-transform: uppercase; letter-spacing: 0.02em; }
+    .series-vs { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.08em; }
+    .series-result { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; text-align: right; }
+    .series-result strong { color: var(--ink); }
+    .series-result .winner { color: var(--red); font-weight: 700; }
+    .arrow { font-family: var(--mono); font-size: 12px; color: var(--ink-32); margin-left: 8px; }
+  </style>
+</head>
+<body>
+<Nav currentPath="/stats" />
+
+<div class="mast">
+  <div class="mast-inner">
+  <div class="mast-eyebrow"><span class="pip"></span><a href="/stats" style="color:inherit;text-decoration:none">HGB Stats</a> · <a href="/playoffs/2026" style="color:inherit;text-decoration:none">2026 Playoffs</a></div>
+  <div class="mast-card">
+    <h1 class="mast-title">Playoff <em>Series</em></h1>
+    <p class="mast-sub">All 2025–26 playoff series — 5v5 xGF, top lines, top players, and model predictions.</p>
+  </div>
+  </div>
+</div>
+
+<div class="wrap">
+  {[4, 3, 2, 1].map(r => {
+    const series = byRound[r] ?? [];
+    if (!series.length) return null;
+    return (
+      <div class="round-section">
+        <span class="round-label">{roundLabel(r)}</span>
+        <div class="series-list">
+          {series.map(s => (
+            <a href={seriesSlug(s)} class="series-row">
+              <div class="series-teams">
+                <div class="series-team">
+                  <span class="series-dot" style={`background:${clr(s.team_a)}`}></span>
+                  <span class="series-abbr">{s.team_a}</span>
+                </div>
+                <span class="series-vs">vs</span>
+                <div class="series-team">
+                  <span class="series-dot" style={`background:${clr(s.team_b)}`}></span>
+                  <span class="series-abbr">{s.team_b}</span>
+                </div>
+              </div>
+              <div class="series-result">
+                {s.is_complete && s.winner
+                  ? <><span class="winner">{s.winner}</span> wins in {s.winner_in}</>
+                  : <span>In progress · {s.win_pct_a}% / {s.win_pct_b}%</span>}
+                <span class="arrow">→</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      </div>
+    );
+  })}
+</div>
+</body>
+</html>

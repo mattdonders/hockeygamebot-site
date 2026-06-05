@@ -1,0 +1,218 @@
+---
+import Nav from '../../components/Nav.astro';
+import StatsSubnav from '../../components/StatsSubnav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import ImpactTable from '../../components/react/ImpactTable';
+import { loadPlayers, loadMeta, loadPlayerGames } from '../../lib/stats-loader';
+
+const allPlayers = loadPlayers().filter(p => p.gp >= 20);
+const _meta = loadMeta();
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
+
+type ImpactRow = {
+  id: number; slug: string; name: string;
+  team: string; pos: string; group: 'F' | 'D'; gp: number;
+  avg: number; l10: number[]; l10a: number | null;
+  best: number; worst: number;
+};
+
+const tableRows: ImpactRow[] = allPlayers.map(p => {
+  const games = (loadPlayerGames(p.player_id) ?? [])
+    .sort((a, b) => a.game_date.localeCompare(b.game_date));
+  const last10 = games.slice(-10).map(g => +g.gs_display.toFixed(2));
+  const l10a = last10.length ? +(last10.reduce((s, v) => s + v, 0) / last10.length).toFixed(2) : null;
+  const allGs = games.map(g => g.gs_display);
+  return {
+    id: p.player_id, slug: p.slug, name: p.display_name,
+    first_name: p.first_name, last_name: p.last_name,
+    team: p.team_abbrev, pos: p.pos, group: p.pos_group, gp: p.gp,
+    avg: +p.avg_gs_display.toFixed(2),
+    l10: last10, l10a,
+    best:  allGs.length ? +Math.max(...allGs).toFixed(2) : 0,
+    worst: allGs.length ? +Math.min(...allGs).toFixed(2) : 0,
+  };
+});
+
+// Column schema for <Table>. Sparklines (`l10`) render as inline SVG —
+// we pass them through Table.astro by rendering rows client-side and
+// dispatching tbl:rows-changed; SSR keeps an empty/loading state.
+const columns = [
+  { key: '_rank', label: '#',          type: 'rank' as const, sortable: false },
+  { key: 'name',  label: 'Player',     type: 'player' as const, sub: (r: any) => `${r.team} · ${r.pos}` },
+  { key: 'pos',   label: 'Pos',        type: 'position' as const, sortable: true },
+  { key: 'gp',    label: 'GP',         type: 'number' as const },
+  { key: 'avg',   label: 'Avg Impact', type: 'number' as const, bold: true },
+  { key: 'l10a',  label: 'L10 Avg',    type: 'number' as const },
+  { key: 'l10',   label: 'L10 Trend',  type: 'label' as const, sortable: false },
+  { key: 'best',  label: 'Best',       type: 'number' as const },
+  { key: 'worst', label: 'Worst',      type: 'number' as const },
+];
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HGB Impact — Player Leaderboard — HockeyGameBot</title>
+  <meta name="description" content="HGB Impact per-player leaderboard — per-game blend of goals, assists, xG, and two-way play with last-10-game trend sparklines. 2025–26 season." />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #EFEEE8;
+      --ink:      #0d0d14;
+      --red:      #E8002D;
+      --green:    #1a7a3e;
+      --surface:  #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
+    .mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
+
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+    .lb-section { padding: 40px 0 0; }
+    .lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      margin-bottom: 16px; flex-wrap: wrap; }
+    .lb-title { font-family: var(--display); font-weight: 800; font-size: 22px;
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+
+    .lb-filters { display: flex; align-items: center; gap: 6px; }
+    .lb-tab {
+      font-family: var(--display); font-weight: 700; font-size: 10.5px;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      padding: 5px 12px; border: 1px solid var(--ink-14);
+      background: transparent; color: var(--ink-48); cursor: pointer; transition: all 0.1s;
+    }
+    .lb-tab:hover { background: var(--ink-06); color: var(--ink); }
+    .lb-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+    /* Sparkline cell — leaves the standard cell padding/alignment but
+       overrides text-align so the SVG sits flush-left. */
+    .td-spark { padding: 4px 12px !important; vertical-align: middle; text-align: left !important; }
+
+    /* Impact +/- color helpers (legacy, scoped to impact table) */
+    .sv { font-weight: 700; }
+    .sv.pos { color: var(--stats-pos); }
+    .sv.neg { color: var(--stats-neg); }
+
+    .lb-method { padding: 28px 0 0; }
+    .lb-method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
+    .lb-method-card { padding: 16px 20px; border: 1px solid var(--ink-14); margin: -1px 0 0 -1px; }
+    .lb-method-card .k { font-family: var(--mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink); margin-bottom: 6px; }
+    .lb-method-card .v { font-size: 12px; line-height: 1.5; color: var(--ink-48); }
+    .badge { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; padding: 1px 5px; border-radius: 2px; margin-left: 6px; }
+    .badge-core { background: var(--ink); color: var(--bg); }
+
+    .lb-footer { max-width: 1200px; margin: 0 auto; padding: 20px 32px;
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--ink-20); }
+
+    @media (max-width: 768px) {
+      .wrap, .mast-inner { padding-left: 16px; padding-right: 16px; }
+      .mast-top { font-size: 10px; }
+    }
+  </style>
+<script src="/js/table-export.js" defer></script>
+
+  <meta property="og:title" content="HGB Impact Leaderboard · HockeyGameBot" />
+  <meta property="og:description" content="Game-by-game impact ranking — HGB GameScore v2 percentile for all NHL skaters." />
+  <meta property="og:image" content="https://hockeygamebot.com/og/skaters.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://hockeygamebot.com/og/skaters.png" />
+</head>
+<body>
+
+<Nav currentPath="/stats/impact" />
+
+<header class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Impact</div>
+      <span>{tableRows.length} skaters · min 20 GP · 2025–26</span>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">HGB <em>Impact</em></h1>
+      <p class="mast-lede">Per-game blend of goals, assists, shots, individual xG, and on-ice 5v5 xG differential — rate-adjusted per 60 minutes. <span class="mono">L10</span> sparkline shows trajectory over the last 10 games. 0 = league average for position group.</p>
+    </div>
+  </div>
+</header>
+<StatsSubnav currentPath={Astro.url.pathname} />
+<main class="wrap">
+  <section class="lb-section">
+    <div class="lb-head">
+      <div class="lb-title">Season <span style="color:var(--red)">Impact</span></div>
+    </div>
+
+    <ImpactTable rows={tableRows} statsDate={_statsDate} client:load />
+
+    <div class="lb-method">
+      <div class="lb-method-grid">
+        <div class="lb-method-card">
+          <div class="k">HGB Impact <span class="badge badge-core">CORE</span></div>
+          <div class="v">HGBScore v2 — per-game weighted composite scaled to display units. Goals=1.00, Primary assist=0.65, Secondary assist=0.30, ixG=0.40, On-ice 5v5 xGdiff=0.15 (F) / 0.75 (D), Blocks=0.05/0.08, Penalty diff=0.10. Centered at 0 = league-average for position group.</div>
+        </div>
+        <div class="lb-method-card">
+          <div class="k">L10 Trend</div>
+          <div class="v">Sparkline of last 10 games chronologically. Green line = last game improved from previous; red = declined. Dot at right end = most recent game. Each game's Impact is the raw per-game HGBScore v2 display value — not a rolling average.</div>
+        </div>
+        <div class="lb-method-card">
+          <div class="k">Best / Worst</div>
+          <div class="v">Single-game season high and low for this player. A high Best with a volatile sparkline suggests a streaky scorer; a consistent sparkline near average is a two-way contributor who shows up every night.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · HGB IMPACT v2</footer>
+
+
+</body>
+</html>

@@ -1,0 +1,316 @@
+---
+// HockeyGameBot — /internal/insights — Editorial review dashboard
+// Internal-only. Not linked from production navigation.
+// Loads insight candidates from api.hockeygamebot.com/v1/insights/latest
+// (written nightly by the hgb-analytics pipeline to R2).
+// Reviewers use this to read, validate, and manually post to social.
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Insights Review · HGB Internal</title>
+  <meta name="robots" content="noindex,nofollow" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #EFEEE8; --ink: #0d0d14; --red: #E8002D; --surface: #FFFFFF;
+      --ink-06: rgba(13,13,20,0.06); --ink-10: rgba(13,13,20,0.10);
+      --ink-14: rgba(13,13,20,0.14); --ink-20: rgba(13,13,20,0.20);
+      --ink-32: rgba(13,13,20,0.32); --ink-48: rgba(13,13,20,0.48);
+      --ink-72: rgba(13,13,20,0.72);
+      --display: 'Barlow Condensed', sans-serif;
+      --body:    'Barlow', sans-serif;
+      --mono:    'JetBrains Mono', monospace;
+      --tier-a:  #166534; --tier-b: #1e40af; --tier-c: #92400e;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    .page-mast { border-bottom: 2px solid var(--ink); padding: 28px 32px 24px; background: var(--bg); }
+    .mast-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .mast-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--red); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .internal-pip { width: 6px; height: 6px; background: var(--red); border-radius: 50%; }
+    .mast-title { font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 44px); text-transform: uppercase; letter-spacing: -0.005em; }
+    .mast-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; }
+
+    .page-body { max-width: 1100px; margin: 0 auto; padding: 32px 32px 80px; }
+
+    /* ── Status / Loading ── */
+    .status-block { text-align: center; padding: 64px 32px; }
+    .status-label { font-family: var(--mono); font-size: 12px; color: var(--ink-48); letter-spacing: 0.10em; text-transform: uppercase; }
+    .status-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-32); margin-top: 8px; }
+
+    /* ── Toolbar ── */
+    .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--ink-14); }
+    .toolbar-label { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; }
+    .filter-btn { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 5px 12px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; }
+    .filter-btn.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .insight-count { font-family: var(--mono); font-size: 10px; color: var(--ink-32); margin-left: auto; letter-spacing: 0.06em; }
+
+    /* ── Insight cards ── */
+    .insights-grid { display: flex; flex-direction: column; gap: 16px; }
+
+    .insight-card { background: var(--surface); border: 1px solid var(--ink-14); }
+    .ic-header { display: flex; align-items: flex-start; gap: 16px; padding: 16px 20px 12px; border-bottom: 1px solid var(--ink-06); }
+    .ic-tier { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; padding: 3px 7px; border-radius: 2px; flex-shrink: 0; margin-top: 2px; }
+    .tier-A { background: rgba(22,101,52,0.12); color: var(--tier-a); border: 1px solid rgba(22,101,52,0.3); }
+    .tier-B { background: rgba(30,64,175,0.10); color: var(--tier-b); border: 1px solid rgba(30,64,175,0.25); }
+    .tier-C { background: rgba(146,64,14,0.10); color: var(--tier-c); border: 1px solid rgba(146,64,14,0.25); }
+    .ic-meta { flex: 1; min-width: 0; }
+    .ic-signal { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.10em; text-transform: uppercase; margin-bottom: 4px; }
+    .ic-headline { font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: 0.01em; line-height: 1.15; color: var(--ink); }
+    .ic-entity { font-family: var(--mono); font-size: 11px; color: var(--ink-48); margin-top: 4px; }
+    .ic-score { font-family: var(--mono); font-size: 11px; color: var(--ink-32); flex-shrink: 0; text-align: right; }
+    .ic-score .score-val { font-size: 22px; font-weight: 700; color: var(--ink); display: block; line-height: 1; }
+
+    .ic-body { padding: 16px 20px; display: grid; gap: 16px; }
+
+    /* Tweet draft */
+    .ic-tweet { background: var(--bg); border: 1px solid var(--ink-14); padding: 12px 14px; position: relative; }
+    .ic-tweet-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 6px; }
+    .ic-tweet-text { font-family: var(--body); font-size: 13.5px; line-height: 1.55; color: var(--ink-72); white-space: pre-wrap; }
+    .ic-tweet-len { font-family: var(--mono); font-size: 9px; color: var(--ink-32); margin-top: 6px; }
+
+    /* Metrics */
+    .ic-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+    .ic-metric { padding: 8px 10px; background: var(--bg); border: 1px solid var(--ink-10); }
+    .ic-metric-k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 2px; }
+    .ic-metric-v { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--ink); }
+
+    /* Rank block */
+    .ic-rank { font-family: var(--mono); font-size: 11px; color: var(--ink-48); background: var(--bg); border: 1px solid var(--ink-10); padding: 8px 12px; }
+    .ic-rank strong { color: var(--ink); }
+
+    /* Actions */
+    .ic-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid var(--ink-06); background: var(--bg); }
+    .action-btn { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 7px 14px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; transition: all 0.1s; }
+    .action-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .action-btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .action-btn.primary:hover { background: var(--red); border-color: var(--red); }
+    .action-btn.copied { background: var(--tier-a); color: #fff; border-color: transparent; }
+    .ic-id { font-family: var(--mono); font-size: 9px; color: var(--ink-32); margin-left: auto; align-self: center; letter-spacing: 0.04em; }
+
+    /* Run info bar */
+    .run-bar { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; padding: 8px 0; border-bottom: 1px solid var(--ink-10); margin-bottom: 24px; display: flex; gap: 16px; flex-wrap: wrap; }
+    .run-bar strong { color: var(--ink-72); }
+
+    @media (max-width: 640px) {
+      .page-mast { padding: 20px 16px; }
+      .page-body { padding: 20px 16px 60px; }
+      .ic-header { flex-direction: column; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+<Nav currentPath="/internal/insights" />
+
+<div class="page-mast">
+  <div class="mast-eyebrow"><span class="internal-pip"></span> Internal · Not Public · noindex</div>
+  <div class="mast-row">
+    <h1 class="mast-title">Insights Review</h1>
+    <span class="mast-meta" id="run-info"></span>
+  </div>
+</div>
+
+<div class="page-body">
+  <div id="loading-state" class="status-block">
+    <div class="status-label">Loading insights…</div>
+    <div class="status-sub">Fetching from analytics pipeline</div>
+  </div>
+
+  <div id="empty-state" class="status-block" style="display:none">
+    <div class="status-label">No insights available yet</div>
+    <div class="status-sub">
+      The <code>/v1/insights/latest</code> endpoint doesn't exist in hgb-api yet,<br>
+      or the analytics pipeline hasn't written any candidates.<br><br>
+      Next steps: add the endpoint to hgb-api, then run <code>detect_anomalies.py</code>.
+    </div>
+  </div>
+
+  <div id="error-state" class="status-block" style="display:none">
+    <div class="status-label">Could not load insights</div>
+    <div class="status-sub" id="error-msg"></div>
+  </div>
+
+  <div id="insights-ui" style="display:none">
+    <div class="toolbar">
+      <span class="toolbar-label">Filter:</span>
+      <button class="filter-btn active" data-tier="all">All</button>
+      <button class="filter-btn" data-tier="A">Tier A</button>
+      <button class="filter-btn" data-tier="B">Tier B</button>
+      <button class="filter-btn" data-tier="C">Tier C</button>
+      <span class="insight-count" id="insight-count"></span>
+    </div>
+    <div class="insights-grid" id="insights-grid"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const API = 'https://api.hockeygamebot.com';
+  let _allInsights = [];
+  let _activeTier  = 'all';
+
+  function show(id) {
+    ['loading-state','empty-state','error-state','insights-ui'].forEach(s => {
+      document.getElementById(s).style.display = s === id ? '' : 'none';
+    });
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function fmtDate(iso) {
+    try { return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+    catch { return iso; }
+  }
+
+  function tierClass(tier) {
+    const t = String(tier ?? '').toUpperCase();
+    return t === 'A' ? 'tier-A' : t === 'B' ? 'tier-B' : 'tier-C';
+  }
+
+  function metricHtml(metrics) {
+    if (!metrics || typeof metrics !== 'object') return '';
+    const entries = Object.entries(metrics);
+    if (!entries.length) return '';
+    const cells = entries.map(([k, v]) =>
+      `<div class="ic-metric"><div class="ic-metric-k">${esc(k)}</div><div class="ic-metric-v">${esc(v)}</div></div>`
+    ).join('');
+    return `<div class="ic-metrics">${cells}</div>`;
+  }
+
+  function rankHtml(ins) {
+    const r = ins.rank ?? ins.percentile;
+    if (!r) return '';
+    const parts = [];
+    if (ins.rank_pos != null && ins.rank_total != null) parts.push(`<strong>#${ins.rank_pos} of ${ins.rank_total}</strong>`);
+    if (ins.percentile != null) parts.push(`top ${ins.percentile}%`);
+    if (ins.rank_filter) parts.push(`(${esc(ins.rank_filter)})`);
+    if (ins.threshold) parts.push(`· min: ${esc(ins.threshold)}`);
+    return parts.length ? `<div class="ic-rank">${parts.join(' · ')}</div>` : '';
+  }
+
+  function buildCard(ins) {
+    const tier = String(ins.review_tier ?? ins.tier ?? '').toUpperCase() || 'C';
+    const tweet = ins.tweet_draft ?? ins.tweet ?? '';
+    const statsUrl = ins.public_stats_url ?? ins.stats_url ?? '';
+    const gameId = ins.game_id ? `<span>Game ${esc(ins.game_id)}</span>` : '';
+    const runType = ins.run_type ? `<span>${esc(ins.run_type)}</span>` : '';
+
+    return `
+<div class="insight-card" data-tier="${esc(tier)}" data-id="${esc(ins.insight_id ?? '')}">
+  <div class="ic-header">
+    <span class="ic-tier ${tierClass(tier)}">${esc(tier)}</span>
+    <div class="ic-meta">
+      <div class="ic-signal">${esc(ins.signal_type ?? ins.signal ?? '')} ${gameId} ${runType}</div>
+      <div class="ic-headline">${esc(ins.headline ?? '')}</div>
+      <div class="ic-entity">${esc(ins.entity_name ?? '')}${ins.entity_type ? ` · ${esc(ins.entity_type)}` : ''}</div>
+    </div>
+    ${ins.detector_score != null ? `<div class="ic-score"><span class="score-val">${parseFloat(ins.detector_score).toFixed(2)}</span>Score</div>` : ''}
+  </div>
+  <div class="ic-body">
+    ${tweet ? `
+    <div class="ic-tweet">
+      <div class="ic-tweet-label">Tweet draft</div>
+      <div class="ic-tweet-text">${esc(tweet)}</div>
+      <div class="ic-tweet-len">${tweet.length} chars</div>
+    </div>` : ''}
+    ${metricHtml(ins.metrics ?? ins.supporting_metrics)}
+    ${rankHtml(ins)}
+  </div>
+  <div class="ic-actions">
+    ${tweet ? `<button class="action-btn primary" onclick="copyTweet(this, ${JSON.stringify(tweet)})">Copy Tweet</button>` : ''}
+    ${statsUrl ? `<a href="${esc(statsUrl)}" target="_blank" class="action-btn">Open Stats ↗</a>` : ''}
+    <button class="action-btn" onclick="copyPayload(this, '${esc(ins.insight_id ?? '')}')">Copy Payload</button>
+    <span class="ic-id">${esc(ins.insight_id ?? '')} · ${fmtDate(ins.generated_at)}</span>
+  </div>
+</div>`;
+  }
+
+  function render() {
+    const visible = _activeTier === 'all'
+      ? _allInsights
+      : _allInsights.filter(i => String(i.review_tier ?? i.tier ?? '').toUpperCase() === _activeTier);
+
+    document.getElementById('insight-count').textContent = `${visible.length} insight${visible.length !== 1 ? 's' : ''}`;
+    document.getElementById('insights-grid').innerHTML = visible.length
+      ? visible.map(buildCard).join('')
+      : '<div class="status-block"><div class="status-label">No insights in this tier</div></div>';
+  }
+
+  // Tier filter buttons
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll<HTMLElement>('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _activeTier = btn.dataset.tier ?? 'all';
+      render();
+    });
+  });
+
+  // Actions
+  window.copyTweet = function(btn, text) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.classList.add('copied');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.classList.remove('copied'); btn.textContent = 'Copy Tweet'; }, 2000);
+    });
+  };
+
+  window.copyPayload = function(btn, insightId) {
+    const ins = _allInsights.find(i => i.insight_id === insightId);
+    if (!ins) return;
+    navigator.clipboard.writeText(JSON.stringify(ins, null, 2)).then(() => {
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy Payload'; }, 2000);
+    });
+  };
+
+  // Fetch insights
+  async function load() {
+    try {
+      const res = await fetch(`${API}/v1/insights/latest`, { cache: 'no-store' });
+      if (res.status === 404) { show('empty-state'); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      // Accept array or { insights: [...], ... }
+      const insights = Array.isArray(data) ? data : (data.insights ?? data.candidates ?? []);
+      _allInsights = insights;
+
+      if (!insights.length) { show('empty-state'); return; }
+
+      // Run info bar
+      const meta = Array.isArray(data) ? null : data;
+      if (meta?.generated_at || meta?.run_type) {
+        document.getElementById('run-info').textContent =
+          [meta.run_type, meta.generated_at ? fmtDate(meta.generated_at) : null, `${insights.length} candidates`]
+          .filter(Boolean).join(' · ');
+      } else {
+        document.getElementById('run-info').textContent = `${insights.length} candidates`;
+      }
+
+      show('insights-ui');
+      render();
+    } catch (e) {
+      // TypeError: Load failed = CORS/network error, usually means the endpoint
+      // doesn't exist yet in hgb-api. Treat as "no data" rather than an error.
+      if (e instanceof TypeError) { show('empty-state'); return; }
+      document.getElementById('error-msg').textContent = String(e);
+      show('error-state');
+    }
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

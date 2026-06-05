@@ -1,0 +1,3150 @@
+---
+// HockeyGameBot — /games/:id
+// SPA shell. Client JS reads game_id from pathname, detects game state,
+// and renders one of three distinct layouts: pregame / live / final.
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import StatusPill from '../../components/StatusPill.astro';
+import Badge from '../../components/Badge.astro';
+import ChipGroup from '../../components/ChipGroup.astro';
+import { loadPlayers, loadPlayerGames } from '../../lib/stats-loader';
+
+// Build impact map at build time:
+//   player_id → { l10: last-10 gs_display[], gids: last-10 game_ids[] }
+// Storing game_ids alongside values lets the game page look up "this game's Impact".
+type ImpactEntry = { l10: number[]; gids: string[] };
+const _sparklineMap: Record<number, ImpactEntry> = {};
+for (const p of loadPlayers()) {
+  const games = (loadPlayerGames(p.player_id) ?? [])
+    .sort((a, b) => a.game_date.localeCompare(b.game_date))
+    .slice(-10);
+  _sparklineMap[p.player_id] = {
+    l10:  games.map(g => +g.gs_display.toFixed(2)),
+    gids: games.map(g => (g.game_id ?? '').replace(/\.0$/, '')),
+  };
+}
+---
+<!doctype html>
+<html lang="en">
+<head>
+<ThemeScript />
+<Fonts />
+<meta charset="utf-8" />
+<title>Game · HockeyGameBot</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/favicon-180x180.png" />
+<style is:global>
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-64:  rgba(13,13,20,0.64);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-04:  rgba(13,13,20,0.04);
+  --red:     #E8002D;
+  --green:   #22c55e;
+  --status-live:      #00E5FF;
+  --status-final:     var(--ink-48);
+  --status-ot:        #FF9800;
+  --status-scheduled: var(--ink-48);
+  --grid-line: rgba(13,13,20,0.04);
+  --stats-pos: #166534;
+  --stats-neg: #991b1b;
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+
+/* ── LOADING ── */
+#loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 16px; font-family: var(--mono); font-size: 13px; color: var(--ink-48); letter-spacing: 0.06em; }
+.spinner { width: 24px; height: 24px; border: 2px solid var(--ink-14); border-top-color: var(--red); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#game-content { display: none; }
+
+/* ── GAME MASTHEAD (matches site mast pattern) ── */
+.game-mast { position: relative; border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 96px 96px; }
+.mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+.mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-inner { position: relative; z-index: 2; padding: 28px 0 32px; }
+.mast-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+.mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; color: var(--ink-48); }
+.mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; flex-shrink: 0; }
+.mast-eyebrow a { color: var(--ink-48); text-decoration: none; }
+.mast-eyebrow a:hover { color: var(--ink); }
+
+/* White inset score card */
+.mast-card { background: var(--surface); border: 1px solid var(--ink); overflow: hidden; }
+.game-card-bar { height: 3px; display: flex; }
+.game-card-bar-half { flex: 1; }
+.score-grid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 24px; padding: 28px 32px 16px; }
+.team-side { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.team-side.away { align-items: flex-end; }
+.team-side.home { align-items: flex-start; }
+.team-abbr-big { font-family: var(--display); font-weight: 800; font-size: clamp(32px, 5vw, 52px); letter-spacing: 0.02em; line-height: 1; color: var(--ink); }
+.team-name-small { font-family: var(--display); font-weight: 600; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); }
+.score-center { text-align: center; }
+.score-display { font-family: var(--display); font-weight: 800; font-size: clamp(56px, 8vw, 96px); letter-spacing: -0.02em; line-height: 1; display: flex; align-items: center; gap: 16px; color: var(--ink); }
+.score-sep { font-weight: 400; color: var(--ink-32); }
+.game-meta { margin-top: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* Game-state status now uses canonical StatusPill (CHIPS.md §3). */
+.hidden-badge-prime { display: none !important; }
+/* refresh-dot pulse — non-status-pill live indicator (kept; StatusPill owns hgb-status-pulse) */
+@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.game-live-clock { font-family: var(--display); font-weight: 800; font-size: clamp(18px, 2.5vw, 26px); letter-spacing: 0.04em; color: var(--ink); display: none; }
+.game-live-clock.visible { display: block; }
+.card-info-strip { padding: 10px 32px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--ink-06); }
+.header-info-left { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; text-transform: uppercase; }
+.header-info-right { font-family: var(--mono); font-size: 11px; color: var(--ink-56); letter-spacing: 0.06em; font-weight: 600; }
+
+/* ── LINESCORE STRIP (full-width, outside .wrap) ── */
+#section-linescore { background: var(--surface); border-bottom: 1px solid var(--ink-14); }
+#section-linescore .period-table-wrap { border: none; border-radius: 0; max-width: 1200px; margin: 0 auto; padding: 0 32px; background: transparent; }
+
+/* ── PRE-GAME BODY ── */
+#section-pregame { padding: 40px 0 64px; }
+.pregame-card { background: var(--surface); border: 1px solid var(--ink-14); padding: 32px; display: flex; flex-direction: column; gap: 20px; }
+.pregame-time { font-family: var(--display); font-weight: 800; font-size: clamp(32px, 5vw, 56px); letter-spacing: -0.01em; line-height: 1; }
+.pregame-venue { font-family: var(--mono); font-size: 12px; color: var(--ink-48); letter-spacing: 0.08em; text-transform: uppercase; }
+.pregame-broadcasts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* broadcast-chip / bc-chip → canonical Badge (CHIPS.md §4) */
+
+/* ── PRE-GAME BODY: full sections ── */
+.pg-body { display: grid; grid-template-columns: 1fr 320px; gap: 20px; padding: 32px 0 64px; align-items: start; }
+@media (max-width: 860px) { .pg-body { grid-template-columns: 1fr; } }
+.pg-section { background: var(--surface); border: 1px solid var(--ink-14); margin-bottom: 16px; }
+.pg-section:last-child { margin-bottom: 0; }
+.pg-section-hd { padding: 12px 20px 10px; border-bottom: 1px solid var(--ink-10); display: flex; align-items: center; gap: 8px; }
+.pg-section-title { font-family: var(--display); font-weight: 800; font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-32); }
+/* Matchup context */
+.pg-matchup-inner { padding: 20px 24px 22px; }
+.pg-series-label { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 6px; }
+.pg-series-record { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.8vw, 30px); letter-spacing: -0.01em; line-height: 1; }
+.pg-last5-wrap { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+.pg-last5-row { display: flex; align-items: center; justify-content: space-between; }
+.pg-last5-team { display: flex; align-items: center; gap: 8px; }
+.pg-last5-abbr { font-family: var(--display); font-weight: 800; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; min-width: 34px; }
+.pg-last5-dots { display: flex; gap: 4px; }
+.pg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.pg-dot-W { background: #22c55e; }
+.pg-dot-L { background: var(--red); }
+.pg-dot-OT { background: #f97316; }
+.pg-last5-rec { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+/* Playoff variant */
+.pg-playoff-inner { padding: 20px 24px 22px; }
+.pg-playoff-game-num { font-family: var(--display); font-weight: 800; font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red); margin-bottom: 8px; }
+.pg-playoff-score { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.8vw, 34px); letter-spacing: -0.01em; line-height: 1; display: flex; align-items: center; gap: 12px; }
+.pg-playoff-wins { display: flex; align-items: center; gap: 6px; }
+.pg-playoff-num { font-size: 1em; }
+.pg-playoff-label { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.08em; margin-top: 10px; }
+/* Team stats mirror bars */
+.pg-stat-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; padding: 14px 20px 6px; border-top: 1px solid var(--ink-06); }
+.pg-stat-row:first-child { border-top: none; }
+.pg-stat-bar-row { display: grid; grid-template-columns: 1fr 1fr; height: 3px; padding: 0 20px; margin-bottom: 4px; }
+.pg-stat-away-col { text-align: right; }
+.pg-stat-home-col { text-align: left; }
+.pg-stat-num { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.5vw, 28px); line-height: 1; letter-spacing: -0.01em; }
+.pg-stat-rank { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.08em; margin-top: 2px; }
+.pg-stat-label-col { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.1em; text-transform: uppercase; text-align: center; white-space: nowrap; }
+.pg-bar-seg { height: 3px; transition: width 0.4s ease; }
+/* Goalies */
+.pg-goalies-split { display: grid; grid-template-columns: 1fr 1px 1fr; }
+.pg-goalie-div { background: var(--ink-14); }
+.pg-goalie-col { padding: 18px 18px 20px; }
+.pg-goalie-team-lbl { font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 4px; }
+.pg-goalie-name { font-family: var(--display); font-weight: 800; font-size: clamp(15px, 2vw, 19px); letter-spacing: 0.01em; line-height: 1.15; margin-bottom: 6px; }
+.pg-goalie-status { display: inline-flex; align-items: center; font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; padding: 2px 7px; margin-bottom: 12px; }
+.pg-goalie-status.confirmed { background: rgba(34,197,94,0.1); color: #16a34a; }
+.pg-goalie-status.expected  { background: var(--ink-06); color: var(--ink-32); }
+.pg-goalie-status.tbd       { background: var(--ink-06); color: var(--ink-32); }
+.pg-goalie-stats { display: flex; gap: 18px; }
+.pg-gs-val { font-family: var(--display); font-weight: 700; font-size: 19px; line-height: 1; }
+.pg-gs-key { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 2px; }
+.pg-goalie-rec { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; margin-top: 8px; }
+/* Milestones */
+.pg-ms-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--ink-06); }
+.pg-ms-row:first-child { border-top: none; }
+/* pg-ms-badge → canonical Badge (CHIPS.md §4); layout via inline style on the element */
+.pg-ms-player { font-family: var(--display); font-weight: 700; font-size: 15px; letter-spacing: 0.01em; line-height: 1.1; }
+.pg-ms-label { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.04em; margin-top: 2px; }
+/* Officials */
+.pg-off-inner { padding: 16px 20px; }
+.pg-off-tba { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; }
+.pg-off-group { margin-bottom: 14px; }
+.pg-off-group:last-child { margin-bottom: 0; }
+.pg-off-group-lbl { font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 6px; }
+.pg-off-name { font-family: var(--display); font-weight: 600; font-size: 14px; color: var(--ink-72); margin-bottom: 2px; }
+/* Broadcast chips → canonical Badge (CHIPS.md §4) */
+/* Masthead record badge (pregame) */
+.team-record-small { font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; }
+
+/* ── PERIOD / LINESCORE TABLE ── */
+.period-table-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+.period-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.period-table th { padding: 8px 16px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); text-align: center; border-bottom: 1px solid var(--ink-14); }
+.period-table th:first-child { text-align: left; min-width: 140px; }
+.period-table td { padding: 10px 16px; text-align: center; border-bottom: 1px solid var(--ink-06); font-variant-numeric: tabular-nums; }
+.period-table td:first-child { text-align: left; font-family: var(--display); font-weight: 700; font-size: 14px; letter-spacing: 0.06em; display: flex; align-items: center; gap: 10px; }
+.period-table td:last-child { font-weight: 700; font-size: 14px; }
+.period-table tr:last-child td { border-bottom: none; }
+
+/* ── SECTIONS ── */
+.section { padding: 40px 0 0; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding-bottom: 11px; border-bottom: 1px solid var(--ink-20); }
+.section-title { font-family: var(--display); font-weight: 800; font-size: clamp(18px, 2.5vw, 26px); text-transform: uppercase; letter-spacing: 0.01em; }
+.section-title .accent { color: var(--red); }
+.section-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* ── KEY STATS — comparison table (AWAY | label | HOME) ── */
+.stats-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .stats-two-col { grid-template-columns: 1fr; } }
+.stats-compare { background: var(--surface); border: 1px solid var(--ink-14); }
+.stats-card-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-32); }
+.stats-compare-head { display: grid; grid-template-columns: 1fr auto 1fr; padding: 12px 28px 8px; }
+.stats-abbr { font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-56); }
+.stats-abbr.right { text-align: right; }
+.stats-compare-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 12px 28px; border-top: 1px solid var(--ink-06); gap: 16px; }
+.stat-compare-num { font-family: var(--display); font-weight: 800; font-size: clamp(24px, 3vw, 34px); line-height: 1; letter-spacing: -0.01em; transition: color 0.3s; }
+.stat-compare-num.right { text-align: right; }
+.stat-compare-key { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.12em; text-transform: uppercase; text-align: center; white-space: nowrap; }
+
+/* ── CHARTS — stacked, no tabs ── */
+.chart-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; }
+.chart-wrap + .chart-wrap { margin-top: 12px; }
+.chart-svg { width: 100%; display: block; cursor: crosshair; }
+.chart-no-data { padding: 40px 0; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-32); letter-spacing: 0.06em; }
+.chart-sub-label { padding: 8px 14px 6px; font-family: var(--display); font-weight: 800; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-top: 1px solid var(--ink-06); }
+/* Chart hover tooltip */
+#ctip { position: fixed; pointer-events: none; z-index: 201; background: #0d0d14; color: #fff; border-radius: 3px; padding: 8px 12px; font-family: var(--mono); font-size: 11px; line-height: 1.5; letter-spacing: 0.02em; box-shadow: 0 4px 16px rgba(0,0,0,0.35); display: none; white-space: nowrap; }
+#ctip .ct-team { font-family: var(--display); font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+#ctip .ct-sub { color: rgba(255,255,255,0.45); font-size: 10px; }
+#ctip .ct-wp { font-size: 12px; }
+#ctip .ct-meta { color: rgba(255,255,255,0.45); font-size: 10px; margin-top: 2px; }
+/* Stats location badge */
+.stats-location { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32); display: block; margin-top: 2px; }
+
+/* ── LIVE REFRESH INDICATOR ── */
+.refresh-bar { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.08em; }
+.refresh-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse-dot 1.5s ease-in-out infinite; }
+
+/* ── GOAL LOG ── */
+.goals-table-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+table.goals { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.goals thead tr { border-bottom: 1px solid var(--ink-20); }
+table.goals th { padding: 10px 14px; text-align: left; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); white-space: nowrap; }
+table.goals td { padding: 11px 14px; border-bottom: 1px solid var(--ink-06); white-space: nowrap; vertical-align: middle; }
+table.goals tr:last-child td { border-bottom: none; }
+table.goals tbody tr:hover { background: var(--ink-04); }
+.goal-team-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
+.goal-scorer { font-weight: 600; }
+.goal-assists { font-size: 12px; color: var(--ink-72); }
+.player-link { color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink-14); transition: border-color 0.15s; }
+.player-link:hover { border-bottom-color: var(--ink); }
+.strength-badge { display: inline-block; font-family: var(--display); font-weight: 700; font-size: 9.5px; letter-spacing: 0.14em; padding: 2px 6px; }
+.str-pp { background: rgba(234,179,8,0.15); color: #92400e; }
+.str-sh { background: rgba(59,130,246,0.15); color: #1e3a5f; }
+.str-en { background: rgba(13,13,20,0.08); color: var(--ink-56); }
+.goal-score { font-family: var(--mono); font-size: 11px; color: var(--ink-48); font-variant-numeric: tabular-nums; }
+.video-link { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--red); opacity: 0.85; transition: opacity 0.15s; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px solid rgba(232,0,45,0.25); background: rgba(232,0,45,0.04); }
+.video-link:hover { opacity: 1; background: rgba(232,0,45,0.08); }
+.wp-swing { font-family: var(--mono); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wp-swing.pos { color: var(--green); }
+.wp-swing.neg { color: var(--red); }
+
+/* ── PLAYER STATS ── */
+.player-stats-grid { display: flex; flex-direction: column; gap: 1px; background: var(--ink-14); border: 1px solid var(--ink-14); }
+.player-team-card { background: var(--surface); }
+.player-team-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-2); border-bottom: 1px solid var(--ink-14); }
+.player-team-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.player-team-label { font-family: var(--display); font-weight: 800; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-56); }
+table.ps { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.ps thead tr { border-bottom: 1px solid var(--ink-14); }
+table.ps th { padding: 8px 10px; font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-32); white-space: nowrap; cursor: pointer; user-select: none; text-align: center; }
+table.ps th:nth-child(2) { text-align: left; }
+table.ps th:hover { color: var(--ink); }
+table.ps th.sort-asc::after { content: " ↑"; }
+table.ps th.sort-desc::after { content: " ↓"; }
+table.ps td { padding: 8px 10px; border-bottom: 1px solid var(--ink-04); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: center; }
+table.ps td:nth-child(2) { text-align: left; }
+table.ps tr:last-child td { border-bottom: none; }
+table.ps tbody tr:hover { background: var(--ink-04); }
+.ps-name { font-family: var(--body); font-weight: 600; font-size: 13px; }
+/* Goalie sub-table */
+.goalie-section-head { font-family: var(--display); font-weight: 700; font-size: 9px;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32);
+  padding: 8px 10px 6px; border-top: 2px solid var(--ink-14); margin-top: 2px; }
+.ps-num { font-family: var(--mono); font-size: 10px; color: var(--ink-32); }
+.ps-pos { font-family: var(--mono); font-size: 10px; color: var(--ink-48); }
+.ps-toi { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ps-ixg { font-family: var(--mono); font-size: 11px; font-weight: 600; }
+.ps-divider { padding: 5px 8px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-top: 1px solid var(--ink-14); }
+/* Combined goalies table */
+.ps-container { border: 1px solid var(--ink-14); }
+.ps-container .player-stats-grid { border: none; }
+#combined-goalies { border-top: 1px solid var(--ink-14); background: var(--surface); }
+.cg-head { padding: 8px 12px 6px; font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); background: var(--bg-2); }
+.cg-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.cg-table th { padding: 7px 14px; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); text-align: center; border-bottom: 1px solid var(--ink-14); white-space: nowrap; }
+.cg-table th:nth-child(2) { text-align: left; width: 35%; }
+.cg-table td { padding: 8px 14px; text-align: center; border-bottom: 1px solid var(--ink-06); color: var(--ink); white-space: nowrap; }
+.cg-table td:first-child { color: var(--ink-32); font-size: 10px; width: 36px; }
+.cg-table td:nth-child(2) { text-align: left; font-family: var(--body); font-weight: 600; font-size: 13px; }
+.cg-table td:nth-child(3) { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; }
+.cg-table tr:last-child td { border-bottom: none; }
+.gsax-pos { color: var(--stats-pos); font-weight: 700; }
+.gsax-neg { color: var(--stats-neg); font-weight: 700; }
+
+/* ── SHOT MAP ── */
+.shot-map-outer { position: relative; background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; }
+.shot-map-rink-wrap { padding: 16px 16px 0; }
+.shot-map-svg { width: 100%; display: block; }
+.shot-map-legend { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: center; padding: 10px 14px; font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; }
+.shot-map-legend-team { display: flex; align-items: center; gap: 8px; }
+.sml-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.sml-sep { width: 1px; height: 12px; background: var(--ink-14); }
+.sml-key { display: flex; align-items: center; gap: 5px; }
+/* Tooltip */
+#shot-tooltip { position: fixed; pointer-events: none; z-index: 200; background: #0d0d14; color: #fff; border-radius: 4px; padding: 8px 11px; font-family: var(--mono); font-size: 11px; line-height: 1.5; letter-spacing: 0.02em; box-shadow: 0 4px 16px rgba(0,0,0,0.35); display: none; max-width: 200px; }
+#shot-tooltip .stt-player { font-family: var(--display); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; margin-bottom: 3px; }
+#shot-tooltip .stt-xg { font-weight: 600; }
+#shot-tooltip .stt-meta { color: rgba(255,255,255,0.5); font-size: 10px; margin-top: 2px; }
+
+/* ── FROM THE BOT (cards + posts) ── */
+.bot-row-label { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px; }
+.hscroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px; scrollbar-width: thin; scrollbar-color: var(--ink-20) transparent; -webkit-overflow-scrolling: touch; }
+.hscroll::-webkit-scrollbar { height: 4px; }
+.hscroll::-webkit-scrollbar-track { background: transparent; }
+.hscroll::-webkit-scrollbar-thumb { background: var(--ink-20); border-radius: 2px; }
+/* Card tiles (image posts) */
+.bot-card { flex-shrink: 0; width: 260px; background: var(--surface); border: 1px solid var(--ink-14); overflow: hidden; display: flex; flex-direction: column; }
+.bot-card img { width: 100%; height: auto; display: block; object-fit: cover; }
+.bot-card-meta { padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; }
+.bot-card-time { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+.bot-card-counts { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+/* Post tiles (text posts) */
+.bot-post { flex-shrink: 0; width: 240px; background: var(--surface); border: 1px solid var(--ink-14); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.bot-post-text { font-family: var(--body); font-size: 12px; line-height: 1.45; color: var(--ink); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; flex: 1; }
+.bot-post-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
+.bot-post-time { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+.bot-post-counts { font-family: var(--mono); font-size: 9.5px; color: var(--ink-32); letter-spacing: 0.04em; }
+.bot-post-link { font-family: var(--mono); font-size: 9px; color: var(--red); opacity: 0.7; text-decoration: none; }
+.bot-post-link:hover { opacity: 1; }
+
+/* ── ON-ICE xGF ─────────────────────────────────────────────────────────── */
+.onice-tabs { display: flex; gap: 4px; margin-bottom: 16px; align-items: center; }
+.onice-view-toggle { margin-left: auto; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.onice-view-toggle:hover { border-color: var(--ink-48); color: var(--ink); }
+.onice-view-toggle.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.onice-view-toggle[data-view="table"] .onice-toggle-chart { display: inline; }
+.onice-view-toggle[data-view="table"] .onice-toggle-table { display: none; }
+.onice-view-toggle[data-view="chart"] .onice-toggle-chart { display: none; }
+.onice-view-toggle[data-view="chart"] .onice-toggle-table { display: inline; }
+
+.onice-tab { font-family: var(--display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; padding: 5px 14px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-56); cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s; }
+.onice-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.onice-tab:hover:not(.active) { border-color: var(--ink-48); color: var(--ink); }
+.onice-empty { font-family: var(--mono); font-size: 11px; color: var(--ink-32); padding: 20px 0; text-align: center; letter-spacing: 0.06em; }
+.onice-card { background: var(--surface); border: 1px solid var(--ink-14); padding: 20px 24px 24px; }
+/* split layout */
+.onice-split { display: grid; grid-template-columns: 1fr 1px 1fr; }
+.onice-col-div { background: var(--ink-20); margin: 0 6px; }
+.onice-team-col { padding: 0 18px; }
+.onice-team-col:first-child { padding-left: 0; }
+.onice-team-col:last-child  { padding-right: 0; }
+/* team header */
+.onice-team-hdr { display: flex; align-items: flex-end; gap: 8px; border-bottom: 2px solid currentColor; padding-bottom: 6px; }
+.onice-team-name { font-family: var(--display); font-weight: 800; font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1; }
+.onice-team-avg { margin-left: auto; font-family: var(--mono); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; line-height: 1; }
+/* subheader */
+.onice-subhdr { display: grid; grid-template-columns: 1fr 72px 52px 32px 72px 52px; border-bottom: 1px solid var(--ink-10); padding: 7px 0 6px; }
+.onice-sh { font-family: var(--mono); font-size: 10px; color: var(--ink-56); letter-spacing: 0.07em; text-transform: uppercase; text-align: center; font-weight: 600; white-space: nowrap; }
+.onice-sh-r { text-align: right; padding-right: 4px; }
+/* player rows */
+.onice-name-text { font-family: var(--display); font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.onice-prow { display: grid; grid-template-columns: 1fr 72px 52px 32px 72px 52px; align-items: center; border-bottom: 1px solid var(--ink-14); }
+.onice-prow:last-child { border-bottom: none; }
+.onice-pcell { padding: 5px 8px 5px 0; overflow: hidden; }
+.onice-heat { font-family: var(--mono); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; padding: 5px 4px; text-align: center; border-radius: 3px; margin: 3px 2px; display: block; }
+.onice-toi { font-family: var(--mono); font-size: 13px; color: var(--ink-72); text-align: right; padding-right: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* line rows */
+.onice-lrow { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--ink-14); padding: 7px 0; }
+.onice-lrow:last-child { border-bottom: none; }
+.onice-lnames { font-family: var(--display); font-weight: 600; font-size: 13px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.onice-ltoi { font-family: var(--mono); font-size: 12px; color: var(--ink-56); white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) {
+  .onice-split { grid-template-columns: 1fr; }
+  .onice-col-div { display: none; }
+  .onice-team-col { padding: 0; margin-bottom: 24px; }
+  .onice-team-col:last-child { margin-bottom: 0; }
+}
+
+/* ── THREE STARS ── */
+.stars-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--ink-14); border: 1px solid var(--ink-14); }
+.star-card { background: var(--surface); padding: 20px 22px 22px; display: flex; flex-direction: column; gap: 5px; border-top: 3px solid transparent; }
+.star-rank { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 4px; }
+.star-name { font-family: var(--display); font-weight: 800; font-size: clamp(18px, 2.5vw, 26px); letter-spacing: 0.01em; line-height: 1.05; }
+.star-team { font-family: var(--display); font-weight: 700; font-size: 11px; color: var(--ink-48); letter-spacing: 0.14em; text-transform: uppercase; margin-top: 1px; }
+.star-stat-line { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; margin-top: 6px; }
+
+.no-data-msg { padding: 32px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--ink-32); letter-spacing: 0.04em; border: 1px solid var(--ink-14); background: var(--surface); }
+
+/* ── GOAL VIDEO POPUP ── */
+.gvp-overlay { position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; }
+.gvp-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.75); }
+.gvp-panel { position: relative; z-index: 1; background: #111; border-radius: 8px; width: 100%; max-width: 620px; overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
+.gvp-header { display: flex; align-items: stretch; background: rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.08); min-height: 38px; }
+.gvp-tabs-bar { flex: 1; display: flex; }
+.gvp-tab-btn { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; padding: 0 16px; height: 38px; border: none; border-bottom: 2px solid transparent; background: none; color: rgba(255,255,255,0.4); cursor: pointer; transition: color 0.15s; }
+.gvp-tab-btn.active { color: #fff; border-bottom-color: #fff; }
+.gvp-close { flex-shrink: 0; background: none; border: none; color: rgba(255,255,255,0.4); font-size: 18px; cursor: pointer; padding: 0 16px; line-height: 38px; transition: color 0.15s; }
+.gvp-close:hover { color: #fff; }
+.gvp-media { background: #000; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; }
+.gvp-media video, .gvp-media iframe { width: 100%; height: 100%; display: block; border: none; }
+.gvp-info { padding: 14px 18px 16px; }
+.gvp-scorer-line { font-family: var(--display); font-weight: 700; font-size: 14px; color: #fff; letter-spacing: 0.04em; }
+.gvp-wp-line { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 4px; letter-spacing: 0.04em; }
+.gvp-wp-delta { font-weight: 700; margin-left: 6px; }
+
+/* ── CHART DOWNLOAD BUTTON ── */
+.chart-dl-btn { font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.chart-dl-btn:hover { border-color: var(--ink-48); color: var(--ink); }
+
+/* ── LINE COMBINATIONS ── */
+.lc-table-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
+table.lc { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.lc thead tr { border-bottom: 1px solid var(--ink-20); }
+table.lc th { padding: 9px 12px; text-align: left; font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-48); white-space: nowrap; }
+table.lc th:not(:first-child):not(:nth-child(2)) { text-align: center; }
+table.lc td { padding: 10px 12px; border-bottom: 1px solid var(--ink-06); white-space: nowrap; vertical-align: middle; }
+table.lc td:not(:first-child):not(:nth-child(2)) { text-align: center; font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+table.lc tr:last-child td { border-bottom: none; }
+table.lc tbody tr:hover { background: var(--ink-04); }
+.lc-team-divider { padding: 7px 12px; background: var(--bg-2); font-family: var(--display); font-weight: 700; font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-32); border-bottom: 1px solid var(--ink-14); display: flex; align-items: center; gap: 8px; }
+.lc-team-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.lc-line-label { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.04em; }
+.lc-players { font-family: var(--body); font-weight: 600; font-size: 13px; }
+.lc-players-th { min-width: 200px; }
+.lc-xgf-pos { color: var(--stats-pos); font-weight: 700; }
+.lc-xgf-neg { color: var(--stats-neg); font-weight: 700; }
+.lc-no-data { padding: 28px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.06em; background: var(--surface); border: 1px solid var(--ink-14); }
+.lc-section-dl-btn { font-family: var(--display); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.lc-section-dl-btn:hover { border-color: var(--ink-48); color: var(--ink); }
+
+/* ── FOOTER ── */
+.foot { margin-top: 48px; border-top: 1px solid var(--ink-14); padding: 24px 0; font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
+.foot-inner { max-width: 1200px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 720px) {
+  .wrap { padding: 0 16px; }
+  .mast-inner { padding: 20px 0 24px; }
+  .score-grid { padding: 20px 16px 12px; gap: 12px; }
+  .card-info-strip { padding: 8px 16px 14px; }
+  #section-linescore .period-table-wrap { padding: 0 16px; }
+  .team-abbr-big { font-size: clamp(22px, 6vw, 36px); }
+  .score-display { font-size: clamp(40px, 10vw, 64px); gap: 10px; }
+  #away-logo, #home-logo { width: 56px; height: 56px; }
+  .stat-val { font-size: 22px; }
+  .stats-4 { grid-template-columns: repeat(2, 1fr); }
+  table.goals th, table.goals td { padding: 8px 10px; }
+  .stars-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .team-name-small { display: none; }
+  .game-meta { font-size: 10px; }
+}
+</style>
+</head>
+<body>
+
+<Nav currentPath="/games" />
+
+<div id="loading-state">
+  <div class="spinner"></div>
+  <span>Loading game…</span>
+  <!-- Primes Badge.astro global CSS so JS-rendered .cat-badge markup (broadcasts, milestones) is styled. -->
+  <Badge kind="red" label="" className="hidden-badge-prime" />
+</div>
+
+<div id="game-content">
+
+  <!-- SCORE MASTHEAD -->
+  <section class="game-mast">
+    <div class="mast-corners">
+      <div class="corner tl"></div><div class="corner tr"></div>
+      <div class="corner bl"></div><div class="corner br"></div>
+    </div>
+    <div class="mast-inner wrap">
+      <div class="mast-top">
+        <div class="mast-eyebrow"><span class="pip"></span> <span id="mast-breadcrumb">Game</span></div>
+        <span id="mast-context" style="font-family:var(--mono);font-size:11px;color:var(--ink-48);letter-spacing:0.06em"></span>
+      </div>
+      <div class="mast-card">
+        <div class="game-card-bar">
+          <div class="game-card-bar-half" id="color-bar-away"></div>
+          <div class="game-card-bar-half" id="color-bar-home"></div>
+        </div>
+        <div class="score-grid">
+          <div class="team-side away">
+            <img id="away-logo" src="" alt="" width="80" height="80" />
+            <div class="team-abbr-big" id="away-abbr"></div>
+            <div class="team-name-small" id="away-name"></div>
+          </div>
+          <div class="score-center">
+            <div class="score-display">
+              <span id="away-score">–</span>
+              <span class="score-sep">–</span>
+              <span id="home-score">–</span>
+            </div>
+            <div class="game-meta">
+              <span id="status-badge"><StatusPill state="pre" label="Loading" dot={false} /></span>
+              <div id="game-live-clock" class="game-live-clock"></div>
+            </div>
+          </div>
+          <div class="team-side home">
+            <img id="home-logo" src="" alt="" width="80" height="80" />
+            <div class="team-abbr-big" id="home-abbr"></div>
+            <div class="team-name-small" id="home-name"></div>
+          </div>
+        </div>
+        <div class="card-info-strip">
+          <span id="header-info-left" class="header-info-left"></span>
+          <span id="header-sog" class="header-info-right"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRE-GAME body -->
+  <div id="section-pregame" style="display:none">
+    <div class="wrap">
+      <div class="pg-body">
+        <!-- LEFT: Matchup context + Team stats -->
+        <div class="pg-main">
+          <div class="pg-section">
+            <div class="pg-section-hd"><span class="pg-section-title">Matchup</span></div>
+            <div id="pg-matchup-body"></div>
+          </div>
+          <div class="pg-section">
+            <div class="pg-section-hd">
+              <span class="pg-section-title">Team Stats</span>
+              <span id="pg-stats-season" style="font-family:var(--mono);font-size:9px;color:var(--ink-32);letter-spacing:0.08em;margin-left:auto"></span>
+            </div>
+            <div id="pg-stats-body"></div>
+          </div>
+        </div>
+        <!-- RIGHT: Goalies + Milestones + Officials -->
+        <div class="pg-aside">
+          <div class="pg-section">
+            <div class="pg-section-hd"><span class="pg-section-title">Probable Goalies</span></div>
+            <div id="pg-goalies-body"></div>
+          </div>
+          <div id="pg-milestones-card" class="pg-section" style="display:none">
+            <div class="pg-section-hd"><span class="pg-section-title">Milestone Watch</span></div>
+            <div id="pg-milestones-body"></div>
+          </div>
+          <div class="pg-section">
+            <div class="pg-section-hd"><span class="pg-section-title">Officials</span></div>
+            <div id="pg-officials-body" class="pg-off-inner"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE / FINAL body -->
+  <div id="section-game-body" style="display:none">
+    <div class="wrap">
+
+      <!-- THREE STARS — final state only, shown first -->
+      <div class="section" id="section-stars" style="display:none">
+        <div class="section-head">
+          <h2 class="section-title">Three <span class="accent">Stars</span></h2>
+        </div>
+        <div class="stars-grid" id="stars-grid"></div>
+      </div>
+
+      <!-- KEY STATS — comparison table -->
+      <div class="section" id="section-stats">
+        <div class="section-head">
+          <h2 class="section-title">Key <span class="accent">Stats</span></h2>
+          <span class="section-meta" id="stats-source-label"></span>
+        </div>
+        <div class="stats-two-col">
+          <!-- All situations card -->
+          <div class="stats-compare" id="stats-strip">
+            <div class="stats-compare-head">
+              <div>
+                <span class="stats-abbr" id="stats-away-abbr"></span>
+                <span class="stats-location">Away</span>
+              </div>
+              <span class="stats-card-label">All Sit</span>
+              <div style="text-align:right">
+                <span class="stats-abbr right" id="stats-home-abbr"></span>
+                <span class="stats-location" style="text-align:right">Home</span>
+              </div>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-goals">–</span>
+              <span class="stat-compare-key">Goals</span>
+              <span class="stat-compare-num right" id="home-goals">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-cf">–</span>
+              <span class="stat-compare-key">Shot Attempts</span>
+              <span class="stat-compare-num right" id="home-cf">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-sog">–</span>
+              <span class="stat-compare-key">Shots on Goal</span>
+              <span class="stat-compare-num right" id="home-sog">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-xgf">–</span>
+              <span class="stat-compare-key">xG</span>
+              <span class="stat-compare-num right" id="home-xgf">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-xgfpct">–</span>
+              <span class="stat-compare-key">xG Share</span>
+              <span class="stat-compare-num right" id="home-xgfpct">–</span>
+            </div>
+          </div>
+          <!-- 5v5 card -->
+          <div class="stats-compare" id="stats-strip-5v5">
+            <div class="stats-compare-head">
+              <div>
+                <span class="stats-abbr" id="stats-away-abbr-5v5"></span>
+                <span class="stats-location">Away</span>
+              </div>
+              <span class="stats-card-label">5v5</span>
+              <div style="text-align:right">
+                <span class="stats-abbr right" id="stats-home-abbr-5v5"></span>
+                <span class="stats-location" style="text-align:right">Home</span>
+              </div>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-goals5v5">–</span>
+              <span class="stat-compare-key">Goals</span>
+              <span class="stat-compare-num right" id="home-goals5v5">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-cf5v5">–</span>
+              <span class="stat-compare-key">Shot Attempts</span>
+              <span class="stat-compare-num right" id="home-cf5v5">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-sog5v5">–</span>
+              <span class="stat-compare-key">Shots on Goal</span>
+              <span class="stat-compare-num right" id="home-sog5v5">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-xg5v5">–</span>
+              <span class="stat-compare-key">xG</span>
+              <span class="stat-compare-num right" id="home-xg5v5">–</span>
+            </div>
+            <div class="stats-compare-row">
+              <span class="stat-compare-num" id="away-xg5v5pct">–</span>
+              <span class="stat-compare-key">xG Share</span>
+              <span class="stat-compare-num right" id="home-xg5v5pct">–</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GAME CHARTS — stacked, no tabs -->
+      <div class="section" id="section-chart">
+        <div class="section-head">
+          <h2 class="section-title">Game <span class="accent">Charts</span></h2>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div id="chart-section-meta" class="section-meta">HGB xG model · 5v5</div>
+            <ChipGroup
+              id="xg-sit-toggle"
+              name="xg-sit"
+              items={[
+                { label: '5V5',     value: '5v5', active: true },
+                { label: 'ALL SIT', value: 'all' },
+              ]}
+            />
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <div style="position:relative">
+            <button class="chart-dl-btn" data-chart="wp" data-ratio="2/1" title="Download PNG" style="position:absolute;top:8px;right:4px;z-index:2">↓ PNG</button>
+            <div class="chart-no-data" id="chart-no-data" style="display:none">Win probability not available.</div>
+            <svg id="wp-chart" class="chart-svg" viewBox="0 0 800 360" preserveAspectRatio="none"></svg>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <div style="position:relative">
+            <button class="chart-dl-btn" data-chart="xg" data-ratio="2/1" title="Download PNG" style="position:absolute;top:8px;right:4px;z-index:2">↓ PNG</button>
+            <div class="chart-no-data" id="xg-no-data" style="display:none">xG data not available.</div>
+            <svg id="xg-chart" class="chart-svg" viewBox="0 0 840 360" preserveAspectRatio="none"></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- GOAL LOG -->
+      <div class="section" id="section-goals">
+        <div class="section-head">
+          <h2 class="section-title">Goal <span class="accent">Log</span></h2>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="refresh-bar" id="refresh-indicator" style="display:none">
+              <span class="refresh-dot"></span>
+              <span id="refresh-label">Live · updating</span>
+            </div>
+            <span class="section-meta" id="goal-count-label"></span>
+          </div>
+        </div>
+        <div id="goals-container"></div>
+      </div>
+
+      <!-- SHOT MAP -->
+      <div class="section" id="section-shotmap" style="display:none">
+        <div class="section-head">
+          <h2 class="section-title">Shot <span class="accent">Map</span></h2>
+          <span class="section-meta" id="shotmap-meta">All situations · HGB xG model</span>
+        </div>
+        <div class="shot-map-outer">
+          <div class="shot-map-rink-wrap">
+            <svg id="shot-map-svg" class="shot-map-svg" viewBox="0 0 800 340" preserveAspectRatio="xMidYMid meet"></svg>
+          </div>
+          <div class="shot-map-legend" id="shot-map-legend"></div>
+        </div>
+      </div>
+
+      <!-- ON-ICE xGF -->
+      <div class="section" id="section-onice" style="display:none">
+        <div class="section-head">
+          <h2 class="section-title">On-Ice <span class="accent">xGF</span></h2>
+          <span class="section-meta" id="onice-meta"></span>
+        </div>
+        <div class="onice-card">
+          <div class="onice-tabs">
+            <button class="onice-tab active" data-tab="players">Players</button>
+            <button class="onice-tab" data-tab="lines">Fwd Lines</button>
+            <button class="onice-tab" data-tab="pairs">D Pairs</button>
+            <button class="onice-view-toggle" id="onice-view-toggle" data-view="table" title="Toggle chart view">
+              <span class="onice-toggle-table">≡ Table</span>
+              <span class="onice-toggle-chart">◉ Chart</span>
+            </button>
+          </div>
+          <div id="onice-content"></div>
+        </div>
+      </div>
+
+      <!-- PLAYER STATS -->
+      <div class="section" id="section-player-stats" style="display:none">
+        <div class="section-head">
+          <h2 class="section-title">Player <span class="accent">Stats</span></h2>
+          <span class="section-meta">ixG · GSAx via live xG model · all-sit</span>
+        </div>
+        <div class="ps-container">
+          <div class="player-stats-grid" id="player-stats-grid"></div>
+          <div id="combined-goalies"></div>
+        </div>
+      </div>
+
+      <!-- LINE COMBINATIONS -->
+      <div class="section" id="section-linecombos" style="display:none">
+        <div class="section-head">
+          <h2 class="section-title">Line <span class="accent">Combinations</span></h2>
+          <div style="display:flex;align-items:center;gap:12px">
+            <button class="lc-section-dl-btn" id="lc-dl-btn" style="display:none">↓ PNG</button>
+            <span class="section-meta">5v5 · &ge;2 min TOI</span>
+          </div>
+        </div>
+        <div id="linecombos-content"></div>
+      </div>
+
+      <!-- FROM THE BOT — cards + posts -->
+      <div class="section" id="section-bot" style="display:none;padding-bottom:56px">
+        <div class="section-head">
+          <h2 class="section-title">From <span class="accent">the Bot</span></h2>
+          <span class="section-meta" id="bot-handle-label"></span>
+        </div>
+        <div id="bot-cards-row" style="display:none">
+          <div class="bot-row-label">Cards</div>
+          <div class="hscroll" id="bot-cards-scroll"></div>
+        </div>
+        <div id="bot-posts-row" style="margin-top:20px;display:none">
+          <div class="bot-row-label">Posts</div>
+          <div class="hscroll" id="bot-posts-scroll"></div>
+        </div>
+      </div>
+
+      <!-- PHASE 2 PLACEHOLDER -->
+      <div class="section" id="section-coming-soon" style="padding-bottom:56px">
+        <div class="no-data-msg" style="color:var(--ink-32);font-family:var(--mono);font-size:11px;letter-spacing:0.06em">
+          On-ice xGF/xGA · Phase 2
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /game-content -->
+
+<!-- GOAL VIDEO POPUP -->
+<div id="gvp" class="gvp-overlay" style="display:none" aria-modal="true" role="dialog">
+  <div class="gvp-backdrop" id="gvp-backdrop"></div>
+  <div class="gvp-panel">
+    <div class="gvp-header">
+      <div class="gvp-tabs-bar" id="gvp-tabs" style="display:none">
+        <button class="gvp-tab-btn active" data-gvp-tab="gif">HGB GIF</button>
+        <button class="gvp-tab-btn" data-gvp-tab="highlight">NHL Highlight</button>
+      </div>
+      <button class="gvp-close" id="gvp-close" aria-label="Close">✕</button>
+    </div>
+    <div class="gvp-media">
+      <video id="gvp-video" controls autoplay playsinline style="display:none"></video>
+      <iframe id="gvp-iframe" allowfullscreen allow="autoplay; encrypted-media" style="display:none"></iframe>
+    </div>
+    <div class="gvp-info">
+      <div class="gvp-scorer-line" id="gvp-scorer"></div>
+      <div class="gvp-wp-line" id="gvp-wp"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CHART TOOLTIP -->
+<div id="ctip">
+  <div class="ct-team" id="ctip-team"></div>
+  <div class="ct-sub" id="ctip-sub"></div>
+  <div class="ct-wp" id="ctip-wp"></div>
+  <div class="ct-meta" id="ctip-meta"></div>
+</div>
+
+<!-- SHOT TOOLTIP -->
+<div id="shot-tooltip" role="tooltip">
+  <div class="stt-player" id="stt-player"></div>
+  <div class="stt-xg" id="stt-xg"></div>
+  <div class="stt-meta" id="stt-meta"></div>
+</div>
+
+<footer class="foot">
+  <div class="foot-inner">
+    <a href="/" style="font-family:var(--display);font-weight:800;font-size:16px;letter-spacing:0.04em;text-transform:uppercase;display:inline-flex;align-items:center;gap:5px">
+      Hockey<span style="width:4px;height:4px;background:var(--red);border-radius:50%;display:inline-block;margin:0 3px"></span>Gamebot
+    </a>
+    <span>Analytics by HGB · xG model XGBoost AUC 0.77</span>
+  </div>
+</footer>
+
+<script define:vars={{ _sparklineMap }}>
+  window._HGB_SPARKLINES = _sparklineMap;
+</script>
+
+<script is:inline src="/js/table-export.js"></script>
+<script is:inline>
+(function () {
+  'use strict';
+
+  // Restore URL if we arrived via the 404.html fallback (no _redirects support)
+  const _r = sessionStorage.getItem('hgb_game_redirect');
+  if (_r) { sessionStorage.removeItem('hgb_game_redirect'); history.replaceState(null, '', _r); }
+
+  const HGB_API = 'https://api.hockeygamebot.com';
+  const LIVE_REFRESH_MS = 30_000;
+
+  // Jersey number lookup: { gameSec → sweaterNumber } — built in renderGame, used by chart functions
+  let _jerseyMap = {};
+
+  const TC = {
+    ANA:['#F47A38','#B09862'], BOS:['#FFB81C','#000000'], BUF:['#002654','#FDBB30'],
+    CAR:['#CC0000','#000000'], CBJ:['#002654','#CE1126'], CGY:['#C8102E','#F1BE48'],
+    CHI:['#CF0A2C','#000000'], COL:['#6F263D','#236192'], DAL:['#006847','#8F8F8C'],
+    DET:['#CE1126','#FFFFFF'], EDM:['#FF4C00','#041E42'], FLA:['#041E42','#C8102E'],
+    LAK:['#111111','#A2AAAD'], MIN:['#154734','#A6192E'], MTL:['#AF1E2D','#00205B'],
+    NSH:['#FFB81C','#041E42'], NJD:['#CE1126','#000000'], NYI:['#00539B','#F47D30'],
+    NYR:['#0038A8','#CE1126'], OTT:['#DA1A32','#000000'], PHI:['#FA4616','#000000'],
+    PIT:['#000000','#FCB514'], SEA:['#001628','#99D9D9'], SJS:['#006D75','#EA7200'],
+    STL:['#002F87','#FDB827'], TBL:['#00205B','#FFFFFF'], TOR:['#00205B','#FFFFFF'],
+    UTA:['#71AFE5','#090909'], VAN:['#00205B','#00843D'], VGK:['#B4975A','#333F48'],
+    WSH:['#041E42','#C8102E'], WPG:['#041E42','#004C97'],
+  };
+
+  function teamColor(abbr) { return (TC[abbr] || ['#E8002D','#0d0d14'])[0]; }
+  function logoUrl(abbr) { return `https://assets.nhle.com/logos/nhl/svg/${abbr}_dark.svg`; }
+  function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function fmt2(v) { return v != null ? Number(v).toFixed(2) : '–'; }
+  function playerSlug(name, id) {
+    if (!name || !id) return null;
+    const base = String(name).toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    return `${base}-${id}`;
+  }
+
+  // ── Global chart tooltip ─────────────────────────────────────────────────────
+  function showCtip(e, team, sub, wp, meta) {
+    const t = document.getElementById('ctip');
+    document.getElementById('ctip-team').innerHTML = team || '';
+    document.getElementById('ctip-sub').innerHTML  = sub  || '';
+    document.getElementById('ctip-wp').innerHTML   = wp   || '';
+    document.getElementById('ctip-meta').textContent = meta || '';
+    document.getElementById('ctip-sub').style.display  = sub  ? '' : 'none';
+    document.getElementById('ctip-wp').style.display   = wp   ? '' : 'none';
+    document.getElementById('ctip-meta').style.display = meta ? '' : 'none';
+    t.style.display = 'block';
+    moveCtip(e);
+  }
+  function moveCtip(e) {
+    const t = document.getElementById('ctip');
+    if (!t || t.style.display === 'none') return;
+    const pad = 14, tw = t.offsetWidth, th = t.offsetHeight;
+    let lx = e.clientX + pad, ly = e.clientY - th / 2;
+    if (lx + tw > window.innerWidth - 4) lx = e.clientX - tw - pad;
+    if (ly < 4) ly = 4;
+    if (ly + th > window.innerHeight - 4) ly = window.innerHeight - th - 4;
+    t.style.left = lx + 'px'; t.style.top = ly + 'px';
+  }
+  function hideCtip() { const t = document.getElementById('ctip'); if (t) t.style.display = 'none'; }
+
+  function tLabel(t) {
+    const p = Math.floor(t / 1200) + 1, sec = t % 1200;
+    const m = Math.floor(sec / 60).toString().padStart(2,'0');
+    const s = Math.floor(sec % 60).toString().padStart(2,'0');
+    return (p > 3 ? 'OT' : `P${p}`) + ` ${m}:${s}`;
+  }
+
+  function gameState(status) {
+    const s = (status || '').toUpperCase();
+    if (s === 'OFF' || s === 'FINAL') return 'final';
+    if (s === 'LIVE' || s === 'CRIT') return 'live';
+    return 'pre';
+  }
+
+  function strengthBadge(str) {
+    if (!str || str === 'even') return '';
+    const cls = str === 'pp' ? 'str-pp' : str === 'sh' ? 'str-sh' : 'str-en';
+    return `<span class="strength-badge ${cls}">${esc(str.toUpperCase())}</span>`;
+  }
+
+  // ── Header ──────────────────────────────────────────────────────────────────
+
+  function renderHeader(boxscore, state) {
+    const away = boxscore.awayTeam || {};
+    const home = boxscore.homeTeam || {};
+
+    const awayAbbr = away.abbrev || '???';
+    const homeAbbr = home.abbrev || '???';
+    const awayColor = teamColor(awayAbbr);
+    const homeColor = teamColor(homeAbbr);
+
+    const date = boxscore.gameDate
+      ? new Date(boxscore.gameDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
+    const venue = boxscore.venue?.default || '';
+
+    document.title = `${awayAbbr} @ ${homeAbbr} · ${date} · HockeyGameBot`;
+
+    // Breadcrumb
+    const breadcrumb = document.getElementById('mast-breadcrumb');
+    if (breadcrumb) breadcrumb.textContent = `${awayAbbr} @ ${homeAbbr}`;
+    const ctx = document.getElementById('mast-context');
+    if (ctx) {
+      const gt = boxscore.gameType;
+      ctx.textContent = gt === 3 ? '2026 Stanley Cup Playoffs' : gt === 1 ? '2025-26 Preseason' : '2025-26 Regular Season';
+    }
+
+    document.getElementById('away-logo').src = logoUrl(awayAbbr);
+    document.getElementById('away-logo').alt = awayAbbr;
+    document.getElementById('away-abbr').textContent = awayAbbr;
+    document.getElementById('away-name').textContent = away.placeName?.default || '';
+    document.getElementById('home-logo').src = logoUrl(homeAbbr);
+    document.getElementById('home-logo').alt = homeAbbr;
+    document.getElementById('home-abbr').textContent = homeAbbr;
+    document.getElementById('home-name').textContent = home.placeName?.default || '';
+
+    document.getElementById('color-bar-away').style.background = awayColor;
+    document.getElementById('color-bar-home').style.background = homeColor;
+
+    // Info strip left: venue · date
+    const infoLeft = [date, venue].filter(Boolean).join(' · ');
+    document.getElementById('header-info-left').textContent = infoLeft;
+
+    // Broadcasts in info strip right (pregame only — SOG now in stats table)
+    if (state === 'pre') {
+      const broadcasts = (boxscore.tvBroadcasts || []).map(b => b.network || b.name || '').filter(Boolean);
+      document.getElementById('header-sog').textContent = broadcasts.join(' · ');
+    } else {
+      document.getElementById('header-sog').textContent = '';
+    }
+
+    const badge = document.getElementById('status-badge');
+    const clockEl = document.getElementById('game-live-clock');
+    // Renders a canonical StatusPill (CHIPS.md §3) into the #status-badge wrapper.
+    const setStatusPill = (pillState, label, dot) =>
+      badge.innerHTML = `<span class="status-pill" data-state="${pillState}">${dot ? '<span class="dot" aria-hidden="true"></span>' : ''}${esc(label)}</span>`;
+
+    if (state === 'final') {
+      document.getElementById('away-score').textContent = away.score ?? '–';
+      document.getElementById('home-score').textContent = home.score ?? '–';
+      const lastPeriodType = boxscore.gameOutcome?.lastPeriodType || '';
+      const finalPeriod = boxscore.periodDescriptor?.number || 3;
+      const isOT = lastPeriodType === 'OT' || finalPeriod === 4;
+      const isSO = lastPeriodType === 'SO' || finalPeriod >= 5;
+      setStatusPill(isSO ? 'so' : isOT ? 'ot' : 'final', isSO ? 'Final · SO' : isOT ? 'Final · OT' : 'Final', false);
+      clockEl.classList.remove('visible');
+    } else if (state === 'live') {
+      document.getElementById('away-score').textContent = away.score ?? '0';
+      document.getElementById('home-score').textContent = home.score ?? '0';
+      const clock = boxscore.clock || {};
+      const period = boxscore.period || boxscore.periodDescriptor?.number || 1;
+      const periodLabel = period > 3 ? 'OT' : `P${period}`;
+      const timeStr = clock.inIntermission ? 'INT' : (clock.timeRemaining || '');
+      setStatusPill('live', 'Live', true);
+      clockEl.textContent = timeStr ? `${periodLabel} · ${timeStr}` : periodLabel;
+      clockEl.classList.add('visible');
+    } else {
+      document.getElementById('away-score').textContent = '–';
+      document.getElementById('home-score').textContent = '–';
+      document.querySelector('.score-sep').style.display = 'none';
+      const t = boxscore.startTimeUTC
+        ? new Date(boxscore.startTimeUTC).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
+        : 'Upcoming';
+      setStatusPill('pre', t, false);
+      clockEl.classList.remove('visible');
+    }
+
+    return { awayAbbr, homeAbbr, awayColor, homeColor, awayScore: away.score ?? 0, homeScore: home.score ?? 0 };
+  }
+
+  // ── Pre-game section ─────────────────────────────────────────────────────────
+
+  const _MOCK_PREGAME = {
+    state: 'pregame',
+    matchup: {
+      away: { abbrev: 'NJD', name: 'New Jersey Devils', primary_color: '#CE1126', record: '40-30-12' },
+      home: { abbrev: 'WSH', name: 'Washington Capitals', primary_color: '#CF0A2C', record: '43-28-11' }
+    },
+    game_info: {
+      start_time_utc: new Date(Date.now() + 3 * 3600 * 1000).toISOString(),
+      venue: 'Capital One Arena', venue_city: 'Washington, DC',
+      broadcasts: { national: ['ESPN'], away_local: ['MSGSN'], home_local: ['MNMT'] }
+    },
+    matchup_notes: {
+      type: 'regular',
+      season_series: { record: '1-2-1', label: 'Season Series', is_last_season: false },
+      last5: {
+        away: { record: '3-1-1', results: ['W','L','W','OT','W'] },
+        home: { record: '3-2-0', results: ['W','W','L','W','L'] }
+      }
+    },
+    team_stats: {
+      away: { pp_pct: 24.8, pp_rank: 6, pk_pct: 82.1, pk_rank: 7, gf_per_gp: 3.12, gf_rank: 9, xgf_per_gp: 2.74, xgf_rank: 6 },
+      home: { pp_pct: 20.1, pp_rank: 16, pk_pct: 78.4, pk_rank: 21, gf_per_gp: 2.88, gf_rank: 14, xgf_per_gp: 2.61, xgf_rank: 12 }
+    },
+    goalies: {
+      away: { name: 'Vitek Vanecek', last_name: 'Vanecek', status: 'expected', sv_pct: 0.913, gaa: 2.71, record: { w: 24, l: 14, ot: 4 } },
+      home: { name: 'Charlie Lindgren', last_name: 'Lindgren', status: 'confirmed', sv_pct: 0.906, gaa: 2.95, record: { w: 28, l: 18, ot: 6 } }
+    },
+    milestones: {
+      hits: [{ player_name: 'Jack Hughes', team_abbrev: 'NJD', label: '200th NHL Point', remaining: 0 }],
+      watches: [{ player_name: 'Nico Hischier', team_abbrev: 'NJD', label: '1 goal from 200 NHL Goals', remaining: 1 }]
+    },
+    officials: { available: false, referees: [], linesmen: [] }
+  };
+
+  async function renderPregame(boxscore, gameId) {
+    // Try live pregame endpoint; fall back to mock
+    let pg = null;
+    try {
+      const r = await fetch(`${HGB_API}/v1/games/${gameId}/pregame`);
+      if (r.ok) pg = await r.json();
+    } catch (_) {}
+    if (!pg) pg = _MOCK_PREGAME;
+
+    const away = pg.matchup?.away || {};
+    const home = pg.matchup?.home || {};
+    const awayAbbr = away.abbrev || boxscore.awayTeam?.abbrev || 'AWY';
+    const homeAbbr = home.abbrev || boxscore.homeTeam?.abbrev || 'HME';
+    const awayColor = away.primary_color || 'var(--ink)';
+    const homeColor = home.primary_color || 'var(--ink)';
+
+    // ── Masthead: show records instead of "–" scores ─────────────────────
+    if (away.record) {
+      const el = document.getElementById('away-name');
+      if (el) el.innerHTML = `<span class="team-record-small">${away.record}</span>`;
+    }
+    if (home.record) {
+      const el = document.getElementById('home-name');
+      if (el) el.innerHTML = `<span class="team-record-small">${home.record}</span>`;
+    }
+
+    // Replace score area with puck drop time
+    const gi = pg.game_info || {};
+    // Countdown in score display area
+    const rawTime = gi.start_time_utc || boxscore.startTimeUTC;
+    const scoreDisp = document.querySelector('.score-display');
+    if (scoreDisp && rawTime) {
+      const puckDrop = new Date(rawTime).getTime();
+      const fmtCountdown = () => {
+        const diff = Math.max(0, puckDrop - Date.now());
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        const s = Math.floor((diff % 60000) / 1000);
+        if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        return `${m}:${String(s).padStart(2,'0')}`;
+      };
+      const cdEl = document.createElement('span');
+      cdEl.style.cssText = 'font-size:clamp(14px,1.6vw,20px);letter-spacing:0.06em;font-weight:600;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-48)';
+      cdEl.textContent = fmtCountdown();
+      scoreDisp.innerHTML = '';
+      scoreDisp.appendChild(cdEl);
+      const _cdTimer = setInterval(() => {
+        cdEl.textContent = fmtCountdown();
+        if (Date.now() >= puckDrop) clearInterval(_cdTimer);
+      }, 1000);
+    }
+
+    // Venue in info-left; broadcast chips in sog slot
+    const infoLeft = document.getElementById('header-info-left');
+    if (infoLeft) infoLeft.textContent = gi.venue || '';
+    const bcast = gi.broadcasts || {};
+    const chips = [
+      ...(bcast.national    || []).map(n => `<span class="cat-badge cat-badge--red">${esc(n)}</span>`),
+      ...(bcast.away_local  || []).map(n => `<span class="cat-badge">${esc(n)}</span>`),
+      ...(bcast.home_local  || []).map(n => `<span class="cat-badge">${esc(n)}</span>`),
+    ];
+    const sogEl = document.getElementById('header-sog');
+    if (sogEl && chips.length) {
+      sogEl.innerHTML = chips.join('');
+      sogEl.style.cssText += ';display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+    }
+
+    // ── Section 1: Matchup context ───────────────────────────────────────
+    const mn = pg.matchup_notes || {};
+    let matchupHtml = '';
+    if (mn.type === 'playoff') {
+      const s = mn.series || {};
+      matchupHtml = `<div class="pg-playoff-inner">
+        <div class="pg-playoff-game-num">Game ${s.game_number || '–'}</div>
+        <div class="pg-playoff-score">
+          <div class="pg-playoff-wins">
+            <span class="pg-playoff-num" style="color:${awayColor}">${awayAbbr}</span>
+            <span style="font-family:var(--display);font-weight:800;font-size:clamp(20px,2.8vw,34px);color:${awayColor}">${s.away_wins ?? 0}</span>
+          </div>
+          <span style="color:var(--ink-32);font-weight:400">–</span>
+          <div class="pg-playoff-wins">
+            <span class="pg-playoff-num" style="color:${homeColor};font-family:var(--display);font-weight:800;font-size:clamp(20px,2.8vw,34px)">${s.home_wins ?? 0}</span>
+            <span class="pg-playoff-num" style="color:${homeColor}">${homeAbbr}</span>
+          </div>
+        </div>
+        <div class="pg-playoff-label">${esc(s.label || '')}</div>
+      </div>`;
+    } else {
+      const ss = mn.season_series || {};
+      const l5 = mn.last5 || {};
+      const dotRow = (results, color, abbr, rec, reverse) => {
+        const dots = (results || []).map(r =>
+          `<span class="pg-dot pg-dot-${r}" title="${r}"></span>`).join('');
+        const inner = reverse
+          ? `<span class="pg-last5-rec" style="margin-right:4px">${esc(rec||'')}</span><div class="pg-last5-dots" style="flex-direction:row-reverse">${dots}</div><span class="pg-last5-abbr" style="color:${color};text-align:right">${esc(abbr)}</span>`
+          : `<span class="pg-last5-abbr" style="color:${color}">${esc(abbr)}</span><div class="pg-last5-dots">${dots}</div><span class="pg-last5-rec">${esc(rec||'')}</span>`;
+        return `<div class="pg-last5-team">${inner}</div>`;
+      };
+      const last5Html = (l5.away && l5.home) ? `<div class="pg-last5-wrap">
+        ${dotRow(l5.away.results, awayColor, awayAbbr, l5.away.record, false)}
+        ${dotRow(l5.home.results, homeColor, homeAbbr, l5.home.record, true)}
+      </div>` : '';
+      matchupHtml = `<div class="pg-matchup-inner">
+        <div class="pg-series-label">${esc(ss.label || 'Season Series')}${ss.is_last_season ? ' (Last Season)' : ''}</div>
+        <div class="pg-series-record">
+          <span style="color:${awayColor}">${esc(awayAbbr)}</span>
+          <span style="color:var(--ink-32);padding:0 8px">${esc(ss.record || '–')}</span>
+          <span style="color:${homeColor}">vs ${esc(homeAbbr)}</span>
+        </div>
+        ${last5Html}
+      </div>`;
+    }
+    document.getElementById('pg-matchup-body').innerHTML = matchupHtml;
+
+    // ── Section 2: Team stats mirror bars ────────────────────────────────
+    const ts = pg.team_stats || {};
+    const ats = ts.away || {}, hts = ts.home || {};
+    const statRows = [
+      { key: 'PP %',    av: ats.pp_pct,    ar: ats.pp_rank,    hv: hts.pp_pct,    hr: hts.pp_rank,    fmt: v => v != null ? `${v.toFixed(1)}%` : '–' },
+      { key: 'PK %',    av: ats.pk_pct,    ar: ats.pk_rank,    hv: hts.pk_pct,    hr: hts.pk_rank,    fmt: v => v != null ? `${v.toFixed(1)}%` : '–' },
+      { key: 'GF / GP', av: ats.gf_per_gp, ar: ats.gf_rank,    hv: hts.gf_per_gp, hr: hts.gf_rank,    fmt: v => v != null ? v.toFixed(2) : '–' },
+      { key: 'xGF / GP',av: ats.xgf_per_gp,ar: ats.xgf_rank,  hv: hts.xgf_per_gp,hr: hts.xgf_rank,   fmt: v => v != null ? v.toFixed(2) : '–' },
+    ];
+    const hasStats = statRows.some(r => r.av != null || r.hv != null);
+    if (!hasStats) {
+      document.getElementById('pg-stats-body')?.closest('.pg-section')?.style && (document.getElementById('pg-stats-body').closest('.pg-section').style.display = 'none');
+    }
+    const statsHtml = statRows.map(({ key, av, ar, hv, hr, fmt }) => {
+      const mx = Math.max(av || 0, hv || 0, 0.001);
+      const ap = Math.round(((av || 0) / mx) * 100);
+      const hp = Math.round(((hv || 0) / mx) * 100);
+      return `<div class="pg-stat-row">
+          <div class="pg-stat-away-col">
+            <div class="pg-stat-num" style="color:${awayColor}">${fmt(av)}</div>
+            <div class="pg-stat-rank">${ar ? `#${ar} NHL` : ''}</div>
+          </div>
+          <div class="pg-stat-label-col">${key}</div>
+          <div class="pg-stat-home-col">
+            <div class="pg-stat-num" style="color:${homeColor}">${fmt(hv)}</div>
+            <div class="pg-stat-rank">${hr ? `#${hr} NHL` : ''}</div>
+          </div>
+        </div>
+        <div class="pg-stat-bar-row">
+          <div class="pg-bar-seg" style="background:${awayColor};opacity:0.65;width:${ap}%;margin-left:auto"></div>
+          <div class="pg-bar-seg" style="background:${homeColor};opacity:0.65;width:${hp}%"></div>
+        </div>`;
+    }).join('');
+    document.getElementById('pg-stats-body').innerHTML = statsHtml;
+
+    // ── Section 3: Probable goalies ──────────────────────────────────────
+    const goalies = pg.goalies || {};
+    const hasGoalieData = goalies.away?.name || goalies.home?.name;
+    if (hasGoalieData) {
+      const goalieCol = (g, abbr, color) => {
+        if (!g) return `<div class="pg-goalie-col">
+          <div class="pg-goalie-team-lbl" style="color:${color}">${esc(abbr)}</div>
+          <div class="pg-goalie-name" style="color:var(--ink-32);font-style:italic">TBA</div>
+        </div>`;
+        const rec = g.record || {};
+        const wl = `${rec.w ?? 0}-${rec.l ?? 0}-${rec.ot ?? 0}`;
+        const svFmt = g.sv_pct != null
+          ? `.${Math.round((g.sv_pct % 1) * 1000).toString().padStart(3, '0')}`
+          : '–';
+        const statusLabel = g.status === 'confirmed' ? 'Confirmed' : 'Expected';
+        return `<div class="pg-goalie-col">
+          <div class="pg-goalie-team-lbl" style="color:${color}">${esc(abbr)}</div>
+          <div class="pg-goalie-name">${esc(g.last_name || g.name || '')}</div>
+          <span class="pg-goalie-status ${g.status || 'expected'}">${statusLabel}</span>
+          <div class="pg-goalie-stats">
+            <div><div class="pg-gs-val">${svFmt}</div><div class="pg-gs-key">SV%</div></div>
+            <div><div class="pg-gs-val">${g.gaa != null ? g.gaa.toFixed(2) : '–'}</div><div class="pg-gs-key">GAA</div></div>
+          </div>
+          <div class="pg-goalie-rec">${wl}</div>
+        </div>`;
+      };
+      document.getElementById('pg-goalies-body').innerHTML = `<div class="pg-goalies-split">
+        ${goalieCol(goalies.away, awayAbbr, awayColor)}
+        <div class="pg-goalie-div"></div>
+        ${goalieCol(goalies.home, homeAbbr, homeColor)}
+      </div>`;
+    } else {
+      document.getElementById('pg-goalies-body')?.closest('.pg-section')?.style &&
+        (document.getElementById('pg-goalies-body').closest('.pg-section').style.display = 'none');
+    }
+
+    // ── Section 4: Milestone watch (only if non-empty) ───────────────────
+    const ms = pg.milestones || {};
+    const allMs = [...(ms.hits || []), ...(ms.watches || [])];
+    if (allMs.length) {
+      const msHtml = allMs.map(m => {
+        let kind = '', lbl = `${m.remaining} Away`;
+        if (m.remaining === 0) { kind = 'red'; lbl = 'Tonight'; }
+        else if (m.remaining === 1) { kind = 'ot'; lbl = '1 Away'; }
+        const badgeCls = kind ? `cat-badge cat-badge--${kind}` : 'cat-badge';
+        const tColor = m.team_abbrev === awayAbbr ? awayColor : homeColor;
+        return `<div class="pg-ms-row">
+          <div style="flex:1">
+            <div class="pg-ms-player"><span style="color:${tColor}">${esc(m.team_abbrev || '')}</span> ${esc(m.player_name || '')}</div>
+            <div class="pg-ms-label">${esc(m.label || '')}</div>
+          </div>
+          <span class="${badgeCls}" style="flex-shrink:0;white-space:nowrap">${lbl}</span>
+        </div>`;
+      }).join('');
+      const msCard = document.getElementById('pg-milestones-card');
+      document.getElementById('pg-milestones-body').innerHTML = msHtml;
+      msCard.style.display = '';
+    }
+
+    // ── Section 5: Officials ─────────────────────────────────────────────
+    const off = pg.officials || {};
+    const offBody = document.getElementById('pg-officials-body');
+    if (!off.available || (!off.referees?.length && !off.linesmen?.length)) {
+      offBody.innerHTML = `<div class="pg-off-tba">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Announced ~1–2 hours before puck drop
+      </div>`;
+    } else {
+      let html = '';
+      if (off.referees?.length) {
+        html += `<div class="pg-off-group"><div class="pg-off-group-lbl">Referees</div>`;
+        html += off.referees.map(r => `<div class="pg-off-name">${esc(typeof r === 'string' ? r : r.name || '')}</div>`).join('');
+        html += '</div>';
+      }
+      if (off.linesmen?.length) {
+        html += `<div class="pg-off-group"><div class="pg-off-group-lbl">Linesmen</div>`;
+        html += off.linesmen.map(r => `<div class="pg-off-name">${esc(typeof r === 'string' ? r : r.name || '')}</div>`).join('');
+        html += '</div>';
+      }
+      offBody.innerHTML = html;
+    }
+
+    document.getElementById('section-pregame').style.display = '';
+  }
+
+  // ── Key Stats ────────────────────────────────────────────────────────────────
+
+  function renderStats(flow, boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor) {
+    const awayAbbrEl = document.getElementById('stats-away-abbr');
+    const homeAbbrEl = document.getElementById('stats-home-abbr');
+    awayAbbrEl.textContent = awayAbbr;
+    homeAbbrEl.textContent = homeAbbr;
+    awayAbbrEl.style.color = awayColor;
+    homeAbbrEl.style.color = homeColor;
+
+    const away = boxscore.awayTeam || {};
+    const home = boxscore.homeTeam || {};
+
+    // Goals
+    const awGoals = away.score ?? null, hmGoals = home.score ?? null;
+    const awGoalsEl = document.getElementById('away-goals');
+    const hmGoalsEl = document.getElementById('home-goals');
+    if (awGoals != null && hmGoals != null) {
+      awGoalsEl.textContent = awGoals;
+      hmGoalsEl.textContent = hmGoals;
+      awGoalsEl.style.color = awGoals > hmGoals ? awayColor : awGoals < hmGoals ? 'var(--ink-32)' : 'var(--ink)';
+      hmGoalsEl.style.color = hmGoals > awGoals ? homeColor : hmGoals < awGoals ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // Populate 5v5 card abbrevs
+    const a5Abbr = document.getElementById('stats-away-abbr-5v5');
+    const h5Abbr = document.getElementById('stats-home-abbr-5v5');
+    if (a5Abbr) { a5Abbr.textContent = awayAbbr; a5Abbr.style.color = awayColor; }
+    if (h5Abbr) { h5Abbr.textContent = homeAbbr; h5Abbr.style.color = homeColor; }
+
+    // 5v5 stats from events.
+    // Old bot goal events have event_team_id=null, so for goals we use the
+    // home_score/away_score delta to determine which team scored.
+    const _homeTeamId = boxscore.homeTeam?.id != null ? String(boxscore.homeTeam.id) : null;
+    const xg5v5 = { home: 0, away: 0 };
+    const goals5v5 = { home: 0, away: 0 };
+    const sog5v5 = { home: 0, away: 0 };
+    const cf5v5 = { home: 0, away: 0 };
+    let _prevHomeScore = 0, _prevAwayScore = 0;
+    for (const ev of (eventsData?.events || [])) {
+      if (!['SHOT_ON_GOAL','MISSED_SHOT','BLOCKED_SHOT','GOAL'].includes(ev.event_type)) continue;
+      if (ev.payload?.situationCode !== '1551') continue;
+      const isHome = ev.event_team_id != null && _homeTeamId != null
+        ? String(ev.event_team_id) === _homeTeamId
+        : ev.event_type === 'GOAL'
+          ? (ev.home_score ?? 0) > _prevHomeScore   // goal: use score delta
+          : false;
+      if (ev.event_type === 'GOAL') {
+        _prevHomeScore = ev.home_score ?? _prevHomeScore;
+        _prevAwayScore = ev.away_score ?? _prevAwayScore;
+        goals5v5[isHome ? 'home' : 'away']++;
+        sog5v5[isHome ? 'home' : 'away']++;
+      }
+      if (ev.event_type !== 'GOAL') {
+        cf5v5[isHome ? 'home' : 'away']++;
+        if (ev.event_type === 'SHOT_ON_GOAL') sog5v5[isHome ? 'home' : 'away']++;
+      } else {
+        cf5v5[isHome ? 'home' : 'away']++;
+      }
+      const xg = parseFloat(ev.payload?.xg);
+      if (!isNaN(xg) && xg > 0) {
+        xg5v5[isHome ? 'home' : 'away'] += xg;
+      }
+    }
+
+    // 5v5 Goals
+    const awG5El = document.getElementById('away-goals5v5');
+    const hmG5El = document.getElementById('home-goals5v5');
+    if (awG5El && hmG5El) {
+      awG5El.textContent = goals5v5.away;
+      hmG5El.textContent = goals5v5.home;
+      awG5El.style.color = goals5v5.away > goals5v5.home ? awayColor : goals5v5.away < goals5v5.home ? 'var(--ink-32)' : 'var(--ink)';
+      hmG5El.style.color = goals5v5.home > goals5v5.away ? homeColor : goals5v5.home < goals5v5.away ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // 5v5 Shot Attempts (Corsi)
+    const awCF5El = document.getElementById('away-cf5v5');
+    const hmCF5El = document.getElementById('home-cf5v5');
+    if (awCF5El && hmCF5El) {
+      awCF5El.textContent = cf5v5.away;
+      hmCF5El.textContent = cf5v5.home;
+      awCF5El.style.color = cf5v5.away > cf5v5.home ? awayColor : cf5v5.away < cf5v5.home ? 'var(--ink-32)' : 'var(--ink)';
+      hmCF5El.style.color = cf5v5.home > cf5v5.away ? homeColor : cf5v5.home < cf5v5.away ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // 5v5 Shots on Goal
+    const awS5El = document.getElementById('away-sog5v5');
+    const hmS5El = document.getElementById('home-sog5v5');
+    if (awS5El && hmS5El) {
+      awS5El.textContent = sog5v5.away;
+      hmS5El.textContent = sog5v5.home;
+      awS5El.style.color = sog5v5.away > sog5v5.home ? awayColor : sog5v5.away < sog5v5.home ? 'var(--ink-32)' : 'var(--ink)';
+      hmS5El.style.color = sog5v5.home > sog5v5.away ? homeColor : sog5v5.home < sog5v5.away ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // 5v5 xG
+    const aw5El = document.getElementById('away-xg5v5');
+    const hm5El = document.getElementById('home-xg5v5');
+    if (xg5v5.home > 0 || xg5v5.away > 0) {
+      aw5El.textContent = xg5v5.away.toFixed(2);
+      hm5El.textContent = xg5v5.home.toFixed(2);
+      aw5El.style.color = xg5v5.away > xg5v5.home ? awayColor : xg5v5.away < xg5v5.home ? 'var(--ink-32)' : 'var(--ink)';
+      hm5El.style.color = xg5v5.home > xg5v5.away ? homeColor : xg5v5.home < xg5v5.away ? 'var(--ink-32)' : 'var(--ink)';
+      // 5v5 xG Share
+      const tot5 = xg5v5.home + xg5v5.away;
+      const aw5PctEl = document.getElementById('away-xg5v5pct');
+      const hm5PctEl = document.getElementById('home-xg5v5pct');
+      if (aw5PctEl && hm5PctEl && tot5 > 0) {
+        const aw5Pct = xg5v5.away / tot5 * 100, hm5Pct = 100 - aw5Pct;
+        aw5PctEl.textContent = `${aw5Pct.toFixed(1)}%`;
+        hm5PctEl.textContent = `${hm5Pct.toFixed(1)}%`;
+        aw5PctEl.style.color = aw5Pct > hm5Pct ? awayColor : 'var(--ink-32)';
+        hm5PctEl.style.color = hm5Pct > aw5Pct ? homeColor : 'var(--ink-32)';
+      }
+    }
+
+    // All-sit Shot Attempts (Corsi) from events
+    const cfAll = { home: 0, away: 0 };
+    for (const ev of (eventsData?.events || [])) {
+      if (!['SHOT_ON_GOAL','MISSED_SHOT','BLOCKED_SHOT','GOAL'].includes(ev.event_type)) continue;
+      const isHome = ev.event_team_id != null && _homeTeamId != null && String(ev.event_team_id) === _homeTeamId;
+      if (isHome) cfAll.home++; else cfAll.away++;
+    }
+    const awCFEl = document.getElementById('away-cf');
+    const hmCFEl = document.getElementById('home-cf');
+    if (awCFEl && hmCFEl && (cfAll.home > 0 || cfAll.away > 0)) {
+      awCFEl.textContent = cfAll.away;
+      hmCFEl.textContent = cfAll.home;
+      awCFEl.style.color = cfAll.away > cfAll.home ? awayColor : cfAll.away < cfAll.home ? 'var(--ink-32)' : 'var(--ink)';
+      hmCFEl.style.color = cfAll.home > cfAll.away ? homeColor : cfAll.home < cfAll.away ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // SOG
+    const awaySog = away.sog ?? away.shots ?? null;
+    const homeSog = home.sog ?? home.shots ?? null;
+    const awSogEl = document.getElementById('away-sog');
+    const hmSogEl = document.getElementById('home-sog');
+    if (awaySog != null && homeSog != null) {
+      awSogEl.textContent = awaySog;
+      hmSogEl.textContent = homeSog;
+      awSogEl.style.color = awaySog > homeSog ? awayColor : awaySog < homeSog ? 'var(--ink-32)' : 'var(--ink)';
+      hmSogEl.style.color = homeSog > awaySog ? homeColor : homeSog < awaySog ? 'var(--ink-32)' : 'var(--ink)';
+    }
+
+    // xGF from flow
+    const pts = flow.points || [];
+    const last = [...pts].reverse().find(p => p.xg_home != null);
+    if (!last) { document.getElementById('stats-strip').style.visibility = 'hidden'; return; }
+
+    const homeXg = last.xg_home;
+    const awayXg = last.xg_away;
+    const total  = homeXg + awayXg;
+    const homePct = total > 0 ? (homeXg / total * 100) : 50;
+    const awayPct = 100 - homePct;
+
+    const awXgEl  = document.getElementById('away-xgf');
+    const hmXgEl  = document.getElementById('home-xgf');
+    const awPctEl = document.getElementById('away-xgfpct');
+    const hmPctEl = document.getElementById('home-xgfpct');
+
+    awXgEl.textContent  = fmt2(awayXg);
+    hmXgEl.textContent  = fmt2(homeXg);
+    awPctEl.textContent = `${awayPct.toFixed(1)}%`;
+    hmPctEl.textContent = `${homePct.toFixed(1)}%`;
+
+    awXgEl.style.color  = awayXg > homeXg ? awayColor : awayXg < homeXg ? 'var(--ink-32)' : 'var(--ink)';
+    hmXgEl.style.color  = homeXg > awayXg ? homeColor : homeXg < awayXg ? 'var(--ink-32)' : 'var(--ink)';
+    awPctEl.style.color = awayPct > homePct ? awayColor : 'var(--ink-32)';
+    hmPctEl.style.color = homePct > awayPct ? homeColor : 'var(--ink-32)';
+
+    document.getElementById('stats-source-label').textContent = 'All sit · HGB xG model';
+  }
+
+  // ── WP Chart ────────────────────────────────────────────────────────────────
+
+  function renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore) {
+    const svg    = document.getElementById('wp-chart');
+    const noData = document.getElementById('chart-no-data');
+    const pts = (flow.points || []).filter(p => p.wp != null && p.t != null).sort((a, b) => a.t - b.t);
+
+    // For final games, append a synthetic 100% point for the winner.
+    // Cap at t=3600 for regulation so late-game events don't push past the P3 boundary
+    // and falsely trigger the OT period label.
+    if (state === 'final' && pts.length) {
+      const maxT = pts[pts.length - 1].t;
+      const syntheticT = maxT > 3600 ? maxT + 60 : 3600;
+      pts.push({ t: syntheticT, wp: (awayScore > homeScore) ? 0.0 : 1.0 });
+    }
+
+    if (pts.length < 2) {
+      svg.style.display = 'none';
+      noData.style.display = '';
+      return;
+    }
+
+    const W = 800, H = 360;
+    const LABEL_H = 44;
+    const PAD = { l: 30, r: 64, t: 16 + LABEL_H, b: 18 };
+    const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
+    const midY = PAD.t + cH / 2;
+    const maxT = Math.max(...pts.map(p => p.t));
+    const px = t  => PAD.l + (t / maxT) * cW;
+    const py = wp => PAD.t + (1 - wp) * cH;
+    const uid = Math.random().toString(36).slice(2, 8);
+
+    const coords   = pts.map(p => ({ x: px(p.t), y: py(p.wp) }));
+    const linePts  = coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+    const areaPath = [
+      `0,${py(pts[0].wp).toFixed(1)}`,
+      ...coords.map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`),
+      `${coords[coords.length-1].x.toFixed(1)},${midY}`,
+      `0,${midY}`,
+    ].join(' ');
+
+    const periodLines = [1200, 2400, 3600].filter(t => t < maxT);
+    const periodZones = [];
+    if (maxT > 1200) periodZones.push({ x: px(1200) + 4, label: 'P2' });
+    if (maxT > 2400) periodZones.push({ x: px(2400) + 4, label: 'P3' });
+    if (maxT > 3600) periodZones.push({ x: px(3600) + 4, label: 'OT' });
+
+    function interpWp(t) {
+      const before = [...pts].reverse().find(p => p.t <= t);
+      const after  = pts.find(p => p.t >= t);
+      if (!before) return after?.wp ?? 0.5;
+      if (!after || before === after || before.t === after.t) return before.wp;
+      const frac = (t - before.t) / (after.t - before.t);
+      return before.wp + frac * (after.wp - before.wp);
+    }
+
+    // Goal dots — overturned goals are skipped (no valid WP swing).
+    const goalDots = (flow.goals || []).filter(g => !g.overturned).map(g => {
+      const gx = px(g.t).toFixed(1), gy = py(interpWp(g.t)).toFixed(1);
+      const color = g.is_home ? homeColor : awayColor;
+      const tip = JSON.stringify({ s: g.scorer||'', a: g.assists||[], h: !!g.is_home, t: g.t }).replace(/'/g,'&#39;');
+      const jn = _jerseyMap[g.t];
+      const outerR = jn != null ? 10 : 6.5;
+      const innerR = jn != null ? 9 : 5;
+      const numEl = jn != null
+        ? `<text x="${gx}" y="${gy}" text-anchor="middle" dominant-baseline="central" font-family="'Barlow Condensed',sans-serif" font-size="9" font-weight="700" fill="#fff" pointer-events="none">${jn}</text>`
+        : '';
+      return `<circle cx="${gx}" cy="${gy}" r="${outerR}" fill="none" stroke="#0d0d14" stroke-width="0.8" stroke-opacity="0.25"/>
+               <circle cx="${gx}" cy="${gy}" r="${innerR}" fill="${color}" stroke="#fff" stroke-width="1.5" fill-opacity="0.95" data-wpdot='${tip}' style="cursor:pointer"/>
+               ${numEl}`;
+    }).join('');
+
+    // End-of-line label
+    const lastWp   = pts[pts.length - 1].wp;
+    const winAbbr   = lastWp >= 0.5 ? homeAbbr : awayAbbr;
+    const winColor  = lastWp >= 0.5 ? homeColor : awayColor;
+    const loseAbbr  = lastWp >= 0.5 ? awayAbbr : homeAbbr;
+    const loseColor = lastWp >= 0.5 ? awayColor : homeColor;
+    const winPct    = (Math.max(lastWp, 1 - lastWp) * 100).toFixed(0);
+    const losePct   = (Math.min(lastWp, 1 - lastWp) * 100).toFixed(0);
+    const lx = (W - PAD.r + 6).toFixed(1);
+    const endLabelY = Math.min(Math.max(py(lastWp), PAD.t + 10), H - PAD.b - 4);
+    const loseLabelY = Math.min(Math.max(py(1 - lastWp), PAD.t + 10), H - PAD.b - 4);
+    const endLabel = `
+      <text x="${lx}" y="${(endLabelY + 4).toFixed(1)}" text-anchor="start" font-family="'Barlow Condensed',sans-serif" font-size="11" font-weight="700" fill="${winColor}">${esc(winAbbr)} ${winPct}%</text>
+      <text x="${lx}" y="${(loseLabelY + 4).toFixed(1)}" text-anchor="start" font-family="'Barlow Condensed',sans-serif" font-size="11" font-weight="700" fill="${loseColor}" opacity="0.6">${esc(loseAbbr)} ${losePct}%</text>`;
+
+    svg.innerHTML = `
+      <text x="${PAD.l}" y="20" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="11" fill="rgba(13,13,20,0.42)">HOCKEYGAMEBOT</text>
+      <text x="${PAD.l}" y="36" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="16" fill="#E8002D">WIN PROBABILITY</text>
+      <defs>
+        <clipPath id="cu-${uid}"><rect x="${PAD.l}" y="0" width="${cW}" height="${midY}"/></clipPath>
+        <clipPath id="cl-${uid}"><rect x="${PAD.l}" y="${midY}" width="${cW}" height="${H - midY}"/></clipPath>
+      </defs>
+      ${periodLines.map(t => `<line x1="${px(t).toFixed(1)}" y1="${PAD.t}" x2="${px(t).toFixed(1)}" y2="${PAD.t + cH}" stroke="rgba(13,13,20,0.08)" stroke-width="1" stroke-dasharray="4,3"/>`).join('')}
+      ${[10,20,30,40,60,70,80,90].map(pct => {
+        const ry = py(pct/100).toFixed(1);
+        const lbl = Math.max(pct, 100 - pct) + '%';
+        return `<line x1="${PAD.l}" y1="${ry}" x2="${PAD.l + cW}" y2="${ry}" stroke="rgba(13,13,20,0.10)" stroke-width="0.75" stroke-dasharray="3,4"/>
+                <text x="${(PAD.l - 4).toFixed(1)}" y="${(parseFloat(ry) + 4).toFixed(1)}" text-anchor="end" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="9" fill="rgba(13,13,20,0.32)">${lbl}</text>`;
+      }).join('')}
+      <line x1="${PAD.l}" y1="${midY}" x2="${PAD.l + cW}" y2="${midY}" stroke="rgba(13,13,20,0.22)" stroke-width="1.2" stroke-dasharray="4,4"/>
+      <text x="${(PAD.l - 4).toFixed(1)}" y="${(midY + 4).toFixed(1)}" text-anchor="end" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="9" fill="rgba(13,13,20,0.45)">50%</text>
+      <polygon points="${areaPath}" fill="${homeColor}" fill-opacity="0.07" clip-path="url(#cu-${uid})"/>
+      <polygon points="${areaPath}" fill="${awayColor}" fill-opacity="0.07" clip-path="url(#cl-${uid})"/>
+      <polyline points="${linePts}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="${linePts}" fill="none" stroke="${homeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#cu-${uid})"/>
+      <polyline points="${linePts}" fill="none" stroke="${awayColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#cl-${uid})"/>
+      ${goalDots}
+      ${periodZones.map(z => `<text x="${z.x.toFixed(1)}" y="${(PAD.t + 10).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="9" fill="rgba(13,13,20,0.3)" letter-spacing="0.08em">${z.label}</text>`).join('')}
+      ${endLabel}`;
+
+    // WP chart hover tooltip
+    svg.addEventListener('mousemove', e => {
+      const dot = e.target.closest('[data-wpdot]');
+      if (dot) {
+        try {
+          const g = JSON.parse(dot.dataset.wpdot);
+          const color = g.h ? homeColor : awayColor;
+          const wp = interpWp(g.t);
+          showCtip(e,
+            `<span style="color:${color}">${esc(g.h ? homeAbbr : awayAbbr)}</span> — ${esc(g.s || 'Goal')}`,
+            g.a?.length ? esc(g.a.join(', ')) : null,
+            `${esc(homeAbbr)} <strong>${(wp*100).toFixed(1)}%</strong>  ·  ${esc(awayAbbr)} <strong>${((1-wp)*100).toFixed(1)}%</strong>`,
+            tLabel(g.t)
+          );
+        } catch { hideCtip(); }
+        return;
+      }
+      const rect = svg.getBoundingClientRect();
+      const relX = (e.clientX - rect.left) / rect.width * W;
+      if (relX < 2 || relX > W - 2) return hideCtip();
+      const t = Math.min(Math.max((relX / W) * maxT, 0), maxT);
+      const wp = interpWp(t);
+      showCtip(e, null, null,
+        `${esc(homeAbbr)} <strong style="color:${homeColor}">${(wp*100).toFixed(1)}%</strong>  ·  ${esc(awayAbbr)} <strong style="color:${awayColor}">${((1-wp)*100).toFixed(1)}%</strong>`,
+        tLabel(t)
+      );
+    });
+    svg.addEventListener('mouseleave', hideCtip);
+  }
+
+  // ── xG Step Chart (5v5, built from events endpoint) ─────────────────────────
+
+  function renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, sitFilter = '5v5') {
+    const svg    = document.getElementById('xg-chart');
+    const noData = document.getElementById('xg-no-data');
+
+    function toGameSecs(period, tip) {
+      if (!tip || !period) return null;
+      const ci = tip.indexOf(':');
+      if (ci === -1) return null;
+      const m = parseInt(tip.slice(0, ci), 10), s = parseInt(tip.slice(ci + 1), 10);
+      if (isNaN(m) || isNaN(s)) return null;
+      const e = m * 60 + s;
+      return period <= 3 ? (period - 1) * 1200 + e : 3600 + (period - 4) * 300 + e;
+    }
+
+    const homeShots = [], awayShots = [];
+    for (const ev of (eventsData?.events || [])) {
+      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'MISSED_SHOT' && ev.event_type !== 'GOAL') continue;
+      const include = sitFilter === '5v5' ? (ev.payload?.situationCode === '1551') : true;
+      if (!include) continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const t = toGameSecs(ev.period, ev.payload?.timeInPeriod);
+      if (t === null) continue;
+      const isHome = ev.event_team_id != null && String(ev.event_team_id) === String(ev.home_team_id);
+      (isHome ? homeShots : awayShots).push({ t, xg });
+    }
+    homeShots.sort((a, b) => a.t - b.t);
+    awayShots.sort((a, b) => a.t - b.t);
+
+    if (!homeShots.length && !awayShots.length) { svg.style.display = 'none'; noData.style.display = ''; return; }
+
+    function buildCum(shots) {
+      let c = 0; const r = [{ t: 0, c: 0 }];
+      for (const s of shots) { c += s.xg; r.push({ t: s.t, c }); }
+      return r;
+    }
+    const homeCum = buildCum(homeShots);
+    const awayCum = buildCum(awayShots);
+
+    const homeTotal = homeCum[homeCum.length - 1]?.c ?? 0;
+    const awayTotal = awayCum[awayCum.length - 1]?.c ?? 0;
+    const rawMax = Math.max(homeTotal, awayTotal, 0.5);
+    const yMax = Math.ceil(rawMax * 2) / 2 + 0.3;
+
+    // Derive tMax from flow points so period dividers cover the full game
+    const flowPts = (flow.points || []).filter(p => p.t != null);
+    const tMax = flowPts.length
+      ? Math.max(...flowPts.map(p => p.t))
+      : Math.max(...homeShots.map(s => s.t), ...awayShots.map(s => s.t), 3600);
+
+    const W = 840, H = 360;
+    const PAD = { l: 34, r: 64, t: 60, b: 24 }; // t=60 includes 44px label area
+    const cW = W - PAD.l - PAD.r;
+    const cH = H - PAD.t - PAD.b;
+    const cx = t  => PAD.l + (t / tMax) * cW;
+    const cy = xg => PAD.t + (1 - xg / yMax) * cH;
+
+    function stepPath(pts) {
+      if (!pts.length) return '';
+      let d = `M${cx(0).toFixed(1)},${cy(0).toFixed(1)}`;
+      for (let i = 1; i < pts.length; i++) {
+        d += ` H${cx(pts[i].t).toFixed(1)} V${cy(pts[i].c).toFixed(1)}`;
+      }
+      d += ` H${cx(tMax).toFixed(1)}`;
+      return d;
+    }
+
+    const yTicks = [];
+    for (let v = 0; v <= Math.ceil(rawMax); v++) yTicks.push(v);
+
+    const periodLines = [1200, 2400, 3600].filter(t => t < tMax);
+    const periodZones = [];
+    if (tMax > 1200) periodZones.push({ x: cx(1200) + 3, label: 'P2' });
+    if (tMax > 2400) periodZones.push({ x: cx(2400) + 3, label: 'P3' });
+    if (tMax > 3600) periodZones.push({ x: cx(3600) + 3, label: 'OT' });
+
+    function cumAt(pts, t) { let v = 0; for (const p of pts) { if (p.t > t) break; v = p.c; } return v; }
+    const xgGoalDots = (flow.goals || []).filter(g => !g.overturned && g.t >= 0 && g.t <= tMax).map(g => {
+      const gxc = cx(g.t).toFixed(1), gyc = cy(cumAt(g.is_home ? homeCum : awayCum, g.t)).toFixed(1);
+      const color = g.is_home ? homeColor : awayColor;
+      const tip   = JSON.stringify({ h: !!g.is_home, t: g.t, s: g.scorer||'' }).replace(/'/g,'&#39;');
+      const jn = _jerseyMap[g.t];
+      const outerR = jn != null ? 8 : 5;
+      const innerR = jn != null ? 6.5 : 3.5;
+      const numEl = jn != null
+        ? `<text x="${gxc}" y="${gyc}" text-anchor="middle" dominant-baseline="central" font-family="'Barlow Condensed',sans-serif" font-size="8" font-weight="700" fill="#fff" pointer-events="none">${jn}</text>`
+        : '';
+      return `<circle cx="${gxc}" cy="${gyc}" r="${outerR}" fill="none" stroke="#0d0d14" stroke-width="0.8" stroke-opacity="0.22"/>
+               <circle cx="${gxc}" cy="${gyc}" r="${innerR}" fill="${color}" stroke="#fff" stroke-width="1.2" data-xgdot='${tip}' style="cursor:pointer"/>
+               ${numEl}`;
+    }).join('');
+
+    // End-of-line labels — prevent overlap if within 14px
+    let hLY = cy(homeTotal), aLY = cy(awayTotal);
+    if (Math.abs(hLY - aLY) < 14) { hLY < aLY ? (hLY -= 7, aLY += 7) : (hLY += 7, aLY -= 7); }
+    const xEnd = (PAD.l + cW + 6).toFixed(1);
+    const endLabels = `
+      <text x="${xEnd}" y="${(hLY + 4).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${homeColor}">${esc(homeAbbr)} ${homeTotal.toFixed(2)}</text>
+      <text x="${xEnd}" y="${(aLY + 4).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="10" font-weight="700" fill="${awayColor}">${esc(awayAbbr)} ${awayTotal.toFixed(2)}</text>
+    `;
+
+    svg.innerHTML = `
+      <text x="${PAD.l}" y="20" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="11" fill="rgba(13,13,20,0.42)">HOCKEYGAMEBOT</text>
+      <text x="${PAD.l}" y="36" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="16" fill="#E8002D">${sitFilter === '5v5' ? '5V5' : 'ALL SIT'} EXPECTED GOALS</text>
+      ${yTicks.map(v => {
+        const y = cy(v).toFixed(1);
+        return `<line x1="${PAD.l}" y1="${y}" x2="${PAD.l + cW}" y2="${y}" stroke="rgba(13,13,20,0.08)" stroke-width="${v === 0 ? 1.2 : 0.6}"/>
+                <text x="${(PAD.l - 5).toFixed(1)}" y="${(parseFloat(y) + 4).toFixed(1)}" text-anchor="end" font-family="'Barlow Condensed',sans-serif" font-weight="700" font-size="11" letter-spacing="0.06em" fill="rgba(13,13,20,0.42)">${v}</text>`;
+      }).join('')}
+      ${periodLines.map(t => `<line x1="${cx(t).toFixed(1)}" y1="${PAD.t}" x2="${cx(t).toFixed(1)}" y2="${PAD.t + cH}" stroke="rgba(13,13,20,0.07)" stroke-width="1" stroke-dasharray="4,3"/>`).join('')}
+      <path d="${stepPath(awayCum)}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${stepPath(homeCum)}" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${stepPath(awayCum)}" fill="none" stroke="${awayColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${stepPath(homeCum)}" fill="none" stroke="${homeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      ${xgGoalDots}
+      ${periodZones.map(z => `<text x="${z.x}" y="${(PAD.t + 10).toFixed(1)}" font-family="'Barlow Condensed',sans-serif" font-size="9" fill="rgba(13,13,20,0.28)" letter-spacing="0.08em">${z.label}</text>`).join('')}
+      ${endLabels}
+    `;
+
+    // xG chart hover tooltip
+    svg.addEventListener('mousemove', e => {
+      const dot = e.target.closest('[data-xgdot]');
+      if (dot) {
+        try {
+          const g = JSON.parse(dot.dataset.xgdot);
+          const color = g.h ? homeColor : awayColor;
+          const hXg = cumAt(homeCum, g.t), aXg = cumAt(awayCum, g.t);
+          showCtip(e,
+            `<span style="color:${color}">${esc(g.h ? homeAbbr : awayAbbr)}</span> — ${esc(g.s || 'Goal')}`,
+            null,
+            `${esc(homeAbbr)} <strong>${hXg.toFixed(2)}</strong>  ·  ${esc(awayAbbr)} <strong>${aXg.toFixed(2)}</strong>`,
+            tLabel(g.t)
+          );
+        } catch { hideCtip(); }
+        return;
+      }
+      const rect = svg.getBoundingClientRect();
+      const relX = (e.clientX - rect.left) / rect.width * W;
+      const tX = relX - PAD.l; if (tX < 0 || tX > cW) return hideCtip();
+      const t = Math.min(Math.max((tX / cW) * tMax, 0), tMax);
+      const hXg = cumAt(homeCum, t), aXg = cumAt(awayCum, t);
+      showCtip(e, null, null,
+        `${esc(homeAbbr)} <strong style="color:${homeColor}">${hXg.toFixed(2)}</strong>  ·  ${esc(awayAbbr)} <strong style="color:${awayColor}">${aXg.toFixed(2)}</strong>`,
+        tLabel(t)
+      );
+    });
+    svg.addEventListener('mouseleave', hideCtip);
+  }
+
+  // ── Goal log with WP SWING ───────────────────────────────────────────────────
+
+  function computeWpSwing(goalT, isHome, pts) {
+    const wpPts = pts.filter(p => p.wp != null && p.t != null);
+    if (!wpPts.length) return null;
+    const before = [...wpPts].reverse().find(p => p.t < goalT);
+    const after  = wpPts.find(p => p.t > goalT);
+    const wpBefore = before?.wp ?? 0.5;
+    const wpAfter  = after?.wp  ?? wpBefore;
+    // delta from home perspective; flip for away scorer so swing is always "for scoring team"
+    const delta = wpAfter - wpBefore;
+    return isHome ? delta : -delta;
+  }
+
+  function renderGoals(flow, homeAbbr, awayAbbr) {
+    const goals = flow.goals || [];
+    const pts   = flow.points || [];
+    const container = document.getElementById('goals-container');
+    document.getElementById('goal-count-label').textContent =
+      goals.length ? `${goals.length} goal${goals.length !== 1 ? 's' : ''}` : '';
+
+    if (!goals.length) {
+      container.innerHTML = '<div class="no-data-msg">No goals yet.</div>';
+      _gvpGoals = [];
+      return;
+    }
+
+    // Pre-compute WP swing and store for the video popup to reference
+    _gvpGoals = goals.map(g => {
+      const swing = computeWpSwing(g.t, g.is_home, pts);
+      const wpBefore = swing != null
+        ? ([...pts].filter(p => p.wp != null && p.t < g.t).reverse()[0]?.wp ?? null)
+        : null;
+      // _wpBefore/_wpAfter are from home team's perspective (matches the WP chart)
+      const wpAfter = wpBefore != null && swing != null ? wpBefore + (g.is_home ? swing : -swing) : null;
+      // _swing is from SCORING team's perspective (always positive when scoring team gains)
+      return { ...g, _swing: swing, _wpBefore: wpBefore, _wpAfter: wpAfter };
+    });
+
+    const hasWp = pts.some(p => p.wp != null);
+
+    const rows = goals.map((g, i) => {
+      const abbr   = g.is_home ? homeAbbr : awayAbbr;
+      const color  = teamColor(abbr);
+      const period = Math.floor(g.t / 1200) + 1;
+      const sec    = g.t % 1200;
+      const m = Math.floor(sec / 60).toString().padStart(2, '0');
+      const s = (sec % 60).toString().padStart(2, '0');
+      const periodLabel = period > 3 ? 'OT' : `P${period}`;
+      const timeLabel = `${periodLabel} ${m}:${s}`;
+      const hasVideo = g.goal_video_url || g.highlight_clip_id;
+      const videoHtml = hasVideo
+        ? `<button class="video-link" onclick="openGoalVideo(${i})" type="button">▶ Watch</button>`
+        : '';
+
+      let swingHtml = '<span style="color:var(--ink-32)">–</span>';
+      if (hasWp) {
+        const swing = computeWpSwing(g.t, g.is_home, pts);
+        if (swing != null) {
+          const pct  = (swing * 100).toFixed(1);
+          const sign = swing >= 0 ? '+' : '';
+          // Positive = scoring team's gain → use team color. Negative = rare edge case → red.
+          const swingColor = swing >= 0 ? color : 'var(--red)';
+          swingHtml = `<span class="wp-swing" style="color:${swingColor};font-weight:600">${sign}${pct}%</span>`;
+        }
+      }
+
+      const isOverturned = !!g.overturned;
+      const rowStyle = isOverturned ? ' style="opacity:0.45;text-decoration:line-through"' : '';
+      const overturnBadge = isOverturned
+        ? `<span style="font-family:var(--mono);font-size:9px;color:var(--red);letter-spacing:0.06em;text-decoration:none;display:inline-block;margin-left:4px">OVERTURNED</span>`
+        : '';
+      return `<tr${rowStyle}>
+        <td><span style="font-family:var(--mono);font-size:11px;color:var(--ink-48)">${i + 1}</span></td>
+        <td><span style="font-family:var(--mono);font-size:11px">${esc(timeLabel)}</span></td>
+        <td><span class="goal-team-dot" style="background:${color}"></span><span style="font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:0.08em">${esc(abbr)}</span>${overturnBadge}</td>
+        <td><span class="goal-scorer">${g.scorer ? `<a href="/stats/player/${playerSlug(g.scorer, g.scorer_id)}" class="player-link">${esc(g.scorer)}</a>` : '–'}</span></td>
+        <td><span class="goal-assists">${(g.assists || []).length ? (g.assists.map((a, ai) => {
+            const aid = (g.assist_ids || [])[ai];
+            return aid ? `<a href="/stats/player/${playerSlug(a, aid)}" class="player-link">${esc(a)}</a>` : esc(a);
+          }).join(', ')) : '–'}</span></td>
+        <td>${strengthBadge(g.strength)}</td>
+        <td><span class="goal-score">${esc(g.score || '')}</span></td>
+        <td>${isOverturned ? '<span style="color:var(--ink-32)">–</span>' : swingHtml}</td>
+        <td>${videoHtml}</td>
+      </tr>`;
+    }).join('');
+
+    container.innerHTML = `<div class="goals-table-wrap">
+      <table class="goals">
+        <thead><tr>
+          <th>#</th><th>Time</th><th>Team</th><th>Scorer</th>
+          <th>Assists</th><th>Str</th><th>Score</th><th>WP Swing</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  // ── Goal Video Popup ─────────────────────────────────────────────────────────
+
+  const BRIGHTCOVE = 'https://players.brightcove.net/6415718365001/EXtG1xJ7H_default/index.html';
+  let _gvpGoals = [];  // set by renderGoals so onclick buttons can reference by index
+
+  function openGoalVideo(idx) {
+    const g = _gvpGoals[idx];
+    if (!g) return;
+
+    const hasGif       = !!g.goal_video_url;
+    const hasHighlight = !!g.highlight_clip_id;
+    const hasBoth      = hasGif && hasHighlight;
+
+    const gvp     = document.getElementById('gvp');
+    const tabs    = document.getElementById('gvp-tabs');
+    const video   = document.getElementById('gvp-video');
+    const iframe  = document.getElementById('gvp-iframe');
+    const scorer  = document.getElementById('gvp-scorer');
+    const wpEl    = document.getElementById('gvp-wp');
+
+    // Scorer info
+    const assists = (g.assists || []).join(', ');
+    scorer.textContent = g.scorer ? (assists ? `${g.scorer} · ${assists}` : g.scorer) : 'Goal';
+
+    // WP swing — show from scoring team's perspective (matches goal log)
+    if (g._swing != null && g._wpBefore != null && g._wpAfter != null) {
+      const swingPct = (g._swing * 100).toFixed(1);
+      const sign     = g._swing >= 0 ? '+' : '';
+      const color    = g._swing >= 0 ? 'var(--green)' : 'var(--red)';
+      wpEl.innerHTML = `Win probability (home): <strong>${(g._wpBefore * 100).toFixed(1)}%</strong> → <strong>${(g._wpAfter * 100).toFixed(1)}%</strong><span class="gvp-wp-delta" style="color:${color}">${sign}${swingPct}%</span>`;
+    } else {
+      wpEl.textContent = '';
+    }
+
+    // Tabs — only when both sources available
+    tabs.style.display = hasBoth ? 'flex' : 'none';
+
+    function showGif() {
+      tabs.querySelectorAll('.gvp-tab-btn').forEach(b => b.classList.remove('active'));
+      tabs.querySelector('[data-gvp-tab="gif"]')?.classList.add('active');
+      video.src = g.goal_video_url;
+      video.style.display = 'block';
+      iframe.style.display = 'none';
+      iframe.src = '';
+    }
+    function showHighlight() {
+      tabs.querySelectorAll('.gvp-tab-btn').forEach(b => b.classList.remove('active'));
+      tabs.querySelector('[data-gvp-tab="highlight"]')?.classList.add('active');
+      iframe.src = `${BRIGHTCOVE}?videoId=${g.highlight_clip_id}&autoplay=true`;
+      iframe.style.display = 'block';
+      video.style.display = 'none';
+      video.src = '';
+    }
+
+    // Default: prefer GIF (our content), fall back to Brightcove
+    if (hasGif) showGif(); else showHighlight();
+
+    // Wire tab clicks (replace to avoid duplicate listeners)
+    tabs.querySelectorAll('.gvp-tab-btn').forEach(btn => {
+      const clone = btn.cloneNode(true);
+      btn.parentNode.replaceChild(clone, btn);
+      clone.addEventListener('click', () => {
+        clone.dataset.gvpTab === 'gif' ? showGif() : showHighlight();
+      });
+    });
+
+    gvp.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeGvp() {
+    const gvp   = document.getElementById('gvp');
+    const video = document.getElementById('gvp-video');
+    const iframe = document.getElementById('gvp-iframe');
+    gvp.style.display = 'none';
+    video.src = '';
+    iframe.src = '';
+    document.body.style.overflow = '';
+  }
+
+  // ── Shot Map ────────────────────────────────────────────────────────────────
+
+  function renderShotMap(eventsData, flow, awayAbbr, homeAbbr, awayColor, homeColor) {
+    const SHOT_EVENTS = new Set(['SHOT_ON_GOAL', 'MISSED_SHOT', 'BLOCKED_SHOT', 'GOAL']);
+    const shots = (eventsData?.events || []).filter(ev =>
+      SHOT_EVENTS.has(ev.event_type) &&
+      ev.payload?.details?.xCoord != null &&
+      ev.payload?.details?.yCoord != null
+    );
+    if (!shots.length) return;
+
+    // NHL rink: x ∈ [-100, 100] ft, y ∈ [-42.5, 42.5] ft
+    // SVG: 800 × 340 px @ 4px/ft. Center = (400, 170).
+    const toX = x => 400 + x * 4;
+    const toY = y => 170 - y * 4;
+
+    // ── Rink background ──────────────────────────────────────────────────────
+    // toY(3)=158 (top, +3ft), toY(-3)=182 (bottom, -3ft), crease r=24px (6ft)
+    // Crease D: arc from top to bottom of goal line, clockwise for left (into ice),
+    //           counter-clockwise for right, then Z closes along goal line — no bezier!
+    // Goal nets: 4ft deep behind goal line = 16px. Left at x=28–44, right at x=756–772.
+    const rink = `
+      <defs>
+        <clipPath id="rink-clip"><rect x="0" y="0" width="800" height="340" rx="28"/></clipPath>
+      </defs>
+      <rect x="0" y="0" width="800" height="340" rx="28" fill="#F7F9FB"/>
+      <g clip-path="url(#rink-clip)">
+        <!-- Center red line -->
+        <line x1="400" y1="0" x2="400" y2="340" stroke="#C8102E" stroke-width="3.5"/>
+        <!-- Blue lines -->
+        <line x1="300" y1="0" x2="300" y2="340" stroke="#003DA5" stroke-width="2.5"/>
+        <line x1="500" y1="0" x2="500" y2="340" stroke="#003DA5" stroke-width="2.5"/>
+        <!-- Goal lines -->
+        <line x1="44" y1="0" x2="44" y2="340" stroke="#C8102E" stroke-width="1.2"/>
+        <line x1="756" y1="0" x2="756" y2="340" stroke="#C8102E" stroke-width="1.2"/>
+        <!-- Goal creases: D = arc from (gl, ±3ft) clockwise into ice, close with Z -->
+        <path d="M44,158 A24,24 0 0 1 44,182 Z" fill="rgba(0,61,165,0.12)" stroke="#003DA5" stroke-width="1"/>
+        <path d="M756,158 A24,24 0 0 0 756,182 Z" fill="rgba(0,61,165,0.12)" stroke="#003DA5" stroke-width="1"/>
+        <!-- Goal nets: 4ft (16px) deep behind goal line, 6ft (24px) wide -->
+        <rect x="28" y="158" width="16" height="24" fill="rgba(13,13,20,0.06)" stroke="rgba(13,13,20,0.3)" stroke-width="1.5"/>
+        <rect x="756" y="158" width="16" height="24" fill="rgba(13,13,20,0.06)" stroke="rgba(13,13,20,0.3)" stroke-width="1.5"/>
+        <!-- Center circle + dot -->
+        <circle cx="400" cy="170" r="60" fill="none" stroke="#C8102E" stroke-width="1.2"/>
+        <circle cx="400" cy="170" r="3" fill="#C8102E"/>
+        <!-- Offensive zone face-off circles + center dots: x=±69ft, y=±22ft -->
+        <circle cx="${toX(-69)}" cy="${toY(22)}" r="48" fill="none" stroke="#C8102E" stroke-width="1"/>
+        <circle cx="${toX(-69)}" cy="${toY(22)}" r="3" fill="#C8102E"/>
+        <circle cx="${toX(-69)}" cy="${toY(-22)}" r="48" fill="none" stroke="#C8102E" stroke-width="1"/>
+        <circle cx="${toX(-69)}" cy="${toY(-22)}" r="3" fill="#C8102E"/>
+        <circle cx="${toX(69)}" cy="${toY(22)}" r="48" fill="none" stroke="#C8102E" stroke-width="1"/>
+        <circle cx="${toX(69)}" cy="${toY(22)}" r="3" fill="#C8102E"/>
+        <circle cx="${toX(69)}" cy="${toY(-22)}" r="48" fill="none" stroke="#C8102E" stroke-width="1"/>
+        <circle cx="${toX(69)}" cy="${toY(-22)}" r="3" fill="#C8102E"/>
+        <!-- Neutral zone face-off dots: x=±20ft, y=±22ft -->
+        <circle cx="${toX(-20)}" cy="${toY(22)}" r="3" fill="#C8102E"/>
+        <circle cx="${toX(-20)}" cy="${toY(-22)}" r="3" fill="#C8102E"/>
+        <circle cx="${toX(20)}" cy="${toY(22)}" r="3" fill="#C8102E"/>
+        <circle cx="${toX(20)}" cy="${toY(-22)}" r="3" fill="#C8102E"/>
+      </g>
+      <!-- Boards outline on top (outside clip so it sits above all elements) -->
+      <rect x="0" y="0" width="800" height="340" rx="28" fill="none" stroke="rgba(13,13,20,0.2)" stroke-width="2"/>
+    `;
+
+    // ── Shot markers ─────────────────────────────────────────────────────────
+    function periodToSecs(period, tip) {
+      if (!tip || !period) return null;
+      const ci = tip.indexOf(':');
+      if (ci === -1) return null;
+      const m = parseInt(tip.slice(0, ci), 10), s = parseInt(tip.slice(ci + 1), 10);
+      if (isNaN(m) || isNaN(s)) return null;
+      const e = m * 60 + s;
+      return period <= 3 ? (period - 1) * 1200 + e : 3600 + (period - 4) * 300 + e;
+    }
+
+    const markers = shots.map((ev, i) => {
+      const d = ev.payload?.details || {};
+      const isHome = ev.event_team_id != null && String(ev.event_team_id) === String(ev.home_team_id);
+      const period = ev.period || 1;
+      // Even periods (2, 4…): teams have switched ends — negate both axes to restore P1 orientation
+      const flip = (period % 2 === 0);
+      const x = toX(flip ? -d.xCoord : d.xCoord).toFixed(1);
+      const y = toY(flip ? -d.yCoord : d.yCoord).toFixed(1);
+      const color = isHome ? homeColor : awayColor;
+      const abbr  = isHome ? homeAbbr : awayAbbr;
+      const type  = ev.event_type;
+      const xgVal = parseFloat(ev.payload?.xg);
+      const xgStr = !isNaN(xgVal) && xgVal > 0 ? xgVal.toFixed(3) : null;
+
+      // Determine player name
+      const player = d.shootingPlayerName || d.scoringPlayerName || d.blockingPlayerName || '';
+      // Time label
+      const p = ev.period || 1;
+      const tip = ev.payload?.timeInPeriod || '';
+      const pLabel = p > 3 ? 'OT' : `P${p}`;
+      const timeLabel = tip ? `${pLabel} ${tip}` : pLabel;
+      const shotLabel = type === 'GOAL' ? 'Goal' : type === 'SHOT_ON_GOAL' ? 'Shot on goal' : type === 'MISSED_SHOT' ? 'Missed shot' : 'Blocked shot';
+
+      // Encode tooltip data as JSON in data attribute
+      const tipData = JSON.stringify({
+        player: player || abbr,
+        team: abbr,
+        shot: shotLabel,
+        xg: xgStr,
+        time: timeLabel,
+        type,
+      });
+
+      if (type === 'GOAL') {
+        // Donut: filled circle + white ring + white center dot → unmistakably a goal
+        return `<g data-tip='${tipData.replace(/'/g,"&#39;")}' style="cursor:pointer">
+          <circle cx="${x}" cy="${y}" r="7" fill="${color}" stroke="#fff" stroke-width="2"/>
+          <circle cx="${x}" cy="${y}" r="2.2" fill="#fff"/>
+        </g>`;
+      } else if (type === 'SHOT_ON_GOAL') {
+        return `<circle cx="${x}" cy="${y}" r="4" fill="${color}" fill-opacity="0.72" stroke="${color}" stroke-width="0.5" data-tip='${tipData.replace(/'/g,"&#39;")}' style="cursor:pointer"/>`;
+      } else if (type === 'MISSED_SHOT') {
+        // Dashed hollow circle — visually distinct from solid SOG
+        return `<circle cx="${x}" cy="${y}" r="3.8" fill="none" stroke="${color}" stroke-opacity="0.55" stroke-width="1.4" stroke-dasharray="3 2" data-tip='${tipData.replace(/'/g,"&#39;")}' style="cursor:pointer"/>`;
+      } else {
+        // Blocked: X — slightly larger and more opaque than before
+        const s = 3.8;
+        return `<g transform="translate(${x},${y})" data-tip='${tipData.replace(/'/g,"&#39;")}' style="cursor:pointer">
+          <line x1="${-s}" y1="${-s}" x2="${s}" y2="${s}" stroke="${color}" stroke-opacity="0.62" stroke-width="1.6"/>
+          <line x1="${s}" y1="${-s}" x2="${-s}" y2="${s}" stroke="${color}" stroke-opacity="0.62" stroke-width="1.6"/>
+        </g>`;
+      }
+    }).join('');
+
+    const svg = document.getElementById('shot-map-svg');
+    svg.innerHTML = rink + markers;
+
+    // ── Legend ───────────────────────────────────────────────────────────────
+    const isAway = ev => String(ev.event_team_id) !== String(ev.home_team_id);
+    const awayAttempts = shots.filter(ev => isAway(ev)).length;
+    const homeAttempts = shots.length - awayAttempts;
+    const awaySog   = shots.filter(ev => isAway(ev)  && (ev.event_type === 'SHOT_ON_GOAL' || ev.event_type === 'GOAL')).length;
+    const homeSog   = shots.filter(ev => !isAway(ev) && (ev.event_type === 'SHOT_ON_GOAL' || ev.event_type === 'GOAL')).length;
+    const awayGoals = shots.filter(ev => isAway(ev)  && ev.event_type === 'GOAL').length;
+    const homeGoals = shots.filter(ev => !isAway(ev) && ev.event_type === 'GOAL').length;
+
+    document.getElementById('shot-map-legend').innerHTML = `
+      <div class="shot-map-legend-team">
+        <div class="sml-dot" style="background:${awayColor}"></div>
+        <span style="color:${awayColor};font-weight:600">${esc(awayAbbr)}</span>
+        <span>${awayAttempts} att · ${awaySog} SOG · ${awayGoals}G</span>
+      </div>
+      <div class="sml-sep"></div>
+      <div class="shot-map-legend-team">
+        <div class="sml-dot" style="background:${homeColor}"></div>
+        <span style="color:${homeColor};font-weight:600">${esc(homeAbbr)}</span>
+        <span>${homeAttempts} att · ${homeSog} SOG · ${homeGoals}G</span>
+      </div>
+      <div class="sml-sep"></div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="4.5" fill="#888" stroke="#fff" stroke-width="1.5"/></svg> Goal</div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" fill="#888" fill-opacity="0.75"/></svg> SOG</div>
+      <div class="sml-key"><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" fill="none" stroke="#888" stroke-width="1.2"/></svg> Missed</div>
+      <div class="sml-key"><svg width="10" height="10"><line x1="2" y1="2" x2="8" y2="8" stroke="#888" stroke-width="1.5"/><line x1="8" y1="2" x2="2" y2="8" stroke="#888" stroke-width="1.5"/></svg> Blocked</div>
+    `;
+
+    // ── Tooltip ──────────────────────────────────────────────────────────────
+    const tooltip  = document.getElementById('shot-tooltip');
+    const sttPlayer = document.getElementById('stt-player');
+    const sttXg    = document.getElementById('stt-xg');
+    const sttMeta  = document.getElementById('stt-meta');
+
+    function showTip(e, data) {
+      sttPlayer.textContent = data.player;
+      sttXg.innerHTML = `${esc(data.shot)}${data.xg ? ` · <span style="color:#4ade80">${data.xg} xG</span>` : ''}`;
+      sttMeta.textContent = `${data.team} · ${data.time}`;
+      tooltip.style.display = 'block';
+      moveTip(e);
+    }
+    function moveTip(e) {
+      const pad = 14;
+      const tw  = tooltip.offsetWidth;
+      const th  = tooltip.offsetHeight;
+      let lx = e.clientX + pad;
+      let ly = e.clientY - th / 2;
+      if (lx + tw > window.innerWidth - 8) lx = e.clientX - tw - pad;
+      if (ly < 4) ly = 4;
+      if (ly + th > window.innerHeight - 4) ly = window.innerHeight - th - 4;
+      tooltip.style.left = lx + 'px';
+      tooltip.style.top  = ly + 'px';
+    }
+    function hideTip() { tooltip.style.display = 'none'; }
+
+    svg.addEventListener('mouseover', e => {
+      const t = e.target.closest('[data-tip]');
+      if (!t) return hideTip();
+      try { showTip(e, JSON.parse(t.dataset.tip)); } catch { hideTip(); }
+    });
+    svg.addEventListener('mousemove', e => {
+      if (tooltip.style.display === 'block') moveTip(e);
+    });
+    svg.addEventListener('mouseout', e => {
+      if (!e.target.closest('[data-tip]')) hideTip();
+    });
+    // Mobile tap
+    svg.addEventListener('click', e => {
+      const t = e.target.closest('[data-tip]');
+      if (!t) return hideTip();
+      try {
+        showTip(e, JSON.parse(t.dataset.tip));
+        setTimeout(hideTip, 3000);
+      } catch { hideTip(); }
+    });
+
+    document.getElementById('section-shotmap').style.display = '';
+  }
+
+  // ── Player Stats ─────────────────────────────────────────────────────────────
+
+  let _currentGameId = '';
+
+  function renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor) {
+    const pbs = boxscore.playerByGameStats;
+    if (!pbs) return;
+
+    // Build ixG map from events (all-situations)
+    const ixgByPlayer = {};
+    for (const ev of (eventsData?.events || [])) {
+      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'MISSED_SHOT' && ev.event_type !== 'GOAL') continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const pid = ev.payload?.details?.shootingPlayerId || ev.payload?.details?.scoringPlayerId;
+      if (!pid) continue;
+      ixgByPlayer[pid] = (ixgByPlayer[pid] || 0) + xg;
+    }
+
+    // Compute xGA per team from events for GSAx (SOG + GOAL only — matches goalie-facing shots)
+    const homePids = new Set([...(pbs.homeTeam?.forwards||[]), ...(pbs.homeTeam?.defense||[])].map(p => p.playerId));
+    const awayPids = new Set([...(pbs.awayTeam?.forwards||[]), ...(pbs.awayTeam?.defense||[])].map(p => p.playerId));
+    const xgByTeam = { home: 0, away: 0 };
+    for (const ev of (eventsData?.events || [])) {
+      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'GOAL') continue;
+      const xg = parseFloat(ev.payload?.xg);
+      if (isNaN(xg) || xg <= 0) continue;
+      const pid = ev.payload?.details?.shootingPlayerId || ev.payload?.details?.scoringPlayerId;
+      if (homePids.has(pid))      xgByTeam.home += xg;
+      else if (awayPids.has(pid)) xgByTeam.away += xg;
+    }
+    // home goalie faces away shots; away goalie faces home shots
+    const xgaHome = xgByTeam.away;
+    const xgaAway = xgByTeam.home;
+
+    // Sort state per team card: { col, dir }
+    const sortState = { away: { col: 'ixg', dir: -1 }, home: { col: 'ixg', dir: -1 } };
+
+    function toiToSecs(toi) {
+      if (!toi) return 0;
+      const [m, s] = toi.split(':').map(Number);
+      return (m || 0) * 60 + (s || 0);
+    }
+
+    function buildSkaterTable(players, teamKey, color) {
+      const colDefs = [
+        { key: 'sweaterNumber', label: '#',    val: p => p.sweaterNumber },
+        { key: 'name',          label: 'Player',val: p => p.name?.default || '' },
+        { key: 'pos',           label: 'Pos',  val: p => p.position },
+        { key: 'toi',           label: 'TOI',  val: p => p.toi,           num: p => toiToSecs(p.toi) },
+        { key: 'goals',         label: 'G',    val: p => p.goals ?? 0,    num: p => p.goals ?? 0 },
+        { key: 'assists',       label: 'A',    val: p => p.assists ?? 0,  num: p => p.assists ?? 0 },
+        { key: 'points',        label: 'PTS',  val: p => p.points ?? 0,   num: p => p.points ?? 0 },
+        { key: 'plusMinus',     label: '±',    val: p => p.plusMinus != null ? (p.plusMinus > 0 ? `+${p.plusMinus}` : p.plusMinus) : 0, num: p => p.plusMinus ?? 0 },
+        { key: 'sog',           label: 'SOG',  val: p => p.sog ?? 0,      num: p => p.sog ?? 0 },
+        { key: 'hits',          label: 'HIT',  val: p => p.hits ?? 0,     num: p => p.hits ?? 0 },
+        { key: 'blockedShots',  label: 'BLK',  val: p => p.blockedShots ?? 0, num: p => p.blockedShots ?? 0 },
+        { key: 'ixg',           label: 'ixG',  val: p => {
+            const v = ixgByPlayer[p.playerId];
+            return v != null ? v.toFixed(2) : '–';
+          }, num: p => ixgByPlayer[p.playerId] ?? 0, hgb: true },
+        { key: 'impact',        label: 'Impact',     val: p => '', num: p => 0, impactVal: true },
+        { key: 'l10',           label: 'L10 Trend',  val: p => '', num: p => 0, spark: true },
+      ];
+
+      const ss = sortState[teamKey];
+      const sorted = [...players].sort((a, b) => {
+        const col = colDefs.find(c => c.key === ss.col) || colDefs[3];
+        const fn  = col.num || (c => 0);
+        const av  = fn(a), bv = fn(b);
+        return typeof av === 'string' ? av.localeCompare(bv) * ss.dir : (av - bv) * ss.dir;
+      });
+
+      const cleanGameId = (_currentGameId || '').replace(/\.0$/, '');
+      const ths = colDefs.map(c => {
+        if (c.spark || c.impactVal) return `<th data-col="${c.key}" data-team="${teamKey}" style="color:${color};opacity:0.85;text-align:center">${esc(c.label)}</th>`;
+        const cls = ss.col === c.key ? (ss.dir === 1 ? 'sort-asc' : 'sort-desc') : '';
+        return `<th class="${cls}" data-col="${c.key}" data-team="${teamKey}" style="${c.hgb ? `color:${color};opacity:0.85` : ''}">${esc(c.label)}</th>`;
+      }).join('');
+
+      const GS_MIN = -5, GS_MAX = 12;
+      function sparkSvg(vals) {
+        const smap = window._HGB_SPARKLINES || {};
+        const v = vals;
+        if (!v || !v.length) return '<span style="color:var(--ink-20);font-size:10px">—</span>';
+        const W = 64, H = 18, P = 2;
+        const n = v.length;
+        const xs = i => (n > 1 ? P + (i / (n-1)) * (W - 2*P) : W/2).toFixed(1);
+        const ys = val => (P + (H - 2*P) - ((val - GS_MIN) / (GS_MAX - GS_MIN)) * (H - 2*P)).toFixed(1);
+        const zero = ys(0);
+        const path = v.map((val, i) => `${i===0?'M':'L'}${xs(i)},${ys(val)}`).join(' ');
+        const avg = v.reduce((s, x) => s + x, 0) / v.length;
+        const c = avg >= 0 ? '#1a7a3e' : '#E8002D';
+        return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block">
+          <line x1="${P}" y1="${zero}" x2="${W-P}" y2="${zero}" stroke="rgba(13,13,20,0.10)" stroke-width="1"/>
+          <path d="${path}" fill="none" stroke="${c}" stroke-width="1.5" stroke-linejoin="round"/>
+          <circle cx="${xs(n-1)}" cy="${ys(v[n-1])}" r="2" fill="${c}"/>
+        </svg>`;
+      }
+
+      const rows = sorted.map(p => {
+        const ixgVal = ixgByPlayer[p.playerId];
+        const ixgStyle = ixgVal != null && ixgVal > 0 ? `color:${color};` : 'color:var(--ink-32)';
+        return `<tr>${colDefs.map((c, ci) => {
+          if (c.impactVal) {
+            const entry = (window._HGB_SPARKLINES || {})[p.playerId];
+            if (!entry) return `<td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink-32)">—</td>`;
+            const idx = entry.gids.indexOf(cleanGameId);
+            const v = idx >= 0 ? entry.l10[idx] : null;
+            if (v == null) return `<td style="text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink-32)">—</td>`;
+            const c2 = v >= 0 ? '#1a7a3e' : '#E8002D';
+            return `<td style="text-align:center;font-family:var(--mono);font-size:11px;font-weight:700;color:${c2}">${v >= 0 ? '+' : ''}${v.toFixed(2)}</td>`;
+          }
+          if (c.spark) {
+            const entry = (window._HGB_SPARKLINES || {})[p.playerId];
+            return `<td style="padding:2px 8px;vertical-align:middle">${sparkSvg(entry ? entry.l10 : null)}</td>`;
+          }
+          let td = esc(String(c.val(p)));
+          if (ci === 0) td = `<span class="ps-num">${td}</span>`;
+          else if (ci === 1) td = `<span class="ps-name">${td}</span>`;
+          else if (ci === 2) td = `<span class="ps-pos">${td}</span>`;
+          else if (ci === 3) td = `<span class="ps-toi">${td}</span>`;
+          else if (c.hgb) td = `<span class="ps-ixg" style="${ixgStyle}">${td}</span>`;
+          return `<td>${td}</td>`;
+        }).join('')}</tr>`;
+      }).join('');
+
+      return `<table class="ps" data-team="${teamKey}">
+        <thead><tr>${ths}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    }
+
+    function buildGoalieTable(goalies) {
+      const active = goalies.filter(g => g.toi && g.toi !== '00:00');
+      if (!active.length) return '';
+      const rows = active.map(g => {
+        const svPct = g.shotsAgainst > 0 ? (g.saves / g.shotsAgainst * 100).toFixed(1) : '–';
+        return `<tr>
+          <td><span class="ps-num">${esc(String(g.sweaterNumber))}</span></td>
+          <td><span class="ps-name">${esc(g.name?.default || '')}</span></td>
+          <td><span class="ps-toi">${esc(g.toi)}</span></td>
+          <td>${g.saves ?? 0}</td><td>${g.shotsAgainst ?? 0}</td>
+          <td>${g.goalsAgainst ?? 0}</td>
+          <td><span style="font-family:var(--mono);font-size:11px">${svPct}%</span></td>
+        </tr>`;
+      }).join('');
+      return `<tr class="ps-divider"><td colspan="7">Goaltenders</td></tr>
+        <table class="ps"><thead><tr>
+          <th>#</th><th>Goalie</th><th>TOI</th><th>SV</th><th>SA</th><th>GA</th><th>SV%</th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
+    }
+
+    function buildTeamCard(teamData, teamKey, abbr, color) {
+      const fwd = teamData.forwards || [];
+      const def = teamData.defense  || [];
+      const all = [...fwd, ...def];
+      if (!all.length) return '';
+      return `<div class="player-team-card">
+        <div class="player-team-head">
+          <div class="player-team-dot" style="background:${color}"></div>
+          <span class="player-team-label">${esc(abbr)}</span>
+        </div>
+        <div style="overflow-x:auto">${buildSkaterTable(all, teamKey, color)}</div>
+      </div>`;
+    }
+
+    function buildCombinedGoalies() {
+      const allGoalies = [
+        ...(pbs.awayTeam?.goalies || []).map(g => ({ ...g, abbr: awayAbbr, color: awayColor, xga: xgaAway })),
+        ...(pbs.homeTeam?.goalies || []).map(g => ({ ...g, abbr: homeAbbr, color: homeColor, xga: xgaHome })),
+      ].filter(g => g.toi && g.toi !== '00:00');
+      if (!allGoalies.length) return '';
+
+      const rows = allGoalies.map(g => {
+        const sa    = g.shotsAgainst ?? 0;
+        const sv    = g.saves ?? 0;
+        const ga    = g.goalsAgainst ?? 0;
+        const svPct = sa > 0 ? (sv / sa).toFixed(3) : '—';
+        const gsax  = g.xga > 0 ? g.xga - ga : null;
+        const gsaxFmt = gsax != null
+          ? `${gsax >= 0 ? '+' : ''}${gsax.toFixed(2)}`
+          : '—';
+        const gsaxCls = gsax == null ? '' : gsax >= 0 ? 'gsax-pos' : 'gsax-neg';
+        return `<tr>
+          <td><span class="ps-num">${esc(String(g.sweaterNumber ?? ''))}</span></td>
+          <td><span class="ps-name">${esc(g.name?.default || '')}</span></td>
+          <td style="font-weight:700;color:${g.color}">${esc(g.abbr)}</td>
+          <td><span class="ps-toi">${esc(g.toi)}</span></td>
+          <td>${sa}</td>
+          <td>${sv}</td>
+          <td>${ga}</td>
+          <td style="font-weight:700">${svPct}</td>
+          <td class="${gsaxCls}">${gsaxFmt}</td>
+        </tr>`;
+      }).join('');
+
+      return `<div id="combined-goalies">
+        <div class="cg-head">Goaltenders</div>
+        <div style="overflow-x:auto">
+          <table class="cg-table">
+            <thead><tr>
+              <th>#</th><th>Goalie</th><th>Team</th><th>TOI</th>
+              <th>SA</th><th>SV</th><th>GA</th><th>SV%</th><th>GSAx</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+    }
+
+    const away = pbs.awayTeam || {};
+    const home = pbs.homeTeam || {};
+    const grid = document.getElementById('player-stats-grid');
+
+    function render() {
+      grid.innerHTML = [
+        buildTeamCard(away, 'away', awayAbbr, awayColor),
+        buildTeamCard(home, 'home', homeAbbr, homeColor),
+      ].join('');
+      const cgEl = document.getElementById('combined-goalies');
+      if (cgEl) cgEl.outerHTML = buildCombinedGoalies();
+
+      // Wire sort clicks
+      grid.querySelectorAll('table.ps th[data-col]').forEach(th => {
+        th.addEventListener('click', () => {
+          const teamKey = th.dataset.team;
+          const col     = th.dataset.col;
+          const ss      = sortState[teamKey];
+          ss.dir = ss.col === col ? -ss.dir : -1;
+          ss.col = col;
+          render();
+        });
+      });
+    }
+
+    render();
+    document.getElementById('section-player-stats').style.display = '';
+  }
+
+  // ── Three stars — OFF state only ─────────────────────────────────────────────
+
+  function renderThreeStars(threeStars) {
+    if (!threeStars || !threeStars.length) return;
+
+    const starColors = ['#F59E0B', '#94A3B8', '#92400e'];
+
+    const cards = threeStars.slice(0, 3).map((s, i) => {
+      // D1: player_name may have full name; player_last_name is fallback
+      const name = s.player_name || s.player_last_name || s.name?.default || '';
+      const team = s.team_abbrev || s.teamAbbrev || '';
+
+      const statLine = [
+        s.goals    != null ? `${s.goals}G`    : null,
+        s.assists  != null ? `${s.assists}A`   : null,
+        s.saves    != null ? `${s.saves} SV`   : null,
+        s.savePctg != null ? `${(s.savePctg * 100).toFixed(1)}%` : null,
+      ].filter(Boolean).join(' · ');
+
+      const tColor = teamColor(team);
+      return `<div class="star-card" style="border-top-color:${tColor}">
+        <div class="star-rank" style="color:${tColor}">${i + 1}${['st','nd','rd'][i]} Star · ${esc(team)}</div>
+        <div class="star-name">${esc(name)}</div>
+        ${statLine ? `<div class="star-stat-line">${esc(statLine)}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    document.getElementById('stars-grid').innerHTML = cards;
+    document.getElementById('section-stars').style.display = '';
+  }
+
+  // ── From the Bot (Bluesky posts + cards) ────────────────────────────────────
+
+  async function renderBotPosts(awayAbbr, homeAbbr, gameDate) {
+    const BSKY = 'https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed';
+    const dateStr = gameDate; // "2026-05-12"
+
+    async function fetchFeed(handle) {
+      try {
+        const r = await fetch(`${BSKY}?actor=${handle}.hockeygamebot.com&limit=100`);
+        if (!r.ok) return [];
+        const d = await r.json();
+        return (d.feed || [])
+          .map(f => f.post)
+          .filter(p => (p.record?.createdAt || '').startsWith(dateStr));
+      } catch { return []; }
+    }
+
+    const [awayPosts, homePosts] = await Promise.all([
+      fetchFeed(awayAbbr.toLowerCase()),
+      fetchFeed(homeAbbr.toLowerCase()),
+    ]);
+
+    // Deduplicate by uri (away and home bots may both post game-starts etc.)
+    const seen = new Set();
+    const all = [...awayPosts, ...homePosts].filter(p => {
+      if (seen.has(p.uri)) return false;
+      seen.add(p.uri); return true;
+    }).sort((a, b) => new Date(a.record.createdAt) - new Date(b.record.createdAt));
+
+    if (!all.length) return;
+
+    const cards  = all.filter(p => p.embed?.images?.length);
+    const posts  = all.filter(p => !p.embed?.images?.length);
+
+    function fmtTime(iso) {
+      return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    }
+    function fmtCounts(p) {
+      const parts = [];
+      if (p.likeCount)   parts.push(`♥ ${p.likeCount}`);
+      if (p.repostCount) parts.push(`↻ ${p.repostCount}`);
+      return parts.join('  ');
+    }
+    function bskyUrl(p) {
+      const did = p.author?.did || '';
+      const rkey = p.uri?.split('/').pop() || '';
+      return `https://bsky.app/profile/${p.author?.handle || did}/post/${rkey}`;
+    }
+
+    if (cards.length) {
+      document.getElementById('bot-cards-scroll').innerHTML = cards.map(p => {
+        const img = p.embed.images[0];
+        return `<a class="bot-card" href="${bskyUrl(p)}" target="_blank" rel="noopener">
+          <img src="${esc(img.fullsize)}" alt="${esc(img.alt || '')}" loading="lazy" />
+          <div class="bot-card-meta">
+            <span class="bot-card-time">${fmtTime(p.record.createdAt)}</span>
+            <span class="bot-card-counts">${fmtCounts(p)}</span>
+          </div>
+        </a>`;
+      }).join('');
+      document.getElementById('bot-cards-row').style.display = '';
+    }
+
+    if (posts.length) {
+      document.getElementById('bot-posts-scroll').innerHTML = posts.map(p => {
+        const text = (p.record.text || '').replace(/https?:\/\/\S+/g, '').trim();
+        if (!text) return '';
+        return `<div class="bot-post">
+          <div class="bot-post-text">${esc(text)}</div>
+          <div class="bot-post-footer">
+            <span class="bot-post-time">${fmtTime(p.record.createdAt)}</span>
+            <span class="bot-post-counts">${fmtCounts(p)}</span>
+            <a class="bot-post-link" href="${bskyUrl(p)}" target="_blank" rel="noopener">↗</a>
+          </div>
+        </div>`;
+      }).filter(Boolean).join('');
+      document.getElementById('bot-posts-row').style.display = '';
+    }
+
+    if (cards.length || posts.length) {
+      document.getElementById('bot-handle-label').textContent =
+        `${awayAbbr.toLowerCase()}.hockeygamebot.com · ${homeAbbr.toLowerCase()}.hockeygamebot.com`;
+      document.getElementById('section-bot').style.display = '';
+    }
+  }
+
+  // ── On-Ice dot chart ────────────────────────────────────────────────────────
+
+  function renderDotChart(players, homeColor, awayColor, homeAbbr, awayAbbr) {
+    // ── Layout constants ──────────────────────────────────────────────────────
+    const W = 800, H = 420;
+    const PAD_L = 20;          // left margin — room for away dots to stack left
+    const PAD_R = 64;          // right margin — axis labels
+    const PAD_T = 36;          // top — team abbr labels + breathing room
+    const PAD_B = 28;          // bottom — % labels
+    const DRAW_W = W - PAD_L - PAD_R;   // 448
+    const CHART_H = H - PAD_T - PAD_B; // 356
+    const CX = PAD_L + DRAW_W / 2;      // 240 — center divider
+    const AXIS_X = W - PAD_R;           // 464 — left edge of axis label margin
+    const R = 10;              // dot radius (20px diameter — fits 2-digit jersey number)
+    const GAP = 3;             // gap between dot edge and center divider
+    const STEP = 22;           // horizontal step per stacked dot
+    const THRESH = 3;          // % window for cluster grouping
+    const MIN_TOI = 60;
+
+    // away: first dot cx = CX - GAP - R = 223; home: first dot cx = CX + GAP + R = 257
+    const toY = pct => PAD_T + (1 - pct / 100) * CHART_H;
+    const toiStr = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+
+    function fmtName(raw) {
+      const idx = raw.indexOf(', ');
+      if (idx < 0) return raw;
+      const last = raw.slice(0, idx), first = raw.slice(idx + 2);
+      return `${first.charAt(0)}. ${last.charAt(0) + last.slice(1).toLowerCase()}`;
+    }
+
+    const ok = p => p.xgf_pct_5v5 != null && (p.toi_5v5_sec || p.toi_sec || 0) >= MIN_TOI;
+    const awayPls = players.filter(p => !p.is_home && ok(p));
+    const homePls = players.filter(p =>  p.is_home && ok(p));
+
+    // Sort descending, group consecutive players within THRESH%, place at group avg y.
+    // Away stacks left (further from center), home stacks right.
+    function layout(pls, isHome) {
+      if (!pls.length) return [];
+      const sorted = [...pls].sort((a, b) => b.xgf_pct_5v5 - a.xgf_pct_5v5);
+      const groups = []; let g = [sorted[0]];
+      for (let i = 1; i < sorted.length; i++) {
+        if (g[0].xgf_pct_5v5 - sorted[i].xgf_pct_5v5 <= THRESH) g.push(sorted[i]);
+        else { groups.push(g); g = [sorted[i]]; }
+      }
+      groups.push(g);
+      return groups.flatMap(grp => {
+        const avgPct = grp.reduce((s, p) => s + p.xgf_pct_5v5, 0) / grp.length;
+        const cy = toY(avgPct);
+        return grp.map((p, i) => ({
+          cx: isHome ? CX + GAP + R + i * STEP : CX - GAP - R - i * STEP,
+          cy, p
+        }));
+      });
+    }
+
+    // ── Tooltip handlers (attached to window for inline SVG callbacks) ────────
+    window._dcTip = function(event, text) {
+      const tip = document.getElementById('_dc_tip');
+      const wrap = document.getElementById('_dc_wrap');
+      if (!tip || !wrap) return;
+      tip.textContent = text;
+      tip.style.display = 'block';
+      const rect = wrap.getBoundingClientRect();
+      let tx = event.clientX - rect.left + 14, ty = event.clientY - rect.top - 38;
+      if (tx + 200 > rect.width) tx = event.clientX - rect.left - 210;
+      if (ty < 2) ty = 8;
+      tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+    };
+    window._dcTipHide = () => { const t = document.getElementById('_dc_tip'); if (t) t.style.display = 'none'; };
+
+    // ── CSS (injected once) ───────────────────────────────────────────────────
+    if (!document.getElementById('_dc_css')) {
+      const s = document.createElement('style'); s.id = '_dc_css';
+      s.textContent = `
+        .dc-g { cursor:pointer }
+        .dc-g:hover circle { opacity:.75 }
+        .dc-num { font-family:'Barlow Condensed',sans-serif; font-size:9px; font-weight:700; fill:#fff; pointer-events:none; letter-spacing:0 }
+        .dc-al { font-family:var(--mono,monospace); font-size:10px; fill:rgba(13,13,20,.38) }
+        .dc-al50 { fill:rgba(13,13,20,.62); font-weight:700 }
+        .dc-even { font-family:'Barlow Condensed',sans-serif; font-size:8px; font-weight:700; letter-spacing:.16em; fill:rgba(13,13,20,.36) }
+        .dc-abbr { font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:800; letter-spacing:.06em }
+        #_dc_tip { position:absolute; background:var(--ink,#0D0D14); color:var(--bg,#EFEEE8); font-family:'Barlow Condensed',sans-serif; font-size:12px; font-weight:600; padding:5px 9px; border-radius:2px; pointer-events:none; white-space:nowrap; z-index:9; display:none; line-height:1.1 }
+        html[data-theme="dark"] .dc-al   { fill:rgba(239,238,232,.34) }
+        html[data-theme="dark"] .dc-al50 { fill:rgba(239,238,232,.60) }
+        html[data-theme="dark"] .dc-even { fill:rgba(239,238,232,.34) }
+        html[data-theme="dark"] #_dc_tip { background:var(--bg,#EFEEE8); color:var(--ink,#0D0D14) }
+      `;
+      document.head.appendChild(s);
+    }
+
+    // ── Single dot ────────────────────────────────────────────────────────────
+    function dot({ cx, cy, p }, color) {
+      const toiDisplay = toiStr(p.toi_5v5_sec || p.toi_sec || 0);
+      const numLabel = p.jersey != null ? p.jersey : '·';
+      const tip = `${fmtName(p.name)}${p.jersey != null ? ' · #' + p.jersey : ''} · ${toiDisplay} · ${p.xgf_pct_5v5.toFixed(1)}%`;
+      const safe = tip.replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      return `<g class="dc-g" onmouseenter="_dcTip(event,&quot;${safe}&quot;)" onmouseleave="_dcTipHide()">
+        <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${R}" fill="${color}"/>
+        <text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" class="dc-num" text-anchor="middle" dominant-baseline="central">${numLabel}</text>
+      </g>`;
+    }
+
+    // ── Grid lines: 0/25/75/100 dashed, axis % labels in right margin ─────────
+    // Lines span full draw area (PAD_L to AXIS_X)
+    const y50 = toY(50);
+    const grid = [0,10,20,30,40,60,70,80,90,100].map(pct => {
+      const y = toY(pct).toFixed(1);
+      return `<line x1="${PAD_L}" y1="${y}" x2="${AXIS_X}" y2="${y}" stroke="rgba(13,13,20,.07)" stroke-width=".75" stroke-dasharray="3 5"/>
+        <text x="${AXIS_X + 6}" y="${y}" class="dc-al" dominant-baseline="central">${pct}%</text>`;
+    }).join('');
+
+    // 50% line prominent, no EVEN label
+    const even = `
+      <line x1="${PAD_L}" y1="${y50.toFixed(1)}" x2="${AXIS_X}" y2="${y50.toFixed(1)}" stroke="rgba(13,13,20,.28)" stroke-width="1.5"/>
+      <text x="${AXIS_X + 6}" y="${y50.toFixed(1)}" class="dc-al dc-al50" dominant-baseline="central">50%</text>
+      <line x1="${CX}" y1="${PAD_T - 4}" x2="${CX}" y2="${H - PAD_B + 6}" stroke="rgba(13,13,20,.15)" stroke-width="1"/>`;
+
+    // ── Team abbr labels: top-left (away) and top-right (home), well separated ─
+    // Away label anchored right, sitting in the left column; home anchored left in right column
+    const ABBR_Y = (PAD_T - 14).toFixed(1);
+    const abbrs = `
+      <text x="${(CX - 20).toFixed(1)}" y="${ABBR_Y}" class="dc-abbr" fill="${awayColor}" text-anchor="end" dominant-baseline="central">${awayAbbr}</text>
+      <text x="${(CX + 20).toFixed(1)}" y="${ABBR_Y}" class="dc-abbr" fill="${homeColor}" text-anchor="start" dominant-baseline="central">${homeAbbr}</text>`;
+
+    // ── Render dots (away first so home renders on top when they overlap) ──────
+    const dots = [
+      ...layout(awayPls, false).map(d => dot(d, awayColor)),
+      ...layout(homePls, true).map(d => dot(d, homeColor)),
+    ].join('');
+
+    return `<div id="_dc_wrap" style="position:relative;line-height:0;padding:4px 0 8px">
+      <div id="_dc_tip"></div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="overflow:visible;display:block">
+        ${grid}${even}${abbrs}${dots}
+      </svg>
+    </div>`;
+  }
+
+  // ── On-Ice xGF ──────────────────────────────────────────────────────────────
+
+  function renderOnIce(data, awayColor, homeColor, awayAbbr, homeAbbr) {
+    const section = document.getElementById('section-onice');
+    const content = document.getElementById('onice-content');
+    const meta    = document.getElementById('onice-meta');
+    if (!data?.on_ice?.players?.length) { section.style.display = 'none'; return; }
+
+    const d = data.on_ice;
+    section.style.display = '';
+    if (meta) meta.textContent = `As of ${d.as_of || '—'} · HGB xG model`;
+
+    function fmtName(raw) {
+      const [last, first] = raw.split(', ');
+      if (!first) return raw.charAt(0) + raw.slice(1).toLowerCase();
+      const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+      return `${first.charAt(0)}. ${cap(last)}`;
+    }
+    const toiStr = sec => `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`;
+
+    function heatCell(pct, teamHex) {
+      if (pct === null) return `<span class="onice-heat" style="background:var(--ink-06);color:var(--ink-48)">—</span>`;
+      const delta = pct - 50, intensity = Math.abs(delta) / 50;
+      let bg, color;
+      if (delta > 3) {
+        const alpha = Math.round(40 + intensity * 180).toString(16).padStart(2,'0');
+        bg = teamHex + alpha; color = intensity > 0.35 ? '#fff' : 'var(--ink)';
+      } else if (delta < -3) {
+        // faint team-color tint so both columns always have identity
+        const alpha = Math.round(14 + intensity * 20).toString(16).padStart(2,'0');
+        bg = teamHex + alpha; color = 'var(--ink-72)';
+      } else {
+        const alpha = '16';
+        bg = teamHex + alpha; color = 'var(--ink-64)';
+      }
+      return `<span class="onice-heat" style="background:${bg};color:${color}">${pct.toFixed(1)}%</span>`;
+    }
+
+    function teamAvgXgf(players) {
+      const valid = players.filter(p => p.xgf_pct !== null && p.toi_sec >= 90);
+      const tot = valid.reduce((s, p) => s + p.toi_sec, 0);
+      return tot > 0 ? valid.reduce((s, p) => s + p.xgf_pct * p.toi_sec, 0) / tot : null;
+    }
+
+    function renderTeamPlayers(players, hex, label) {
+      const avg = teamAvgXgf(players);
+      // goalies avg 600-1200s/shift (full period); skaters avg 40-60s/shift
+      const skaters = players.filter(p => p.toi_sec >= 90 && (p.toi_sec / (p.shifts || 1)) < 180);
+      const sorted  = [...skaters].sort((a, b) => (b.xgf_pct_5v5 ?? b.xgf_pct ?? 50) - (a.xgf_pct_5v5 ?? a.xgf_pct ?? 50));
+      const avg5v5 = (() => {
+        const v = skaters.filter(p => p.xgf_pct_5v5 !== null && p.xgf_pct_5v5 !== undefined);
+        const tot = v.reduce((s, p) => s + p.toi_sec, 0);
+        return tot > 0 ? v.reduce((s, p) => s + (p.xgf_pct_5v5 ?? 50) * p.toi_sec, 0) / tot : null;
+      })();
+      return `
+        <div class="onice-team-hdr" style="color:${hex}">
+          <span class="onice-team-name">${label}</span>
+        </div>
+        <div class="onice-subhdr">
+          <div></div>
+          <div class="onice-sh">5v5 xGF%</div>
+          <div class="onice-sh onice-sh-r">TOI</div>
+          <div></div>
+          <div class="onice-sh">All xGF%</div>
+          <div class="onice-sh onice-sh-r">TOI</div>
+        </div>
+        ${sorted.map(p => `
+          <div class="onice-prow">
+            <div class="onice-pcell"><span class="onice-name-text">${esc(fmtName(p.name))}</span></div>
+            ${heatCell(p.xgf_pct_5v5 ?? null, hex)}
+            <div class="onice-toi">${toiStr(p.toi_sec)}</div>
+            <div></div>
+            ${heatCell(p.xgf_pct ?? null, hex)}
+            <div class="onice-toi">${toiStr(p.toi_sec)}</div>
+          </div>`).join('')}`;
+    }
+
+    function renderTeamLines(items, hex, label) {
+      const sorted = [...items].sort((a, b) => b.toi_sec - a.toi_sec).slice(0, 5);
+      return `
+        <div class="onice-team-hdr" style="color:${hex};margin-bottom:8px">
+          <span class="onice-team-name">${label}</span>
+        </div>
+        ${sorted.map(ln => `
+          <div class="onice-lrow">
+            <div class="onice-lnames">${esc(ln.players.map(fmtName).join(' · '))}</div>
+            <div class="onice-ltoi">${toiStr(ln.toi_sec)}</div>
+          </div>`).join('')}`;
+    }
+
+    function splitLayout(homeHTML, awayHTML) {
+      return `<div class="onice-split">
+        <div class="onice-team-col">${homeHTML}</div>
+        <div class="onice-col-div"></div>
+        <div class="onice-team-col">${awayHTML}</div>
+      </div>`;
+    }
+
+    let activeTab = 'players';
+    let playerView = 'table'; // 'table' | 'chart'
+    const viewToggle = document.getElementById('onice-view-toggle');
+
+    if (viewToggle) {
+      viewToggle.addEventListener('click', () => {
+        playerView = playerView === 'table' ? 'chart' : 'table';
+        viewToggle.dataset.view = playerView;
+        viewToggle.classList.toggle('active', playerView === 'chart');
+        render();
+      });
+    }
+
+    function render() {
+      const toggle = document.getElementById('onice-view-toggle');
+      if (toggle) toggle.style.display = activeTab === 'players' ? 'block' : 'none';
+
+      if (activeTab === 'players') {
+        if (playerView === 'chart') {
+          content.innerHTML = renderDotChart(d.players, homeColor, awayColor, homeAbbr, awayAbbr);
+          return;
+        }
+        const home = d.players.filter(p =>  p.is_home);
+        const away = d.players.filter(p => !p.is_home);
+        content.innerHTML = splitLayout(
+          renderTeamPlayers(home, homeColor, homeAbbr),
+          renderTeamPlayers(away, awayColor, awayAbbr)
+        );
+      } else {
+        const items = activeTab === 'lines' ? d.lines : d.pairs;
+        if (!items?.length) { content.innerHTML = '<div class="onice-empty">No data yet</div>'; return; }
+        const home = items.filter(ln =>  ln.is_home);
+        const away = items.filter(ln => !ln.is_home);
+        content.innerHTML = splitLayout(
+          renderTeamLines(home, homeColor, homeAbbr),
+          renderTeamLines(away, awayColor, awayAbbr)
+        );
+      }
+    }
+
+    section.querySelectorAll('.onice-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        section.querySelectorAll('.onice-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeTab = btn.dataset.tab;
+        render();
+      });
+    });
+    render();
+  }
+
+  // ── Chart PNG download ───────────────────────────────────────────────────────
+
+  function downloadChartSVG(svgEl, filename, ratio = 16/9) {
+    if (!svgEl) return;
+    const vb = svgEl.viewBox?.baseVal;
+    const w = vb?.width || svgEl.clientWidth || 840;
+    const h = vb?.height || svgEl.clientHeight || 258;
+    const scale = 2; // retina
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svgEl);
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      // Pad to target ratio so Twitter displays well
+      const targetH = Math.round(w / ratio);
+      const canvasH = Math.max(h, targetH);
+      const offsetY = Math.round((canvasH - h) / 2);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w * scale;
+      canvas.height = canvasH * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#EFEEE8';
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, canvasH);
+      ctx.drawImage(img, 0, offsetY, w, h);  // center chart vertically
+      URL.revokeObjectURL(url);
+      const a = document.createElement('a');
+      a.download = filename;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    };
+    img.onerror = () => {
+      // fallback: just download the SVG
+      const a = document.createElement('a');
+      a.download = filename.replace('.png', '.svg');
+      a.href = url;
+      a.click();
+    };
+    img.src = url;
+  }
+
+  // ── Line Combinations ────────────────────────────────────────────────────────
+
+  function renderLineCombos(linesData, awayAbbr, homeAbbr, awayColor, homeColor) {
+    const section = document.getElementById('section-linecombos');
+    const container = document.getElementById('linecombos-content');
+    const dlBtn = document.getElementById('lc-dl-btn');
+    if (!section || !container) return;
+
+    section.style.display = '';
+
+    if (!Array.isArray(linesData) || linesData.length === 0) {
+      container.innerHTML = '<div class="lc-no-data">Shift data currently only available post-game.</div>';
+      return;
+    }
+
+    const filtered = linesData.filter(c => (c.toi_min ?? 0) >= 2.0);
+    if (filtered.length === 0) {
+      container.innerHTML = '<div class="lc-no-data">Shift data currently only available post-game.</div>';
+      return;
+    }
+
+    // MM:SS format matching player stats TOI column
+    function toiMmSs(toi) {
+      if (toi == null) return '—';
+      const m = Math.floor(toi);
+      const s = Math.round((toi - m) * 60);
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    function xgfCls(v) {
+      if (v == null) return '';
+      return v >= 55 ? 'lc-xgf-pos' : v <= 45 ? 'lc-xgf-neg' : '';
+    }
+
+    const THEAD = `<thead><tr>
+      <th>Line</th><th class="lc-players-th">Players</th><th>TOI</th>
+      <th>xGF</th><th>xGA</th><th>xGF%</th><th>GF–GA</th>
+    </tr></thead>`;
+
+    function comboRows(combos, prefix) {
+      return combos.map((c, i) => `<tr>
+        <td class="lc-line-label">${esc(prefix)} ${i + 1}</td>
+        <td class="lc-players">${esc((c.players || []).join(' · '))}</td>
+        <td><span class="ps-toi">${esc(toiMmSs(c.toi_min))}</span></td>
+        <td>${c.xgf != null ? c.xgf.toFixed(2) : '—'}</td>
+        <td>${c.xga != null ? c.xga.toFixed(2) : '—'}</td>
+        <td class="${xgfCls(c.xgf_pct)}">${c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—'}</td>
+        <td>${c.gf ?? 0}–${c.ga ?? 0}</td>
+      </tr>`).join('');
+    }
+
+    function buildTeamCard(abbr, color) {
+      const tc = filtered.filter(c => c.team === abbr);
+      const fLines = tc.filter(c => c.type === 'F').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      const dPairs = tc.filter(c => c.type === 'D').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      if (!fLines.length && !dPairs.length) return '';
+      const dSep = dPairs.length ? `<tr class="ps-divider"><td colspan="7">Defense Pairs</td></tr>` : '';
+      return `<div class="player-team-card">
+        <div class="player-team-head">
+          <div class="player-team-dot" style="background:${color}"></div>
+          <span class="player-team-label">${esc(abbr)}</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="ps lc">${THEAD}<tbody>
+            ${comboRows(fLines, 'F')}
+            ${dSep}${comboRows(dPairs, 'D')}
+          </tbody></table>
+        </div>
+      </div>`;
+    }
+
+    const teamColors = { [awayAbbr]: awayColor, [homeAbbr]: homeColor };
+    container.innerHTML = `<div class="player-stats-grid" style="border:1px solid var(--ink-14);background:var(--ink-14);gap:1px">
+      ${[awayAbbr, homeAbbr].map(a => buildTeamCard(a, teamColors[a] || '#0d0d14')).join('')}
+    </div>`;
+
+    // Build export rows
+    const exportRows = [];
+    for (const abbr of [awayAbbr, homeAbbr]) {
+      const tc = filtered.filter(c => c.team === abbr);
+      const fLines = tc.filter(c => c.type === 'F').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      const dPairs = tc.filter(c => c.type === 'D').sort((a, b) => (b.toi_min ?? 0) - (a.toi_min ?? 0));
+      [...fLines.map((c, i) => ({ ...c, _lbl: `F ${i+1}` })),
+       ...dPairs.map((c, i) => ({ ...c, _lbl: `D ${i+1}` }))].forEach(c => {
+        exportRows.push({
+          team: abbr, line: c._lbl,
+          players: (c.players || []).join(' · '),
+          toi: toiMmSs(c.toi_min),
+          xgf: c.xgf != null ? c.xgf.toFixed(2) : '—',
+          xga: c.xga != null ? c.xga.toFixed(2) : '—',
+          xgf_pct: c.xgf_pct,
+          xgfDisp: c.xgf_pct != null ? c.xgf_pct.toFixed(1) + '%' : '—',
+          goals: `${c.gf ?? 0}-${c.ga ?? 0}`,
+        });
+      });
+    }
+
+    if (dlBtn && exportRows.length > 0) {
+      dlBtn.style.display = '';
+      dlBtn.onclick = async function () {
+        if (!window.HGB_Export) return;
+        await window.HGB_Export.downloadTablePng({
+          title: 'Line Combinations',
+          filterChips: [awayAbbr, homeAbbr, '2+ MIN'],
+          rows: exportRows,
+          columns: [
+            { label: 'Team',    key: 'team',     width: 54,  align: 'center' },
+            { label: 'Line',    key: 'line',     width: 56,  align: 'center' },
+            { label: 'Players', key: 'players',  width: 270, align: 'left', fontFamily: 'body', bold: true },
+            { label: 'TOI',     key: 'toi',      width: 60,  align: 'center' },
+            { label: 'xGF',     key: 'xgf',      width: 58,  align: 'center' },
+            { label: 'xGA',     key: 'xga',      width: 58,  align: 'center' },
+            { label: 'xGF%',    key: 'xgfDisp',  width: 66,  align: 'center',
+              color:  (v, row, tok) => row.xgf_pct == null ? null : row.xgf_pct >= 55 ? tok.pos : row.xgf_pct <= 45 ? tok.neg : null,
+              bold:   (v, row) => row.xgf_pct != null && (row.xgf_pct >= 55 || row.xgf_pct <= 45),
+            },
+            { label: 'GF-GA',   key: 'goals',    width: 64,  align: 'center' },
+          ],
+          filename: `hgb-lines-${_currentGameId}.png`,
+        });
+      };
+    }
+  }
+
+  // ── Main render ─────────────────────────────────────────────────────────────
+
+  function renderGame(boxscore, flow, eventsData, state, onIce, linesData) {
+    const { awayAbbr, homeAbbr, awayColor, homeColor, awayScore, homeScore } =
+      renderHeader(boxscore, state);
+
+    // Build { gameSec: jerseyNumber } for goal events
+    _jerseyMap = (() => {
+      const byId = {};
+      const stats = boxscore?.playerByGameStats || {};
+      for (const side of ['homeTeam', 'awayTeam']) {
+        for (const grp of ['forwards', 'defensemen', 'goalies']) {
+          for (const p of (stats[side]?.[grp] || [])) {
+            if (p.playerId && p.sweaterNumber != null) byId[p.playerId] = p.sweaterNumber;
+          }
+        }
+      }
+      const map = {};
+      for (const ev of (eventsData?.events || [])) {
+        if (ev.event_type !== 'GOAL') continue;
+        let pl = ev.payload || {};
+        if (typeof pl === 'string') try { pl = JSON.parse(pl); } catch { continue; }
+        const pid = pl?.details?.scoringPlayerId;
+        if (!pid || byId[pid] == null) continue;
+        const per = ev.period || pl.period || 1;
+        const tip = pl.timeInPeriod || '';
+        if (!tip) continue;
+        const [mm, ss] = tip.split(':').map(Number);
+        map[(per - 1) * 1200 + mm * 60 + ss] = byId[pid];
+      }
+      return map;
+    })();
+
+    if (state === 'pre') {
+      renderPregame(boxscore, _currentGameId);
+    } else {
+      document.getElementById('section-game-body').style.display = '';
+      renderStats(flow, boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
+      renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
+      renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
+
+      // Wire up xG situation toggle (ChipGroup emits chip:changed)
+      let xgCurrentSit = '5v5';
+
+      document.addEventListener('chip:changed', (e) => {
+        if (e.detail.name !== 'xg-sit') return;
+
+        xgCurrentSit = e.detail.value;
+
+        // Update meta text
+        const meta = document.getElementById('chart-section-meta');
+        if (meta) {
+          const isLive = state === 'live';
+          meta.textContent = xgCurrentSit === '5v5'
+            ? (isLive ? '5v5 · HGB xG model · live' : '5v5 · HGB xG model')
+            : (isLive ? 'All Sit · HGB xG model · live' : 'All Sit · HGB xG model');
+        }
+
+        // Re-render chart with new filter
+        renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, xgCurrentSit);
+      });
+
+      // Wire up chart download buttons
+      document.querySelectorAll('.chart-dl-btn[data-chart]').forEach(btn => {
+        btn.onclick = () => {
+          const chartId = btn.dataset.chart === 'wp' ? 'wp-chart' : 'xg-chart';
+          const prefix  = btn.dataset.chart === 'wp' ? 'hgb-wp' : 'hgb-xg';
+          const [n, d]  = (btn.dataset.ratio || '16/9').split('/').map(Number);
+          downloadChartSVG(document.getElementById(chartId), `${prefix}-${_currentGameId}.png`, n / d);
+        };
+      });
+
+      renderGoals(flow, homeAbbr, awayAbbr);
+      renderShotMap(eventsData, flow, awayAbbr, homeAbbr, awayColor, homeColor);
+      renderOnIce(onIce, awayColor, homeColor, awayAbbr, homeAbbr);
+      renderPlayerStats(boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
+      renderLineCombos(linesData, awayAbbr, homeAbbr, awayColor, homeColor);
+      if (!renderGame._botLoaded) {
+        renderGame._botLoaded = true;
+        renderBotPosts(awayAbbr, homeAbbr, boxscore.gameDate || '');
+      }
+
+      if (state === 'live') {
+        document.getElementById('refresh-indicator').style.display = 'flex';
+        document.getElementById('chart-section-meta').textContent = '5v5 · HGB xG model · live';
+      } else {
+        document.getElementById('chart-section-meta').textContent = '5v5 · HGB xG model';
+        renderThreeStars(flow.three_stars);
+      }
+    }
+  }
+
+  // ── Init + live-refresh ──────────────────────────────────────────────────────
+
+  async function fetchAll(gameId) {
+    const EMPTY_FLOW = { points: [], goals: [], three_stars: null };
+    let boxscoreRes;
+    try {
+      boxscoreRes = await fetch(`${HGB_API}/v1/games/${gameId}/boxscore`);
+    } catch (e) {
+      throw new Error(`Boxscore unreachable: ${e.message}`);
+    }
+    if (!boxscoreRes.ok) throw new Error(`Game ${gameId} not found (HTTP ${boxscoreRes.status})`);
+    const boxscore = await boxscoreRes.json();
+    const [flowRes, eventsRes, onIceRes, linesRes] = await Promise.all([
+      fetch(`${HGB_API}/v1/games/${gameId}/flow`).catch(() => null),
+      fetch(`${HGB_API}/v1/games/${gameId}/events?sort=asc`).catch(() => null),
+      fetch(`${HGB_API}/v1/games/${gameId}/on-ice`).catch(() => null),
+      fetch(`${HGB_API}/v1/games/${gameId}/lines`).catch(() => null),
+    ]);
+    const flow = flowRes?.ok ? await flowRes.json().catch(() => EMPTY_FLOW) : EMPTY_FLOW;
+    const eventsData = eventsRes?.ok ? await eventsRes.json().catch(() => null) : null;
+    const onIce = onIceRes?.ok ? await onIceRes.json().catch(() => null) : null;
+    const linesData = linesRes?.ok ? await linesRes.json().catch(() => null) : null;
+    return { boxscore, flow, eventsData, onIce, linesData };
+  }
+
+  async function init() {
+    const parts  = window.location.pathname.split('/').filter(Boolean);
+    const gameId = new URLSearchParams(window.location.search).get('id')
+      || parts[parts.length - 1];
+    _currentGameId = gameId;  // set early so buildTeamCard can use it
+
+    if (!gameId || gameId === 'games') {
+      document.getElementById('loading-state').innerHTML =
+        '<div style="text-align:center;padding:60px 0">' +
+        '<p style="font-family:var(--display);font-weight:800;font-size:28px;text-transform:uppercase;letter-spacing:0.02em;margin-bottom:12px">No game selected</p>' +
+        '<p style="font-family:var(--mono);font-size:12px;color:var(--ink-48);letter-spacing:0.06em;margin-bottom:24px">Use the Results archive to browse recent games and scores.</p>' +
+        '<a href="/results" style="display:inline-block;font-family:var(--display);font-weight:800;font-size:13px;letter-spacing:0.14em;text-transform:uppercase;background:var(--ink);color:var(--bg);padding:12px 24px">Browse Results →</a>' +
+        '</div>';
+      return;
+    }
+
+    try {
+      const { boxscore, flow, eventsData, onIce, linesData } = await fetchAll(gameId);
+      const state = gameState(boxscore.gameState);
+
+      renderGame(boxscore, flow, eventsData, state, onIce, linesData);
+
+      document.getElementById('loading-state').style.display = 'none';
+      document.getElementById('game-content').style.display = 'block';
+
+      if (state === 'live') {
+        const interval = setInterval(async () => {
+          try {
+            const { boxscore: bs, flow: fl, eventsData: ev, onIce: oi, linesData: ld } = await fetchAll(gameId);
+            const newState = gameState(bs.gameState);
+            renderGame(bs, fl, ev, newState, oi, ld);
+            if (newState !== 'live') {
+              clearInterval(interval);
+              document.getElementById('refresh-indicator').style.display = 'none';
+            }
+          } catch (_) { /* silent — stale data OK */ }
+        }, LIVE_REFRESH_MS);
+      }
+
+    } catch (err) {
+      document.getElementById('loading-state').innerHTML =
+        `<p style="font-family:var(--mono);font-size:13px;color:var(--red)">${esc(err.message)}</p>
+         <a href="/" style="font-family:var(--mono);font-size:12px;color:var(--ink-48)">← Home</a>`;
+    }
+  }
+
+  // GVP close handlers
+  document.getElementById('gvp-close').addEventListener('click', closeGvp);
+  document.getElementById('gvp-backdrop').addEventListener('click', closeGvp);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGvp(); });
+
+  // Expose to inline onclick (IIFE scope workaround)
+  window.openGoalVideo = openGoalVideo;
+
+  init();
+})();
+</script>
+</body>
+</html>

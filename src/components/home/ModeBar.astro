@@ -1,0 +1,211 @@
+---
+/**
+ * ModeBar — three-toggle bar: Today / Yesterday / Offseason.
+ *
+ * Layer 1.8 (April 2026): collapsed from 4 modes (live/recap/tomorrow/offseason)
+ * to 3 modes (today/yesterday/offseason). The bar now reflects TIME (today vs
+ * yesterday vs offseason), NOT game state (live vs final).
+ *
+ * Today     → ?mode=today      (auto-default when today has games)
+ * Yesterday → ?mode=yesterday  (auto-fallback when today empty; or manual click)
+ * Offseason → ?mode=offseason  (auto-fallback when both empty; or manual click)
+ *
+ * Click handler stamps the choice into sessionStorage so a refresh keeps the
+ * same mode (until the user clicks "↻ AUTO" to reset).
+ *
+ * The actual override logic lives in `src/lib/auto-mode.ts` — this component
+ * just renders the chrome and exposes click hooks. The page-level script in
+ * home-v2.astro does the wiring.
+ */
+
+import type { HomeMode } from '../../lib/auto-mode';
+
+interface Props {
+  mode: HomeMode;
+  /** Static telemetry copy override (used by tests / dev fixtures). */
+  telemetry?: string;
+  /**
+   * Number of artifacts fired tonight — drives the auto-built telemetry
+   * line when an explicit `telemetry` prop isn't supplied. Layer 6+ will
+   * pass a live count from the polling service.
+   */
+  artifactsCount?: number;
+}
+
+const { mode, telemetry, artifactsCount } = Astro.props;
+
+const refreshLine = 'AUTO-REFRESH · 02s';
+const computedTelemetry =
+  telemetry ??
+  (artifactsCount !== undefined
+    ? `${refreshLine} · ${artifactsCount} ARTIFACT${artifactsCount === 1 ? '' : 'S'} FIRED TONIGHT`
+    : `${refreshLine} · ARTIFACTS FIRED TONIGHT`);
+
+const toggles: Array<{ key: HomeMode; label: string; href: string }> = [
+  { key: 'today', label: "Today's games", href: '?mode=today' },
+  { key: 'yesterday', label: "Yesterday's recap", href: '?mode=yesterday' },
+  { key: 'offseason', label: 'Offseason', href: '?mode=offseason' },
+];
+---
+<div class="mode-bar" role="tablist" aria-label="Mode" data-mode={mode}>
+  <div class="toggles">
+    {toggles.map((t) => (
+      <a
+        class:list={['toggle', { active: t.key === mode }]}
+        href={t.href}
+        role="tab"
+        aria-selected={t.key === mode ? 'true' : 'false'}
+        data-mode-toggle={t.key}
+      >
+        <span class="dot" aria-hidden="true">{t.key === mode ? '●' : '○'}</span>
+        <span>{t.label}</span>
+      </a>
+    ))}
+  </div>
+  <div class="rail">
+    <span class="telemetry mono" aria-hidden="true">
+      <span class="tel-base">{computedTelemetry}</span>
+      <!--
+        SSR ships a placeholder for the source stamp; the page script
+        replaces it with `· AUTO MODE` or `· MANUAL` after resolveMode()
+        runs. Hidden by default so SSR doesn't flash an inaccurate label.
+      -->
+      <span class="tel-source mono" data-mode-source-stamp aria-hidden="true"></span>
+    </span>
+    <!--
+      Reset link — only visible when the page script identifies an
+      override is active. Hidden via inline style + the `[hidden]` attr
+      so screen readers skip it until it's actually actionable.
+    -->
+    <button
+      type="button"
+      class="reset-auto"
+      data-mode-reset
+      hidden
+      aria-label="Clear manual override and resume auto-mode"
+    >
+      <span aria-hidden="true">↻</span> AUTO
+    </button>
+  </div>
+</div>
+
+<style>
+  .mode-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 12px 14px;
+    border: 1px solid var(--site-border);
+    border-radius: var(--radius-md);
+    background: #0a0a0a;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+
+  .toggles {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid #222;
+    border-radius: var(--radius-md);
+    color: #888;
+    font-family: var(--body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    cursor: pointer;
+  }
+
+  .toggle:hover,
+  .toggle:focus-visible {
+    color: var(--site-white);
+    border-color: #333;
+    outline: none;
+  }
+
+  .toggle.active {
+    color: var(--site-white);
+    border-color: #333;
+    background: #141414;
+  }
+
+  /* Active dot tinted cyan to match the live-status accent. */
+  .toggle.active .dot { color: var(--status-live); }
+
+  .toggle .dot {
+    font-size: 10px;
+    color: currentColor;
+  }
+
+  .rail {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .telemetry {
+    font-family: var(--mono);
+    color: #555;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .tel-source { color: #555; margin-left: 6px; }
+  .tel-source[data-source="auto"]   { color: #777; }
+  .tel-source[data-source="manual"] { color: var(--status-ot); }
+  .tel-source[data-source="url"]    { color: #999; }
+
+  .reset-auto {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid #2a2a2a;
+    color: #ccc;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .reset-auto:hover,
+  .reset-auto:focus-visible {
+    color: var(--site-white);
+    border-color: var(--status-live);
+    background: rgba(0, 229, 255, 0.06);
+    outline: none;
+  }
+  .reset-auto[hidden] { display: none; }
+
+  @media (max-width: 720px) {
+    .mode-bar {
+      padding: 10px;
+      gap: 12px;
+    }
+    /* Toggle pills stay on one row via flex-wrap; trim padding so the
+       4-pill row fits at typical mobile widths. */
+    .toggle {
+      padding: 5px 8px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+    }
+    .telemetry { font-size: 9px; }
+    .reset-auto { font-size: 9px; padding: 3px 8px; }
+  }
+</style>

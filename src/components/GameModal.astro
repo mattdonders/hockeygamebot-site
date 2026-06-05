@@ -1,0 +1,217 @@
+---
+// GameModal.astro — Reusable game modal shell + all modal/gvp CSS
+// Consumed by scoreboard.astro and (eventually) index.astro.
+// JS lives in /public/js/game-modal.js (loaded via <script src> in the host page).
+---
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+
+<div id="game-modal" class="modal-overlay" style="display:none" aria-modal="true" role="dialog">
+  <div class="modal-backdrop" id="modal-backdrop"></div>
+  <div class="modal-panel">
+    <div class="modal-actions">
+      <a id="modal-game-link" href="#" style="display:none;align-items:center;gap:4px;font-family:'Barlow',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-48);text-decoration:none;padding:2px 4px;transition:color 0.15s" onmouseover="this.style.color='var(--ink)'" onmouseout="this.style.color='var(--ink-48)'">Full Page ↗</a>
+      <button class="modal-share" id="modal-share" aria-label="Share"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg></button>
+      <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+    </div>
+    <div id="modal-content"><div class="modal-loading">Loading…</div></div>
+  </div>
+</div>
+
+<div id="gvp" class="gvp-overlay" hidden aria-modal="true" role="dialog">
+  <div class="gvp-backdrop" id="gvp-backdrop"></div>
+  <div class="gvp-panel">
+    <button class="gvp-close" id="gvp-close" aria-label="Close">✕</button>
+    <div class="gvp-tabs" id="gvp-tabs" hidden>
+      <button class="gvp-tab active" data-gvp-tab="edge">EDGE</button>
+      <button class="gvp-tab" data-gvp-tab="highlight">HIGHLIGHT</button>
+    </div>
+    <div class="gvp-media">
+      <video id="gvp-video" controls autoplay playsinline></video>
+      <iframe id="gvp-iframe" allowfullscreen allow="autoplay; encrypted-media" hidden></iframe>
+    </div>
+    <div class="gvp-info">
+      <div class="gvp-scorer" id="gvp-scorer"></div>
+      <div class="gvp-wp" id="gvp-wp"></div>
+    </div>
+  </div>
+</div>
+
+<style is:global>
+/* ── MODAL ── */
+/* Desktop: centered overlay with fade-in */
+.modal-overlay { position:fixed; inset:0; z-index:500; display:flex; align-items:center; justify-content:center; padding:24px; }
+.modal-backdrop { position:absolute; inset:0; background:rgba(13,13,20,0.55); }
+.modal-panel { position:relative; z-index:1; background:var(--surface); border:1px solid var(--ink-14); width:100%; max-width:860px; max-height:90vh; overflow-y:auto; border-radius:0; padding:0; animation:modalIn 0.2s ease; scrollbar-width:thin; scrollbar-color:var(--ink-14) transparent; }
+.modal-panel::-webkit-scrollbar { width:4px; }
+.modal-panel::-webkit-scrollbar-track { background:transparent; }
+.modal-panel::-webkit-scrollbar-thumb { background:var(--ink-14); }
+@keyframes modalIn { from{transform:translateY(12px);opacity:0} to{transform:translateY(0);opacity:1} }
+/* Mobile: sheet slides up from bottom */
+@media (max-width:640px) {
+  .modal-overlay { align-items:flex-end; padding:0; }
+  .modal-panel { max-height:92dvh; border-bottom:none; animation:slideUp 0.22s ease; }
+  @keyframes slideUp { from{transform:translateY(60px);opacity:0} to{transform:translateY(0);opacity:1} }
+}
+
+/* ── ACCENT BAR ── */
+.modal-accent-bar { height:4px; display:flex; }
+.modal-accent-bar > div { flex:1; }
+
+/* ── MODAL BODY ── */
+.modal-body { padding:28px 36px 40px; }
+@media (max-width:640px) { .modal-body { padding:20px 16px 32px; } }
+
+.modal-actions { position:absolute; top:16px; right:16px; display:flex; align-items:center; gap:4px; z-index:10; }
+.modal-close { background:none; border:none; color:var(--ink-32); font-size:20px; cursor:pointer; line-height:1; padding:0 4px; }
+.modal-close:hover { color:var(--ink); }
+.modal-share { background:none; border:none; color:var(--ink-32); font-size:16px; cursor:pointer; line-height:1; padding:0 4px; transition:color 0.15s; }
+.modal-share:hover { color:var(--ink); }
+.modal-share.capturing { color:var(--cyan); pointer-events:none; }
+.modal-loading { color:var(--ink-32); font-size:13px; padding:40px 0; text-align:center; }
+
+/* ── HEADER ── */
+.modal-header { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:24px; padding-bottom:20px; }
+.modal-team { display:flex; flex-direction:column; align-items:center; gap:6px; }
+.modal-team img { width:80px; height:80px; object-fit:contain; }
+.modal-abbr { font-family:var(--display); font-size:36px; font-weight:800; letter-spacing:0.02em; line-height:1; }
+.modal-abbr.lead { color:var(--ink); }
+.modal-abbr.trail { color:var(--ink-48); }
+.modal-abbr.tie { color:var(--ink); }
+.modal-score-center { display:flex; flex-direction:column; align-items:center; gap:6px; }
+.modal-scores { display:flex; align-items:baseline; gap:18px; line-height:0.85; }
+.modal-n { font-family:var(--display); font-size:92px; font-weight:800; line-height:0.85; letter-spacing:-0.02em; }
+.modal-n.lead { color:var(--ink); }
+.modal-n.trail { color:var(--ink-48); }
+.modal-n.tie { color:var(--ink); }
+.modal-sep { font-family:var(--display); font-size:56px; color:var(--ink-20); font-weight:800; line-height:0.85; }
+.modal-period { font-family:var(--body); font-size:11px; font-weight:700; letter-spacing:0.18em; color:var(--ink-72); text-transform:uppercase; padding:4px 10px; border:1px solid var(--ink-14); }
+.modal-period.final { color:var(--ink); border-color:var(--ink-32); }
+
+/* ── WP STRIP ── */
+.modal-wp-strip-wrap { margin-bottom:24px; }
+.modal-wp-lbl { font-family:var(--body); font-size:9px; font-weight:700; letter-spacing:0.22em; color:var(--ink-32); text-transform:uppercase; text-align:center; margin-bottom:10px; }
+.modal-wp-strip { display:flex; align-items:center; gap:14px; }
+.modal-wp-pct { font-family:var(--display); font-size:22px; font-weight:800; letter-spacing:0.02em; white-space:nowrap; min-width:56px; }
+.modal-wp-pct.away { text-align:right; }
+.modal-wp-pct.home { text-align:left; }
+.modal-wp-bar { flex:1; height:12px; overflow:hidden; }
+
+/* ── SECTIONS ── */
+.modal-section { margin-bottom:28px; }
+.modal-section-label { font-family:var(--body); font-size:9px; font-weight:700; letter-spacing:0.22em; color:var(--ink-32); text-transform:uppercase; margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+.modal-section-label::after { content:''; flex:1; height:1px; background:var(--ink-10); }
+
+/* ── CHART TABS ── */
+.modal-tabs { display:flex; gap:0; margin-bottom:0; border-bottom:1px solid var(--ink-14); }
+.modal-tab-btn { background:none; border:1px solid var(--ink-14); border-bottom:none; color:var(--ink-48); cursor:pointer; font-family:var(--body); font-size:11px; font-weight:800; letter-spacing:0.14em; padding:10px 18px; text-transform:uppercase; transition:color 0.15s,background 0.15s; margin-right:-1px; position:relative; }
+.modal-tab-btn:hover:not(.active) { color:var(--ink); background:var(--ink-04); }
+.modal-tab-btn.active { background:var(--ink); color:#fff; border-color:var(--ink); z-index:1; }
+.modal-tab-panel { display:none; }
+.modal-tab-panel.active { display:block; }
+.modal-chart-wrap { border:1px solid var(--ink-14); border-top:none; padding:16px; background:var(--bg); }
+.modal-chart-wrap svg { display:block; width:100%; height:auto; }
+.modal-no-chart { color:var(--ink-32); font-size:12px; text-align:center; padding:32px 0; }
+
+/* ── THREE STARS ── */
+.modal-stars-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+.modal-star { display:flex; align-items:center; gap:14px; padding:14px 16px; background:var(--bg); border:1px solid var(--ink-10); position:relative; overflow:hidden; }
+.modal-star-rank { font-family:var(--display); font-size:56px; font-weight:800; line-height:0.8; color:var(--ink); letter-spacing:-0.04em; }
+.modal-star-info { display:flex; flex-direction:column; gap:3px; flex:1; }
+.modal-star-name { font-family:var(--display); font-size:18px; font-weight:700; color:var(--ink); }
+.modal-star-team { font-family:var(--body); font-size:10px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; }
+.modal-star-stripe { position:absolute; left:0; top:0; bottom:0; width:3px; }
+
+/* ── TEAM STATS ── */
+.modal-stats-filters { display:flex; gap:4px; margin-bottom:14px; }
+.modal-stats-pill { font-family:var(--body); font-size:9px; font-weight:700; letter-spacing:0.14em; padding:5px 12px; border:1px solid var(--ink-14); background:none; color:var(--ink-48); cursor:pointer; text-transform:uppercase; transition:background 0.15s,color 0.15s,border-color 0.15s; }
+.modal-stats-pill:hover:not(.active) { color:var(--ink-72); border-color:var(--ink-32); }
+.modal-stats-pill.active { background:var(--ink); color:#fff; border-color:var(--ink); }
+.modal-stat-row { display:grid; grid-template-columns:100px 60px 1fr 60px; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid var(--ink-06); }
+.modal-stat-row:last-child { border-bottom:none; }
+.modal-stat-label { font-family:var(--body); font-size:11px; font-weight:700; letter-spacing:0.08em; color:var(--ink-48); text-transform:uppercase; }
+.modal-stat-side { display:flex; flex-direction:column; gap:3px; align-items:center; }
+.modal-stat-num { font-family:var(--mono); font-size:14px; font-weight:700; line-height:1; }
+.modal-stat-pct { font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:0.06em; opacity:0.7; line-height:1; }
+.modal-stat-bar { height:10px; overflow:hidden; }
+
+/* ── GOALIE TABLE ── */
+.modal-goalie-table { width:100%; border-collapse:collapse; }
+.modal-goalie-table thead th { font-family:var(--body); font-size:9px; font-weight:700; letter-spacing:0.20em; text-transform:uppercase; color:var(--ink-32); padding:0 10px 8px; text-align:left; }
+.modal-goalie-table thead th:not(:first-child) { text-align:right; }
+.modal-goalie-table tbody tr { border-bottom:1px solid var(--ink-06); }
+.modal-goalie-table tbody tr:last-child { border-bottom:none; }
+.modal-goalie-table tbody td { font-family:var(--mono); font-size:12px; color:var(--ink-72); padding:11px 10px; text-align:right; white-space:nowrap; }
+.modal-goalie-table tbody td:first-child { text-align:left; padding-left:14px; }
+.modal-goalie-name-cell { display:flex; align-items:center; gap:8px; }
+.modal-goalie-team-swatch { width:3px; align-self:stretch; flex-shrink:0; margin-left:-14px; margin-right:6px; }
+.modal-goalie-logo { width:20px; height:20px; object-fit:contain; }
+.modal-goalie-name { font-size:13px; font-weight:700; color:var(--ink); }
+.gsax-pos { color:#166534; font-weight:700; }
+.gsax-neg { color:var(--red,#E8002D); font-weight:700; }
+
+/* ── GOALS FEED ── */
+.modal-goals-list { display:flex; flex-direction:column; }
+.modal-period-sep { display:flex; align-items:center; gap:12px; margin:14px 0 6px; }
+.modal-period-sep:first-child { margin-top:0; }
+.modal-period-sep span { font-family:var(--body); font-size:11px; font-weight:800; letter-spacing:0.22em; color:var(--ink-72); padding:3px 8px; background:var(--ink-04); }
+.modal-period-sep::after { content:''; flex:1; height:1px; background:var(--ink-10); }
+.modal-goal-card { display:grid; grid-template-columns:70px 48px 1fr 90px 68px 28px; align-items:center; gap:12px; padding:13px 0; border-bottom:1px solid var(--ink-06); }
+.modal-goal-card:last-child { border-bottom:none; }
+.modal-gc-team { display:flex; align-items:center; gap:6px; }
+.modal-gc-dot { width:8px; height:8px; flex-shrink:0; }
+.modal-gc-abbr { font-family:var(--display); font-weight:800; font-size:15px; letter-spacing:0.04em; }
+.modal-gc-score { font-family:var(--mono); font-weight:700; font-size:12px; color:var(--ink-48); }
+.modal-gc-info { display:flex; flex-direction:column; gap:2px; min-width:0; overflow:hidden; }
+.modal-gc-scorer-link { font-size:15px; font-weight:700; color:var(--ink); text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; transition:color 0.15s; }
+.modal-gc-scorer-link:hover { color:var(--red,#E8002D); }
+.modal-gc-assists { font-family:var(--body); font-size:11px; color:var(--ink-72); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.modal-gc-time { font-family:var(--mono); font-size:11px; color:var(--ink-32); text-align:right; white-space:nowrap; }
+.modal-gc-wp-delta { display:flex; align-items:center; justify-content:flex-end; }
+.modal-gc-wp-delta span { font-family:var(--mono); font-size:11px; font-weight:700; padding:2px 6px; white-space:nowrap; }
+.modal-gc-play { background:var(--ink-06); border:none; color:var(--ink-32); cursor:pointer; font-size:8px; width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; padding:0; flex-shrink:0; transition:background 0.15s,color 0.15s; }
+.modal-gc-play:hover { background:var(--ink-14); color:var(--ink); }
+.modal-strength { font-family:var(--body); font-size:9px; font-weight:700; padding:1px 4px; letter-spacing:0.06em; }
+.modal-strength.pp { color:#92400e; background:rgba(146,64,14,0.10); }
+.modal-strength.sh { color:#0e7490; background:rgba(14,116,144,0.10); }
+.modal-strength.en { color:var(--red,#E8002D); background:rgba(232,0,45,0.08); }
+.modal-no-goals { color:var(--ink-32); font-size:12px; padding:20px 0; text-align:center; }
+
+/* ── SHARE CARD GRID ── */
+.modal-goals-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.modal-goals-grid[hidden] { display:none; }
+.modal-goals-col { display:flex; flex-direction:column; gap:4px; }
+.modal-goals-col-hdr { font-family:var(--body); font-size:12px; font-weight:700; letter-spacing:0.12em; margin-bottom:4px; padding-bottom:6px; border-bottom:1px solid var(--ink-10); }
+
+/* ── GOAL VIDEO POPUP ── */
+.gvp-overlay { position:fixed; inset:0; z-index:600; display:flex; align-items:center; justify-content:center; }
+.gvp-overlay[hidden] { display:none; }
+.gvp-backdrop { position:absolute; inset:0; background:rgba(13,13,20,0.65); }
+.gvp-panel { position:relative; z-index:1; background:var(--surface); border:1px solid var(--ink-14); max-width:640px; width:calc(100% - 32px); overflow:hidden; box-shadow:0 24px 80px rgba(13,13,20,0.25); }
+.gvp-close { position:absolute; top:10px; right:12px; background:rgba(13,13,20,0.08); border:none; color:var(--ink-48); cursor:pointer; font-size:14px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; z-index:10; transition:color 0.15s,background 0.15s; }
+.gvp-close:hover { color:var(--ink); background:var(--ink-14); }
+.gvp-tabs { display:flex; gap:6px; padding:12px 44px 10px 14px; }
+.gvp-tabs[hidden] { display:none; }
+.gvp-tab { background:none; border:1px solid var(--ink-14); color:var(--ink-32); cursor:pointer; font-family:var(--body); font-size:10px; font-weight:700; letter-spacing:0.1em; padding:4px 14px; text-transform:uppercase; transition:color 0.15s,border-color 0.15s; }
+.gvp-tab.active { border-color:var(--ink-32); color:var(--ink-72); }
+.gvp-media { position:relative; background:#000; }
+#gvp-video { width:100%; display:block; max-height:360px; }
+#gvp-video[hidden] { display:none; }
+#gvp-iframe { width:100%; height:360px; border:none; display:block; }
+#gvp-iframe[hidden] { display:none; }
+.gvp-info { padding:12px 16px 16px; }
+.gvp-scorer { font-family:var(--body); font-size:13px; color:var(--ink-72); font-weight:500; margin-bottom:5px; }
+.gvp-wp { font-family:var(--body); font-size:12px; color:var(--ink-32); }
+.gvp-wp strong { color:var(--ink-72); }
+.gvp-wp-delta { font-weight:700; padding:1px 6px; margin-left:4px; }
+.gvp-wp-delta.pos { color:#166534; background:rgba(22,101,52,0.10); }
+.gvp-wp-delta.neg { color:var(--red); background:rgba(232,0,45,0.08); }
+
+/* ── RESPONSIVE ── */
+@media (max-width:640px) {
+  .modal-goals-grid { grid-template-columns:1fr; gap:8px; }
+  .modal-goal-card { grid-template-columns:60px 1fr 72px 24px; gap:8px; }
+  .modal-gc-score { display:none; }
+  .modal-gc-scorer-link { font-size:13px; }
+}
+</style>

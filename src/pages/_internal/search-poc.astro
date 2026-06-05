@@ -1,0 +1,204 @@
+---
+// HockeyGameBot — /internal/search-poc
+// Proof-of-concept page for the PlayerSearch autocomplete component.
+// Demonstrates keyboard nav, team logos, filtering by position, and
+// a multi-select wrapper. noindex, never linked from nav.
+import { loadPlayers } from '../../lib/stats-loader';
+import Nav from '../../components/Nav.astro';
+import Fonts from '../../components/Fonts.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import PlayerSearch from '../../components/react/PlayerSearch';
+import PlayerSearchMulti from '../../components/react/PlayerSearchMulti';
+import type { PlayerSearchItem } from '../../components/react/PlayerSearch';
+
+const allPlayers = loadPlayers().filter(p => p.gp > 0);
+
+// Map PlayerRecord → PlayerSearchItem shape with pre-computed search_text
+const toSearchItem = (p: typeof allPlayers[number]): PlayerSearchItem => ({
+  display_name:  p.display_name,
+  first_name:    p.first_name,
+  last_name:     p.last_name,
+  team_abbrev:   p.team_abbrev,
+  pos:           p.pos,
+  gp:            p.gp,
+  slug:          p.slug,
+  search_text:   `${p.first_name} ${p.last_name} ${p.display_name} ${p.team_abbrev}`.toLowerCase(),
+});
+
+const allItems      = allPlayers.map(toSearchItem);
+const forwardItems  = allPlayers.filter(p => p.pos_group === 'F').map(toSearchItem);
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PlayerSearch POC · HGB Internal</title>
+  <meta name="robots" content="noindex,nofollow" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #EFEEE8; --ink: #0d0d14; --red: #E8002D; --surface: #FFFFFF;
+      --ink-06: rgba(13,13,20,0.06); --ink-10: rgba(13,13,20,0.10);
+      --ink-14: rgba(13,13,20,0.14); --ink-20: rgba(13,13,20,0.20);
+      --ink-32: rgba(13,13,20,0.32); --ink-48: rgba(13,13,20,0.48);
+      --ink-72: rgba(13,13,20,0.72);
+      --display: 'Barlow Condensed', sans-serif;
+      --body:    'Barlow', sans-serif;
+      --mono:    'JetBrains Mono', monospace;
+    }
+    html, body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--body);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+
+    .page-mast {
+      border-bottom: 2px solid var(--ink);
+      padding: 28px 32px 24px;
+      background: var(--bg);
+    }
+    .mast-eyebrow {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--red);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .internal-pip { width: 6px; height: 6px; background: var(--red); border-radius: 50%; }
+    .mast-title {
+      font-family: var(--display);
+      font-weight: 800;
+      font-size: clamp(28px, 4vw, 44px);
+      text-transform: uppercase;
+      letter-spacing: -0.005em;
+    }
+    .mast-meta {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-48);
+      letter-spacing: 0.06em;
+      margin-top: 6px;
+    }
+
+    .page-body {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 32px 100px;
+      display: flex;
+      flex-direction: column;
+      gap: 40px;
+    }
+
+    .demo-block {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .demo-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-48);
+    }
+    .demo-label strong {
+      color: var(--ink);
+      font-weight: 700;
+    }
+    .demo-card {
+      background: var(--surface);
+      border: 1px solid var(--ink-14);
+      padding: 20px;
+    }
+    .demo-desc {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-48);
+      margin-top: 10px;
+    }
+
+    @media (max-width: 640px) {
+      .page-mast { padding: 20px 16px; }
+      .page-body { padding: 24px 16px 80px; }
+    }
+  </style>
+</head>
+<body>
+  <Nav currentPath="/internal/search-poc" />
+
+  <div class="page-mast">
+    <div class="mast-eyebrow">
+      <span class="internal-pip"></span>
+      Internal &middot; POC &middot; noindex
+    </div>
+    <h1 class="mast-title">PlayerSearch <span style="color:#E8002D">POC</span></h1>
+    <p class="mast-meta">
+      {allItems.length} skaters &middot; React autocomplete &middot; keyboard nav &middot; NHL CDN logos
+    </p>
+  </div>
+
+  <main class="page-body">
+
+    <!-- Demo 1: Full player list, navigates to player page on select -->
+    <div class="demo-block">
+      <div class="demo-label"><strong>Demo 1</strong> — Full roster, navigates to /stats/player/{'{slug}'}</div>
+      <div class="demo-card">
+        <PlayerSearch
+          client:load
+          players={allItems}
+          placeholder="Search all players…"
+          navigateTo={true}
+          maxResults={8}
+        />
+        <p class="demo-desc">
+          Type 2+ characters to search. ArrowUp/Down to navigate, Enter to go, Escape to close.
+          Clicking a result navigates to that player's stats page.
+        </p>
+      </div>
+    </div>
+
+    <!-- Demo 2: Forwards only -->
+    <div class="demo-block">
+      <div class="demo-label"><strong>Demo 2</strong> — Forwards only (pos_group = F)</div>
+      <div class="demo-card">
+        <PlayerSearch
+          client:load
+          players={forwardItems}
+          placeholder="Search forwards…"
+          navigateTo={true}
+          maxResults={8}
+        />
+        <p class="demo-desc">
+          Pre-filtered to forwards only before passing to the component. Searches {forwardItems.length} players.
+        </p>
+      </div>
+    </div>
+
+    <!-- Demo 3: Multi-select via onSelect handler -->
+    <div class="demo-block">
+      <div class="demo-label"><strong>Demo 3</strong> — Multi-select via onSelect callback</div>
+      <div class="demo-card">
+        <PlayerSearchMulti
+          client:load
+          players={allItems}
+        />
+        <p class="demo-desc">
+          Select a player to add to the list below. onSelect callback wired to a React wrapper
+          that accumulates selections. Duplicate slugs are ignored.
+        </p>
+      </div>
+    </div>
+
+  </main>
+</body>
+</html>

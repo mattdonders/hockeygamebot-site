@@ -1,0 +1,866 @@
+---
+// HockeyGameBot — /account page — magic-link sign-in + session state
+import Nav from '../components/Nav.astro';
+import ThemeScript from '../components/ThemeScript.astro';
+import Fonts from '../components/Fonts.astro';
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Account · HockeyGameBot</title>
+  <meta name="description" content="Sign in to HockeyGameBot to access your saved preferences and supporter features." />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/favicon-180x180.png" />
+</head>
+<body>
+
+<style is:global>
+/* ── TOKENS ──────────────────────────────────────────────────────────────────── */
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-86:  rgba(13,13,20,0.86);
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-04:  rgba(13,13,20,0.04);
+  --red:     #E8002D;
+  --green:   #14803c;
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+  --type-display: clamp(40px, 5vw, 64px);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+
+/* ── MASTHEAD ────────────────────────────────────────────────────────────────── */
+.mast {
+  position: relative;
+  padding: 56px 0 48px;
+  border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--ink-04) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ink-04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.mast-ghost {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-family: var(--display); font-weight: 800; font-size: clamp(80px, 18vw, 180px);
+  letter-spacing: -0.01em; text-transform: uppercase;
+  color: var(--ink); opacity: 0.05; pointer-events: none; white-space: nowrap; user-select: none;
+}
+.mast-corners { position: absolute; inset: 0; pointer-events: none; }
+.corner { position: absolute; width: 16px; height: 16px; opacity: 0.2; }
+.corner::before, .corner::after { content: ''; position: absolute; background: var(--ink); }
+.corner::before { width: 2px; height: 100%; }
+.corner::after  { width: 100%; height: 2px; }
+.corner.tl { top: 12px; left: 12px; }
+.corner.tr { top: 12px; right: 12px; }
+.corner.tr::before { right: 0; }
+.corner.tr::after  { right: 0; }
+.mast-inner { position: relative; display: flex; align-items: flex-start; gap: 40px; }
+.mast-top { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.mast-eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--red); }
+.mast-headline { font-family: var(--display); font-weight: 800; font-size: var(--type-display); letter-spacing: -0.01em; text-transform: uppercase; line-height: 0.95; color: var(--ink); }
+.mast-sub { font-family: var(--body); font-size: 15px; color: var(--ink-56); margin-top: 8px; max-width: 460px; line-height: 1.5; }
+.mast-card {
+  background: var(--surface);
+  border: 1.5px solid var(--ink-14);
+  padding: 32px 40px;
+  flex: 0 0 480px;
+}
+
+/* ── ACCOUNT CONTENT ─────────────────────────────────────────────────────────── */
+.content { padding: 64px 0 96px; }
+.content-inner { max-width: 720px; }
+
+/* Sign-in form */
+.signin-form { display: flex; flex-direction: column; gap: 16px; }
+.field-label { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-56); display: block; margin-bottom: 6px; }
+.field-input {
+  width: 100%;
+  font-family: var(--mono); font-size: 14px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1.5px solid var(--ink-20);
+  color: var(--ink);
+  outline: none;
+  transition: border-color .15s;
+}
+.field-input:focus { border-color: var(--ink-56); }
+.btn-primary {
+  font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+  background: var(--ink); color: var(--surface);
+  border: none; padding: 14px 24px;
+  cursor: pointer; transition: opacity .15s;
+  width: 100%;
+}
+.btn-primary:hover { opacity: 0.85; }
+.btn-primary:disabled { opacity: 0.4; cursor: default; }
+.btn-secondary {
+  font-family: var(--mono); font-size: 12px; font-weight: 500; letter-spacing: 0.06em;
+  background: transparent; color: var(--ink-56);
+  border: 1.5px solid var(--ink-20); padding: 10px 18px;
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+.btn-secondary:hover { border-color: var(--ink-56); color: var(--ink); }
+
+/* Google button */
+.btn-google {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 12px 20px;
+  font-family: var(--body); font-weight: 600; font-size: 14px; letter-spacing: 0.01em;
+  background: var(--surface); color: var(--ink);
+  border: 1.5px solid var(--ink-20);
+  cursor: pointer; transition: border-color .15s, box-shadow .15s;
+  text-decoration: none;
+}
+.btn-google:hover { border-color: var(--ink-56); box-shadow: 0 1px 4px var(--ink-10); }
+.signin-divider {
+  display: flex; align-items: center; gap: 12px;
+  margin: 20px 0 16px;
+  color: var(--ink-32); font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.signin-divider::before, .signin-divider::after { content: ''; flex: 1; height: 1px; background: var(--ink-14); }
+
+/* Status message */
+.status-msg { font-family: var(--mono); font-size: 13px; color: var(--ink-72); line-height: 1.5; padding: 12px 16px; border-left: 3px solid var(--red); background: var(--surface); display: none; }
+.status-msg.visible { display: block; }
+.status-msg.error { border-left-color: var(--red); }
+.status-msg.success { border-left-color: var(--green); }
+
+/* Authenticated state */
+.user-card { background: var(--surface); border: 1.5px solid var(--ink-14); padding: 28px 32px; }
+.user-email { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--ink); }
+.user-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); margin-top: 6px; }
+.user-tier { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 14px; }
+.tier-badge { padding: 3px 8px; font-size: 10px; background: var(--red); color: #fff; }
+.user-actions { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+
+/* States — JS toggles these */
+[data-state] { display: none; }
+[data-state].active { display: block; }
+
+/* ── PREFS UI ────────────────────────────────────────────────────────────────── */
+.prefs-intro-row {
+  display: flex; align-items: center; gap: 16px;
+  margin-bottom: 48px;
+}
+.prefs-intro {
+  font-family: var(--body); font-size: 15px; color: var(--ink-56); line-height: 1.6; flex: 1;
+}
+.save-indicator {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--green); opacity: 0; transition: opacity .25s; white-space: nowrap;
+}
+.save-indicator.visible { opacity: 1; }
+
+.prefs-section { margin-bottom: 52px; }
+.prefs-section-header {
+  display: flex; align-items: baseline; gap: 12px;
+  border-bottom: 1.5px solid var(--ink); padding-bottom: 10px; margin-bottom: 20px;
+}
+.prefs-section-label {
+  font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.prefs-section-meta {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-48); margin-left: auto;
+}
+
+/* Team chips */
+.team-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.team-chip {
+  font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+  padding: 7px 14px;
+  border: 1.5px solid var(--ink-20);
+  background: transparent; color: var(--ink-56);
+  cursor: pointer; transition: background .1s, border-color .1s, color .1s;
+}
+.team-chip:not(.selected):hover:not(:disabled) { border-color: var(--ink-56); color: var(--ink); }
+.team-chip.selected { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.team-chip:disabled { opacity: 0.3; cursor: default; }
+.prefs-loading {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-48); padding: 8px 0;
+}
+
+/* Team order */
+.team-order-wrap { margin-top: 14px; }
+.team-order-label { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 8px; }
+.team-order { display: flex; flex-direction: column; gap: 5px; }
+.team-order-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; background: var(--bg-2); border: 1px solid var(--ink-10); font-family: var(--mono); font-size: 12px; }
+.team-order-rank { color: var(--red); font-weight: 700; min-width: 22px; }
+.team-order-abbr { color: var(--ink); font-weight: 600; flex: 1; }
+.team-order-btn { background: none; border: 1px solid var(--ink-14); color: var(--ink-56); cursor: pointer; font-size: 11px; padding: 2px 7px; transition: border-color .1s, color .1s; line-height: 1.4; }
+.team-order-btn:hover:not(:disabled) { border-color: var(--ink-56); color: var(--ink); }
+.team-order-btn:disabled { opacity: 0.25; cursor: default; }
+
+/* Player search */
+.player-search-wrap { position: relative; margin-bottom: 16px; }
+.player-results {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: var(--surface); border: 1.5px solid var(--ink-20); border-top: none;
+  max-height: 220px; overflow-y: auto;
+  z-index: 20;
+  display: none;
+}
+.player-results.open { display: block; }
+.player-result {
+  padding: 10px 14px;
+  font-family: var(--mono); font-size: 12px;
+  cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid var(--ink-06);
+  transition: background .1s;
+}
+.player-result:last-child { border-bottom: none; }
+.player-result:hover { background: var(--bg-2); }
+.player-result-name { color: var(--ink); }
+.player-result-meta { color: var(--ink-48); font-size: 11px; }
+
+/* Player tags */
+.player-tags { display: flex; flex-wrap: wrap; gap: 8px; min-height: 36px; }
+.player-tag {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 12px;
+  padding: 6px 8px 6px 12px;
+  background: var(--surface); border: 1.5px solid var(--ink-20); color: var(--ink);
+}
+.player-tag-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  font-size: 14px; line-height: 1; cursor: pointer; color: var(--ink-48);
+  background: none; border: none; padding: 0; transition: color .12s;
+}
+.player-tag-remove:hover { color: var(--red); }
+.player-tags-empty {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-48); padding: 8px 0;
+}
+
+/* ── FOOTER ──────────────────────────────────────────────────────────────────── */
+.footer { border-top: 1.5px solid var(--ink-14); padding: 24px 0; }
+.footer-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.footer-copy { font-family: var(--mono); font-size: 11px; color: var(--ink-32); }
+.footer-links { display: flex; gap: 16px; margin-left: auto; }
+.footer-links a { font-family: var(--mono); font-size: 11px; color: var(--ink-48); transition: color .15s; }
+.footer-links a:hover { color: var(--ink); }
+
+/* ── RESPONSIVE ──────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .mast-inner { flex-direction: column; gap: 24px; }
+  .mast-card { flex: unset; width: 100%; padding: 24px; }
+  .mast { padding: 40px 0 32px; }
+}
+@media (max-width: 480px) {
+  .wrap { padding: 0 16px; }
+  .mast-headline { font-size: clamp(36px, 12vw, 52px); }
+}
+</style>
+
+<Nav currentPath={Astro.url.pathname} />
+
+<!-- ── MASTHEAD ── -->
+<section class="mast">
+  <div class="mast-ghost">ACCOUNT</div>
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+  </div>
+  <div class="wrap mast-inner">
+    <div class="mast-top">
+      <span class="mast-eyebrow">Your Account</span>
+      <h1 class="mast-headline" id="mast-headline">Sign In</h1>
+      <p class="mast-sub" id="mast-sub">Access your saved preferences and supporter features. No password needed.</p>
+    </div>
+    <div class="mast-card">
+
+      <!-- ── STATE: loading ── -->
+      <div data-state="loading" class="active">
+        <p style="font-family:var(--mono);font-size:13px;color:var(--ink-48);">Checking session…</p>
+      </div>
+
+      <!-- ── STATE: unauthenticated ── -->
+      <div data-state="unauth">
+        <a href="#" id="google-signin-btn" class="btn-google">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4"/>
+            <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853"/>
+            <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#FBBC05"/>
+            <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z" fill="#EA4335"/>
+          </svg>
+          Sign in with Google
+        </a>
+        <div class="signin-divider"><span>or use email link</span></div>
+        <form class="signin-form" id="signin-form">
+          <div>
+            <label class="field-label" for="email-input">Email address</label>
+            <input class="field-input" type="email" id="email-input" placeholder="you@example.com" autocomplete="email" required />
+          </div>
+          <div id="status-msg" class="status-msg"></div>
+          <button class="btn-primary" type="submit" id="signin-btn">Send sign-in link</button>
+        </form>
+      </div>
+
+      <!-- ── STATE: link-sent ── -->
+      <div data-state="link-sent">
+        <div class="status-msg success visible" style="display:block;">
+          Check your email — a sign-in link is on its way. It expires in 15 minutes.
+        </div>
+        <p style="font-family:var(--mono);font-size:12px;color:var(--ink-48);margin-top:16px;">
+          Didn't get it? Check your spam folder or <button class="btn-secondary" id="try-again-btn" style="display:inline;border:none;padding:0;font-size:12px;cursor:pointer;color:var(--red);">try again</button>.
+        </p>
+      </div>
+
+      <!-- ── STATE: authenticated ── -->
+      <div data-state="auth">
+        <div class="user-card">
+          <div class="user-email" id="user-email">—</div>
+          <div class="user-meta">Signed in · <span id="user-tier-label">Free account</span></div>
+          <div class="user-actions">
+            <button class="btn-secondary" id="signout-btn">Sign out</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── CONTENT ── -->
+<section class="content">
+  <div class="wrap">
+    <div class="content-inner" id="content-panel">
+      <!-- populated by JS when authenticated -->
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer class="footer">
+  <div class="wrap footer-bar">
+    <span class="footer-copy">© 2026 HockeyGameBot</span>
+    <nav class="footer-links">
+      <a href="/support">Support</a>
+      <a href="/stats">Stats</a>
+      <a href="/teams">Teams</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+const API = 'https://api.hockeygamebot.com';
+
+const NHL_TEAMS = [
+  { abbr: 'ANA', name: 'Anaheim Ducks' },
+  { abbr: 'BOS', name: 'Boston Bruins' },
+  { abbr: 'BUF', name: 'Buffalo Sabres' },
+  { abbr: 'CAR', name: 'Carolina Hurricanes' },
+  { abbr: 'CBJ', name: 'Columbus Blue Jackets' },
+  { abbr: 'CGY', name: 'Calgary Flames' },
+  { abbr: 'CHI', name: 'Chicago Blackhawks' },
+  { abbr: 'COL', name: 'Colorado Avalanche' },
+  { abbr: 'DAL', name: 'Dallas Stars' },
+  { abbr: 'DET', name: 'Detroit Red Wings' },
+  { abbr: 'EDM', name: 'Edmonton Oilers' },
+  { abbr: 'FLA', name: 'Florida Panthers' },
+  { abbr: 'LAK', name: 'Los Angeles Kings' },
+  { abbr: 'MIN', name: 'Minnesota Wild' },
+  { abbr: 'MTL', name: 'Montréal Canadiens' },
+  { abbr: 'NJD', name: 'New Jersey Devils' },
+  { abbr: 'NSH', name: 'Nashville Predators' },
+  { abbr: 'NYI', name: 'New York Islanders' },
+  { abbr: 'NYR', name: 'New York Rangers' },
+  { abbr: 'OTT', name: 'Ottawa Senators' },
+  { abbr: 'PHI', name: 'Philadelphia Flyers' },
+  { abbr: 'PIT', name: 'Pittsburgh Penguins' },
+  { abbr: 'SEA', name: 'Seattle Kraken' },
+  { abbr: 'SJS', name: 'San Jose Sharks' },
+  { abbr: 'STL', name: 'St. Louis Blues' },
+  { abbr: 'TBL', name: 'Tampa Bay Lightning' },
+  { abbr: 'TOR', name: 'Toronto Maple Leafs' },
+  { abbr: 'UTA', name: 'Utah Hockey Club' },
+  { abbr: 'VAN', name: 'Vancouver Canucks' },
+  { abbr: 'VGK', name: 'Vegas Golden Knights' },
+  { abbr: 'WPG', name: 'Winnipeg Jets' },
+  { abbr: 'WSH', name: 'Washington Capitals' },
+];
+
+// Prefs state — tracked_teams is an ordered array; index 0 = rank #1
+let _trackedTeams = [];
+let _trackedPlayers = []; // array of player_id ints
+let _allPlayers = [];     // full player list from API
+
+// ── Session token storage (localStorage + Bearer for Safari ITP compat) ───────
+
+const SESSION_KEY = 'hgb_session';
+
+function saveToken(token) {
+  try { localStorage.setItem(SESSION_KEY, token); } catch {}
+}
+
+function loadToken() {
+  try { return localStorage.getItem(SESSION_KEY) || null; } catch { return null; }
+}
+
+function clearToken() {
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
+
+// Wraps fetch: always sends credentials (cookie) + Authorization header if
+// we have a localStorage token, so both Safari (Bearer) and Chrome (cookie) work.
+function apiFetch(url: string, opts: Record<string, any> = {}) {
+  const token = loadToken();
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers['authorization'] = `Bearer ${token}`;
+  return fetch(url, { ...opts, credentials: 'include', headers });
+}
+
+// ── State machine ─────────────────────────────────────────────────────────────
+
+function setState(name) {
+  document.querySelectorAll<HTMLElement>('[data-state]').forEach(el => {
+    el.classList.toggle('active', el.dataset.state === name);
+  });
+}
+
+function showStatus(msg, type = 'error') {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.className = `status-msg visible ${type}`;
+}
+
+// ── Auth flow ─────────────────────────────────────────────────────────────────
+
+async function checkToken() {
+  // Google OAuth callback: token in URL hash (#t=TOKEN)
+  if (location.hash.startsWith('#t=')) {
+    const token = location.hash.slice(3);
+    history.replaceState({}, '', '/account');
+    saveToken(token);
+    const ok = await checkSession();
+    if (!ok) { setState('unauth'); showStatus('Sign-in failed. Please try again.', 'error'); }
+    return true;
+  }
+
+  const params = new URLSearchParams(location.search);
+
+  const authError = params.get('auth_error');
+  if (authError) {
+    history.replaceState({}, '', '/account');
+    setState('unauth');
+    const msgs = {
+      cancelled: 'Sign-in cancelled.',
+      invalid_state: 'Sign-in failed (invalid state). Please try again.',
+      token_failed: 'Could not complete Google sign-in. Please try again.',
+      profile_failed: 'Could not retrieve your Google profile. Please try again.',
+      unverified_email: 'Your Google account email is not verified.',
+    };
+    showStatus(msgs[authError] || 'Sign-in failed. Please try again.', 'error');
+    return true;
+  }
+
+  // Magic-link: token in ?token= query param
+  const token = params.get('token');
+  if (!token) return false;
+
+  history.replaceState({}, '', '/account');
+
+  try {
+    const res = await fetch(`${API}/v1/auth/verify?token=${encodeURIComponent(token)}`, {
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (res.ok && data.user) {
+      if (data.session_token) saveToken(data.session_token);
+      setAuthState(data.user);
+      return true;
+    } else {
+      setState('unauth');
+      showStatus(data.error || 'Link expired or invalid. Please request a new one.', 'error');
+      return true;
+    }
+  } catch {
+    setState('unauth');
+    showStatus('Could not verify sign-in link. Please try again.', 'error');
+    return true;
+  }
+}
+
+async function checkSession() {
+  try {
+    const res = await apiFetch(`${API}/v1/auth/me`);
+    if (res.ok) {
+      const data = await res.json();
+      setAuthState(data.user);
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function setAuthState(user) {
+  setState('auth');
+  document.getElementById('user-email').textContent = user.email;
+  const tierLabel = user.patreon_tier
+    ? user.patreon_tier.charAt(0).toUpperCase() + user.patreon_tier.slice(1)
+    : 'Free account';
+  document.getElementById('user-tier-label').textContent = tierLabel;
+  document.getElementById('mast-headline').textContent = 'Your Account';
+  document.getElementById('mast-sub').textContent = `Welcome back. You're signed in as ${user.email}.`;
+  renderAuthContent(user);
+}
+
+// ── Content panel ─────────────────────────────────────────────────────────────
+
+function renderAuthContent(user) {
+  const panel = document.getElementById('content-panel');
+  panel.innerHTML = `
+    <div class="prefs-intro-row">
+      <p class="prefs-intro">
+        Tracked teams and players sync across devices.
+        ${user.patreon_tier
+          ? 'Your Patreon support unlocks additional features.'
+          : 'Link your <a href="/support" style="color:var(--red)">Patreon</a> to unlock supporter features.'}
+      </p>
+    </div>
+
+    <div class="prefs-section">
+      <div class="prefs-section-header">
+        <span class="prefs-section-label">Tracked Teams</span>
+        <span class="prefs-section-meta" id="teams-meta">— / 4</span>
+      </div>
+      <div class="team-chips" id="team-chips">
+        <span class="prefs-loading">Loading…</span>
+      </div>
+      <div class="team-order-wrap" id="team-order-wrap" style="display:none">
+        <div class="team-order-label">// Featured game order · drag rank 1 to homepage hero</div>
+        <div class="team-order"></div>
+      </div>
+    </div>
+
+    <div class="prefs-section">
+      <div class="prefs-section-header">
+        <span class="prefs-section-label">Tracked Players</span>
+        <span class="prefs-section-meta" id="players-meta">— / 20</span>
+      </div>
+      <div class="player-search-wrap">
+        <input class="field-input" id="player-search" type="search" placeholder="Search by name…" autocomplete="off" />
+        <div class="player-results" id="player-results"></div>
+      </div>
+      <div class="player-tags" id="player-tags">
+        <span class="prefs-loading">Loading…</span>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:20px;padding-top:8px;">
+      <button class="btn-primary" id="save-prefs-btn" style="width:auto;padding:12px 32px;">Save preferences</button>
+      <span class="save-indicator" id="save-indicator">Saved</span>
+    </div>
+  `;
+
+  loadPrefs();
+}
+
+// ── Prefs: load ───────────────────────────────────────────────────────────────
+
+async function loadPrefs() {
+  const [prefsRes, playersRes] = await Promise.all([
+    apiFetch(`${API}/v1/account/prefs`).catch(() => null),
+    fetch(`${API}/v1/stats/players`).catch(() => null),
+  ]);
+
+  if (playersRes?.ok) {
+    const raw = await playersRes.json();
+    _allPlayers = Array.isArray(raw) ? raw : (raw.players || []);
+  }
+
+  if (prefsRes?.ok) {
+    const prefs = await prefsRes.json();
+    const raw = prefs.tracked_teams || [];
+    _trackedTeams = raw.map(t => typeof t === 'string' ? t : t?.abbrev).filter(Boolean);
+    _trackedPlayers = prefs.tracked_players || [];
+  }
+
+  renderTeamChips();
+  renderPlayerTags();
+  setupPlayerSearch();
+
+  const saveBtn = document.getElementById('save-prefs-btn');
+  if (saveBtn) saveBtn.addEventListener('click', savePrefs);
+}
+
+// ── Teams ─────────────────────────────────────────────────────────────────────
+
+function renderTeamChips() {
+  const container = document.getElementById('team-chips');
+  if (!container) return;
+  const atMax = _trackedTeams.length >= 4;
+
+  container.innerHTML = NHL_TEAMS.map(t => {
+    const sel = _trackedTeams.includes(t.abbr);
+    const disabled = !sel && atMax;
+    return `<button class="team-chip${sel ? ' selected' : ''}" data-team="${t.abbr}" title="${t.name}"${disabled ? ' disabled' : ''}>${t.abbr}</button>`;
+  }).join('');
+
+  document.getElementById('teams-meta').textContent = `${_trackedTeams.length} / 4`;
+
+  container.querySelectorAll<HTMLElement>('.team-chip').forEach(btn => {
+    btn.addEventListener('click', () => toggleTeam(btn.dataset.team));
+  });
+
+  renderTeamOrder();
+}
+
+function renderTeamOrder() {
+  const wrap = document.getElementById('team-order-wrap');
+  if (!wrap) return;
+  if (!_trackedTeams.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+
+  const orderEl = wrap.querySelector('.team-order');
+  if (!orderEl) return;
+  orderEl.innerHTML = _trackedTeams.map((abbr, i) => `
+    <div class="team-order-row">
+      <span class="team-order-rank">#${i + 1}</span>
+      <span class="team-order-abbr">${abbr}</span>
+      <button class="team-order-btn" data-move="${abbr}" data-dir="up"${i === 0 ? ' disabled' : ''}>↑</button>
+      <button class="team-order-btn" data-move="${abbr}" data-dir="down"${i === _trackedTeams.length - 1 ? ' disabled' : ''}>↓</button>
+    </div>`).join('');
+
+  orderEl.querySelectorAll<HTMLElement>('[data-move]').forEach(btn => {
+    btn.addEventListener('click', () => moveTeam(btn.dataset.move, btn.dataset.dir));
+  });
+}
+
+function moveTeam(abbr, dir) {
+  const i = _trackedTeams.indexOf(abbr);
+  if (i < 0) return;
+  const j = dir === 'up' ? i - 1 : i + 1;
+  if (j < 0 || j >= _trackedTeams.length) return;
+  [_trackedTeams[i], _trackedTeams[j]] = [_trackedTeams[j], _trackedTeams[i]];
+  renderTeamOrder();
+  savePrefs();
+}
+
+function toggleTeam(abbr) {
+  const idx = _trackedTeams.indexOf(abbr);
+  if (idx >= 0) {
+    _trackedTeams.splice(idx, 1);
+  } else if (_trackedTeams.length < 4) {
+    _trackedTeams.push(abbr);
+  }
+  renderTeamChips();
+  savePrefs();
+}
+
+// ── Players ───────────────────────────────────────────────────────────────────
+
+function renderPlayerTags() {
+  const container = document.getElementById('player-tags');
+  if (!container) return;
+
+  document.getElementById('players-meta').textContent = `${_trackedPlayers.length} / 20`;
+
+  if (_trackedPlayers.length === 0) {
+    container.innerHTML = '<span class="player-tags-empty">No players tracked yet — search above to add.</span>';
+    return;
+  }
+
+  container.innerHTML = _trackedPlayers.map(id => {
+    const p = _allPlayers.find(pl => pl.player_id === id);
+    const label = p ? `${p.first_name} ${p.last_name}` : `#${id}`;
+    const meta = p?.team_abbrev || '';
+    return `
+      <div class="player-tag">
+        <span>${label}${meta ? `<span style="color:var(--ink-48);margin-left:6px">${meta}</span>` : ''}</span>
+        <button class="player-tag-remove" data-player-id="${id}" aria-label="Remove ${label}">×</button>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll<HTMLElement>('.player-tag-remove').forEach(btn => {
+    btn.addEventListener('click', () => removePlayer(parseInt(btn.dataset.playerId, 10)));
+  });
+}
+
+function removePlayer(id) {
+  _trackedPlayers = _trackedPlayers.filter(p => p !== id);
+  renderPlayerTags();
+  savePrefs();
+}
+
+function setupPlayerSearch() {
+  const input = document.getElementById('player-search') as HTMLInputElement | null;
+  const results = document.getElementById('player-results');
+  if (!input || !results) return;
+
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    if (q.length < 2) {
+      results.classList.remove('open');
+      results.innerHTML = '';
+      return;
+    }
+
+    const matches = _allPlayers
+      .filter(p => !_trackedPlayers.includes(p.player_id))
+      .filter(p => `${p.first_name} ${p.last_name}`.toLowerCase().includes(q))
+      .slice(0, 12);
+
+    if (matches.length === 0) {
+      results.classList.remove('open');
+      results.innerHTML = '';
+      return;
+    }
+
+    results.innerHTML = matches.map(p => `
+      <div class="player-result" data-player-id="${p.player_id}">
+        <span class="player-result-name">${p.first_name} ${p.last_name}</span>
+        <span class="player-result-meta">${p.pos || ''} · ${p.team_abbrev || ''}</span>
+      </div>
+    `).join('');
+    results.classList.add('open');
+
+    results.querySelectorAll<HTMLElement>('.player-result').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = parseInt(el.dataset.playerId, 10);
+        if (!_trackedPlayers.includes(id) && _trackedPlayers.length < 20) {
+          _trackedPlayers.push(id);
+          renderPlayerTags();
+          savePrefs();
+        }
+        input.value = '';
+        results.classList.remove('open');
+        results.innerHTML = '';
+        input.focus();
+      });
+    });
+  });
+
+  document.addEventListener('click', e => {
+    const t = e.target as Node | null;
+    if (!input.contains(t) && !results.contains(t)) {
+      results.classList.remove('open');
+    }
+  });
+}
+
+// ── Prefs: save ───────────────────────────────────────────────────────────────
+
+async function savePrefs() {
+  try {
+    const res = await apiFetch(`${API}/v1/account/prefs`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        tracked_teams: _trackedTeams,
+        tracked_players: _trackedPlayers,
+      }),
+    });
+    if (res.ok) {
+      flashSaved();
+    } else {
+      console.error('[prefs] save returned', res.status);
+      flashError();
+    }
+  } catch (err) {
+    console.error('[prefs] save failed', err);
+    flashError();
+  }
+}
+
+function flashSaved() {
+  const el = document.getElementById('save-indicator');
+  if (!el) return;
+  el.textContent = 'Saved';
+  el.style.color = 'var(--green)';
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 1800);
+}
+
+function flashError() {
+  const el = document.getElementById('save-indicator');
+  if (!el) return;
+  el.textContent = 'Save failed — please sign in again';
+  el.style.color = 'var(--red)';
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 4000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+(async () => {
+  const handledToken = await checkToken();
+  if (!handledToken) {
+    const hasSession = await checkSession();
+    if (!hasSession) setState('unauth');
+  }
+})();
+
+document.getElementById('signin-form')!.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = (document.getElementById('email-input') as HTMLInputElement).value.trim();
+  const btn = document.getElementById('signin-btn') as HTMLButtonElement;
+
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+
+  try {
+    const res = await fetch(`${API}/v1/auth/magic-link`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setState('link-sent');
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Send sign-in link';
+      showStatus(data.error || 'Something went wrong. Try again.', 'error');
+    }
+  } catch {
+    btn.disabled = false;
+    btn.textContent = 'Send sign-in link';
+    showStatus('Could not connect. Check your connection and try again.', 'error');
+  }
+});
+
+document.getElementById('try-again-btn').addEventListener('click', () => {
+  setState('unauth');
+});
+
+document.getElementById('google-signin-btn').addEventListener('click', (e) => {
+  e.preventDefault();
+  window.location.href = `${API}/v1/auth/google?from=${encodeURIComponent(window.location.origin)}`;
+});
+
+document.getElementById('signout-btn').addEventListener('click', async () => {
+  _trackedTeams = [];
+  _trackedPlayers = [];
+  _allPlayers = [];
+  clearToken();
+  await apiFetch(`${API}/v1/auth/logout`, { method: 'POST' });
+  setState('unauth');
+  document.getElementById('user-email').textContent = '—';
+  document.getElementById('content-panel').innerHTML = '';
+  document.getElementById('mast-sub').textContent = 'Access your saved preferences and supporter features. No password needed.';
+});
+</script>
+
+</body>
+</html>

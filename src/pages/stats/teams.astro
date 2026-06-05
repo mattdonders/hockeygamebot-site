@@ -1,0 +1,533 @@
+---
+// HockeyGameBot — /stats/teams — League-wide NHL Team Leaderboard
+// =============================================================================
+// FIRST CONSUMER of Table.astro (the new shared table component shipped on
+// 2026-05-27). Mirrors the pattern used in /stats/skaters for the page shell
+// (masthead + filter toolbar + table) but delegates ALL row rendering, sort
+// behavior, sticky-header, mobile scroll, and PNG export to <Table>.
+//
+// Data sourced from api.hockeygamebot.com/v1/stats/teams (R2-backed JSON).
+// Pipeline: hgb-analytics/scripts/export_teams_json.py → upload_stats_r2.py.
+//
+// CANONICAL SPEC: hgb-docs/TABLES.md
+// TICKET:         prompts/2026-05-27-teams-stats-page.md
+// =============================================================================
+
+import Nav from '../../components/Nav.astro';
+import StatsSubnav from '../../components/StatsSubnav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import StatsSEO from '../../components/StatsSEO.astro';
+import TeamsTable from '../../components/react/TeamsTable';
+import { loadMeta, loadIsPlayoffSeason } from '../../lib/stats-loader';
+
+interface TeamRow {
+  team_abbrev: string;
+  team_name_full: string;
+  team_name_city: string;
+  team_name_nickname: string;
+  division: string;
+  conference: string;
+  season: string;
+  gp: number;
+  wins: number;
+  losses: number;
+  ot_losses: number;
+  points: number;
+  gf: number;
+  ga: number;
+  xgf_all: number;
+  xga_all: number;
+  xgf_pct_all: number;
+  toi_all_sec: number;
+  toi_5v5_sec: number;
+  gf_5v5: number;
+  ga_5v5: number;
+  gf_pct_5v5: number;
+  xgf_5v5: number;
+  xga_5v5: number;
+  xgf_pct_5v5: number;
+  sf_5v5: number;
+  sa_5v5: number;
+  sf_pct_5v5: number;
+  sh_pct_5v5: number;
+  sv_pct_5v5: number;
+  pdo_5v5: number;
+  pp_pct: number;
+  pk_pct: number;
+  pp_xgf_60: number;
+  pk_xga_60: number;
+}
+
+// ── R2 data fetch ─────────────────────────────────────────────────────────────
+// Defensive: the /v1/stats/teams endpoint is part of the in-flight pipeline
+// ticket. If the response is missing or malformed we fall back to empty
+// arrays so the SSR build doesn't crash. The on-page UI will show "no data"
+// until the pipeline ships.
+let _teamsData: { regular: TeamRow[]; playoffs: TeamRow[] } = { regular: [], playoffs: [] };
+try {
+  const res = await fetch('https://api.hockeygamebot.com/v1/stats/teams');
+  if (res.ok) {
+    const parsed = await res.json();
+    _teamsData = {
+      regular: Array.isArray(parsed?.regular) ? parsed.regular : [],
+      playoffs: Array.isArray(parsed?.playoffs) ? parsed.playoffs : [],
+    };
+  }
+} catch {
+  // network/parse failure — fall through to empty arrays
+}
+const mockTeamsReg      = _teamsData.regular  as TeamRow[];
+const mockTeamsPlayoff  = _teamsData.playoffs as TeamRow[];
+const _meta      = loadMeta();
+const isPlayoffSeason = loadIsPlayoffSeason();
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
+
+// ── Resolve initial filter state from URL (build-time safe defaults) ────────
+const url = new URL(Astro.url.href);
+const initialGameType = url.searchParams.get('game_type') === 'playoffs' ? 'playoffs' : 'regular';
+const initialDisplay  = url.searchParams.get('display')  === 'per60'    ? 'per60'    : 'totals';
+const initialStrength = url.searchParams.get('strength') === '5v5'      ? '5v5'      : 'all';
+const initialConf     = url.searchParams.get('conf')     ?? 'all';
+const initialDiv      = url.searchParams.get('div')      ?? 'all';
+
+// Extract available seasons from combined data, newest first.
+const availableSeasons = [...new Set([
+  ...mockTeamsReg.map(t => t.season),
+  ...mockTeamsPlayoff.map(t => t.season),
+])].sort().reverse();
+const defaultSeason = availableSeasons[0] ?? '2025-26';
+const initialSeason = url.searchParams.get('season') ?? defaultSeason;
+
+const baseTeams = (initialGameType === 'playoffs' ? mockTeamsPlayoff : mockTeamsReg)
+  .filter(t => t.season === initialSeason);
+
+// ── Per-60 + strength transform ─────────────────────────────────────────────
+// Fix 3 (Round 3, 2026-05-27): the previous build only crossed (gameType × display)
+// = 4 variants. The strength toggle now actually swaps which stat-set is rendered,
+// so we cross (gameType × strength × display) = 8 variants. For the "all"
+// strength bucket the mock data exposes `gf`/`ga`/`xgf_5v5`/`xga_5v5`/`sf_5v5`
+// (xG and SF only have 5v5 fields in the mock — when teams.json ships those
+// will be backed by all-situations columns too; the placeholder behavior is to
+// fall back to the 5v5 number for now so the toggle visibly does something).
+function toRow(
+  t: TeamRow,
+  display: 'totals' | 'per60',
+  strength: 'all' | '5v5',
+): TeamRow & {
+  rank: number;
+  record: string;
+  season: string;
+  gf_display: number;
+  ga_display: number;
+  xgf_display: number;
+  xga_display: number;
+  gf_pct: number;
+  xgf_pct: number;
+  sf_pct: number;
+} {
+  const is5v5 = strength === '5v5';
+  const isPer60 = display === 'per60';
+  // Use all-sit TOI as per-60 denominator when viewing all-sit numbers.
+  const toiSec = is5v5 ? t.toi_5v5_sec : (t.toi_all_sec ?? t.toi_5v5_sec);
+  const hours = toiSec / 3600;
+
+  // Pick the source values for each metric based on strength state.
+  const gfRaw  = is5v5 ? t.gf_5v5 : t.gf;
+  const gaRaw  = is5v5 ? t.ga_5v5 : t.ga;
+  // xGF/xGA: real all-sit values from pipeline; fall back to 5v5 if field absent
+  // (old cached JSON from before the pipeline fix).
+  const xgfRaw = is5v5
+    ? t.xgf_5v5
+    : (t.xgf_all ?? t.xgf_5v5);
+  const xgaRaw = is5v5
+    ? t.xga_5v5
+    : (t.xga_all ?? t.xga_5v5);
+
+  // Derived rate stats
+  const gfPct  = is5v5 ? t.gf_pct_5v5 : +(gfRaw / (gfRaw + gaRaw) || 0.5).toFixed(3);
+  const xgfPct = is5v5
+    ? t.xgf_pct_5v5
+    : (t.xgf_pct_all ?? +(xgfRaw / (xgfRaw + xgaRaw) || 0.5).toFixed(3));
+  // SF%: all-sit not yet in pipeline; use 5v5 value for both buckets
+  const sfPct  = t.sf_pct_5v5;
+
+  return {
+    ...t,
+    rank: 0, // assigned after sort
+    record: `${t.wins}-${t.losses}-${t.ot_losses}`,
+    season: t.season,
+    // Per-60 versions of counting stats. Both 5v5 and all-sit divide by the
+    // same `hours` for now — when teams.json ships an all-situations TOI it
+    // should be used as the denominator for the all-sit branch.
+    gf_display:  isPer60 ? +(gfRaw  / hours).toFixed(2) : gfRaw,
+    ga_display:  isPer60 ? +(gaRaw  / hours).toFixed(2) : gaRaw,
+    xgf_display: isPer60 ? +(xgfRaw / hours).toFixed(2) : +xgfRaw.toFixed(1),
+    xga_display: isPer60 ? +(xgaRaw / hours).toFixed(2) : +xgaRaw.toFixed(1),
+    // Strength-aware rate columns. The Table consumes these by key so we keep
+    // the original `*_5v5` keys (the columns array still reads from those)
+    // and ALSO expose new neutral keys for clients that want the bucketed
+    // value. We overwrite the *_5v5 fields with the strength-appropriate
+    // value so existing column lookups Just Work without renaming.
+    gf_pct_5v5:  gfPct,
+    xgf_pct_5v5: xgfPct,
+    sf_pct_5v5:  sfPct,
+    gf_pct:  gfPct,
+    xgf_pct: xgfPct,
+    sf_pct:  sfPct,
+  };
+}
+
+// ── Apply non-toggle filters at build time ──────────────────────────────────
+// baseTeams is already filtered by season (see above).
+let filtered = baseTeams;
+if (initialConf !== 'all') filtered = filtered.filter(t => t.conference.toLowerCase().startsWith(initialConf.toLowerCase().charAt(0)));
+if (initialDiv  !== 'all') filtered = filtered.filter(t => t.division.toLowerCase() === initialDiv.toLowerCase());
+
+// ── Pre-sort by xGF% desc + rank-assign ─────────────────────────────────────
+const rows = filtered
+  .map(t => toRow(t, initialDisplay, initialStrength))
+  .sort((a, b) => b.xgf_pct_5v5 - a.xgf_pct_5v5)
+  .map((r, i) => ({ ...r, rank: i + 1 }));
+
+const teamCount = rows.length;
+const totalCount = baseTeams.length;
+const timestamp = new Date().toISOString().slice(0, 10);
+
+// ── Client-side data payload (Issue 7 + Fix 3 / Round 3) ────────────────────
+// Ship every (gameType × strength × display) permutation = 8 variants. The
+// client script swaps the visible row set in place when the user changes any
+// toggle — no page reload. This is what makes Per60 / game type / strength
+// chips actually change data instead of just decorating a URL.
+const clientPayload = {
+  regular: {
+    all: {
+      totals: mockTeamsReg.map(t => toRow(t, 'totals', 'all')),
+      per60:  mockTeamsReg.map(t => toRow(t, 'per60',  'all')),
+    },
+    fivev5: {
+      totals: mockTeamsReg.map(t => toRow(t, 'totals', '5v5')),
+      per60:  mockTeamsReg.map(t => toRow(t, 'per60',  '5v5')),
+    },
+  },
+  playoffs: {
+    all: {
+      totals: mockTeamsPlayoff.map(t => toRow(t, 'totals', 'all')),
+      per60:  mockTeamsPlayoff.map(t => toRow(t, 'per60',  'all')),
+    },
+    fivev5: {
+      totals: mockTeamsPlayoff.map(t => toRow(t, 'totals', '5v5')),
+      per60:  mockTeamsPlayoff.map(t => toRow(t, 'per60',  '5v5')),
+    },
+  },
+};
+
+// ── Column definitions (consumed by <Table>) ────────────────────────────────
+// Threshold callback: ≥0.55 green, ≤0.45 red. PP%/PK% have higher midpoints
+// so they don't use the universal threshold — they're informational only.
+const pctColor = (v: number | null | undefined, _row: any, tok?: { pos: string; neg: string }): string | undefined => {
+  if (v == null) return undefined;
+  if (v >= 0.55) return tok?.pos;
+  if (v <= 0.45) return tok?.neg;
+  return undefined;
+};
+
+const fmtPct = (v: number | null | undefined): string =>
+  v == null ? '—' : (v * 100).toFixed(1) + '%';
+
+const fmtFloat1 = (v: number | null | undefined): string =>
+  v == null ? '—' : Number(v).toFixed(1);
+
+const fmtInt = (v: number | null | undefined): string =>
+  v == null ? '—' : String(Math.round(Number(v)));
+
+// Render number (count vs rate) based on display mode at build.
+const fmtCount = (v: number | null | undefined): string => {
+  if (v == null) return '—';
+  // If it's already a small decimal (per-60 transformed), show one decimal;
+  // otherwise show as integer.
+  return Number.isInteger(v) ? String(v) : Number(v).toFixed(2);
+};
+
+// ── Per-60 label helper (Fix 2 / Round 3) ──────────────────────────────────
+// Counting-stat columns swap their label between e.g. "GF" and "GF/60" based
+// on the active display mode. Percentage columns (GF%, xGF%, SF%, PP%, PK%)
+// are already rates — they never change label. The label list lives in the
+// columns array (SSR initial paint) AND in the client-side `LABEL_MAPS`
+// constant below — keep both in sync.
+const labelFor = (base: string, display: 'totals' | 'per60'): string =>
+  display === 'per60' ? `${base}/60` : base;
+
+// ── Season formatter ────────────────────────────────────────────────────────
+// Pipeline writes "2025-26"; display as "25-26" to save column width.
+const fmtSeason = (v: any): string => {
+  const s = String(v ?? '');
+  const m = s.match(/^(\d{2})(\d{2})-(\d{2})$/);  // "2025-26"
+  return m ? `${m[2]}-${m[3]}` : s;
+};
+
+// Column order: identity → percentages (the territorial story) → raw counts → special teams
+// Percentages lead because they're the first question: "who controlled play?"
+// Raw counts (GF, GA, xGF, xGA) follow as context. Per-60 toggle transforms them.
+// SF% renamed CF% — correct analytics abbreviation (Corsi For %).
+const columns = [
+  {
+    key: 'rank',
+    label: '#',
+    type: 'rank' as const,
+    sortable: false,
+  },
+  {
+    key: 'team_abbrev',
+    label: 'Team',
+    type: 'team' as const,
+  },
+  {
+    key: 'season',
+    label: 'Season',
+    type: 'number' as const,
+    format: fmtSeason,
+  },
+  {
+    key: 'gp',
+    label: 'GP',
+    type: 'number' as const,
+  },
+  {
+    key: 'record',
+    label: 'Record',
+    type: 'number' as const,
+  },
+  // ── Percentages first — the territorial story ─────────────────────────────
+  {
+    key: 'gf_pct_5v5',
+    label: 'GF%',
+    type: 'number' as const,
+    format: fmtPct,
+    color: pctColor,
+  },
+  {
+    key: 'xgf_pct_5v5',
+    label: 'xGF%',
+    type: 'number' as const,
+    format: fmtPct,
+    color: pctColor,
+    bold: true,
+  },
+  {
+    key: 'sf_pct_5v5',
+    label: 'CF%',
+    type: 'number' as const,
+    format: fmtPct,
+    color: pctColor,
+  },
+  // ── Raw counts — context behind the percentages ───────────────────────────
+  {
+    key: 'gf_display',
+    label: labelFor('GF', initialDisplay),
+    type: 'number' as const,
+    format: fmtCount,
+  },
+  {
+    key: 'ga_display',
+    label: labelFor('GA', initialDisplay),
+    type: 'number' as const,
+    format: fmtCount,
+  },
+  {
+    key: 'xgf_display',
+    label: labelFor('xGF', initialDisplay),
+    type: 'number' as const,
+    format: fmtFloat1,
+  },
+  {
+    key: 'xga_display',
+    label: labelFor('xGA', initialDisplay),
+    type: 'number' as const,
+    format: fmtFloat1,
+  },
+  // ── Special teams ─────────────────────────────────────────────────────────
+  {
+    key: 'pp_pct',
+    label: 'PP%',
+    type: 'number' as const,
+    format: fmtPct,
+  },
+  {
+    key: 'pk_pct',
+    label: 'PK%',
+    type: 'number' as const,
+    format: fmtPct,
+  },
+];
+
+const pageDescription = 'League-wide NHL team leaderboard — sort all 32 teams by xGF%, GF%, SF%, and special-teams stats. 5v5 + all-situations aggregates for the 2025-26 season.';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <StatsSEO
+    title="NHL Team Stats — HockeyGameBot"
+    description={pageDescription}
+  />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/favicon-180x180.png" />
+
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:        #EFEEE8;
+      --ink:       #0d0d14;
+      --red:       #E8002D;
+      --surface:   #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:    rgba(13,13,20,0.04);
+      --ink-06:    rgba(13,13,20,0.06);
+      --ink-10:    rgba(13,13,20,0.10);
+      --ink-14:    rgba(13,13,20,0.14);
+      --ink-20:    rgba(13,13,20,0.20);
+      --ink-32:    rgba(13,13,20,0.32);
+      --ink-48:    rgba(13,13,20,0.48);
+      --ink-56:    rgba(13,13,20,0.56);
+      --ink-72:    rgba(13,13,20,0.72);
+      --display:   'Barlow Condensed', sans-serif;
+      --body:      'Barlow', sans-serif;
+      --mono:      'JetBrains Mono', monospace;
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Masthead ───────────────────────────────────────────────────────── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.12em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-56); max-width: 720px; }
+
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+    /* ── Section header + toolbar ───────────────────────────────────────── */
+    .lb-section { padding: 40px 0 0; position: relative; }
+    .lb-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+      margin-bottom: 14px; flex-wrap: wrap; }
+    .lb-title { font-family: var(--display); font-weight: 800; font-size: clamp(20px, 2.5vw, 28px);
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32);
+      letter-spacing: 0.12em; text-transform: uppercase; }
+
+    /* ── Filter chip toolbar ─────────────────────────────────────────────── */
+    .lb-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .btn-group { display: inline-flex; border: 1px solid var(--ink-14); }
+    .btn-group button { background: var(--surface); border: none; border-right: 1px solid var(--ink-14);
+      padding: 6px 14px; cursor: pointer; font-family: var(--body); font-weight: 600;
+      font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ink-48); transition: background 0.1s, color 0.1s; }
+    .btn-group button:last-child { border-right: none; }
+    .btn-group button.active { background: var(--ink); color: var(--bg); }
+    .btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
+    select.lb-select { background: var(--surface); border: 1px solid var(--ink-14); padding: 6px 10px;
+      font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
+      color: var(--ink); cursor: pointer; outline: none; }
+    .lb-spacer { flex: 1 1 auto; }
+    #team-search { background: var(--surface); border: 1px solid var(--ink-14); padding: 6px 10px;
+      font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.04em;
+      color: var(--ink); outline: none; width: 180px; }
+    #team-search::placeholder { color: var(--ink-32); font-weight: 400; }
+
+    /* ── Footer ─────────────────────────────────────────────────────────── */
+    .lb-footer { text-align: center; margin-top: 56px; color: var(--ink-32);
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+    /* ── Responsive masthead ────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .mast-inner { padding: 28px 20px; }
+      .mast-card  { padding: 24px 20px 20px; }
+      .wrap { padding: 0 20px 60px; }
+      #team-search { width: 140px; }
+    }
+    @media (max-width: 480px) {
+      .mast-inner { padding: 20px 16px; }
+      .mast-card  { padding: 18px 14px 16px; }
+      .wrap { padding: 0 16px 48px; }
+    }
+  </style>
+<script src="/js/table-export.js" defer></script>
+
+  <meta property="og:title" content="Team Analytics · HGB Stats · HockeyGameBot" />
+  <meta property="og:description" content="xGF%, GF%, Impact rank, draft capital, and model signals — all 32 NHL teams." />
+  <meta property="og:image" content="https://hockeygamebot.com/og/teams.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://hockeygamebot.com/og/teams.png" />
+</head>
+<body>
+
+<Nav currentPath={Astro.url.pathname} />
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats / Teams</div>
+      <div>{totalCount} teams · 2025–26 · {timestamp}</div>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">NHL Team Stats</h1>
+      <p class="mast-lede">Forward lines, defensive pairs, and team-level 5v5 + all-situations aggregates. Sort by any column.</p>
+    </div>
+  </div>
+</section>
+<StatsSubnav currentPath={Astro.url.pathname} />
+<main class="wrap">
+
+  <section class="lb-section">
+    <div class="lb-head">
+      <span class="lb-title">Team Leaderboard</span>
+    </div>
+
+    <TeamsTable
+      regularRows={mockTeamsReg}
+      playoffRows={mockTeamsPlayoff}
+      statsDate={_statsDate}
+      availableSeasons={availableSeasons}
+      isPlayoffSeason={isPlayoffSeason}
+      client:load
+    />
+  </section>
+
+</main>
+
+<footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · TEAMS V1</footer>
+
+
+</body>
+</html>

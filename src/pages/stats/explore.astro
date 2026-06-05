@@ -1,0 +1,1532 @@
+---
+// HockeyGameBot — /stats/interactive — Explore
+// Full-featured scatter plot + player comparison tool
+import Nav from '../../components/Nav.astro';
+import ExploreSubnav from '../../components/ExploreSubnav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import { loadPlayers } from '../../lib/stats-loader';
+
+const allPlayersRaw = loadPlayers();
+
+// Flatten each player to only the fields this page needs, keeping payload small
+const explorePlayers = allPlayersRaw.map(p => ({
+  id:      p.player_id,
+  slug:    p.slug,
+  name:    p.display_name,
+  first:   p.first_name,
+  last:    p.last_name,
+  team:    p.team_abbrev,
+  pos:     p.pos,
+  group:   p.pos_group,
+  gp:      p.gp,
+  // scatter / comparison metrics
+  ev_off:  +(p.percentiles_vs_pos.ev_offence ?? 0).toFixed(1),
+  ev_def:  +(p.percentiles_vs_pos.ev_defence ?? 0).toFixed(1),
+  g60:     +(p.rates_per_60.goals ?? 0).toFixed(2),
+  a1_60:   +(p.rates_per_60.a1 ?? 0).toFixed(2),
+  xg60:    +(p.rates_per_60.ixg ?? 0).toFixed(2),
+  fin:     +(p.rates_per_60.finishing ?? 0).toFixed(2),
+  fin_p:   +(p.percentiles_vs_pos.finishing ?? 0).toFixed(1),
+  war:     p.war != null ? +p.war.toFixed(3) : null,
+  rapm:    p.rapm != null ? +p.rapm.toFixed(3) : null,
+  imp:     +(p.avg_gs_display ?? 0).toFixed(2),
+  imp_p:   +(p.gs_pct ?? 0).toFixed(1),
+  shots60: +(p.rates_per_60.shots ?? 0).toFixed(2),
+  shots_p: +(p.percentiles_vs_pos.shots ?? 0).toFixed(1),
+  g_p:     +(p.percentiles_vs_pos.goals ?? 0).toFixed(1),
+  a1_p:    +(p.percentiles_vs_pos.a1 ?? 0).toFixed(1),
+  xg_p:    +(p.percentiles_vs_pos.ixg ?? 0).toFixed(1),
+  goals:   p.goals,
+  assists: p.assists,
+  points:  p.goals + p.assists,
+}));
+
+// Derive unique team list for the filter dropdown
+const teams = [...new Set(explorePlayers.map(p => p.team))].sort();
+---
+<!doctype html>
+<html lang="en">
+<head>
+<ThemeScript />
+<Fonts />
+<meta charset="utf-8" />
+<title>Explore — NHL Analytics · HockeyGameBot</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="Interactive NHL analytics explorer: scatter any two stats, compare players side by side. 2025–26 season." />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+<link rel="apple-touch-icon" href="/favicon-180x180.png" />
+
+<style is:global>
+/* ── TOKENS ──────────────────────────────────────────────────── */
+:root {
+  --bg:      #EFEEE8;
+  --bg-2:    #E8E7E0;
+  --surface: #FFFFFF;
+  --ink:     #0d0d14;
+  --ink-86:  rgba(13,13,20,0.86);
+  --ink-72:  rgba(13,13,20,0.72);
+  --ink-56:  rgba(13,13,20,0.56);
+  --ink-48:  rgba(13,13,20,0.48);
+  --ink-32:  rgba(13,13,20,0.32);
+  --ink-20:  rgba(13,13,20,0.20);
+  --ink-14:  rgba(13,13,20,0.14);
+  --ink-10:  rgba(13,13,20,0.10);
+  --ink-06:  rgba(13,13,20,0.06);
+  --ink-04:  rgba(13,13,20,0.04);
+  --red:     #E8002D;
+  --green:   #22c55e;
+  --grid-line: rgba(13,13,20,0.04);
+  --display: "Barlow Condensed", sans-serif;
+  --body:    "Barlow", sans-serif;
+  --mono:    "JetBrains Mono", monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+
+/* ── MASTHEAD ────────────────────────────────────────────────── */
+.mast {
+  position: relative; overflow: hidden;
+  padding: 0;
+  border-bottom: 2px solid var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+.mast-ghost {
+  position: absolute; pointer-events: none; user-select: none; z-index: 0;
+  font-family: var(--display); font-weight: 800; font-size: 260px; line-height: 0.86;
+  text-transform: uppercase; letter-spacing: -0.02em; white-space: nowrap;
+  color: rgba(13,13,20,0.06);
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+}
+.mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+.mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+.mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+.mast-inner {
+  position: relative; z-index: 2;
+  max-width: 1200px; margin: 0 auto;
+  padding: 48px 32px 40px;
+}
+.mast-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--display); font-weight: 700;
+  font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ink-48); margin-bottom: 16px;
+}
+.mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+.mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+.mast-headline {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(36px, 5.5vw, 64px);
+  text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em;
+  color: var(--ink); margin-bottom: 14px;
+}
+.mast-headline em { color: var(--red); font-style: normal; }
+.mast-lede { font-size: 14px; line-height: 1.65; color: var(--ink-56); max-width: 680px; }
+.mast-lede strong { color: var(--ink-86); font-weight: 600; }
+
+/* ── LAYOUT ──────────────────────────────────────────────────── */
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+/* ── SECTION ─────────────────────────────────────────────────── */
+.section-block { padding: 40px 0 0; }
+.section-head {
+  display: flex; align-items: baseline;
+  justify-content: space-between; gap: 24px;
+  margin-bottom: 6px;
+}
+.section-head h2 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(20px, 2.5vw, 28px);
+  text-transform: uppercase; letter-spacing: 0.01em;
+  color: var(--ink);
+}
+.section-meta {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ink-32);
+}
+.section-lede {
+  font-size: 13px; color: var(--ink-48);
+  max-width: 780px; line-height: 1.6; margin-bottom: 16px;
+}
+
+/* ── FORM CONTROLS ───────────────────────────────────────────── */
+.ctrl-bar {
+  display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 14px;
+}
+.ctrl-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-48); white-space: nowrap;
+}
+select.ctrl-sel, input.ctrl-input {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  padding: 6px 10px;
+  font-family: var(--body); font-weight: 600; font-size: 12px;
+  letter-spacing: 0.03em; color: var(--ink);
+  outline: none; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%230d0d1470'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center;
+  padding-right: 28px;
+}
+input.ctrl-input {
+  background-image: none; padding-right: 10px; cursor: text;
+}
+.ctrl-btn-group {
+  display: inline-flex; border: 1px solid var(--ink-14); overflow: hidden;
+}
+.ctrl-btn-group button {
+  background: transparent; border: none; border-right: 1px solid var(--ink-14);
+  padding: 6px 14px; cursor: pointer;
+  font-family: var(--body); font-weight: 600; font-size: 12px;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-48);
+  transition: background 0.1s, color 0.1s;
+}
+.ctrl-btn-group button:last-child { border-right: none; }
+.ctrl-btn-group button.active {
+  background: var(--ink); color: var(--bg);
+}
+.ctrl-btn-group button:hover:not(.active) { background: var(--ink-06); color: var(--ink); }
+
+.export-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 1px solid var(--ink-20);
+  padding: 6px 14px; cursor: pointer;
+  font-family: var(--body); font-weight: 600; font-size: 11.5px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-48); transition: all 0.15s;
+  margin-left: auto;
+}
+.export-btn:hover { border-color: var(--ink); color: var(--ink); }
+.export-btn svg { flex-shrink: 0; }
+
+/* ── SCATTER ─────────────────────────────────────────────────── */
+.chart-surface {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  padding: 20px 16px 16px; position: relative; overflow: hidden;
+}
+#scatter-svg-wrap {
+  width: 100%; overflow: hidden;
+  /* min-height so mobile never collapses it */
+  min-height: 320px;
+}
+#scatter-svg-wrap svg { display: block; width: 100%; }
+
+/* Scatter pinned labels */
+.scatter-pinned-label {
+  pointer-events: none;
+  font-family: var(--display); font-weight: 700;
+  font-size: 11px; text-transform: uppercase;
+  fill: var(--ink);
+  paint-order: stroke;
+  stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round;
+}
+
+/* ── SCATTER TOOLTIP ─────────────────────────────────────────── */
+#scatter-tt {
+  position: fixed; z-index: 200;
+  background: var(--ink); color: var(--bg);
+  padding: 10px 14px; pointer-events: none;
+  font-family: var(--body); font-size: 12.5px; line-height: 1.5;
+  max-width: 220px; display: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+}
+#scatter-tt .tt-name {
+  font-family: var(--display); font-weight: 800;
+  font-size: 15px; text-transform: uppercase; margin-bottom: 2px;
+}
+#scatter-tt .tt-meta {
+  font-family: var(--mono); font-size: 10.5px;
+  opacity: 0.55; margin-bottom: 8px;
+}
+#scatter-tt .tt-row {
+  display: flex; justify-content: space-between; gap: 16px;
+  font-family: var(--mono); font-size: 11px;
+}
+#scatter-tt .tt-row .lbl { opacity: 0.55; }
+#scatter-tt .tt-row .val { font-weight: 600; }
+
+/* ── SCATTER LEGEND ──────────────────────────────────────────── */
+.scatter-legend {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 12px; margin-top: 12px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-48);
+}
+.scatter-legend .leg-item { display: flex; align-items: center; gap: 5px; }
+.scatter-legend .leg-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.15);
+}
+
+/* ── COMPARISON ──────────────────────────────────────────────── */
+.cmp-layout {
+  display: grid; grid-template-columns: 280px 1fr; gap: 20px;
+  align-items: start;
+}
+@media (max-width: 780px) { .cmp-layout { grid-template-columns: 1fr; } }
+
+.cmp-sidebar {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  padding: 16px;
+}
+.cmp-sidebar-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-48);
+  margin-bottom: 10px;
+}
+
+/* Player autocomplete */
+.autocomplete-wrap { position: relative; margin-bottom: 12px; }
+#cmp-search {
+  width: 100%; background: var(--surface); border: 1px solid var(--ink-14);
+  padding: 8px 10px;
+  font-family: var(--body); font-size: 13px; color: var(--ink);
+  outline: none;
+}
+#cmp-search::placeholder { color: var(--ink-32); }
+#cmp-search:focus { border-color: var(--ink-48); }
+.autocomplete-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+  background: var(--surface); border: 1px solid var(--ink-14); border-top: none;
+  max-height: 240px; overflow-y: auto;
+  display: none;
+}
+.autocomplete-list.open { display: block; }
+.ac-item {
+  padding: 8px 10px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; border-bottom: 1px solid var(--ink-06);
+}
+.ac-item:last-child { border-bottom: none; }
+.ac-item:hover, .ac-item.ac-focused { background: var(--ink-06); }
+.ac-item .ac-name { font-weight: 600; flex: 1; }
+.ac-item .ac-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); white-space: nowrap; }
+
+/* Selected players list */
+.selected-players { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.sel-player {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px;
+  background: var(--ink-04); border: 1px solid var(--ink-10);
+}
+.sel-player .sp-swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.sel-player .sp-name { flex: 1; font-size: 12.5px; font-weight: 600; }
+.sel-player .sp-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); }
+.sel-player .sp-remove {
+  background: none; border: none; cursor: pointer;
+  color: var(--ink-32); font-size: 15px; line-height: 1; padding: 0 2px;
+  transition: color 0.1s;
+}
+.sel-player .sp-remove:hover { color: var(--red); }
+
+.cmp-hint {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-32);
+  line-height: 1.5; margin-top: 4px;
+}
+
+/* Comparison chart area */
+.cmp-chart-wrap {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  padding: 20px 16px 16px; min-height: 260px;
+  display: flex; flex-direction: column;
+}
+#cmp-svg-wrap { flex: 1; overflow: hidden; }
+#cmp-svg-wrap svg { display: block; width: 100%; }
+.cmp-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 12px; color: var(--ink-32);
+  letter-spacing: 0.06em; text-align: center; padding: 40px;
+}
+
+/* ── FOOTER ─────────────────────────────────────────────────── */
+.foot {
+  border-top: 1px solid var(--ink-14);
+  padding: 32px 0;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-48); letter-spacing: 0.04em;
+}
+.foot-inner {
+  max-width: 1200px; margin: 0 auto; padding: 0 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px;
+}
+.foot-wordmark {
+  font-family: var(--display); font-weight: 800;
+  font-size: 18px; letter-spacing: 0.04em; text-transform: uppercase;
+  display: inline-flex; align-items: center;
+}
+.foot-wordmark .dot {
+  width: 5px; height: 5px; background: var(--red);
+  border-radius: 50%; margin: 0 6px; display: inline-block;
+}
+
+/* ── RESPONSIVE ─────────────────────────────────────────────── */
+@media (max-width: 680px) {
+  .mast-inner { padding: 32px 20px 28px; }
+  .wrap { padding: 0 20px 60px; }
+  .mast-ghost { font-size: 100px; }
+  .section-head { flex-direction: column; gap: 4px; }
+  .ctrl-bar { gap: 8px; }
+  .mast-card { padding: 20px 16px 18px; }
+}
+</style>
+
+  <meta property="og:title" content="Labs · Explore NHL Analytics · HockeyGameBot" />
+  <meta property="og:description" content="Scatter any two stats, compare players side by side. Interactive NHL analytics." />
+  <meta property="og:image" content="https://hockeygamebot.com/og/explore.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://hockeygamebot.com/og/explore.png" />
+</head>
+<body>
+
+<Nav currentPath={Astro.url.pathname} />
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-ghost">EXPLORE</div>
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-eyebrow"><span class="pip"></span>HGB Explore &middot; Labs</div>
+    <div class="mast-card">
+      <h1 class="mast-headline">Explore.<br><em>Every angle.</em></h1>
+      <p class="mast-lede">
+        Scatter any two stats across <strong>{explorePlayers.length} skaters</strong> — click dots to pin labels,
+        color by position or team. Compare up to five players side by side with the bar chart builder.
+        2025–26 season, min 1 GP.
+      </p>
+    </div>
+  </div>
+</section>
+
+<ExploreSubnav currentPath={Astro.url.pathname} />
+
+<div class="wrap">
+
+  <!-- SECTION 1: SCATTER PLOT -->
+  <div class="section-block">
+    <div class="section-head">
+      <h2>Scatter Plot</h2>
+      <span class="section-meta" id="scatter-meta">{explorePlayers.length} players</span>
+    </div>
+    <p class="section-lede">
+      Pick any two stats for the axes. Click a dot to pin a label; click again to remove it.
+      Quadrant lines at the median. Hover for player details.
+    </p>
+
+    <!-- Controls row 1: axes + color mode -->
+    <div class="ctrl-bar">
+      <span class="ctrl-label">X Axis</span>
+      <select class="ctrl-sel" id="sc-x-axis">
+        <option value="ev_off">EV Offense %</option>
+        <option value="ev_def">EV Defense %</option>
+        <option value="g60">Goals/60</option>
+        <option value="a1_60">1st Assists/60</option>
+        <option value="xg60">xG/60</option>
+        <option value="fin">Finishing</option>
+        <option value="war">WAR</option>
+        <option value="imp">Impact</option>
+        <option value="shots60">Shots/60</option>
+        <option value="rapm">RAPM</option>
+      </select>
+
+      <span class="ctrl-label" style="margin-left:6px">Y Axis</span>
+      <select class="ctrl-sel" id="sc-y-axis">
+        <option value="ev_off">EV Offense %</option>
+        <option value="ev_def" selected>EV Defense %</option>
+        <option value="g60">Goals/60</option>
+        <option value="a1_60">1st Assists/60</option>
+        <option value="xg60">xG/60</option>
+        <option value="fin">Finishing</option>
+        <option value="war">WAR</option>
+        <option value="imp">Impact</option>
+        <option value="shots60">Shots/60</option>
+        <option value="rapm">RAPM</option>
+      </select>
+
+      <span class="ctrl-label" style="margin-left:6px">Color</span>
+      <div class="ctrl-btn-group" id="sc-color-mode">
+        <button data-mode="pos" class="active">By Position</button>
+        <button data-mode="team">By Team</button>
+        <button data-mode="imp">By Impact</button>
+      </div>
+    </div>
+
+    <!-- Controls row 2: filters + export -->
+    <div class="ctrl-bar">
+      <span class="ctrl-label">Position</span>
+      <div class="ctrl-btn-group" id="sc-pos-filter">
+        <button data-pos="all" class="active">All</button>
+        <button data-pos="F">Fwds</button>
+        <button data-pos="D">Defense</button>
+      </div>
+
+      <span class="ctrl-label" style="margin-left:6px">Team</span>
+      <select class="ctrl-sel" id="sc-team-filter">
+        <option value="all">All Teams</option>
+        {teams.map(t => <option value={t}>{t}</option>)}
+      </select>
+
+      <button class="export-btn" id="scatter-export-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download PNG
+      </button>
+    </div>
+
+    <div class="chart-surface">
+      <div id="scatter-svg-wrap"></div>
+      <div class="scatter-legend" id="scatter-legend"></div>
+    </div>
+  </div>
+
+  <!-- SECTION 2: PLAYER COMPARISON -->
+  <div class="section-block" style="padding-bottom:20px">
+    <div class="section-head">
+      <h2>Player Comparison</h2>
+      <span class="section-meta" id="cmp-meta">0 players selected</span>
+    </div>
+    <p class="section-lede">
+      Search for 2–5 players, pick a stat, see them ranked side by side.
+    </p>
+
+    <!-- Stat selector above layout -->
+    <div class="ctrl-bar" style="margin-bottom:16px">
+      <span class="ctrl-label">Stat</span>
+      <select class="ctrl-sel" id="cmp-stat">
+        <option value="g60">Goals/60</option>
+        <option value="a1_60">1st Assists/60</option>
+        <option value="xg60">xG/60</option>
+        <option value="fin">Finishing</option>
+        <option value="shots60">Shots/60</option>
+        <option value="war">WAR</option>
+        <option value="imp">Impact (avg GS)</option>
+        <option value="rapm">RAPM</option>
+        <option value="ev_off">EV Off %</option>
+        <option value="ev_def">EV Def %</option>
+        <option value="goals">Goals (season)</option>
+        <option value="assists">Assists (season)</option>
+        <option value="points">Points (season)</option>
+      </select>
+
+      <button class="export-btn" id="cmp-export-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download PNG
+      </button>
+    </div>
+
+    <div class="cmp-layout">
+      <!-- Sidebar: player picker -->
+      <div class="cmp-sidebar">
+        <div class="cmp-sidebar-label">Add Players (2–5)</div>
+
+        <div class="autocomplete-wrap">
+          <input type="text" id="cmp-search" class="ctrl-input" placeholder="Search by name or team…" autocomplete="off" />
+          <div class="autocomplete-list" id="cmp-ac-list"></div>
+        </div>
+
+        <div class="selected-players" id="cmp-selected"></div>
+        <p class="cmp-hint" id="cmp-hint">Select at least 2 players to compare.</p>
+      </div>
+
+      <!-- Chart -->
+      <div class="cmp-chart-wrap">
+        <div id="cmp-svg-wrap">
+          <div class="cmp-empty" id="cmp-empty">Select 2–5 players to build the chart.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+
+<!-- SCATTER TOOLTIP (fixed position, outside wrap) -->
+<div id="scatter-tt">
+  <div class="tt-name" id="tt-name"></div>
+  <div class="tt-meta" id="tt-meta"></div>
+  <div id="tt-rows"></div>
+</div>
+
+<!-- FOOTER -->
+<footer class="foot">
+  <div class="foot-inner">
+    <span class="foot-wordmark">Hockey<span class="dot"></span>Gamebot</span>
+    <span>Explore · 2025–26 · {explorePlayers.length} skaters</span>
+  </div>
+</footer>
+
+<!-- D3 v7 -->
+<script is:inline src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+
+<!-- Inline dataset (build-time) -->
+<script type="application/json" id="explore-data" set:html={JSON.stringify(explorePlayers)}></script>
+
+<script is:inline>
+(function () {
+'use strict';
+
+// ── LOAD DATA ──────────────────────────────────────────────────────────────
+const DATA = JSON.parse(document.getElementById('explore-data').textContent || '[]');
+
+// ── STAT METADATA ──────────────────────────────────────────────────────────
+// key: player field; label used on axis titles and tooltips
+const STATS = {
+  ev_off:  { label: 'EV Offense %',    fmt: v => v != null ? v.toFixed(1) : '—', signed: false },
+  ev_def:  { label: 'EV Defense %',    fmt: v => v != null ? v.toFixed(1) : '—', signed: false },
+  g60:     { label: 'Goals/60',        fmt: v => v != null ? v.toFixed(2) : '—', signed: false },
+  a1_60:   { label: '1st Assists/60',  fmt: v => v != null ? v.toFixed(2) : '—', signed: false },
+  xg60:    { label: 'xG/60',           fmt: v => v != null ? v.toFixed(2) : '—', signed: false },
+  fin:     { label: 'Finishing',       fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '—', signed: true },
+  war:     { label: 'WAR',             fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '—', signed: true },
+  imp:     { label: 'Impact (avg GS)', fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '—', signed: true },
+  shots60: { label: 'Shots/60',        fmt: v => v != null ? v.toFixed(2) : '—', signed: false },
+  rapm:    { label: 'RAPM',            fmt: v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(3) : '—', signed: true },
+  goals:   { label: 'Goals (season)',  fmt: v => v != null ? String(v) : '—', signed: false },
+  assists: { label: 'Assists (season)',fmt: v => v != null ? String(v) : '—', signed: false },
+  points:  { label: 'Points (season)', fmt: v => v != null ? String(v) : '—', signed: false },
+};
+
+// NHL team colors (primary identity color)
+const TEAM_COLORS = {
+  ANA:'#FC4C02',ARI:'#8C2633',BOS:'#FFB81C',BUF:'#003087',
+  CAR:'#CE1126',CBJ:'#002654',CGY:'#C8102E',CHI:'#CF0A2C',
+  COL:'#6F263D',DAL:'#006847',DET:'#CE1126',EDM:'#FF4C00',
+  FLA:'#041E42',LAK:'#111111',MIN:'#154734',MTL:'#AF1E2D',
+  NJD:'#CE1126',NSH:'#FFB81C',NYI:'#003087',NYR:'#0038A8',
+  OTT:'#C52032',PHI:'#F74902',PIT:'#FCB514',SEA:'#001628',
+  SJS:'#006D75',STL:'#002F87',TBL:'#002868',TOR:'#003E7E',
+  UTA:'#6CACE4',VAN:'#00843D',VGK:'#B4975A',WPG:'#041E42',
+  WSH:'#041E42',
+};
+
+// 8 distinct comparison colors (accessible, work on both light/dark bg)
+const CMP_COLORS = ['#E8002D','#2563EB','#16A34A','#D97706','#7C3AED','#DB2777','#0891B2','#65A30D'];
+
+// Position colors
+const POS_COLORS = { F: '#2563EB', D: '#E8002D' };
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let scXKey   = 'ev_off';
+let scYKey   = 'ev_def';
+let scColor  = 'pos';       // 'pos' | 'team' | 'imp'
+let scPos    = 'all';       // 'all' | 'F' | 'D'
+let scTeam   = 'all';
+let scPinned = new Set();   // Set of player ids that have pinned labels
+
+let cmpPlayers  = [];       // [{id, name, team, pos, color}, ...]
+let cmpStat     = 'g60';
+let cmpAcIdx    = -1;       // keyboard-focused autocomplete item
+
+// ── HELPERS ───────────────────────────────────────────────────────────────
+function getVal(p, key) {
+  const v = p[key];
+  return (v == null) ? null : v;
+}
+
+function impColor(v) {
+  // Impact percentile → green-grey-red gradient fill
+  if (v == null) return '#d1d5db';
+  if (v >= 80)   return '#4ade80';
+  if (v >= 60)   return '#a3e635';
+  if (v >= 40)   return '#d1d5db';
+  if (v >= 20)   return '#fb923c';
+  return '#f87171';
+}
+
+function dotColor(p) {
+  if (scColor === 'team')  return TEAM_COLORS[p.team] ?? '#9ca3af';
+  if (scColor === 'imp')   return impColor(p.imp_p);
+  // By position
+  return POS_COLORS[p.group] ?? '#9ca3af';
+}
+
+function getCssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// ── SCATTER CHART ──────────────────────────────────────────────────────────
+function getScatterData() {
+  let pts = DATA.filter(p => p.gp >= 1);
+  if (scPos !== 'all')  pts = pts.filter(p => p.group === scPos);
+  if (scTeam !== 'all') pts = pts.filter(p => p.team === scTeam);
+  // Filter out null values for chosen axes
+  pts = pts.filter(p => getVal(p, scXKey) != null && getVal(p, scYKey) != null);
+  return pts;
+}
+
+let scatterSvg = null;
+let scatterResizeObs = null;
+
+function drawScatter() {
+  const wrap = document.getElementById('scatter-svg-wrap');
+  if (!wrap) return;
+
+  const pts = getScatterData();
+  document.getElementById('scatter-meta').textContent = `${pts.length} players`;
+
+  const W = wrap.clientWidth || 700;
+  const H = Math.max(320, Math.min(540, W * 0.62));
+  const margin = { top: 24, right: 28, bottom: 52, left: 56 };
+  const innerW = W - margin.left - margin.right;
+  const innerH = H - margin.top - margin.bottom;
+
+  // Scales
+  const xVals = pts.map(p => getVal(p, scXKey));
+  const yVals = pts.map(p => getVal(p, scYKey));
+
+  // Pad domain by 5% on each side
+  function padDomain(vals, signed) {
+    const mn = d3.min(vals), mx = d3.max(vals);
+    if (mn == null || mx == null) return [0, 1];
+    const span = mx - mn || 1;
+    const pad = span * 0.07;
+    return [mn - pad, mx + pad];
+  }
+
+  const xDom = padDomain(xVals, STATS[scXKey]?.signed);
+  const yDom = padDomain(yVals, STATS[scYKey]?.signed);
+
+  const xScale = d3.scaleLinear().domain(xDom).range([0, innerW]);
+  const yScale = d3.scaleLinear().domain(yDom).range([innerH, 0]);
+
+  // ── Build or rebuild SVG ──
+  if (scatterSvg) scatterSvg.remove();
+
+  const inkColor  = getCssVar('--ink') || '#0d0d14';
+  const inkAlpha  = (a) => `rgba(13,13,20,${a})`;
+  const surfColor = getCssVar('--surface') || '#fff';
+
+  const svg = d3.select(wrap).append('svg')
+    .attr('width', W)
+    .attr('height', H)
+    .attr('aria-label', `Scatter: ${STATS[scXKey].label} vs ${STATS[scYKey].label}`)
+    .attr('role', 'img');
+
+  scatterSvg = svg;
+
+  const g = svg.append('g')
+    .attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Grid
+  const xTicks = xScale.ticks(5);
+  const yTicks = yScale.ticks(5);
+
+  g.append('g').attr('class', 'grid-x')
+    .selectAll('line').data(xTicks).enter().append('line')
+    .attr('x1', d => xScale(d)).attr('x2', d => xScale(d))
+    .attr('y1', 0).attr('y2', innerH)
+    .attr('stroke', inkAlpha(0.06)).attr('stroke-width', 1);
+
+  g.append('g').attr('class', 'grid-y')
+    .selectAll('line').data(yTicks).enter().append('line')
+    .attr('x1', 0).attr('x2', innerW)
+    .attr('y1', d => yScale(d)).attr('y2', d => yScale(d))
+    .attr('stroke', inkAlpha(0.06)).attr('stroke-width', 1);
+
+  // Median quadrant lines
+  const xMed = d3.median(xVals);
+  const yMed = d3.median(yVals);
+  const qLineStyle = { stroke: inkAlpha(0.18), dash: '5,4', w: 1 };
+
+  if (xMed != null) {
+    const xm = xScale(xMed);
+    g.append('line')
+      .attr('x1', xm).attr('x2', xm).attr('y1', 0).attr('y2', innerH)
+      .attr('stroke', qLineStyle.stroke).attr('stroke-width', qLineStyle.w)
+      .attr('stroke-dasharray', qLineStyle.dash);
+  }
+  if (yMed != null) {
+    const ym = yScale(yMed);
+    g.append('line')
+      .attr('x1', 0).attr('x2', innerW).attr('y1', ym).attr('y2', ym)
+      .attr('stroke', qLineStyle.stroke).attr('stroke-width', qLineStyle.w)
+      .attr('stroke-dasharray', qLineStyle.dash);
+  }
+
+  // Axes
+  const xAxisFn = d3.axisBottom(xScale).ticks(5)
+    .tickSize(4).tickPadding(6);
+  const yAxisFn = d3.axisLeft(yScale).ticks(5)
+    .tickSize(4).tickPadding(6);
+
+  const monoFont = '"JetBrains Mono", monospace';
+  const axisStyle = sel => sel
+    .selectAll('text')
+      .attr('font-family', monoFont)
+      .attr('font-size', 10)
+      .attr('fill', inkAlpha(0.48))
+    .select(function() { return this.parentNode; })
+    .select('.domain').attr('stroke', inkAlpha(0.20));
+
+  const xAxisG = g.append('g')
+    .attr('transform', `translate(0,${innerH})`)
+    .call(xAxisFn);
+  axisStyle(xAxisG);
+  xAxisG.select('.domain').attr('stroke', inkAlpha(0.20));
+  xAxisG.selectAll('line').attr('stroke', inkAlpha(0.20));
+
+  const yAxisG = g.append('g').call(yAxisFn);
+  axisStyle(yAxisG);
+  yAxisG.select('.domain').attr('stroke', inkAlpha(0.20));
+  yAxisG.selectAll('line').attr('stroke', inkAlpha(0.20));
+
+  // Axis labels
+  g.append('text')
+    .attr('x', innerW / 2).attr('y', innerH + 42)
+    .attr('text-anchor', 'middle')
+    .attr('font-family', monoFont).attr('font-size', 10.5)
+    .attr('fill', inkAlpha(0.48))
+    .text(STATS[scXKey].label + ' →');
+
+  g.append('text')
+    .attr('transform', 'rotate(-90)')
+    .attr('x', -(innerH / 2)).attr('y', -44)
+    .attr('text-anchor', 'middle')
+    .attr('font-family', monoFont).attr('font-size', 10.5)
+    .attr('fill', inkAlpha(0.48))
+    .text('↑ ' + STATS[scYKey].label);
+
+  // Team highlight ring: if team filter is active, dim non-team dots
+  const highlight = scTeam !== 'all';
+
+  // Dots
+  const dotG = g.append('g').attr('class', 'dots');
+
+  dotG.selectAll('circle')
+    .data(pts, d => d.id)
+    .enter().append('circle')
+      .attr('cx', d => xScale(getVal(d, scXKey)))
+      .attr('cy', d => yScale(getVal(d, scYKey)))
+      .attr('r', 5)
+      .attr('fill', d => dotColor(d))
+      .attr('fill-opacity', d => highlight && d.team !== scTeam ? 0.12 : 0.82)
+      .attr('stroke', inkAlpha(0.20))
+      .attr('stroke-width', 0.5)
+      .style('cursor', 'pointer')
+      .on('mouseenter', function(event, d) { showTooltip(event, d); })
+      .on('mouseleave', function()         { hideTooltip(); })
+      .on('click',      function(event, d) { togglePin(d.id); drawScatter(); });
+
+  // Pinned labels layer (on top of dots)
+  const pinG = g.append('g').attr('class', 'pins');
+  const pinnedPts = pts.filter(p => scPinned.has(p.id));
+  pinnedPts.forEach(p => {
+    const cx = xScale(getVal(p, scXKey));
+    const cy = yScale(getVal(p, scYKey));
+    // Nudge label above dot
+    const lx = cx + 6;
+    const ly = cy - 7;
+
+    pinG.append('text')
+      .attr('x', lx).attr('y', ly)
+      .attr('font-family', '"Barlow Condensed", sans-serif')
+      .attr('font-weight', 700).attr('font-size', 11)
+      .attr('fill', inkColor)
+      .attr('paint-order', 'stroke')
+      .attr('stroke', surfColor).attr('stroke-width', 3)
+      .attr('stroke-linejoin', 'round')
+      .text(p.last || p.name);
+
+    // Small X to dismiss (rendered as a clickable circle+text combo)
+    pinG.append('circle')
+      .attr('cx', lx + measureText(p.last || p.name, 11) + 10)
+      .attr('cy', ly - 5)
+      .attr('r', 5)
+      .attr('fill', inkAlpha(0.12))
+      .attr('stroke', inkAlpha(0.25))
+      .attr('stroke-width', 0.5)
+      .style('cursor', 'pointer')
+      .on('click', () => { scPinned.delete(p.id); drawScatter(); });
+
+    pinG.append('text')
+      .attr('x', lx + measureText(p.last || p.name, 11) + 10)
+      .attr('y', ly - 1)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 8)
+      .attr('fill', inkAlpha(0.55))
+      .attr('pointer-events', 'none')
+      .text('×');
+  });
+
+  // Legend
+  drawScatterLegend(pts);
+}
+
+function measureText(str, size) {
+  // Rough approximation: Barlow Condensed ~0.52× width ratio
+  return str.length * size * 0.52;
+}
+
+function togglePin(id) {
+  if (scPinned.has(id)) scPinned.delete(id);
+  else scPinned.add(id);
+}
+
+function drawScatterLegend(pts) {
+  const el = document.getElementById('scatter-legend');
+  if (!el) return;
+  el.innerHTML = '';
+
+  if (scColor === 'pos') {
+    [['F', 'Forwards'], ['D', 'Defense']].forEach(([g, lbl]) => {
+      const item = document.createElement('div');
+      item.className = 'leg-item';
+      item.innerHTML = `<span class="leg-dot" style="background:${POS_COLORS[g]}"></span>${lbl}`;
+      el.appendChild(item);
+    });
+  } else if (scColor === 'team' && scTeam !== 'all') {
+    const item = document.createElement('div');
+    item.className = 'leg-item';
+    item.innerHTML = `<span class="leg-dot" style="background:${TEAM_COLORS[scTeam]||'#9ca3af'}"></span>${scTeam} (highlighted)`;
+    el.appendChild(item);
+  } else if (scColor === 'imp') {
+    [['#4ade80','80th+'],['#a3e635','60–80th'],['#d1d5db','40–60th'],['#fb923c','20–40th'],['#f87171','<20th']].forEach(([c, lbl]) => {
+      const item = document.createElement('div');
+      item.className = 'leg-item';
+      item.innerHTML = `<span class="leg-dot" style="background:${c}"></span>${lbl}`;
+      el.appendChild(item);
+    });
+    const note = document.createElement('span');
+    note.style.color = 'var(--ink-32)';
+    note.textContent = '— Impact percentile';
+    el.appendChild(note);
+  } else if (scColor === 'team') {
+    // Show a compact note
+    const note = document.createElement('span');
+    note.style.color = 'var(--ink-32)';
+    note.textContent = 'Each dot colored by NHL team primary color';
+    el.appendChild(note);
+  }
+
+  // Pin hint
+  const teams = new Set(pts.map(p => p.team));
+  const hint = document.createElement('span');
+  hint.style.cssText = 'margin-left:auto;color:var(--ink-32)';
+  hint.textContent = `Click any dot to pin · ${pts.length} players`;
+  el.appendChild(hint);
+}
+
+// ── TOOLTIP ───────────────────────────────────────────────────────────────
+function showTooltip(event, d) {
+  const tt = document.getElementById('scatter-tt');
+  if (!tt) return;
+  document.getElementById('tt-name').textContent = d.name;
+  document.getElementById('tt-meta').textContent =
+    `${d.team} · ${d.pos} · ${d.gp} GP`;
+
+  const rowsEl = document.getElementById('tt-rows');
+  rowsEl.innerHTML = '';
+
+  const stats = [
+    { lbl: STATS[scXKey].label, val: STATS[scXKey].fmt(getVal(d, scXKey)) },
+    { lbl: STATS[scYKey].label, val: STATS[scYKey].fmt(getVal(d, scYKey)) },
+    { lbl: 'Impact',            val: d.imp != null ? (d.imp >= 0 ? '+' : '') + d.imp.toFixed(2) : '—' },
+    { lbl: 'WAR',               val: d.war != null ? (d.war >= 0 ? '+' : '') + d.war.toFixed(2) : '—' },
+  ];
+  // De-dupe if x or y is already Impact/WAR
+  const seenKeys = new Set([scXKey, scYKey]);
+  stats.forEach(({ lbl, val }) => {
+    const row = document.createElement('div');
+    row.className = 'tt-row';
+    row.innerHTML = `<span class="lbl">${lbl}</span><span class="val">${val}</span>`;
+    rowsEl.appendChild(row);
+  });
+
+  tt.style.display = 'block';
+  positionTooltip(event, tt);
+}
+
+function hideTooltip() {
+  const tt = document.getElementById('scatter-tt');
+  if (tt) tt.style.display = 'none';
+}
+
+function positionTooltip(event, tt) {
+  const tw = tt.offsetWidth || 180, th = tt.offsetHeight || 120, m = 14;
+  let tx = event.clientX + m, ty = event.clientY - th / 2;
+  if (tx + tw > window.innerWidth - 8)  tx = event.clientX - tw - m;
+  if (ty < 8) ty = 8;
+  if (ty + th > window.innerHeight - 8) ty = window.innerHeight - th - 8;
+  tt.style.left = tx + 'px';
+  tt.style.top  = ty + 'px';
+}
+
+// ── SCATTER EXPORT ────────────────────────────────────────────────────────
+function exportScatter() {
+  const wrap = document.getElementById('scatter-svg-wrap');
+  const svgEl = wrap && wrap.querySelector('svg');
+  if (!svgEl) return;
+  const title = `${STATS[scXKey].label} vs ${STATS[scYKey].label}`;
+  const chips = [];
+  if (scPos !== 'all') chips.push(scPos === 'F' ? 'Forwards' : 'Defense');
+  if (scTeam !== 'all') chips.push(scTeam);
+  chips.push('2025–26');
+  svgToPng(svgEl, 'hgb-scatter.png', title, chips);
+}
+
+// ── COMPARISON CHART ───────────────────────────────────────────────────────
+function drawComparison() {
+  const wrap = document.getElementById('cmp-svg-wrap');
+  const empty = document.getElementById('cmp-empty');
+  if (!wrap) return;
+
+  // Update meta
+  document.getElementById('cmp-meta').textContent = `${cmpPlayers.length} player${cmpPlayers.length === 1 ? '' : 's'} selected`;
+
+  if (cmpPlayers.length < 2) {
+    // Clear SVG, show placeholder
+    const svg = wrap.querySelector('svg');
+    if (svg) svg.remove();
+    if (empty) empty.style.display = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  // Sort descending by stat value
+  const sorted = [...cmpPlayers].sort((a, b) => {
+    const pa = DATA.find(d => d.id === a.id);
+    const pb = DATA.find(d => d.id === b.id);
+    const va = pa ? (getVal(pa, cmpStat) ?? -Infinity) : -Infinity;
+    const vb = pb ? (getVal(pb, cmpStat) ?? -Infinity) : -Infinity;
+    return vb - va;
+  });
+
+  const containerW = wrap.clientWidth || 600;
+  const barH = 38;
+  const gap  = 8;
+  const marginTop = 20, marginBottom = 40, marginLeft = 10, marginRight = 16;
+  const labelW = Math.min(160, containerW * 0.28);
+  const logoSz = 20;
+  const chartLeft = marginLeft + labelW + 8 + logoSz + 8;
+  const chartRight = marginRight + 70; // value label space
+  const innerW = containerW - chartLeft - chartRight;
+  const H = marginTop + sorted.length * (barH + gap) - gap + marginBottom;
+
+  const vals = sorted.map(sp => {
+    const p = DATA.find(d => d.id === sp.id);
+    return p ? (getVal(p, cmpStat) ?? null) : null;
+  });
+
+  const maxVal = d3.max(vals.filter(v => v != null));
+  const minVal = d3.min(vals.filter(v => v != null));
+  // Include 0 in domain for signed stats, go from min to max for unsigned
+  const domMin = STATS[cmpStat]?.signed ? Math.min(0, minVal ?? 0) : 0;
+  const domMax = maxVal != null ? maxVal * 1.08 : 1;
+
+  const xScale = d3.scaleLinear().domain([domMin, domMax]).range([0, innerW]).clamp(true);
+
+  const inkColor = getCssVar('--ink') || '#0d0d14';
+  const inkAlpha = (a) => `rgba(13,13,20,${a})`;
+  const surfColor = getCssVar('--surface') || '#fff';
+
+  // Remove old SVG
+  const existing = wrap.querySelector('svg');
+  if (existing) existing.remove();
+
+  const svg = d3.select(wrap).append('svg')
+    .attr('width', containerW)
+    .attr('height', H)
+    .attr('aria-label', `Player comparison: ${STATS[cmpStat].label}`)
+    .attr('role', 'img');
+
+  const g = svg.append('g').attr('transform', `translate(0,${marginTop})`);
+
+  // Axis title
+  g.append('text')
+    .attr('x', chartLeft + innerW / 2)
+    .attr('y', H - marginBottom + 28)
+    .attr('text-anchor', 'middle')
+    .attr('font-family', '"JetBrains Mono", monospace')
+    .attr('font-size', 10)
+    .attr('fill', inkAlpha(0.48))
+    .text(STATS[cmpStat].label);
+
+  // Zero line if signed
+  if (STATS[cmpStat]?.signed && domMin < 0) {
+    const zeroX = chartLeft + xScale(0);
+    g.append('line')
+      .attr('x1', zeroX).attr('x2', zeroX)
+      .attr('y1', 0).attr('y2', H - marginTop - marginBottom + 8)
+      .attr('stroke', inkAlpha(0.25))
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '3,3');
+  }
+
+  // Bars
+  sorted.forEach((sp, i) => {
+    const p = DATA.find(d => d.id === sp.id);
+    const val = p ? getVal(p, cmpStat) : null;
+    const y = i * (barH + gap);
+    const barColor = sp.color;
+
+    // Logo + name label (left side)
+    if (p) {
+      g.append('image')
+        .attr('href', `https://assets.nhle.com/logos/nhl/svg/${p.team}_light.svg`)
+        .attr('x', marginLeft + labelW + 8)
+        .attr('y', y + (barH - logoSz) / 2)
+        .attr('width', logoSz).attr('height', logoSz)
+        .on('error', function() { d3.select(this).remove(); });
+    }
+
+    // Player name
+    const nameEl = g.append('text')
+      .attr('x', marginLeft + labelW)
+      .attr('y', y + barH / 2 + 4)
+      .attr('text-anchor', 'end')
+      .attr('font-family', '"Barlow Condensed", sans-serif')
+      .attr('font-weight', 700)
+      .attr('font-size', 13)
+      .attr('fill', inkColor)
+      .text(sp.name);
+
+    // Truncate if too wide (rough)
+    const maxNameW = labelW - 4;
+    if (sp.name.length * 7.5 > maxNameW) {
+      const short = sp.last || sp.name.split(' ').pop();
+      nameEl.text(short);
+    }
+
+    // Team / pos sub-label
+    if (p) {
+      g.append('text')
+        .attr('x', marginLeft + labelW)
+        .attr('y', y + barH / 2 + 15)
+        .attr('text-anchor', 'end')
+        .attr('font-family', '"JetBrains Mono", monospace')
+        .attr('font-size', 9)
+        .attr('fill', inkAlpha(0.40))
+        .text(`${p.team} · ${p.pos}`);
+    }
+
+    // Bar
+    if (val != null) {
+      const barStart = chartLeft + (STATS[cmpStat]?.signed ? xScale(Math.min(0, val)) : 0);
+      const barEnd   = chartLeft + xScale(Math.max(0, val));
+      const barWidth = Math.max(2, Math.abs(barEnd - barStart));
+
+      g.append('rect')
+        .attr('x', barStart)
+        .attr('y', y + 6)
+        .attr('width', barWidth)
+        .attr('height', barH - 12)
+        .attr('fill', barColor)
+        .attr('fill-opacity', 0.88)
+        .attr('rx', 1);
+
+      // Value label
+      const fmt = STATS[cmpStat].fmt;
+      g.append('text')
+        .attr('x', chartLeft + xScale(Math.max(0, val)) + 6)
+        .attr('y', y + barH / 2 + 4)
+        .attr('font-family', '"JetBrains Mono", monospace')
+        .attr('font-weight', 600)
+        .attr('font-size', 11.5)
+        .attr('fill', inkColor)
+        .text(fmt(val));
+    } else {
+      g.append('text')
+        .attr('x', chartLeft + 8)
+        .attr('y', y + barH / 2 + 4)
+        .attr('font-family', '"JetBrains Mono", monospace')
+        .attr('font-size', 11)
+        .attr('fill', inkAlpha(0.32))
+        .text('—');
+    }
+  });
+}
+
+// ── COMPARISON EXPORT ──────────────────────────────────────────────────────
+function exportComparison() {
+  const wrap = document.getElementById('cmp-svg-wrap');
+  const svgEl = wrap && wrap.querySelector('svg');
+  if (!svgEl) return;
+  const title = `Player Comparison · ${STATS[cmpStat].label}`;
+  svgToPng(svgEl, 'hgb-comparison.png', title, ['2025–26']);
+}
+
+// ── SVG → PNG EXPORT (with HGB branded frame matching table-export.js) ────
+function svgToPng(svgEl, filename, title, chips = []) {
+  // Frame constants — mirror table-export.js exactly
+  const PAD     = 40;
+  const TITLE_H = 72;
+  const CHIPS_H = 46;
+  const BORDER  = 2;
+  const FRAME_H = TITLE_H + CHIPS_H + BORDER;
+  const T = { bg: '#EFEEE8', ink: '#0D0D14', red: '#E8002D' };
+
+  // Resolve SVG dimensions — getAttribute returns null if D3 skipped explicit attrs
+  let svgW = +svgEl.getAttribute('width');
+  let svgH = +svgEl.getAttribute('height');
+  if (!svgW || !svgH || isNaN(svgW) || isNaN(svgH)) {
+    const b = svgEl.getBoundingClientRect();
+    svgW = Math.round(b.width)  || 700;
+    svgH = Math.round(b.height) || 500;
+  }
+
+  const clone = svgEl.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('width',  svgW);
+  clone.setAttribute('height', svgH);
+
+  // Bake cream background so chart area matches the frame
+  const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bgRect.setAttribute('width', svgW); bgRect.setAttribute('height', svgH);
+  bgRect.setAttribute('fill', T.bg);
+  clone.insertBefore(bgRect, clone.firstChild);
+
+  const svgDataUrl = 'data:image/svg+xml;base64,' +
+    btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(clone))));
+
+  // Total canvas width = SVG width + PAD on each side so chart sits inside
+  // the same left margin as the frame title/chips
+  const W = svgW + PAD * 2;
+  const H = svgH;
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width  = W * scale;
+  canvas.height = (FRAME_H + H) * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+
+  // ── Frame background ──────────────────────────────────────────────────────
+  ctx.fillStyle = T.bg;
+  ctx.fillRect(0, 0, W, FRAME_H + H);
+
+  // ── Title (auto-shrink if too wide) ──────────────────────────────────────
+  const titleText = (title || filename).toUpperCase();
+  let titleSize = 30;
+  ctx.font = `800 ${titleSize}px "Barlow Condensed", sans-serif`;
+  while (titleSize > 14 && ctx.measureText(titleText).width > W - PAD * 2) {
+    titleSize -= 2;
+    ctx.font = `800 ${titleSize}px "Barlow Condensed", sans-serif`;
+  }
+  ctx.fillStyle = T.ink;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText(titleText, PAD, TITLE_H / 2);
+
+  // ── Chips row ─────────────────────────────────────────────────────────────
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') { ctx.roundRect(x, y, w, h, r); }
+    else {
+      ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+      ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+      ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+      ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+    }
+  }
+
+  const chipH  = 24;
+  const chipY0 = TITLE_H + (CHIPS_H - chipH) / 2;
+  let cx = PAD;
+  ctx.font = '700 10px "Barlow Condensed", sans-serif';
+
+  for (const chip of chips) {
+    const text = chip.toUpperCase();
+    const chipW = ctx.measureText(text).width + 22;
+    roundRect(cx, chipY0, chipW, chipH, 3);
+    ctx.fillStyle = T.ink; ctx.fill();
+    ctx.fillStyle = T.bg; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText(text, cx + 11, chipY0 + chipH / 2);
+    cx += chipW + 8;
+  }
+
+  // Brand pill — right side, red
+  const brand = 'HOCKEYGAMEBOT.COM';
+  ctx.font = '700 10px "Barlow Condensed", sans-serif';
+  const bW = ctx.measureText(brand).width + 22;
+  const bx = W - PAD - bW;
+  roundRect(bx, chipY0, bW, chipH, 3);
+  ctx.fillStyle = T.red; ctx.fill();
+  ctx.fillStyle = T.bg; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.fillText(brand, bx + 11, chipY0 + chipH / 2);
+
+  // ── 2px border line ───────────────────────────────────────────────────────
+  ctx.fillStyle = T.ink;
+  ctx.fillRect(0, TITLE_H + CHIPS_H, W, BORDER);
+
+  // ── Chart SVG below frame ─────────────────────────────────────────────────
+  const img = new Image();
+  img.onerror = () => alert('Export failed — try again after the chart finishes loading.');
+  img.onload = () => {
+    ctx.drawImage(img, PAD, FRAME_H);
+    const dataUrl = canvas.toDataURL('image/png');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                  (navigator.userAgent.includes('Mac') && 'ontouchend' in document);
+    if (isIOS) {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px;padding:24px;';
+      const msg = document.createElement('p');
+      msg.textContent = 'Long-press the image → "Save to Photos"';
+      msg.style.cssText = 'color:#fff;font-family:"Barlow",sans-serif;font-size:15px;text-align:center;margin:0;';
+      const previewImg = document.createElement('img');
+      previewImg.src = dataUrl;
+      previewImg.style.cssText = 'max-width:90vw;max-height:65vh;border:2px solid rgba(255,255,255,0.2);';
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = 'Close';
+      closeBtn.style.cssText = 'padding:10px 28px;font-family:"Barlow",sans-serif;font-weight:700;font-size:14px;letter-spacing:0.06em;text-transform:uppercase;border:none;background:#fff;color:#0d0d14;cursor:pointer;';
+      closeBtn.onclick = () => document.body.removeChild(overlay);
+      overlay.addEventListener('click', e => { if (e.target === overlay) document.body.removeChild(overlay); });
+      overlay.append(msg, previewImg, closeBtn);
+      document.body.appendChild(overlay);
+    } else {
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = filename;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+      }, 'image/png');
+    }
+  };
+  img.src = svgDataUrl;
+}
+
+// ── AUTOCOMPLETE ──────────────────────────────────────────────────────────
+let acResults = [];
+
+function updateAutocomplete(query) {
+  const list = document.getElementById('cmp-ac-list');
+  if (!list) return;
+  if (!query || query.length < 1) { list.classList.remove('open'); return; }
+
+  const q = query.toLowerCase();
+  const selectedIds = new Set(cmpPlayers.map(p => p.id));
+  acResults = DATA.filter(p =>
+    !selectedIds.has(p.id) && (
+      p.name.toLowerCase().includes(q) ||
+      p.first.toLowerCase().includes(q) ||
+      p.last.toLowerCase().includes(q) ||
+      p.team.toLowerCase().includes(q)
+    )
+  ).slice(0, 8);
+
+  if (!acResults.length) { list.classList.remove('open'); return; }
+
+  list.innerHTML = '';
+  acResults.forEach((p, i) => {
+    const item = document.createElement('div');
+    item.className = 'ac-item';
+    item.dataset.idx = i;
+    item.innerHTML =
+      `<span class="ac-name">${escHtml(p.name)}</span>` +
+      `<span class="ac-meta">${escHtml(p.team)} · ${escHtml(p.pos)} · ${p.gp} GP</span>`;
+    item.addEventListener('mousedown', e => {
+      e.preventDefault();
+      addCompPlayer(p);
+      document.getElementById('cmp-search').value = '';
+      list.classList.remove('open');
+    });
+    list.appendChild(item);
+  });
+  cmpAcIdx = -1;
+  list.classList.add('open');
+}
+
+function addCompPlayer(p) {
+  if (cmpPlayers.length >= 5) return;
+  if (cmpPlayers.find(x => x.id === p.id)) return;
+  const colorIdx = cmpPlayers.length % CMP_COLORS.length;
+  cmpPlayers.push({ id: p.id, name: p.name, last: p.last, team: p.team, pos: p.pos, color: CMP_COLORS[colorIdx] });
+  renderSelectedPlayers();
+  drawComparison();
+}
+
+function removeCompPlayer(id) {
+  cmpPlayers = cmpPlayers.filter(p => p.id !== id);
+  // Reassign colors in order
+  cmpPlayers.forEach((p, i) => { p.color = CMP_COLORS[i % CMP_COLORS.length]; });
+  renderSelectedPlayers();
+  drawComparison();
+}
+
+function renderSelectedPlayers() {
+  const el = document.getElementById('cmp-selected');
+  const hint = document.getElementById('cmp-hint');
+  if (!el) return;
+
+  el.innerHTML = '';
+  cmpPlayers.forEach(sp => {
+    const row = document.createElement('div');
+    row.className = 'sel-player';
+    row.innerHTML =
+      `<span class="sp-swatch" style="background:${sp.color}"></span>` +
+      `<span class="sp-name">${escHtml(sp.name)}</span>` +
+      `<span class="sp-meta">${escHtml(sp.team)} · ${escHtml(sp.pos)}</span>` +
+      `<button class="sp-remove" aria-label="Remove ${escHtml(sp.name)}">×</button>`;
+    row.querySelector('.sp-remove').addEventListener('click', () => removeCompPlayer(sp.id));
+    el.appendChild(row);
+  });
+
+  // Update hint
+  if (hint) {
+    if (cmpPlayers.length === 0) hint.textContent = 'Select at least 2 players to compare.';
+    else if (cmpPlayers.length === 1) hint.textContent = 'Add 1 more player to compare.';
+    else if (cmpPlayers.length >= 5) hint.textContent = 'Max 5 players reached.';
+    else hint.textContent = `${cmpPlayers.length} players selected. Add up to ${5 - cmpPlayers.length} more.`;
+  }
+}
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── RESIZE HANDLING ────────────────────────────────────────────────────────
+let resizeTimer;
+function onResize() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    drawScatter();
+    if (cmpPlayers.length >= 2) drawComparison();
+  }, 120);
+}
+
+// ── EVENT WIRING ───────────────────────────────────────────────────────────
+function wireEvents() {
+  // Scatter axis selects
+  document.getElementById('sc-x-axis').addEventListener('change', function() {
+    scXKey = this.value;
+    scPinned.clear();
+    drawScatter();
+  });
+  document.getElementById('sc-y-axis').addEventListener('change', function() {
+    scYKey = this.value;
+    scPinned.clear();
+    drawScatter();
+  });
+
+  // Scatter axis selects — keep X default to ev_off
+  document.getElementById('sc-x-axis').value = scXKey;
+  document.getElementById('sc-y-axis').value = scYKey;
+
+  // Color mode buttons
+  document.querySelectorAll('#sc-color-mode button').forEach(btn => {
+    btn.addEventListener('click', function() {
+      scColor = this.dataset.mode;
+      document.querySelectorAll('#sc-color-mode button').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      drawScatter();
+    });
+  });
+
+  // Position filter
+  document.querySelectorAll('#sc-pos-filter button').forEach(btn => {
+    btn.addEventListener('click', function() {
+      scPos = this.dataset.pos;
+      document.querySelectorAll('#sc-pos-filter button').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      scPinned.clear();
+      drawScatter();
+    });
+  });
+
+  // Team filter
+  document.getElementById('sc-team-filter').addEventListener('change', function() {
+    scTeam = this.value;
+    drawScatter();
+  });
+
+  // Export buttons
+  document.getElementById('scatter-export-btn').addEventListener('click', exportScatter);
+  document.getElementById('cmp-export-btn').addEventListener('click', exportComparison);
+
+  // Comparison stat
+  document.getElementById('cmp-stat').addEventListener('change', function() {
+    cmpStat = this.value;
+    drawComparison();
+  });
+
+  // Autocomplete
+  const cmpSearch = document.getElementById('cmp-search');
+  const acList = document.getElementById('cmp-ac-list');
+
+  cmpSearch.addEventListener('input', function() {
+    updateAutocomplete(this.value.trim());
+  });
+  cmpSearch.addEventListener('keydown', function(e) {
+    if (!acList.classList.contains('open')) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      cmpAcIdx = Math.min(cmpAcIdx + 1, acResults.length - 1);
+      updateAcFocus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      cmpAcIdx = Math.max(cmpAcIdx - 1, 0);
+      updateAcFocus();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const target = cmpAcIdx >= 0 ? acResults[cmpAcIdx] : acResults[0];
+      if (target) {
+        addCompPlayer(target);
+        this.value = '';
+        acList.classList.remove('open');
+      }
+    } else if (e.key === 'Escape') {
+      acList.classList.remove('open');
+    }
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.autocomplete-wrap')) {
+      acList.classList.remove('open');
+    }
+  });
+
+  window.addEventListener('resize', onResize);
+}
+
+function updateAcFocus() {
+  document.querySelectorAll('.ac-item').forEach((el, i) => {
+    el.classList.toggle('ac-focused', i === cmpAcIdx);
+  });
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+function init() {
+  wireEvents();
+  drawScatter();
+  renderSelectedPlayers();
+  // drawComparison will show empty state initially
+  drawComparison();
+}
+
+// Wait for D3 to be available (it's loaded via a preceding <script> tag)
+if (typeof d3 !== 'undefined') {
+  init();
+} else {
+  document.querySelector('script[src*="d3"]').addEventListener('load', init);
+}
+
+})();
+</script>
+
+</body>
+</html>

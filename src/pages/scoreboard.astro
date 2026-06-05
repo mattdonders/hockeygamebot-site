@@ -1,0 +1,1794 @@
+---
+// HockeyGameBot live scoreboard — editorial light-mode re-skin of index.astro
+import Nav from '../components/Nav.astro';
+import ThemeScript from '../components/ThemeScript.astro';
+import Fonts from '../components/Fonts.astro';
+import GameModal from '../components/GameModal.astro';
+import StatusPill from '../components/StatusPill.astro';
+import Badge from '../components/Badge.astro';
+
+type PlayoffSnap = {
+  series_id: string;
+  team_a: string; team_b: string;
+  win_pct_a: number; win_pct_b: number;
+  next_game_utc: string | null;
+  is_complete: boolean;
+};
+let playoffNext: { snap: PlayoffSnap; gameDateISO: string } | null = null;
+let playoffActive = false;
+try {
+  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
+  if (res.ok) {
+    const data = await res.json();
+    const active: PlayoffSnap[] = (data.series ?? []).filter((s: PlayoffSnap) => !s.is_complete);
+    playoffActive = active.length > 0;
+    const withTime = active.filter(s => s.next_game_utc);
+    withTime.sort((a, b) => a.next_game_utc! < b.next_game_utc! ? -1 : 1);
+    if (withTime[0]) playoffNext = { snap: withTime[0], gameDateISO: withTime[0].next_game_utc! };
+  }
+} catch (_) { /* no banner */ }
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HockeyGameBot · Scoreboard — Live NHL Scores & Analytics</title>
+  <meta name="description" content="Live NHL scores and game cards with real-time win probability, xG flow charts, play-by-play, and advanced analytics. Every game, every night.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HockeyGameBot">
+  <meta property="og:title" content="HockeyGameBot · Scoreboard">
+  <meta property="og:description" content="Live NHL scores and advanced analytics — win probability, expected goals, and more.">
+  <meta property="og:url" content="https://hockeygamebot.com/scoreboard">
+  <meta property="og:image" content="https://hockeygamebot.com/og/default.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@hockeygamebot">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/favicon-180x180.png">
+  <script src="/js/hgb-charts.js" is:inline></script>
+
+<style is:global>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #EFEEE8;
+  --surface: #FFFFFF;
+  --ink: #0d0d14;
+  --ink-86: rgba(13,13,20,0.86);
+  --ink-72: rgba(13,13,20,0.72);
+  --ink-48: rgba(13,13,20,0.48);
+  --ink-32: rgba(13,13,20,0.32);
+  --ink-20: rgba(13,13,20,0.20);
+  --ink-14: rgba(13,13,20,0.14);
+  --ink-10: rgba(13,13,20,0.10);
+  --ink-06: rgba(13,13,20,0.06);
+  --red: #E8002D;
+  --green: #16a34a;
+  --yellow: #b45309;
+  --orange: #c2410c;
+  --blue: #1d4ed8;
+  --cyan: #0284c7;
+  --status-live: #00E5FF;
+  --status-final: var(--ink-48);
+  --status-ot: #FF9800;
+  --status-scheduled: var(--ink-48);
+  --status-goal: #00E676;
+  --display: "Barlow Condensed", sans-serif;
+  --body: "Barlow", sans-serif;
+  --mono: "JetBrains Mono", monospace;
+}
+html, body {
+  width: 100%; height: 100vh; overflow: hidden;
+  background: var(--bg); font-family: var(--body); color: var(--ink);
+  display: flex; flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+
+/* ── PLAYOFF STRIP ── */
+.playoff-strip {
+  display: flex; align-items: center; gap: 14px;
+  padding: 6px 20px;
+  background: linear-gradient(90deg, rgba(232,0,45,0.08), rgba(232,0,45,0.02) 60%, transparent);
+  border-bottom: 1px solid rgba(232,0,45,0.14);
+  color: var(--ink-72);
+  text-decoration: none;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: background 160ms ease;
+  flex-shrink: 0;
+}
+.playoff-strip:hover { background: linear-gradient(90deg, rgba(232,0,45,0.13), rgba(232,0,45,0.04) 60%, transparent); }
+.playoff-strip__tag { color: var(--red); font-weight: 700; letter-spacing: 0.12em; flex-shrink: 0; }
+.playoff-strip__mid { flex: 1; color: var(--ink-48); font-weight: 500; text-transform: none; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playoff-strip__mid strong { color: var(--ink-72); font-weight: 600; }
+.playoff-strip__time { margin: 0 4px; color: var(--ink-32); }
+.playoff-strip__cta { color: var(--ink-48); font-weight: 600; letter-spacing: 0.1em; flex-shrink: 0; }
+.playoff-strip:hover .playoff-strip__cta { color: var(--red); }
+@media (max-width: 700px) {
+  .playoff-strip { padding: 6px 14px; gap: 10px; font-size: 10px; }
+  .playoff-strip__mid { display: none; }
+}
+
+/* ── TICKER ── */
+.ticker-strip { height: 30px; background: var(--ink); display: flex; align-items: center; overflow: hidden; flex-shrink: 0; }
+.ticker-lbl { flex-shrink: 0; height: 100%; background: rgba(0,0,0,0.3); border-right: 2px solid var(--red); padding: 0 14px; display: flex; align-items: center; font-family: var(--body); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; color: var(--red); white-space: nowrap; transition: color 0.3s, border-color 0.3s; }
+.ticker-lbl.recap { color: rgba(255,255,255,0.4); border-right-color: rgba(255,255,255,0.2); }
+.ticker-content { flex: 1; overflow: hidden; white-space: nowrap; }
+.ticker-inner { display: inline-block; animation: scroll 60s linear infinite; padding-left: 40%; }
+@keyframes scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+.ticker-inner span { display: inline-block; font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.55); margin-right: 56px; }
+.ticker-inner span strong { color: rgba(255,255,255,0.9); }
+.ti-goal strong { color: #7dd3fc; }
+.ti-goal em { font-style: normal; color: #fde68a; font-size: 10px; font-weight: 700; vertical-align: middle; }
+.ti-penalty strong { color: #fde68a; }
+.ti-final strong { color: rgba(255,255,255,0.4); }
+.ti-sep { color: rgba(255,255,255,0.2); margin: 0 20px; font-size: 8px; }
+
+/* ── GRID WRAPPER ── */
+#grid-wrapper { flex: 1; background: var(--bg); padding: 4px; position: relative; overflow: hidden; min-height: 0; }
+
+/* Base grid container */
+.gg { width: 100%; height: 100%; gap: 4px; }
+
+/* Layout variants */
+.gg-1 { display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.gg-2 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.gg-3 { display: grid; grid-template-columns: 3fr 2fr; grid-template-rows: 1fr 1fr; }
+.gg-3 #g-0 { grid-row: 1 / 3; }
+.gg-4 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.gg-5 { display: flex; height: 100%; }
+.gg-left  { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.gg-right { flex: 1; display: flex; flex-direction: column; gap: 4px; margin-left: 4px; }
+.gg-left .hcard, .gg-right .hcard { flex: 1; min-height: 0; }
+.gg-6  { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.gg-8r  { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr; }
+.gg-9r  { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+.gg-12r { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+.gg-15r { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr 1fr; }
+.gg-7r { display: flex; height: 100%; gap: 4px; }
+.gg-7r-left  { flex: 2; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-7r-right { flex: 1; display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+.gg-11r { display: flex; height: 100%; gap: 4px; }
+.gg-11r-left  { flex: 1; display: grid; grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-11r-right { flex: 2; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+.gg-13r { display: flex; height: 100%; gap: 4px; }
+.gg-13r-left  { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-13r-right { flex: 1; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+.gg-10 { display: flex; height: 100%; gap: 4px; }
+.gg-10-left  { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 4px; }
+.gg-10-right { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 4px; }
+
+.hcard:empty { background: rgba(13,13,20,0.025); border-color: rgba(13,13,20,0.06); }
+
+.gg-13r-right .hc-logo { width: 56px !important; height: 56px !important; }
+.gg-13r-right .hc-abbr { font-size: 22px !important; }
+.gg-13r-right .hc-n    { font-size: 48px !important; }
+.gg-13r-right .hc-sep  { font-size: 26px !important; }
+.gg-13r-right .hc-score-center { min-width: 88px !important; gap: 4px !important; }
+.gg-13r-right .hc-sb-row { gap: 4px !important; }
+.gg-13r-right .hc-star-name { font-size: 10px !important; }
+.gg-13r-right .status-pill  { font-size: 11px !important; }
+.gg-15r .hc-logo { width: 60px !important; height: 60px !important; }
+.gg-15r .hc-abbr { font-size: 24px !important; }
+.gg-15r .hc-n    { font-size: 50px !important; }
+.gg-15r .hc-sep  { font-size: 27px !important; }
+.gg-15r .hc-score-center { min-width: 92px !important; gap: 4px !important; }
+.gg-15r .hc-sb-row { gap: 4px !important; }
+.gg-15r .hc-star-name { font-size: 10px !important; }
+.gg-15r .status-pill  { font-size: 12px !important; }
+.hcard.compact .hc-last { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── HERO CARD ── */
+.hcard {
+  background: var(--surface); border: 1px solid var(--ink-14);
+  position: relative; overflow: hidden;
+  display: grid; grid-template-rows: 4px auto 1fr auto;
+  transform-origin: center center; cursor: pointer;
+}
+.hcard::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(13,13,20,0.02) 0%, transparent 55%);
+}
+.hcard:hover { border-color: rgba(13,13,20,0.28); }
+.hcard--loading { display: flex; align-items: center; justify-content: center; }
+.hcard--loading::before {
+  content: ''; width: 32px; height: 32px; border: 2px solid var(--ink-14);
+  border-top-color: var(--ink-32); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── GOAL WASH ── */
+.goal-wash {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  opacity: 0; pointer-events: none;
+}
+.goal-wash.active { animation: washCycle 5s ease forwards; }
+@keyframes washCycle { 0%{opacity:0} 8%{opacity:1} 80%{opacity:1} 100%{opacity:0} }
+.gwo-eyebrow { font-family: var(--body); font-size: 11px; font-weight: 700; letter-spacing: 0.22em; color: rgba(255,255,255,0.85); text-transform: uppercase; }
+.gwo-scorer  { font-family: var(--display); font-size: clamp(32px, 5vw, 56px); font-weight: 800; line-height: 1; color: #fff; text-shadow: 0 2px 16px rgba(0,0,0,0.4); }
+.gwo-goal-num { font-family: var(--display); font-size: clamp(14px, 2vw, 22px); color: rgba(255,255,255,0.7); letter-spacing: 0.06em; }
+.gwo-assists  { font-size: clamp(10px, 1.2vw, 14px); color: rgba(255,255,255,0.75); }
+.gwo-divider  { width: 48px; height: 1px; background: rgba(255,255,255,0.3); margin: 4px 0; }
+.gwo-score    { font-family: var(--display); font-size: clamp(20px, 3vw, 32px); font-weight: 700; color: #fff; }
+.gwo-context  { font-family: var(--body); font-size: 11px; color: rgba(255,255,255,0.65); letter-spacing: 0.1em; }
+
+/* ── CARD TRANSITIONS ── */
+.hcard.exiting { opacity: 0; transform: scale(0.96); transition: opacity 0.35s ease, transform 0.35s ease; }
+.hcard.entering { animation: cardEnter 0.45s ease forwards; }
+@keyframes cardEnter { from { opacity: 0; transform: scale(1.025); } to { opacity: 1; transform: scale(1); } }
+
+/* ── CARD SUB-ELEMENTS ── */
+.hc-accent { width: 100%; }
+.hc-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 0; position: relative; z-index: 2; }
+/* Game-state pill (.status-pill) and category badges (.cat-badge) now come from
+   the canonical StatusPill.astro / Badge.astro components — their is:global CSS
+   is bundled via the hidden static instances in <body>. See hgb-docs/CHIPS.md. */
+.hc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+
+/* ── WIN PROBABILITY TEXT ── */
+.hc-wp-text { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0 2px; }
+.hc-wp-away, .hc-wp-home { font-family: var(--mono); font-size: clamp(12px, 1.4vw, 16px); font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hc-wp-mid { font-family: var(--body); font-size: clamp(7px, 0.8vw, 9px); font-weight: 600; letter-spacing: 0.1em; color: var(--ink-32); text-transform: uppercase; }
+
+/* ── STAT BARS ── */
+.hc-stat-wrap { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+.hc-stat-bar { display: flex; align-items: center; gap: 5px; width: 100%; }
+.hc-sb-val { font-family: var(--mono); font-size: clamp(10px, 1.1vw, 13px); font-weight: 700; color: var(--ink-48); min-width: 20px; font-variant-numeric: tabular-nums; }
+.hc-sb-val.away { text-align: right; }
+.hc-sb-val.home { text-align: left; }
+.hc-sb-track { flex: 1; height: 5px; overflow: hidden; background: var(--ink-10); }
+.hc-sb-fill { height: 100%; }
+.hc-sb-label { font-family: var(--body); font-size: 9px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-20); text-align: center; }
+
+/* ── CARD BODY ── */
+.hc-body { display: flex; align-items: center; justify-content: center; padding: 4px 28px 0; position: relative; z-index: 2; }
+.hc-team { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
+.hc-logo { width: clamp(56px, 8vw, 100px); height: clamp(56px, 8vw, 100px); object-fit: contain; }
+.hc-logo.dim { opacity: 0.22; filter: grayscale(0.4); }
+.hc-abbr { font-family: var(--display); font-size: clamp(22px, 3.5vw, 40px); font-weight: 800; }
+.hc-abbr.lead { color: var(--ink); }
+.hc-abbr.trail { color: var(--ink-32); }
+.hc-abbr.tie { color: var(--ink); }
+.hc-name { font-family: var(--display); font-size: clamp(8px, 0.9vw, 10px); color: var(--ink-32); text-transform: uppercase; letter-spacing: 0.08em; }
+.hc-score-center { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: clamp(100px, 14vw, 180px); }
+.hc-nums { display: flex; align-items: center; gap: 12px; }
+.hc-n { font-family: var(--display); font-size: clamp(52px, 8vw, 100px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.hc-n.lead { color: var(--ink); }
+.hc-n.trail { color: var(--ink-32); }
+.hc-n.tie { color: var(--ink); }
+.hc-sep { font-family: var(--display); font-size: clamp(28px, 4vw, 50px); color: var(--ink-20); font-weight: 800; }
+
+/* ── CARD FOOT ── */
+.hc-foot { padding: 6px 20px 10px; display: flex; flex-direction: column; gap: 4px; position: relative; z-index: 2; }
+.hc-last-label { display: flex; align-items: center; gap: 8px; }
+.hc-last-label span { font-family: var(--body); font-size: 7px; font-weight: 700; letter-spacing: 0.16em; color: var(--ink-20); text-transform: uppercase; white-space: nowrap; }
+.hc-last-label::before, .hc-last-label::after { content: ''; flex: 1; height: 1px; background: var(--ink-10); }
+.hc-last { font-family: var(--body); font-size: clamp(10px, 1.1vw, 12px); color: var(--ink-48); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-last strong { color: var(--ink-72); }
+.hc-stars { display: flex; justify-content: space-around; padding: 4px 0 2px; }
+.hc-star { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; }
+.hc-star-num { font-size: 9px; color: var(--ink-20); }
+.hc-star-name { font-family: var(--body); font-size: clamp(9px, 1vw, 11px); font-weight: 600; color: var(--ink-72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 95%; text-align: center; }
+
+/* ── RECENT EVENTS ── */
+.hc-recent { padding: 6px 20px 10px; display: flex; flex-direction: column; gap: 4px; position: relative; z-index: 2; }
+.hc-recent-label { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.hc-recent-label span { font-family: var(--body); font-size: 7px; font-weight: 700; letter-spacing: 0.16em; color: var(--ink-20); text-transform: uppercase; white-space: nowrap; }
+.hc-recent-label::before, .hc-recent-label::after { content: ''; flex: 1; height: 1px; background: var(--ink-10); }
+.hc-recent-row { display: flex; align-items: center; gap: 6px; }
+.hc-recent-row:nth-child(2) { opacity: 1.0; }
+.hc-recent-row:nth-child(3) { opacity: 0.65; }
+.hc-recent-row:nth-child(4) { opacity: 0.35; }
+.hc-recent-icon { font-size: 12px; width: 16px; flex-shrink: 0; }
+.hc-recent-desc { font-family: var(--body); font-size: clamp(11px, 1.1vw, 13px); color: var(--ink-72); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.hc-recent-time { font-family: var(--mono); font-size: 11px; color: var(--ink-32); white-space: nowrap; flex-shrink: 0; margin-left: 6px; }
+
+/* ── BOTTOM BAR ── */
+.bottombar { height: 96px; background: var(--surface); border-top: 1px solid var(--ink-14); display: flex; align-items: center; padding: 0 16px; gap: 8px; overflow-x: auto; overflow-y: hidden; flex-shrink: 0; }
+.bc { flex: 0 0 220px; height: 72px; background: var(--bg); border: 1px solid var(--ink-14); display: flex; flex-direction: column; overflow: hidden; }
+.bc.entering-bb { animation: bbEnter 0.45s ease forwards; }
+@keyframes bbEnter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.bc-wpbar { height: 3px; width: 100%; flex-shrink: 0; }
+.bc-inner { display: flex; align-items: center; padding: 0 8px; flex: 1; }
+.bc-team { flex: 0 0 60px; display: flex; align-items: center; justify-content: center; }
+.bc-logo { width: 52px; height: 52px; object-fit: contain; }
+.bc-logo.dim { opacity: 0.22; filter: grayscale(0.4); }
+.bc-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.bc-scores { display: flex; align-items: center; gap: 5px; }
+.bc-n { font-family: var(--display); font-size: 26px; font-weight: 800; color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums; }
+.bc-n.dim { color: var(--ink-32); }
+.bc-dash { font-family: var(--display); font-size: 17px; font-weight: 800; color: var(--ink-20); }
+.bc-status { font-family: var(--body); font-size: 9px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink-48); }
+.bc-status.live { color: var(--cyan); }
+.bc-status.ot   { color: var(--orange); }
+.bc-status.int  { color: var(--blue); }
+.bc-status.pre  { color: var(--ink-48); font-size: 11px; letter-spacing: 0.03em; }
+.bc-status.final { color: var(--ink-32); }
+.bc-status.goal  { color: var(--red); }
+.bc.bb-goal-flash { border-color: var(--red); box-shadow: 0 0 0 1px var(--red), inset 0 0 16px rgba(232,0,45,0.06); animation: bbFlash 4s ease forwards; }
+@keyframes bbFlash { 0%,60% { border-color: var(--red); box-shadow: 0 0 0 1px var(--red), inset 0 0 16px rgba(232,0,45,0.06); } 100% { border-color: var(--ink-14); box-shadow: none; } }
+
+/* ── CATCHUP PILL ── */
+#catchup-pill {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  background: rgba(13,13,20,0.9); border: 1px solid var(--ink-14);
+  color: rgba(255,255,255,0.8); font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  padding: 6px 16px; z-index: 200;
+  opacity: 0; transition: opacity 0.2s ease; pointer-events: none; white-space: nowrap;
+}
+#catchup-pill.show { opacity: 1; }
+
+/* ── DEBUG OVERLAY ── */
+.dbg-chip {
+  position: absolute; top: 6px; right: 8px; z-index: 50;
+  background: rgba(13,13,20,0.08); border: 1px solid rgba(146,64,14,0.4);
+  color: #92400e; font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  padding: 2px 6px; pointer-events: none; font-family: monospace;
+}
+#dbg-panel {
+  position: fixed; bottom: 60px; right: 12px; z-index: 500;
+  background: rgba(13,13,20,0.92); border: 1px solid var(--ink-14);
+  padding: 10px 12px; min-width: 280px; max-height: 320px; overflow-y: auto;
+  font-family: monospace; font-size: 11px; color: rgba(255,255,255,0.5);
+}
+.dbg-title { font-weight: 700; color: #fde68a; letter-spacing: 0.1em; margin-bottom: 8px; font-size: 10px; }
+#dbg-panel table { border-collapse: collapse; width: 100%; }
+#dbg-panel td { padding: 2px 6px 2px 0; white-space: nowrap; }
+#dbg-panel td:first-child { color: #7dd3fc; font-weight: 700; width: 28px; }
+#dbg-panel td:nth-child(3) { color: #fff; text-align: right; width: 52px; }
+#dbg-panel td:nth-child(4) { color: rgba(255,255,255,0.4); font-size: 9px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── NO GAMES ── */
+.no-games { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--ink-32); }
+.no-games-title { font-family: var(--display); font-size: 28px; font-weight: 800; color: var(--ink-48); letter-spacing: 0.05em; }
+.no-games-sub { font-family: var(--body); font-size: 12px; letter-spacing: 0.1em; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 1800px) {
+  .gg-8r  { grid-template-columns: repeat(3, 1fr); }
+  .gg-12r { grid-template-columns: repeat(3, 1fr); }
+  .gg-15r { grid-template-columns: repeat(4, 1fr); }
+  .gg-7r, .gg-10, .gg-11r, .gg-13r { display: grid; grid-template-columns: repeat(3, 1fr); height: auto; }
+  .gg-7r-left, .gg-7r-right,
+  .gg-10-left, .gg-10-right,
+  .gg-11r-left, .gg-11r-right,
+  .gg-13r-left, .gg-13r-right { display: contents; }
+}
+@media (max-width: 1100px) {
+  body.recap-mode { height: auto; overflow-x: hidden; overflow-y: auto; }
+  body.recap-mode #grid-wrapper { overflow: visible; height: auto; }
+  body.recap-mode .gg { height: auto; }
+  body.recap-mode .hcard { min-height: 260px; }
+  .gg-7r, .gg-8r, .gg-9r, .gg-11r, .gg-12r, .gg-13r, .gg-15r { grid-template-columns: repeat(2, 1fr); }
+  .gg-7r-left, .gg-7r-right, .gg-11r-left, .gg-11r-right, .gg-13r-left, .gg-13r-right { display: contents; }
+  .gg-10 { grid-template-columns: repeat(2, 1fr); }
+  .gg-6 { grid-template-columns: 1fr 1fr; }
+  .gg-3 { grid-template-columns: 1fr; grid-template-rows: auto; }
+  .gg-3 [id^="g-"] { grid-row: auto; }
+  .gg-5 { flex-direction: column; }
+  .gg-left, .gg-right { flex: none; width: 100%; }
+}
+@media (max-width: 640px) {
+  html, body { height: auto; overflow-x: hidden; overflow-y: auto; }
+  .wrap { padding: 0 16px; }
+  .ticker-strip { height: 26px; }
+  .ticker-lbl { padding: 0 10px; font-size: 8px; }
+  .ticker-inner { animation-duration: 30s; padding-left: 20px; }
+  .ticker-inner span { font-size: 11px; margin-right: 36px; }
+  #grid-wrapper { height: auto; padding: 2px; }
+  .gg { display: flex; flex-direction: column; gap: 2px; height: auto; }
+  .gg-10 { flex-direction: column; height: auto; }
+  .gg-10-left, .gg-10-right { flex: none; width: 100%; display: flex; flex-direction: column; }
+  .hcard { grid-template-rows: 4px auto auto auto; min-height: 220px; }
+  .hc-logo { width: clamp(36px, 10vw, 56px); height: clamp(36px, 10vw, 56px); }
+  .hc-abbr { font-size: clamp(20px, 6vw, 32px); }
+  .hc-name { font-size: 8px; }
+  .hc-n { font-size: clamp(44px, 13vw, 72px); }
+  .hc-sep { font-size: clamp(24px, 7vw, 40px); }
+  .hc-score-center { min-width: clamp(80px, 22vw, 140px); }
+  .hc-body { padding: 4px 16px 0; }
+  .hc-foot { padding: 4px 16px 10px; }
+  .hc-head { padding: 8px 16px 0; }
+  .hc-recent { gap: 3px; padding: 4px 16px 8px; }
+  .hc-recent-icon { font-size: 10px; width: 13px; }
+  .hc-recent-desc { font-size: 11px; }
+  .hc-recent-time { font-size: 9px; }
+  .bottombar { height: 80px; padding: 0 10px; gap: 6px; }
+  #bb-container { justify-content: flex-start !important; }
+  .bc { flex: 0 0 180px; height: 64px; }
+  .bc-team { flex: 0 0 48px; }
+  .bc-logo { width: 42px; height: 42px; }
+  .bc-n { font-size: 22px; }
+
+}
+</style>
+<body>
+
+<div id="catchup-pill">CATCHING UP TO LIVE…</div>
+
+{/* Cards/badges/status pills on this page are built at runtime in JS template
+    literals (innerHTML), so the StatusPill/Badge components can't be invoked
+    per-card. We render one hidden instance of each here so Astro bundles their
+    canonical `is:global` CSS onto the page; the JS builders below emit the same
+    `.status-pill`/`.cat-badge` markup the components produce. */}
+<div hidden aria-hidden="true">
+  <StatusPill state="live" />
+  <StatusPill state="final" />
+  <StatusPill state="ot" />
+  <StatusPill state="pre" />
+  <StatusPill state="intermission" />
+  <Badge kind="ot" label="ot" />
+  <Badge kind="cold" label="cold" />
+  <Badge kind="hot" label="hot" />
+  <Badge kind="matchup" label="matchup" />
+</div>
+
+<Nav currentPath={Astro.url.pathname} />
+
+{playoffActive && (
+  <a class="playoff-strip" href="/playoffs/2026" aria-label="Open 2026 playoff predictions">
+    <span class="playoff-strip__tag">★ 2026 Playoffs · Round 1</span>
+    {playoffNext ? (
+      <span class="playoff-strip__mid" data-iso={playoffNext.gameDateISO}>
+        Next: <strong>{playoffNext.snap.team_a}</strong> vs <strong>{playoffNext.snap.team_b}</strong>
+        <span class="playoff-strip__time" data-iso={playoffNext.gameDateISO}>—</span>
+        · {playoffNext.snap.team_a} {playoffNext.snap.win_pct_a}%
+      </span>
+    ) : (
+      <span class="playoff-strip__mid">Predictions updated daily</span>
+    )}
+    <span class="playoff-strip__cta">Full bracket →</span>
+  </a>
+)}
+
+<div class="ticker-strip">
+  <div class="ticker-lbl" id="ticker-lbl">⚡ LIVE</div>
+  <div class="ticker-content">
+    <div class="ticker-inner" id="ticker-inner">
+      <span>Loading game data…</span>
+    </div>
+  </div>
+</div>
+
+<div id="grid-wrapper"></div>
+
+<div class="bottombar">
+  <div id="bb-container" style="display:flex;flex:1;gap:8px;justify-content:center;"></div>
+</div>
+
+<GameModal />
+<script src="/js/game-modal.js" defer></script>
+
+</body>
+</html>
+<script>
+// Playoff banner: hydrate the next-game datetime into browser-local time.
+// Server-side rendered the ISO string into data-iso on .playoff-strip__time.
+(function hydratePlayoffStrip() {
+  const el = document.querySelector('.playoff-strip__time');
+  if (!el) return;
+  const iso = el.getAttribute('data-iso');
+  if (!iso) return;
+  const dt = new Date(iso);
+  const mon = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const time = dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const tz = (dt.toLocaleTimeString(undefined, { timeZoneName: 'short' }).split(' ').pop()) || '';
+  el.textContent = `${mon} ${time} ${tz}`;
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+const API_BASE = 'https://api.hockeygamebot.com';
+const POLL_INTERVAL = 10000;
+const LOGO_BASE = '/logos';
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let SLOTS = [];
+let grid = [];
+let bench = [];
+let currentLayoutMode = null;
+window.HGB_GAME_CARDS = window.HGB_GAME_CARDS || {};  // game_id → card data (shared with game-modal.js)
+let prevScores = {};                 // game_id → { away, home }
+let initialized = false;
+let noGamesShown = false;
+let lastGoalTime = 0;  // epoch ms — suppresses re-sort for 45s after any goal
+let _yesterdayData = null; // cached once per session
+let _viewMode = 'today';   // 'today' | 'yesterday'
+let _consecutiveFailures = 0;
+let _retryDelay = 4_000;    // doubles on each failure, cap 60 000ms
+let _lastSuccessAt = 0;     // epoch ms — shown in stale bar
+let _countdownTimer = null; // countdown tick timeout handle
+const DEBUG = new URLSearchParams(location.search).has('debug');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API
+// ─────────────────────────────────────────────────────────────────────────────
+// ── MOCK DATA (dev only) ──────────────────────────────────────────────────────
+// Usage: ?mock=14&mode=live  or  ?mock=10&mode=recap
+const _mockParams = new URLSearchParams(window.location.search);
+const _mockN    = parseInt(_mockParams.get('mock') || '0', 10);
+const _mockMode = _mockParams.get('mode') || 'live'; // 'live' | 'recap'
+
+function _generateMockGames(n, mode) {
+  const pairs = [
+    ['NJD','NYR'],['BOS','TOR'],['MTL','TBL'],['WPG','CHI'],
+    ['DAL','BOS'],['OTT','FLA'],['CAR','CBJ'],['SEA','EDM'],
+    ['PIT','DET'],['VGK','LAK'],['COL','STL'],['SJS','ANA'],
+    ['PHI','WSH'],['BUF','NYI'],['NSH','MIN'],['CGY','VAN'],
+  ];
+  const isFinal = mode === 'recap';
+  return Array.from({ length: n }, (_, i) => {
+    const [away, home] = pairs[i % pairs.length];
+    const awayScore = Math.floor(Math.random() * 5);
+    const homeScore = Math.floor(Math.random() * 5);
+    const period    = isFinal ? 3 : (Math.floor(Math.random() * 3) + 1);
+    const secs      = Math.floor(Math.random() * 1200);
+    const mm = String(Math.floor(secs / 60)).padStart(2,'0');
+    const ss = String(secs % 60).padStart(2,'0');
+    return {
+      game_id: `mock_${i}`,
+      status: isFinal ? 'final' : 'live',
+      period,
+      time_remaining: `${mm}:${ss}`,
+      in_intermission: false,
+      start_time: new Date(Date.now() - 3600000).toISOString(),
+      away_team: { abbrev: away, short_name: away, score: awayScore },
+      home_team: { abbrev: home, short_name: home, score: homeScore },
+      win_probability: 0.4 + Math.random() * 0.2,
+      home_sog: 10 + Math.floor(Math.random() * 20),
+      away_sog: 10 + Math.floor(Math.random() * 20),
+      xg_home: +(1 + Math.random() * 3).toFixed(1),
+      xg_away: +(1 + Math.random() * 3).toFixed(1),
+      xg_home_5v5: +(0.5 + Math.random() * 2).toFixed(1),
+      xg_away_5v5: +(0.5 + Math.random() * 2).toFixed(1),
+      last_event: `${home} - Shot P${period} ${mm}:${ss}`,
+      recent_events: [],
+      three_stars: isFinal ? [
+        { player_last_name: 'Hughes',    team_abbrev: home, star: 3 },
+        { player_last_name: 'MacKinnon', team_abbrev: away, star: 2 },
+        { player_last_name: 'Draisaitl', team_abbrev: home, star: 1 },
+      ] : null,
+      clock_at: null,
+    };
+  });
+}
+
+async function fetchGames() {
+  if (_mockN > 0) return { games: _generateMockGames(_mockN, _mockMode) };
+  const resp = await fetch(`${API_BASE}/v1/games/today`, { cache: 'no-store' });
+  if (!resp.ok) throw new Error(`API ${resp.status}`);
+  return resp.json();
+}
+
+async function fetchYesterdayData() {
+  const yesterday = _yesterdayDateStr(); // already exists in file
+  try {
+    const resp = await fetch(`${API_BASE}/v1/games/today?date=${yesterday}`, { cache: 'no-store' });
+    if (!resp.ok) return null;
+    return resp.json();
+  } catch { return null; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA TRANSFORMS
+// ─────────────────────────────────────────────────────────────────────────────
+function timeRemainingToMins(tr) {
+  if (!tr || tr === '--:--') return 20;
+  const [m, s] = tr.split(':').map(Number);
+  return (m || 0) + (s || 0) / 60;
+}
+
+function calcGamePct(period, timeRemaining, inIntermission) {
+  // Shows progress through the CURRENT period (0–100%), resets each period.
+  // More visually satisfying than total-game %; 3rd period late = nearly full bar.
+  if (!period || period === 0) return 0;
+  if (inIntermission) return 100;
+  const remainMins = timeRemainingToMins(timeRemaining);
+  const periodMins = (period >= 4) ? 5 : 20; // OT is 5 min
+  return Math.min(100, Math.round(((periodMins - remainMins) / periodMins) * 100));
+}
+
+function calcExcitement(game) {
+  const status = game.status;
+  if (status === 'scheduled' || status === 'upcoming') { const hoursUntil = (new Date(game.start_time).getTime() - Date.now()) / 3600000; return -60 - hoursUntil; }
+  if (status === 'final') {
+    const away = game.away_team?.score || 0;
+    const home = game.home_team?.score || 0;
+    const goalDiff = Math.abs(away - home);
+    const period = game.period || 3;
+    const wentOT = period >= 4;
+    const otBonus = wentOT ? 20 : 0;
+    const closeness = Math.max(0, 4 - goalDiff) * 5; // 1-goal=15, 2-goal=10, 3-goal=5, blowout=0
+    return -75 + otBonus + closeness;
+  }
+  const period = game.period || 1;
+  const away = game.away_team?.score || 0;
+  const home = game.home_team?.score || 0;
+  const goalDiff = Math.abs(away - home);
+  const isOT = period >= 4;
+  const closeness = Math.max(0, 4 - goalDiff) * 15;
+  const periodMult = [0, 1.0, 1.5, 2.5, 4.0][Math.min(period, 4)];
+  const remainMins = timeRemainingToMins(game.time_remaining);
+  const urgency = (period === 3 || isOT) ? (20 - remainMins) * 1.5 : 0;
+  const otBonus = isOT ? 80 : 0;
+  return closeness * periodMult + urgency + otBonus;
+}
+
+function calcExcitementBreakdown(game) {
+  const status = game.status;
+  if (status === 'scheduled' || status === 'upcoming') {
+    const h = (new Date(game.start_time).getTime() - Date.now()) / 3600000;
+    return { total: -60 - h, reason: `scheduled ${h.toFixed(1)}h away` };
+  }
+  if (status === 'final') {
+    const fa = game.away_team?.score || 0, fh = game.home_team?.score || 0;
+    const fd = Math.abs(fa - fh), fp = game.period || 3;
+    const fotBonus = fp >= 4 ? 20 : 0, fcl = Math.max(0, 4 - fd) * 5;
+    return { total: -75 + fotBonus + fcl, reason: `final${fp>=4?' OT':''} diff=${fd}` };
+  }
+  const period = game.period || 1;
+  const away = game.away_team?.score || 0;
+  const home = game.home_team?.score || 0;
+  const goalDiff = Math.abs(away - home);
+  const isOT = period >= 4;
+  const closeness = Math.max(0, 4 - goalDiff) * 15;
+  const periodMult = [0, 1.0, 1.5, 2.5, 4.0][Math.min(period, 4)];
+  const remainMins = timeRemainingToMins(game.time_remaining);
+  const urgency = (period === 3 || isOT) ? (20 - remainMins) * 1.5 : 0;
+  const otBonus = isOT ? 80 : 0;
+  const total = closeness * periodMult + urgency + otBonus;
+  const parts = [];
+  if (closeness) parts.push(`cls${closeness}×${periodMult}`);
+  if (urgency) parts.push(`urg${urgency.toFixed(0)}`);
+  if (otBonus) parts.push(`OT+${otBonus}`);
+  return { total, reason: parts.join(' + ') || 'early' };
+}
+
+function renderDebugPanel(allCards) {
+  if (!DEBUG) return;
+  let panel = document.getElementById('dbg-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'dbg-panel';
+    document.body.appendChild(panel);
+  }
+  const rows = allCards.map((c, i) => {
+    const pos = i < 4 ? `#${i+1}` : `B${i-3}`;
+    const cls = i < 4 ? 'dbg-grid' : 'dbg-bench';
+    return `<tr class="${cls}"><td>${pos}</td><td>${c.away}·${c.home}</td><td>${c.excitement.toFixed(1)}</td><td>${c.debugReason||''}</td></tr>`;
+  }).join('');
+  const modeTag = _recapMode ? ' <span style="color:#4af;font-size:9px">RECAP</span>' : '';
+  const sseEl = document.getElementById('sse-indicator');
+  const sseState = sseEl?.classList.contains('connected') ? '<span style="color:#0f0">● SSE</span>' : '<span style="color:#f44">● SSE</span>';
+  panel.innerHTML = `<div class="dbg-title">GRID DEBUG${modeTag} ${sseState}</div><table>${rows}</table>`;
+}
+
+function buildBadgesFromGame(game) {
+  const badges = [];
+  const period = game.period || 0;
+  const away = game.away_team?.score || 0;
+  const home = game.home_team?.score || 0;
+  const goalDiff = Math.abs(away - home);
+  const isLive = game.status === 'live';
+  const isOT = isLive && period >= 4;
+  if (isOT) badges.push('ot:OT');
+  if (period > 0 && goalDiff === 0) badges.push('close:TIED');
+  else if (period > 0 && goalDiff === 1) badges.push('close:1-GOAL');
+  if (!isOT && period === 3 && game.status !== 'final' && timeRemainingToMins(game.time_remaining) < 5) badges.push('hot:🔥 FINAL MINS');
+  // Strength state badge (live games only)
+  // Accepts both old-bot format (PP/PK/EV/5V3/3V5/EN_*) and
+  // rewrite-bot format (5v4/4v5/5v3/3v5/6v5_en_home/5v6_en_away).
+  if (isLive) {
+    const ss = game.strength_state;
+    const awayAbbr = game.away_team?.abbrev || '';
+    const homeAbbr = game.home_team?.abbrev || '';
+    if      (ss === 'PP'  || ss === '5v4')           badges.push(`pp:PP ▶ ${homeAbbr}`);
+    else if (ss === 'PK'  || ss === '4v5')           badges.push(`pp:PP ▶ ${awayAbbr}`);
+    else if (ss === '5V3' || ss === '5v3')           badges.push(`adv:5v3 ▶ ${homeAbbr}`);
+    else if (ss === '3V5' || ss === '3v5')           badges.push(`pk:3v5 ▶ ${awayAbbr}`);
+    else if (ss === 'EN_AWAY' || ss?.startsWith('5v6_en')) badges.push('en:EN');
+    else if (ss === 'EN_HOME' || ss?.startsWith('6v5_en')) badges.push('en:EN');
+  }
+  return badges;
+}
+
+function apiGameToCard(game) {
+  const away = game.away_team || {};
+  const home = game.home_team || {};
+  const period = game.period || 0;
+  const isFinal = game.status === 'final';
+  const startTimePassed = game.start_time && new Date(game.start_time) <= new Date();
+  const isScheduled = !startTimePassed && (game.status === 'scheduled' || game.status === 'unknown' || game.status === 'preview' || game.status === 'upcoming');
+  const isLive = game.status === 'live';
+  const isOT = isLive && period >= 4;
+  const inIntermission = game.in_intermission || false;
+  return {
+    id: game.game_id,
+    away: away.abbrev || '???',
+    awayCity: away.short_name || away.name || '',
+    home: home.abbrev || '???',
+    homeCity: home.short_name || home.name || '',
+    awayScore: away.score || 0,
+    homeScore: home.score || 0,
+    period,
+    clock: game.time_remaining || '--:--',
+    clockAt: game.clock_at || null,
+    pct: calcGamePct(period, game.time_remaining, inIntermission),
+    excitement: calcExcitement(game),
+    debugReason: DEBUG ? calcExcitementBreakdown(game).reason : '',
+    status: game.status,
+    isFinal,
+    isScheduled,
+    isOT,
+    inIntermission,
+    lastEvent: typeof game.last_event === 'string'
+      ? game.last_event
+      : (game.last_event?.description || ''),
+    recentEvents: Array.isArray(game.recent_events) ? game.recent_events : [],
+    startTime: game.start_time,
+    accentFrom: teamColor(away.abbrev, 0),
+    accentTo: teamColor(away.abbrev, 1),
+    teamColor: ensureReadable(pickTeamColor(away.abbrev), 58),
+    homeColor: ensureReadable(pickTeamColor(home.abbrev), 58),
+    winProbability: game.win_probability ?? null,
+    homeSog: game.home_sog ?? null,
+    awaySog: game.away_sog ?? null,
+    xgHome: game.xg_home != null ? +parseFloat(game.xg_home).toFixed(1) : null,
+    xgAway: game.xg_away != null ? +parseFloat(game.xg_away).toFixed(1) : null,
+    xgHome5v5: game.xg_home_5v5 != null ? +parseFloat(game.xg_home_5v5).toFixed(1) : null,
+    xgAway5v5: game.xg_away_5v5 != null ? +parseFloat(game.xg_away_5v5).toFixed(1) : null,
+    threeStars: Array.isArray(game.three_stars) ? game.three_stars : null,
+    badges: buildBadgesFromGame(game),
+  };
+}
+
+function buildWashData(card, awayScored) {
+  // Use recentEvents to find most recent goal (more stable than lastEvent which can drift to Stoppage)
+  // Note: event types stored uppercase in D1 — compare case-insensitively
+  const goalEvent = (card.recentEvents || []).find(e => e.type?.toUpperCase() === 'GOAL');
+  const teamName = awayScored ? card.away : card.home;
+  const bgColor = awayScored ? card.teamColor : card.homeColor;
+  const pLabel = periodLabel(card.period, card.isOT);
+
+  // Fall back to card.lastEvent (camelCase string) — set on the card when goal is the last event
+  const goalDesc = goalEvent?.description || card.lastEvent || null;
+  let scorer = 'GOAL', num = '', assists = '';
+  if (goalDesc) {
+    // Format: "Goal — Scorer Name (15)" — scorer is after the em dash
+    const parts = goalDesc.split(' — ');
+    const scorerRaw = parts[1] || '';  // parts[0] = "Goal", parts[1] = scorer name
+    const numMatch = scorerRaw.match(/\((\d+)\)/);
+    scorer = scorerRaw.replace(/\s*\(\d+\).*/, '').replace(/\s*(PP|SH|EN)\s*/g, '').trim().toUpperCase() || 'GOAL';
+    num = numMatch ? `${numMatch[1]} on the season` : '';
+  }
+
+  return {
+    eyebrow: `⚡ Goal — ${teamName}`,
+    scorer,
+    num,
+    assists,
+    score: `${card.away} ${card.awayScore} · ${card.home} ${card.homeScore}`,
+    ctx: `${pLabel} · ${card.clock}`,
+    bgColor,
+  };
+}
+
+function formatStartTime(isoStr) {
+  if (!isoStr) return 'UPCOMING';
+  try {
+    return new Date(isoStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  } catch { return 'UPCOMING'; }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function periodLabel(period, isOT) {
+  if (isOT || period >= 4) return period === 5 ? 'SO' : 'OT';
+  return ['', '1ST', '2ND', '3RD'][period] || `P${period}`;
+}
+
+function recentEventStamp(e) {
+  if (e.period && e.time) return ` <span class="hc-recent-time">P${e.period} · ${e.time}</span>`;
+  if (e.time_ago) return ` <span class="hc-recent-time">${e.time_ago}</span>`;
+  return '';
+}
+function recentEventIcon(type) {
+  if (type === 'goal') return '⚡';
+  if (type === 'penalty') return '🟡';
+  if (type === 'stoppage') return '🔴';
+  if (type === 'shot-on-goal' || type === 'missed-shot') return '🏒';
+  if (type === 'blocked-shot') return '🛡';
+  if (type === 'hit') return '💥';
+  if (type === 'faceoff') return '🔵';
+  return '·';
+}
+
+function scoreClass(a, b) {
+  if (a > b) return 'lead';
+  if (a < b) return 'trail';
+  return 'tie';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CARD HTML BUILDER
+// ─────────────────────────────────────────────────────────────────────────────
+function buildAccentStyle(card) {
+  if (card.isFinal) {
+    const winnerColor = card.homeScore >= card.awayScore ? card.homeColor : card.teamColor;
+    return `background:${winnerColor}`;
+  }
+  if (card.isScheduled || card.winProbability === null || card.winProbability === undefined) {
+    return `background:${card.homeColor}`;
+  }
+  const homePct = Math.round(card.winProbability * 100);
+  const awayPct = 100 - homePct;
+  const lo = Math.max(0, awayPct - 6);
+  const hi = Math.min(100, awayPct + 6);
+  return `background:linear-gradient(90deg,${card.teamColor} ${lo}%,${card.homeColor} ${hi}%)`;
+}
+
+function buildWpTextHtml(card) {
+  if (card.isScheduled || card.isFinal) return '';
+  if (card.winProbability === null || card.winProbability === undefined) return '';
+  const homePct = Math.round(card.winProbability * 100);
+  const awayPct = 100 - homePct;
+  return `<div class="hc-wp-text">
+    <span class="hc-wp-away" style="color:${card.teamColor}">${awayPct}%</span>
+    <span class="hc-wp-mid">WIN PROB</span>
+    <span class="hc-wp-home" style="color:${card.homeColor}">${homePct}%</span>
+  </div>`;
+}
+
+function buildStatBarHtml(label, awayVal, homeVal, awayColor, homeColor) {
+  if (awayVal === null || awayVal === undefined || homeVal === null || homeVal === undefined) return '';
+  const total = awayVal + homeVal;
+  if (total <= 0) return '';
+  const awayPct = Math.round(awayVal / total * 100);
+  const fill = `linear-gradient(90deg,${awayColor} 0%,${awayColor} ${awayPct}%,${homeColor} ${awayPct}%,${homeColor} 100%)`;
+  return `<div class="hc-stat-wrap">
+    <div class="hc-stat-bar">
+      <span class="hc-sb-val away">${awayVal}</span>
+      <div class="hc-sb-track"><div class="hc-sb-fill" style="background:${fill}"></div></div>
+      <span class="hc-sb-val home">${homeVal}</span>
+    </div>
+    <div class="hc-sb-label">${label}</div>
+  </div>`;
+}
+
+// Maps the buildBadgesFromGame() prefix tokens to canonical Badge kinds
+// (CHIPS.md §4). Strength-state badges (pp/pk/adv/en) use the documented
+// `matchup` kind for strength line items; close/tied uses `cold` (red tint).
+const BADGE_KIND = {
+  ot: 'ot',
+  close: 'cold',
+  hot: 'hot',
+  pp: 'matchup',
+  pk: 'matchup',
+  adv: 'matchup',
+  en: 'matchup',
+};
+
+// Emits canonical StatusPill markup (.status-pill[data-state] + .dot) for the
+// hero card header. The component CSS is bundled via the hidden static StatusPill
+// instances in <body>. See hgb-docs/CHIPS.md §3.
+function buildStatusPillHtml(card) {
+  let state, label;
+  if (card.isFinal) {
+    state = 'final'; label = 'FINAL';
+  } else if (card.isScheduled) {
+    state = 'pre'; label = formatStartTime(card.startTime);
+  } else if (card.inIntermission) {
+    const intClock = card.clock && card.clock !== '--:--' ? ` · ${card.clock}` : '';
+    state = 'intermission'; label = `${periodLabel(card.period, card.isOT)} INT${intClock}`;
+  } else {
+    state = card.isOT ? 'ot' : 'live';
+    label = `${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+  }
+  return `<span class="status-pill" data-state="${state}"><span class="dot" aria-hidden="true"></span>${label}</span>`;
+}
+
+function buildBadgesHtml(badges) {
+  return (badges || []).map(b => {
+    const [token, ...rest] = b.split(':');
+    const kind = BADGE_KIND[token] || 'default';
+    const cls = kind === 'default' ? 'cat-badge' : `cat-badge cat-badge--${kind}`;
+    return `<span class="${cls}">${rest.join(':')}</span>`;
+  }).join('');
+}
+
+function buildCardInner(card: any, washData?: any) {
+  if (!card) return '';
+  const ac = scoreClass(card.awayScore, card.homeScore);
+  const hc = scoreClass(card.homeScore, card.awayScore);
+
+  const statusHtml = buildStatusPillHtml(card);
+
+
+  const washHtml = washData ? `
+    <div class="goal-wash active" id="wash-${card.id}" style="background:rgba(${hexToRgb(washData.bgColor || card.teamColor)},0.96)">
+      <div class="gwo-eyebrow">${washData.eyebrow}</div>
+      <div class="gwo-scorer">${washData.scorer}</div>
+      <div class="gwo-goal-num">${washData.num}</div>
+      <div class="gwo-assists">${washData.assists}</div>
+      <div class="gwo-divider"></div>
+      <div class="gwo-score">${washData.score}</div>
+      <div class="gwo-context">${washData.ctx}</div>
+    </div>` : `<div class="goal-wash" id="wash-${card.id}"></div>`;
+
+  const debugChip = DEBUG ? `<div class="dbg-chip">⚡${card.excitement.toFixed(1)}</div>` : '';
+  return `
+    ${washHtml}
+    ${debugChip}
+    <div class="hc-accent" style="${buildAccentStyle(card)}"></div>
+    <div class="hc-head">
+      ${statusHtml}
+      <div class="hc-badges">
+        ${buildBadgesHtml(card.badges)}
+      </div>
+    </div>
+    <div class="hc-body">
+      <div class="hc-team">
+        <img class="hc-logo ${card.isFinal&&ac==='trail'?'dim':''}" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}">
+        <div class="hc-abbr ${ac}">${card.away}</div>
+        <div class="hc-name">${card.awayCity}</div>
+      </div>
+      <div class="hc-score-center">
+        ${buildWpTextHtml(card)}
+        <div class="hc-nums">
+          ${card.isScheduled ? '' : `<span class="hc-n ${ac}">${card.awayScore}</span>`}
+          <span class="hc-sep">${card.isScheduled ? 'VS' : '–'}</span>
+          ${card.isScheduled ? '' : `<span class="hc-n ${hc}">${card.homeScore}</span>`}
+        </div>
+        ${buildStatBarHtml('SHOTS ON GOAL', card.awaySog, card.homeSog, card.teamColor, card.homeColor)}
+        ${/* Show ALL xG on the card (not 5v5). card.xgAway5v5/xgHome5v5 from
+             hgb-api game_state was wrong — it disagreed with the modal's
+             event-sum 5v5 (card 0.5 vs modal 0.8 for MTL) and was missing
+             entirely for LAK/COL. ALL xG from game_state (card.xgAway /
+             card.xgHome) is more reliably populated and sidesteps the 5v5
+             inversion issue. Modal still shows both 5v5 + ALL from event
+             sums for the authoritative view. */ ''}
+        ${card.xgAway != null && card.xgHome != null
+          ? buildStatBarHtml('Expected Goals', card.xgAway, card.xgHome, card.teamColor, card.homeColor)
+          : ''}
+      </div>
+      <div class="hc-team">
+        <img class="hc-logo ${card.isFinal&&hc==='trail'?'dim':''}" src="${LOGO_BASE}/${card.home}_light.svg" alt="${card.home}">
+        <div class="hc-abbr ${hc}">${card.home}</div>
+        <div class="hc-name">${card.homeCity}</div>
+      </div>
+    </div>
+    ${(card.isFinal && card.threeStars?.length) ? `
+  <div class="hc-foot">
+    <div class="hc-last-label"><span>THREE STARS</span></div>
+    <div class="hc-stars">${card.threeStars.slice(0,3).map(s => `
+      <div class="hc-star">
+        <div class="hc-star-num">${'⭐'.repeat(s.star || 1)}</div>
+        <div class="hc-star-name">${s.player_last_name || s.player_name || ''}${s.team_abbrev ? ` (${s.team_abbrev})` : ''}</div>
+      </div>`).join('')}
+    </div>
+  </div>` : (card.recentEvents && card.recentEvents.length) ? `
+  <div class="hc-recent">
+    <div class="hc-recent-label"><span>RECENT EVENTS</span></div>
+    ${card.recentEvents.map(e => `
+      <div class="hc-recent-row">
+        <span class="hc-recent-icon">${recentEventIcon(e.type)}</span>
+        <span class="hc-recent-desc">${e.description}${recentEventStamp(e)}</span>
+      </div>`).join('')}
+  </div>` : (card.lastEvent && !card.isFinal ? `<div class="hc-foot"><div class="hc-last-label"><span>LAST EVENT</span></div><div class="hc-last">${card.lastEvent}</div></div>` : '')}`
+}
+
+function buildBenchCard(card: any, isGoal?: any) {
+  if (!card) return '';
+  let statusText, statusClass;
+  if (isGoal) {
+    statusText = '⚡ GOAL'; statusClass = 'goal';
+  } else if (card.isFinal) {
+    statusText = 'FINAL'; statusClass = 'final';
+  } else if (card.isScheduled) {
+    statusText = formatStartTime(card.startTime); statusClass = 'pre';
+  } else if (card.isOT) {
+    statusText = `● OT · ${card.clock}`; statusClass = 'ot';
+  } else if (card.clock === 'INT') {
+    statusText = `${periodLabel(card.period, false)} INT`; statusClass = 'int';
+  } else {
+    statusText = `● ${periodLabel(card.period, false)} · ${card.clock}`; statusClass = 'live';
+  }
+  const awayDim = card.isFinal && card.awayScore < card.homeScore;
+  const homeDim = card.isFinal && card.homeScore < card.awayScore;
+  const wpStyle = buildAccentStyle(card);
+  const scoreHtml = card.isScheduled ? '' :
+    `<div class="bc-scores"><span class="bc-n${awayDim?' dim':''}">${card.awayScore}</span><span class="bc-dash">–</span><span class="bc-n${homeDim?' dim':''}">${card.homeScore}</span></div>`;
+  return `
+    <div class="bc${isGoal ? ' bb-goal-flash' : ''}" id="bb-${card.id}" data-game-id="${card.id}">
+      <div class="bc-wpbar" style="${wpStyle}"></div>
+      <div class="bc-inner">
+        <div class="bc-team"><img class="bc-logo${awayDim?' dim':''}" src="${LOGO_BASE}/${card.away}_light.svg" alt="${card.away}"></div>
+        <div class="bc-center">
+          ${scoreHtml}
+          <div class="bc-status ${statusClass}">${statusText}</div>
+        </div>
+        <div class="bc-team"><img class="bc-logo${homeDim?' dim':''}" src="${LOGO_BASE}/${card.home}_light.svg" alt="${card.home}"></div>
+      </div>
+    </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAYOUT ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+function getLayoutMode(n) {
+  if (n >= 7) return '6';   // 3×2 grid + bench overflow (optB)
+  return String(Math.max(1, n));
+}
+
+function getRecapLayoutMode(n) {
+  if (n <= 6) return String(Math.max(1, n));
+  if (n <= 7)  return '7r';   // 2×2 left + 1×3 right
+  if (n <= 8)  return '8r';   // 4×2
+  if (n <= 9)  return '9r';   // 3×3
+  if (n <= 10) return '10';   // 2×2 left + 2×3 right
+  if (n <= 11) return '11r';  // 1×2 left + 3×3 right
+  if (n <= 12) return '12r';  // 4×3
+  if (n <= 13) return '13r';  // 2×2 left + 3×3 right
+  return '15r';               // 5×3 (14–15)
+}
+
+function getGridSlotCount(mode) {
+  return { '1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7plus':4,'7r':7,'10':10,
+           '8r':8,'9r':9,'11r':11,'12r':12,'13r':13,'15r':15 }[mode] || 4;
+}
+
+function buildGridHtml(mode) {
+  const c = (id: number, compact: number | boolean = false) =>
+    `<div id="g-${id}" class="hcard${compact ? ' compact' : ''}"></div>`;
+  const row = (n: number, compact: number | boolean = false) => Array.from({length:n},(_,i)=>c(i,compact)).join('');
+  const seq = (n: number, start: number, compact: number | boolean = false) => Array.from({length:n},(_,i)=>c(start+i,compact)).join('');
+  switch (mode) {
+    case '1':  return `<div class="gg gg-1">${c(0)}</div>`;
+    case '2':  return `<div class="gg gg-2">${c(0)}${c(1)}</div>`;
+    case '3':  return `<div class="gg gg-3">${c(0)}${c(1,1)}${c(2,1)}</div>`;
+    case '4':  return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
+    case '5':  return `<div class="gg gg-5"><div class="gg-left">${c(0)}${c(1)}</div><div class="gg-right">${c(2,1)}${c(3,1)}${c(4,1)}</div></div>`;
+    case '6':  return `<div class="gg gg-6">${row(6,1)}</div>`;
+    case '7r': return `<div class="gg gg-7r"><div class="gg-7r-left">${seq(4,0,0)}</div><div class="gg-7r-right">${seq(3,4,1)}</div></div>`;
+    case '10': return `<div class="gg gg-10"><div class="gg-10-left">${seq(4,0,0)}</div><div class="gg-10-right">${seq(6,4,1)}</div></div>`;
+    case '11r':return `<div class="gg gg-11r"><div class="gg-11r-left">${seq(2,0,0)}</div><div class="gg-11r-right">${seq(9,2,1)}</div></div>`;
+    case '13r':return `<div class="gg gg-13r"><div class="gg-13r-left">${seq(4,0,0)}</div><div class="gg-13r-right">${seq(9,4,1)}</div></div>`;
+    case '8r': return `<div class="gg gg-8r">${row(8,1)}</div>`;
+    case '9r': return `<div class="gg gg-9r">${row(9,1)}</div>`;
+    case '12r':return `<div class="gg gg-12r">${row(12,1)}</div>`;
+    case '15r':return `<div class="gg gg-15r">${row(15,1)}</div>`;
+    default:   return `<div class="gg gg-4">${c(0)}${c(1)}${c(2)}${c(3)}</div>`;
+  }
+}
+
+function applyLayout(mode, newGrid, newBench) {
+  currentLayoutMode = mode;
+  const gridSize = getGridSlotCount(mode);
+  document.getElementById('grid-wrapper').innerHTML = buildGridHtml(mode);
+  SLOTS = Array.from({length: gridSize}, (_, i) => `g-${i}`);
+  grid = newGrid;
+  bench = newBench;
+  const bbEl = document.querySelector<HTMLElement>('.bottombar');
+  if (bbEl) bbEl.style.display = newBench.length === 0 ? 'none' : '';
+  _lastBenchKey = '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+function renderGrid() {
+  grid.forEach((id, i) => {
+    const el = document.getElementById(SLOTS[i]);
+    if (!el) return;
+    el.innerHTML = id ? buildCardInner(window.HGB_GAME_CARDS[id]) : '';
+  });
+}
+
+let _lastBenchKey = '';
+function renderBench() {
+  const key = bench.slice(0, 8).map(id => {
+    const c = window.HGB_GAME_CARDS[id];
+    return c ? `${id}:${c.awayScore}-${c.homeScore}:${c.status}:${c.clock}` : id;
+  }).join('|');
+  if (key === _lastBenchKey) return;
+  _lastBenchKey = key;
+  const bbEl = document.querySelector<HTMLElement>('.bottombar');
+  if (bench.length === 0) { if (bbEl) bbEl.style.display = 'none'; return; }
+  if (bbEl) bbEl.style.display = '';
+  document.getElementById('bb-container').innerHTML =
+    bench.slice(0, 8).map(id => buildBenchCard(window.HGB_GAME_CARDS[id])).join('');
+}
+
+function updateTopBar(data, mode = 'today') {
+  const games = data.games || [];
+  const liveCount = mode === 'yesterday' ? 0 : games.filter(g => g.status === 'live').length;
+  const total = games.length;
+  const el = document.getElementById('nav-status-text');
+  if (!el) return;
+  const tonightLabel = mode === 'yesterday' ? 'yesterday' : 'tonight';
+  el.textContent = `${liveCount} live · ${total} ${tonightLabel}`;
+  // Show live pip when games are live
+  const pip = document.getElementById('nav-pip');
+  if (pip) pip.style.display = liveCount > 0 ? '' : 'none';
+}
+
+// ── GOALS TICKER ─────────────────────────────────────────────────────────────
+let _lastGoalsTickerHtml = '';
+let _goalsCache = [];
+let _tickerMode = 'live'; // 'live' | 'recap'
+let _recapMode  = false;
+
+function enterRecapMode() {
+  if (_recapMode) return;
+  _recapMode = true;
+  _tickerMode = 'recap';
+  startPolling(60_000);
+  document.body.classList.add('recap-mode');
+  // Immediately flip the ticker label — don't wait for next poll
+  const lbl = document.getElementById('ticker-label');
+  if (lbl) { lbl.textContent = '🔄 RECAP'; lbl.classList.add('recap'); }
+}
+
+function exitRecapMode() {
+  if (!_recapMode) return;
+  _recapMode = false;
+  startPolling(POLL_INTERVAL);
+  document.body.classList.remove('recap-mode');
+}
+
+function _yesterdayDateStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+async function fetchGoals() {
+  try {
+    const resp = await fetch(`${API_BASE}/v1/goals`, { cache: 'no-store' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const todayGoals = data.goals || [];
+    if (todayGoals.length > 0) {
+      // Today has goals — switch/stay in live mode
+      _goalsCache = todayGoals;
+      if (!_recapMode) _tickerMode = 'live';
+      renderGoalsTicker();
+    } else if (_tickerMode !== 'live') {
+      // Still pre-game and already showing recap — nothing to update
+    } else {
+      // No goals today yet — fetch yesterday for recap ticker
+      fetchYesterdayGoals();
+    }
+  } catch (e) {
+    // silently ignore — ticker just stays as-is
+  }
+}
+
+async function fetchYesterdayGoals() {
+  try {
+    const yesterday = _yesterdayDateStr();
+    const resp = await fetch(`${API_BASE}/v1/goals?date=${yesterday}`, { cache: 'no-store' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if ((data.goals || []).length > 0) {
+      _goalsCache = data.goals;
+      _tickerMode = 'recap';
+      renderGoalsTicker();
+    }
+  } catch (e) {
+    // silently ignore
+  }
+}
+
+function renderGoalsTicker() {
+  const goals = _goalsCache;
+  if (!goals.length) {
+    // Fall back to scores if no goals yet
+    return;
+  }
+
+  const GOAL_EMOJIS = ['🚨', '🥅', '🏒', '🚨', '🏒', '🥅'];
+  // Most recent goals first — show up to 30 so the ticker has plenty of content
+  // Shuffle so each page load shows a different ordering
+  const shuffled = [...goals].sort(() => Math.random() - 0.5);
+  const items = shuffled.slice(0, 30).map((g, i) => {
+    const emoji = GOAL_EMOJIS[i % GOAL_EMOJIS.length];
+    const scorer = g.scorer?.name ? g.scorer.name.split(' ').pop() : null; // last name only
+    const team = g.scoring_team?.abbrev || '?';
+    const away = g.away_team?.abbrev || '?';
+    const home = g.home_team?.abbrev || '?';
+    const score = `${away} ${g.away_score}–${g.home_score} ${home}`;
+    const period = g.period ? (g.period <= 3 ? `P${g.period}` : (g.period === 4 ? 'OT' : 'SO')) : '';
+    const time = g.time_in_period || '';
+    const strength = g.strength === 'pp' ? ' <em>PP</em>' : g.strength === 'sh' ? ' <em>SH</em>' : '';
+    const scorerPart = scorer ? `<strong>${scorer}</strong> (${team})${strength}` : `<strong>${team}</strong>${strength}`;
+    const context = [period, time].filter(Boolean).join(' ');
+    return `<span class="ti-goal">${emoji} ${scorerPart} &nbsp;·&nbsp; ${score}${context ? ` &nbsp;·&nbsp; ${context}` : ''}</span>`;
+  });
+
+  const html = items.join('<span class="ti-sep">◆</span>');
+  if (html === _lastGoalsTickerHtml) return;
+  _lastGoalsTickerHtml = html;
+  // Double the content so the scroll loop is seamless
+  const tickerEl = document.getElementById('ticker-inner');
+  tickerEl.innerHTML = [html, html].join('<span class="ti-sep">◆</span>');
+  // ~4s per item so each goal is readable; min 30s
+  tickerEl.style.animationDuration = `${Math.max(36, items.length * 6)}s`;
+  // Update label
+  const lbl = document.getElementById('ticker-lbl');
+  if (lbl) {
+    lbl.textContent = _tickerMode === 'recap' ? '🔄 RECAP' : '⚡ LIVE';
+    lbl.classList.toggle('recap', _tickerMode === 'recap');
+  }
+}
+
+// Legacy fallback — called from pollAndUpdate when no goals yet
+let _lastTickerHtml = '';
+function updateTicker(cards) {
+  if (_goalsCache.length) return; // goals ticker takes over once we have data
+  if (!cards.length) return;
+  const items = cards.map(c => {
+    if (c.isFinal) {
+      return `<span class="ti-final"><strong>FINAL</strong> &nbsp;${c.away} ${c.awayScore} · ${c.home} ${c.homeScore}</span>`;
+    } else if (c.isScheduled) {
+      return `<span><strong>${c.away} vs ${c.home}</strong> &nbsp;${formatStartTime(c.startTime)}</span>`;
+    } else {
+      const p = periodLabel(c.period, c.isOT);
+      const suffix = c.lastEvent ? ` · ${c.lastEvent}` : '';
+      return `<span><strong>${c.away} ${c.awayScore}–${c.homeScore} ${c.home}</strong> &nbsp;${p} ${c.clock}${suffix}</span>`;
+    }
+  });
+  const html = items.join('');
+  if (html === _lastTickerHtml) return;
+  _lastTickerHtml = html;
+  document.getElementById('ticker-inner').innerHTML = [html, html].join('');
+}
+
+function showNoGames() {
+  if (noGamesShown) return;
+  noGamesShown = true;
+  document.getElementById('grid-wrapper').innerHTML = `
+    <div class="no-games">
+      <div class="no-games-title">NO GAMES TODAY</div>
+      <div class="no-games-sub">CHECK BACK TOMORROW</div>
+    </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANIMATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  if (!hex || !hex.startsWith('#')) return '200,16,46';
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+
+function triggerWash(id, washData) {
+  const card = window.HGB_GAME_CARDS[id];
+  if (!card) return;
+  const slotIndex = grid.indexOf(id);
+  if (slotIndex < 0) return;
+  const el = document.getElementById(SLOTS[slotIndex]);
+  // Re-render with wash
+  el.innerHTML = buildCardInner(card, washData);
+  // Wash was rendered with .active class already, no extra trigger needed
+}
+
+function promoteGame(promoteId, washData) {
+  const demoteId = grid[SLOTS.length - 1];
+  const brEl = document.getElementById(SLOTS[SLOTS.length - 1]);
+  const bbEl = document.getElementById(`bb-${promoteId}`);
+  brEl.classList.add('exiting');
+  if (bbEl) bbEl.classList.add('exiting-bb');
+
+  setTimeout(() => {
+    grid[SLOTS.length - 1] = promoteId;
+    bench = bench.filter(id => id !== promoteId);
+    if (demoteId) bench.push(demoteId);
+
+    brEl.innerHTML = buildCardInner(window.HGB_GAME_CARDS[promoteId], washData);
+    brEl.classList.remove('exiting');
+    brEl.style.opacity = '0'; brEl.style.transform = 'scale(1.02)';
+    brEl.offsetHeight;
+    brEl.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
+    brEl.style.opacity = '1'; brEl.style.transform = 'scale(1)';
+    setTimeout(() => { brEl.style.transition = ''; }, 500);
+
+    renderBench();
+    setTimeout(() => {
+      const newBb = document.getElementById(`bb-${demoteId}`);
+      if (newBb) newBb.classList.add('entering-bb');
+    }, 50);
+  }, 380);
+}
+
+function resortGrid(newOrder) {
+  SLOTS.forEach(id => document.getElementById(id).classList.add('exiting'));
+  setTimeout(() => {
+    grid = newOrder;
+    newOrder.forEach((gameId, i) => {
+      const el = document.getElementById(SLOTS[i]);
+      el.innerHTML = gameId ? buildCardInner(window.HGB_GAME_CARDS[gameId]) : '';
+      el.classList.remove('exiting');
+      el.style.opacity = '0'; el.style.transform = 'scale(1.02)';
+    });
+    document.body.offsetHeight;
+    newOrder.forEach((_, i) => {
+      const el = document.getElementById(SLOTS[i]);
+      el.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
+      el.style.opacity = '1'; el.style.transform = 'scale(1)';
+    });
+    setTimeout(() => SLOTS.forEach(id => { document.getElementById(id).style.transition = ''; }), 500);
+  }, 380);
+}
+
+function updateCardInPlace(slotIndex, card) {
+  const el = document.getElementById(SLOTS[slotIndex]);
+  if (!el || !card) return;
+
+  // Targeted DOM updates — never recreate <img> tags so logos don't flash
+  const ac = scoreClass(card.awayScore, card.homeScore);
+  const hc = scoreClass(card.homeScore, card.awayScore);
+
+  // Scores & separator
+  const nums = el.querySelectorAll('.hc-n');
+  if (nums[0]) { nums[0].textContent = card.awayScore; nums[0].className = `hc-n ${ac}`; }
+  if (nums[1]) { nums[1].textContent = card.homeScore; nums[1].className = `hc-n ${hc}`; }
+  const sep = el.querySelector('.hc-sep');
+  if (sep) sep.textContent = card.isScheduled ? 'VS' : '–';
+
+  // Abbr color classes
+  const abbrs = el.querySelectorAll('.hc-abbr');
+  if (abbrs[0]) abbrs[0].className = `hc-abbr ${ac}`;
+  if (abbrs[1]) abbrs[1].className = `hc-abbr ${hc}`;
+
+  // Logo dim (class only — no src change, no reload)
+  const logos = el.querySelectorAll('.hc-logo');
+  if (logos[0]) logos[0].className = `hc-logo ${card.isFinal && ac==='trail' ? 'dim' : ''}`;
+  if (logos[1]) logos[1].className = `hc-logo ${card.isFinal && hc==='trail' ? 'dim' : ''}`;
+
+  // Status — replace the canonical .status-pill in place (matches buildCardInner)
+  const statusEl = el.querySelector('.status-pill');
+  if (statusEl) statusEl.outerHTML = buildStatusPillHtml(card);
+
+  // Badges
+  const badgesEl = el.querySelector('.hc-badges');
+  if (badgesEl) badgesEl.innerHTML = buildBadgesHtml(card.badges);
+
+  // Accent bar gradient
+  const accentEl = el.querySelector<HTMLElement>('.hc-accent');
+  if (accentEl) accentEl.style.cssText = buildAccentStyle(card);
+
+  // WP text above score
+  const wpTextEl = el.querySelector('.hc-wp-text');
+  const newWpHtml = buildWpTextHtml(card);
+  if (wpTextEl && !newWpHtml) {
+    wpTextEl.remove();
+  } else if (!wpTextEl && newWpHtml) {
+    const scoreCenter = el.querySelector('.hc-score-center');
+    if (scoreCenter) scoreCenter.insertAdjacentHTML('afterbegin', newWpHtml);
+  } else if (wpTextEl && newWpHtml) {
+    wpTextEl.outerHTML = newWpHtml;
+  }
+
+  // Footer (recent events or last event) — rebuild whenever content changes
+  const footEl = el.querySelector('.hc-foot');
+  const recentEl = el.querySelector('.hc-recent');
+  const hasRecentEvents = card.recentEvents && card.recentEvents.length > 0;
+  if (card.isFinal && card.threeStars?.length) {
+    // Final game: three stars take priority over recent events
+    if (!footEl || !footEl.querySelector('.hc-stars')) {
+      if (recentEl) recentEl.remove();
+      el.innerHTML = buildCardInner(card);
+    }
+  } else if (hasRecentEvents) {
+    // Live game: show recent events
+    if (recentEl) {
+      recentEl.outerHTML = `<div class="hc-recent"><div class="hc-recent-label"><span>RECENT EVENTS</span></div>${card.recentEvents.map(e => `<div class="hc-recent-row"><span class="hc-recent-icon">${recentEventIcon(e.type)}</span><span class="hc-recent-desc">${e.description}${recentEventStamp(e)}</span></div>`).join('')}</div>`;
+    } else {
+      if (footEl) footEl.remove();
+      el.innerHTML = buildCardInner(card);
+    }
+  } else if (card.lastEvent && !card.isFinal) {
+    if (footEl) {
+      const lastEl = footEl.querySelector('.hc-last');
+      if (lastEl) lastEl.textContent = card.lastEvent;
+    } else {
+      el.innerHTML = buildCardInner(card);
+    }
+  }
+}
+
+function flashBenchGoal(id) {
+  const el = document.getElementById(`bb-${id}`);
+  if (!el) return;
+  const card = window.HGB_GAME_CARDS[id];
+  if (!card) return;
+  const statusEl = el.querySelector('.bc-status');
+  if (statusEl) { statusEl.textContent = `⚡ GOAL`; statusEl.className = 'bc-status goal'; }
+  el.classList.remove('bb-goal-flash');
+  el.offsetHeight;
+  el.classList.add('bb-goal-flash');
+  setTimeout(() => {
+    if (statusEl) {
+      statusEl.textContent = `● ${periodLabel(card.period, card.isOT)} · ${card.clock}`;
+      statusEl.className = 'bc-status live';
+    }
+    el.classList.remove('bb-goal-flash');
+  }, 4500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// GOAL DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+function checkForGoals(cards) {
+  const newGoals = [];
+  for (const card of cards) {
+    const prev = prevScores[card.id];
+    if (prev) {
+      const awayScored = card.awayScore > prev.away;
+      const homeScored = card.homeScore > prev.home;
+      if ((awayScored || homeScored) && !card.isFinal) {
+        newGoals.push({ id: card.id, awayScored });
+      }
+    }
+    prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
+  }
+  return newGoals;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN POLL LOOP
+// ─────────────────────────────────────────────────────────────────────────────
+async function pollAndUpdate() {
+  let data;
+  try {
+    data = await fetchGames();
+  } catch (e) {
+    console.warn('[HGB] API fetch failed:', e.message);
+    _consecutiveFailures++;
+    clearInterval(pollTimer);
+    showApiError(_lastSuccessAt > 0);              // stale bar if we've ever loaded
+    pollTimer = setTimeout(pollAndUpdate, _retryDelay);
+    _retryDelay = Math.min(_retryDelay * 2, 60_000);
+    return;
+  }
+
+  // Successful fetch — clear error state and resume normal cadence
+  if (_consecutiveFailures > 0) {
+    _consecutiveFailures = 0;
+    _retryDelay = 4_000;
+    clearApiError();
+    startPolling(_recapMode ? 60_000 : POLL_INTERVAL);
+  }
+  _lastSuccessAt = Date.now();
+
+  const todayGames = data.games || [];
+  if (!todayGames.length) {
+    showNoGames();
+    return;
+  }
+
+  // Yesterday mode: show yesterday's results until 1hr before first game today
+  const firstStart = todayGames.reduce((min, g) => {
+    const t = g.start_time ? new Date(g.start_time).getTime() : Infinity;
+    return Math.min(min, t);
+  }, Infinity);
+  const showYesterday = isFinite(firstStart) && Date.now() < firstStart - 3_600_000;
+
+  let displayData = data;
+  if (showYesterday) {
+    if (!_yesterdayData) _yesterdayData = await fetchYesterdayData();
+    if (_yesterdayData?.games?.length) displayData = _yesterdayData;
+    _viewMode = 'yesterday';
+  } else {
+    _viewMode = 'today';
+  }
+
+  const cards = (displayData.games || []).map(apiGameToCard);
+  const goalIds = _viewMode === 'yesterday' ? [] : checkForGoals(cards);
+
+  // Update game cards map
+  for (const card of cards) {
+    window.HGB_GAME_CARDS[card.id] = card;
+  }
+
+  // Sort by excitement — stable: use game id as tiebreaker so equal-score games never flip.
+  // Round to 1 decimal to prevent tiny float drift (pre-game hoursUntil changes each poll)
+  // from triggering spurious re-sorts.
+  const sorted = [...cards].sort((a, b) => {
+    const diff = Math.round(b.excitement * 10) - Math.round(a.excitement * 10);
+    return diff !== 0 ? diff : (a.id < b.id ? -1 : 1);
+  });
+
+  // Recap mode: all today's games are final, OR showing yesterday → no bench, slow poll, ticker=recap
+  const anyLive = cards.some(c => !c.isScheduled && !c.isFinal);
+  const allFinal = cards.length > 0 && (_viewMode === 'yesterday' || (_viewMode === 'today' && cards.every(c => c.isFinal)));
+  // Stream button live state
+  const streamDot = document.getElementById('stream-dot');
+  const streamLabel = document.getElementById('stream-btn-label');
+  if (streamDot) streamDot.classList.toggle('is-live', anyLive);
+  if (streamLabel) streamLabel.textContent = anyLive ? '🔴 LIVE' : 'STREAM';
+  if (allFinal) enterRecapMode();
+  else if (_recapMode && !allFinal) exitRecapMode();
+
+  const layoutMode = _recapMode ? getRecapLayoutMode(cards.length) : getLayoutMode(cards.length);
+  const gridSize = getGridSlotCount(layoutMode);
+  const newTopN = sorted.slice(0, gridSize).map(c => c.id);
+  const newBench = _recapMode ? [] : sorted.slice(gridSize).map(c => c.id);
+
+
+  if (!initialized || layoutMode !== currentLayoutMode) {
+    if (!initialized) {
+      // Init previous scores
+      for (const card of cards) {
+        prevScores[card.id] = { away: card.awayScore, home: card.homeScore };
+      }
+    }
+    applyLayout(layoutMode, newTopN, newBench);
+    renderGrid();
+    renderBench();
+    updateTopBar(displayData, _viewMode);
+    updateTicker(cards);
+    renderDebugPanel(sorted);
+    initialized = true;
+    return;
+  }
+
+  // Process goals
+  for (const { id, awayScored } of goalIds) {
+    const card = window.HGB_GAME_CARDS[id];
+    const washData = buildWashData(card, awayScored);
+    if (grid.includes(id)) {
+      // Goal in featured game → wash animation
+      triggerWash(id, washData);
+    } else if (bench.includes(id)) {
+      // Goal in bench game
+      flashBenchGoal(id);
+      // Promote if within 1 goal
+      const goalDiff = Math.abs(card.awayScore - card.homeScore);
+      if (goalDiff <= 1) {
+        setTimeout(() => promoteGame(id, washData), 4000);
+      }
+    }
+  }
+  if (goalIds.length) lastGoalTime = Date.now();
+
+  // Check if top-N order changed
+  const gridChanged = JSON.stringify(newTopN) !== JSON.stringify(grid);
+  const goalFreezeActive = (Date.now() - lastGoalTime) < 45000;
+  if (gridChanged && !goalIds.length && !goalFreezeActive && anyLive) {
+    // Re-sort without goal animation
+    grid = newTopN;
+    bench = newBench;
+    resortGrid(newTopN);
+    setTimeout(() => renderBench(), 400);
+  } else if (!goalIds.length) {
+    // Just update card data in place
+    for (let i = 0; i < grid.length; i++) {
+      if (grid[i]) updateCardInPlace(i, window.HGB_GAME_CARDS[grid[i]]);
+    }
+    bench = newBench;
+    renderBench();
+  }
+
+  updateTopBar(displayData, _viewMode);
+  updateTicker(cards);
+  renderDebugPanel(sorted);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WALL CLOCK
+// ─────────────────────────────────────────────────────────────────────────────
+// Wall clock removed from topbar — users have one in their OS, and the
+// second-by-second tick added DOM churn for zero value. Kept this
+// commented-out block intentionally as a gravestone in case we want it
+// back in a different form (e.g. "next game in 3h 12m").
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB VISIBILITY — throttle when hidden, catchup indicator on return
+// ─────────────────────────────────────────────────────────────────────────────
+let pollTimer = null;
+let hiddenAt = null;
+const STALE_THRESHOLD_MS = 10_000; // show catchup pill if hidden >10s
+
+function startPolling(interval) {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(pollAndUpdate, interval);
+}
+
+function showCatchupPill() {
+  const pill = document.getElementById('catchup-pill');
+  pill.classList.add('show');
+  setTimeout(() => pill.classList.remove('show'), 1500);
+}
+
+// ── API error UI ──────────────────────────────────────────────────────────────
+function _fmtAgo(ms) {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
+}
+
+function showApiError(isStale) {
+  document.getElementById('api-error-banner')?.remove();
+  document.getElementById('api-stale-bar')?.remove();
+  clearTimeout(_countdownTimer);
+
+  const wrapper = document.getElementById('grid-wrapper');
+  if (!wrapper) return;
+
+  if (isStale) {
+    // Keep existing cards visible — amber bar above them
+    const bar = document.createElement('div');
+    bar.id = 'api-stale-bar';
+    bar.setAttribute('role', 'status'); // polite: don't interrupt screen readers
+    bar.style.cssText = 'padding:6px 14px;background:rgba(255,202,40,0.1);color:#ffca28;font-size:12px;text-align:center;letter-spacing:0.04em;border-bottom:1px solid rgba(255,202,40,0.2);';
+    const ago = _fmtAgo(Date.now() - _lastSuccessAt);
+    bar.textContent = `Scores last updated ${ago}. Retrying…`;
+    wrapper.prepend(bar);
+  } else {
+    // Cold-start: nothing to show — replace content with error banner
+    const secs = Math.round(_retryDelay / 1000);
+    const banner = document.createElement('div');
+    banner.id = 'api-error-banner';
+    banner.setAttribute('role', 'alert'); // assertive: announce immediately
+    banner.style.cssText = 'padding:40px 16px;text-align:center;';
+    banner.innerHTML = `
+      <div style="font-size:14px;font-weight:700;color:#ff3d3d;letter-spacing:0.06em;margin-bottom:8px;">UNABLE TO LOAD SCORES</div>
+      <div style="font-size:12px;color:#555;margin-bottom:14px;">Retrying in <span id="api-error-countdown">${secs}s</span>.</div>
+      <button id="api-error-retry" style="background:#ff3d3d;color:#fff;border:none;padding:7px 18px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit;font-weight:700;letter-spacing:0.08em;">RETRY NOW</button>`;
+    wrapper.innerHTML = '';
+    wrapper.appendChild(banner);
+
+    // Manual retry — treat as a fresh attempt (reset backoff)
+    document.getElementById('api-error-retry').addEventListener('click', () => {
+      clearTimeout(_countdownTimer);
+      clearInterval(pollTimer);
+      _consecutiveFailures = 0;
+      _retryDelay = 4_000;
+      clearApiError();
+      pollAndUpdate();
+    });
+
+    let remaining = secs;
+    const countEl = document.getElementById('api-error-countdown');
+    function tick() {
+      remaining--;
+      if (countEl && remaining > 0) {
+        countEl.textContent = `${remaining}s`;
+        _countdownTimer = setTimeout(tick, 1_000);
+      }
+    }
+    _countdownTimer = setTimeout(tick, 1_000);
+  }
+}
+
+function clearApiError() {
+  document.getElementById('api-error-banner')?.remove();
+  document.getElementById('api-stale-bar')?.remove();
+  clearTimeout(_countdownTimer);
+  _countdownTimer = null;
+}
+
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    hiddenAt = Date.now();
+    startPolling(60_000); // slow down while backgrounded
+  } else {
+    const wasHiddenMs = hiddenAt ? Date.now() - hiddenAt : 0;
+    hiddenAt = null;
+    if (wasHiddenMs > STALE_THRESHOLD_MS) showCatchupPill();
+    pollAndUpdate(); // immediate refresh
+    startPolling(_recapMode ? 60_000 : POLL_INTERVAL); // resume normal cadence
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SSE PUSH — bot events trigger immediate poll instead of waiting for interval
+// ─────────────────────────────────────────────────────────────────────────────
+const SSE_URL = 'https://push.hockeygamebot.com/events';
+const sseIndicator = document.getElementById('sse-indicator');
+
+let _sse = null;
+function connectSSE() {
+  // Always close any existing connection first — EventSource also auto-reconnects
+  // natively, so without this we'd accumulate duplicate connections on each error.
+  if (_sse) { _sse.close(); _sse = null; }
+
+  _sse = new EventSource(SSE_URL);
+
+  _sse.onopen = () => {
+    sseIndicator?.classList.add('connected');
+    sseIndicator?.classList.remove('error');
+  };
+
+  _sse.onmessage = (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+    if (data.type === 'connected') {
+      sseIndicator?.classList.add('connected');
+      sseIndicator?.classList.remove('error');
+      return;
+    }
+    if (data.type === 'goal' || data.type === 'period_end' || data.type === 'game_end') {
+      pollAndUpdate();
+    }
+    if (data.type === 'goal') {
+      // Refresh goals ticker ~3s after goal — give D1 time to have the new row
+      setTimeout(fetchGoals, 3000);
+    }
+  };
+
+  _sse.onerror = () => {
+    sseIndicator?.classList.remove('connected');
+    sseIndicator?.classList.add('error');
+    if (_sse) { _sse.close(); _sse = null; }
+    setTimeout(connectSSE, 10_000);
+  };
+}
+
+connectSSE();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAME MODAL — logic lives in /public/js/game-modal.js (loaded via <script src>)
+// openModal() and closeModal() are exposed on window by that module.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Card click → open modal (openModal registered on window by game-modal.js)
+document.addEventListener('click', e => {
+  const target = e.target as Element | null;
+  const card = target?.closest('.hcard');
+  if (card) {
+    const slotIdx = SLOTS.indexOf((card as HTMLElement).id);
+    if (slotIdx !== -1 && grid[slotIdx]) window.openModal?.(grid[slotIdx]);
+    return;
+  }
+  const bc = target?.closest<HTMLElement>('.bc');
+  if (bc && bc.dataset.gameId) window.openModal?.(bc.dataset.gameId);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// START
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-open modal if ?game=<id> is in the URL (deep link).
+const _autoGameId = new URLSearchParams(location.search).get('game');
+if (_autoGameId) {
+  pollAndUpdate().then(() => window.openModal?.(_autoGameId, { push: false }));
+} else {
+  pollAndUpdate();
+}
+fetchGoals();
+startPolling(POLL_INTERVAL);
+// Refresh goals ticker every 2 minutes independently of game poll
+setInterval(fetchGoals, 300_000); // 5min fallback — SSE handles real-time goal updates
+
+// Stream popup toggle
+(function() {
+  const btn = document.getElementById('stream-btn');
+  const popup = document.getElementById('stream-popup');
+  if (!btn || !popup) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    popup.hidden = !popup.hidden;
+  });
+  document.addEventListener('click', () => { popup.hidden = true; });
+})();
+</script>

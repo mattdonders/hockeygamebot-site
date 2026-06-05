@@ -1,0 +1,645 @@
+---
+import Nav from '../../components/Nav.astro';
+import StatsSubnav from '../../components/StatsSubnav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+import GoaliesTable from '../../components/react/GoaliesTable';
+import { loadGoalies, loadMeta, loadIsPlayoffSeason } from '../../lib/stats-loader';
+import { pickTeamColor } from '../../lib/team-colors';
+
+const allGoalies = loadGoalies();
+const _meta      = loadMeta();
+const isPlayoffSeason = loadIsPlayoffSeason();
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
+
+// Regular season table rows
+const currentSeason = _meta.season; // e.g. "20252026" — each goalie record will carry its own season once historical data lands
+const tableRows = allGoalies.map(g => ({
+  goalie_id:    g.goalie_id,
+  name:         g.name,
+  first_name:   (g as any).first_name ?? null,
+  last_name:    (g as any).last_name  ?? null,
+  team:         g.team_abbrev,
+  season:       (g as any).season ?? currentSeason,
+  gp:           g.gp ?? null,
+  toi_sec:      (g as any).toi_sec ?? null,
+  sa:           g.sa,
+  saves:        (g as any).saves ?? null,
+  ga:           g.ga,
+  xga:          +g.xga.toFixed(2),
+  gsax:         +g.gsax.toFixed(2),
+  gsax_per60:   (g as any).gsax_per60 != null ? +Number((g as any).gsax_per60).toFixed(3) : null,
+  sv_pct:       g.sv_pct,
+  xsv_pct:      (g as any).xsv_pct ?? null,
+  dsv_pct:      (g as any).dsv_pct ?? null,
+  gaa:          (g as any).gaa != null ? +Number((g as any).gaa).toFixed(2) : null,
+  vs_exp:       g.sv_pct != null && g.sa > 0
+                  ? +((g.sv_pct - (1 - g.xga / g.sa)) * 100).toFixed(2)
+                  : null,
+  games:        null as number | null, // kept for compat; use gp instead
+}));
+
+// Playoff table rows — only goalies with playoff_gsax data
+const playoffRows = allGoalies
+  .filter(g => g.playoff_gsax != null && g.playoff_sa != null && (g.playoff_sa ?? 0) > 0)
+  .map(g => {
+    const po_gsax = g.playoff_gsax!;
+    const po_sa   = g.playoff_sa!;
+    const po_ga   = g.playoff_ga ?? 0;
+    const po_xga  = +(po_gsax + po_ga).toFixed(2);
+    const po_sv   = po_sa > 0 ? 1 - po_ga / po_sa : null;
+    const po_vsexp = po_sv != null && po_sa > 0
+      ? +((po_sv - (1 - po_xga / po_sa)) * 100).toFixed(2)
+      : null;
+    return {
+      goalie_id:   g.goalie_id,
+      name:        g.name,
+      first_name:  (g as any).first_name ?? null,
+      last_name:   (g as any).last_name  ?? null,
+      team:        g.team_abbrev,
+      season:      (g as any).season ?? currentSeason,
+      gp:          g.playoff_games ?? null,
+      toi_sec:     null,
+      sa:          po_sa,
+      saves:       null,
+      ga:          po_ga,
+      xga:         po_xga,
+      gsax:        +po_gsax.toFixed(2),
+      gsax_per60:  null,
+      sv_pct:      po_sv,
+      xsv_pct:     null,
+      dsv_pct:     null,
+      gaa:         null,
+      vs_exp:      po_vsexp,
+      games:       g.playoff_games ?? null,
+    };
+  })
+  .sort((a, b) => b.gsax - a.gsax);
+
+// Pre-sort regular rows by gsax desc (matches defaultSort below).
+tableRows.sort((a, b) => b.gsax - a.gsax);
+
+// ── Cumulative chart data ────────────────────────────────────────────────────
+
+const hasGameData = allGoalies.some(g => g.games.length > 0);
+
+// Pick top 12 by |GSAx| for chart (mix good + bad)
+const chartGoalies = hasGameData
+  ? [...allGoalies]
+      .filter(g => g.games.length > 0)
+      .sort((a, b) => Math.abs(b.gsax) - Math.abs(a.gsax))
+      .slice(0, 12)
+  : [];
+
+// SVG dimensions — no right-side labels, legend goes below
+const SVG_W = 840, SVG_H = 260;
+const PAD = { t: 20, r: 20, b: 36, l: 48 };
+const cW = SVG_W - PAD.l - PAD.r;
+const cH = SVG_H - PAD.t - PAD.b;
+
+// Compute cumulative paths for each chart goalie
+type CumPoint = { game: number; gsax: number };
+type ChartLine = { goalie_id: number; name: string; team: string; color: string; points: CumPoint[]; final: number };
+
+let chartLines: ChartLine[] = [];
+let yMin = 0, yMax = 0, xMax = 1;
+
+if (hasGameData) {
+  chartLines = chartGoalies.map(g => {
+    const sorted = [...g.games].sort((a, b) => a.game_date.localeCompare(b.game_date));
+    let cum = 0;
+    const points: CumPoint[] = sorted.map((gm, i) => {
+      cum += gm.gsax;
+      return { game: i + 1, gsax: +cum.toFixed(2) };
+    });
+    return {
+      goalie_id: g.goalie_id,
+      name: g.name,
+      team: g.team_abbrev,
+      color: pickTeamColor(g.team_abbrev),
+      points,
+      final: +cum.toFixed(2),
+    };
+  });
+  xMax = Math.max(...chartLines.map(l => l.points.length), 1);
+  yMin = Math.min(0, ...chartLines.flatMap(l => l.points.map(p => p.gsax)));
+  yMax = Math.max(0, ...chartLines.flatMap(l => l.points.map(p => p.gsax)));
+  const yPad = Math.max((yMax - yMin) * 0.08, 0.5);
+  yMin -= yPad; yMax += yPad;
+}
+
+const px = (game: number) => PAD.l + (game / xMax) * cW;
+const py = (gsax: number) => PAD.t + cH - ((gsax - yMin) / (yMax - yMin)) * cH;
+const py0 = py(0);
+
+function makePath(points: CumPoint[]): string {
+  if (!points.length) return '';
+  return points.map((p, i) => `${i === 0 ? 'M' : 'L'}${px(p.game).toFixed(1)},${py(p.gsax).toFixed(1)}`).join(' ');
+}
+
+// Legend sorted by final GSAx descending
+const legendItems = [...chartLines].sort((a, b) => b.final - a.final);
+
+// ── Playoff cumulative chart ────────────────────────────────────────────────
+
+const playoffChartGoalies = allGoalies
+  .filter(g => g.playoff_gsax != null)
+  .sort((a, b) => Math.abs(b.playoff_gsax!) - Math.abs(a.playoff_gsax!))
+  .slice(0, 12);
+
+const hasPlayoffChartData = playoffChartGoalies.some(g =>
+  g.games.some(gm => (gm.game_type ?? 2) === 3)
+);
+
+let playoffChartLines: ChartLine[] = [];
+let pcYMin = 0, pcYMax = 0, pcXMax = 1;
+
+if (hasPlayoffChartData) {
+  playoffChartLines = playoffChartGoalies.map(g => {
+    const sorted = g.games
+      .filter(gm => (gm.game_type ?? 2) === 3)
+      .sort((a, b) => a.game_date.localeCompare(b.game_date));
+    let cum = 0;
+    const points: CumPoint[] = sorted.map((gm, i) => {
+      cum += gm.gsax;
+      return { game: i + 1, gsax: +cum.toFixed(2) };
+    });
+    return {
+      goalie_id: g.goalie_id,
+      name: g.name,
+      team: g.team_abbrev,
+      color: pickTeamColor(g.team_abbrev),
+      points,
+      final: +cum.toFixed(2),
+    };
+  }).filter(l => l.points.length > 0);
+
+  pcXMax = Math.max(...playoffChartLines.map(l => l.points.length), 1);
+  pcYMin = Math.min(0, ...playoffChartLines.flatMap(l => l.points.map(p => p.gsax)));
+  pcYMax = Math.max(0, ...playoffChartLines.flatMap(l => l.points.map(p => p.gsax)));
+  const pcYPad = Math.max((pcYMax - pcYMin) * 0.08, 0.5);
+  pcYMin -= pcYPad; pcYMax += pcYPad;
+}
+
+const pcPx = (game: number) => PAD.l + (game / Math.max(pcXMax, 1)) * cW;
+const pcPy = (gsax: number) => pcYMax === pcYMin
+  ? PAD.t + cH / 2
+  : PAD.t + cH - ((gsax - pcYMin) / (pcYMax - pcYMin)) * cH;
+const pcPy0 = pcPy(0);
+
+function makePlayoffPath(pts: CumPoint[]): string {
+  if (!pts.length) return '';
+  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${pcPx(p.game).toFixed(1)},${pcPy(p.gsax).toFixed(1)}`).join(' ');
+}
+
+const playoffLegendItems = [...playoffChartLines].sort((a, b) => b.final - a.final);
+
+// ── Column definitions for <Table> ──────────────────────────────────────────
+// Single schema serves both regular + playoff datasets. The GP column shows
+// "—" for regular rows (games: null) and a number for playoff rows. No
+// `display: none` column-hiding (per TABLES.md §8).
+
+const sgn = (v: number) => v >= 0 ? '+' : '';
+
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Goalie GSAx — HGB Stats — HockeyGameBot</title>
+  <meta name="description" content="NHL goalie leaderboard ranked by Goals Saved Above Expected (GSAx). XGBoost xG model, all situations, min 500 SA, 2025–26 season." />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #EFEEE8;
+      --ink:      #0d0d14;
+      --red:      #E8002D;
+      --surface:  #FFFFFF;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+      --stats-pos: #166534;
+      --stats-neg: #991b1b;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+    /* ── Masthead ── */
+    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
+      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px; }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
+    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
+      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
+    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
+      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
+    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
+      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
+
+    /* ── Layout ── */
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+
+    /* ── Chart section ── */
+    .chart-section { padding: 40px 0 0; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      margin-bottom: 16px; flex-wrap: wrap; }
+    .section-title { font-family: var(--display); font-weight: 800; font-size: 22px;
+      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+    .section-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .chart-wrap { background: var(--surface); border: 1px solid var(--ink-14); padding: 20px 20px 12px; }
+    .chart-placeholder { padding: 48px 0; text-align: center; font-family: var(--mono); font-size: 11px;
+      letter-spacing: 0.06em; color: var(--ink-32); }
+    .chart-svg { width: 100%; height: auto; display: block; }
+
+    /* ── Chart legend ── */
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 12px 0 4px;
+      border-top: 1px solid var(--ink-06); margin-top: 8px; }
+    .legend-chip { display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+      padding: 3px 6px 3px 0; border-radius: 2px; transition: opacity 0.15s; user-select: none; }
+    .legend-chip:hover { opacity: 0.75; }
+    .legend-chip.dimmed { opacity: 0.25; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .legend-name { font-family: var(--display); font-size: 11px; font-weight: 700;
+      letter-spacing: 0.04em; color: var(--ink); }
+    .legend-val { font-family: var(--mono); font-size: 10px; color: var(--ink-48); }
+
+    /* ── Chart tooltip ── */
+    #ctip { position: fixed; pointer-events: none; display: none; z-index: 100;
+      background: var(--ink); color: var(--bg); padding: 6px 10px; font-family: var(--mono);
+      font-size: 11px; letter-spacing: 0.04em; white-space: nowrap; border-radius: 2px; }
+    #ctip .ctip-name { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+    #ctip .ctip-val  { color: rgba(239,238,232,0.7); font-size: 10px; }
+
+    /* ── Table section ── */
+    .lb-section { padding: 40px 0 0; }
+
+    .chip-group.gametype-chips { margin-top: 10px; }
+
+    /* ── Method strip ── */
+    .lb-method { padding: 28px 0 0; }
+    .lb-method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
+    .lb-method-card { padding: 16px 20px; border: 1px solid var(--ink-14); margin: -1px 0 0 -1px; }
+    .lb-method-card .k { font-family: var(--mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink); margin-bottom: 6px; }
+    .lb-method-card .v { font-size: 12px; line-height: 1.5; color: var(--ink-48); }
+    .badge { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; padding: 1px 5px; border-radius: 2px; margin-left: 6px; }
+    .badge-core { background: var(--ink); color: var(--bg); }
+
+    /* ── Footer ── */
+    .lb-footer { max-width: 1200px; margin: 0 auto; padding: 20px 32px;
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--ink-20); }
+
+    @media (max-width: 768px) {
+      .wrap, .mast-inner { padding-left: 16px; padding-right: 16px; }
+      .mast-top { font-size: 10px; }
+    }
+  </style>
+<script src="/js/table-export.js" defer></script>
+
+  <meta property="og:title" content="Goalie Stats · GSAx · HGB Stats · HockeyGameBot" />
+  <meta property="og:description" content="Goals saved above expected, save percentage, and workload — all NHL goalies." />
+  <meta property="og:image" content="https://hockeygamebot.com/og/goalies.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://hockeygamebot.com/og/goalies.png" />
+</head>
+<body>
+
+<Nav currentPath="/stats/goalies" />
+
+<!-- ── Masthead ── -->
+<header class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-top">
+      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Goalies</div>
+      <span id="mast-stat">{allGoalies.length} qualifying goalies · min 500 SA · 2025–26 regular season</span>
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">Goalie <em>GSAx</em></h1>
+      <p class="mast-lede">Goals Saved Above Expected — all-situations, calibrated against league-average save% within each xG tier. HGB XGBoost model (AUC 0.77). Positive = saved more than expected; negative = allowed more.</p>
+    </div>
+  </div>
+</header>
+<StatsSubnav currentPath={Astro.url.pathname} />
+<main class="wrap">
+
+  <!-- ── Cumulative chart ── -->
+  <section class="chart-section">
+    <div class="section-head">
+      <div class="section-title">Cumulative <span style="color:var(--red)">GSAx</span></div>
+      <div class="section-meta" id="chart-meta">Top 12 goalies by |GSAx| · season running total</div>
+    </div>
+    <div class="chart-wrap" id="chart-wrap-reg">
+      {hasGameData ? (
+        <svg class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet">
+          <!-- Grid lines -->
+          {[...Array(5)].map((_, i) => {
+            const gv = yMin + (i / 4) * (yMax - yMin);
+            const gy = py(gv).toFixed(1);
+            return (
+              <g>
+                <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy}
+                  stroke="rgba(13,13,20,0.06)" stroke-width="1" />
+                <text x={(PAD.l - 6).toFixed(1)} y={gy}
+                  text-anchor="end" dominant-baseline="middle"
+                  font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
+                  {gv >= 0 ? '+' : ''}{gv.toFixed(0)}
+                </text>
+              </g>
+            );
+          })}
+
+          <!-- Zero line -->
+          <line x1={PAD.l} y1={py0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={py0.toFixed(1)}
+            stroke="rgba(13,13,20,0.32)" stroke-width="1.5" stroke-dasharray="4 3" />
+          <text x={(PAD.l + cW + 4).toFixed(1)} y={py0.toFixed(1)}
+            dominant-baseline="middle" font-family="JetBrains Mono, monospace"
+            font-size="8" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">AVG</text>
+
+          <!-- Goalie lines: thin visible path + wide transparent hit area -->
+          {chartLines.map(line => (
+            <g class="goalie-line" data-id={line.goalie_id}>
+              <path d={makePath(line.points)} fill="none"
+                stroke={line.color} stroke-width="1.8"
+                stroke-linejoin="round" stroke-linecap="round"
+                class="line-vis" style="transition:opacity 0.15s;pointer-events:none" />
+              <path d={makePath(line.points)} fill="none"
+                stroke="transparent" stroke-width="14"
+                stroke-linejoin="round" stroke-linecap="round"
+                class="line-hit" style="cursor:crosshair"
+                data-id={line.goalie_id}
+                data-name={line.name}
+                data-team={line.team}
+                data-final={line.final} />
+            </g>
+          ))}
+
+          <!-- X-axis label -->
+          <text x={(PAD.l + cW / 2).toFixed(1)} y={(SVG_H - 4).toFixed(1)}
+            text-anchor="middle" font-family="JetBrains Mono, monospace"
+            font-size="9" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">GAME #</text>
+        </svg>
+      ) : (
+        <div class="chart-placeholder">
+          CUMULATIVE CHART AVAILABLE AFTER NEXT PIPELINE RUN
+        </div>
+      )}
+
+      <!-- Legend: colored chips sorted by final GSAx -->
+      {hasGameData && (
+        <div class="chart-legend" id="chart-legend">
+          {legendItems.map(l => (
+            <div class="legend-chip" data-id={l.goalie_id}>
+              <span class="legend-dot" style={`background:${l.color}`}></span>
+              <span class="legend-name">{l.name.split('.').pop()?.trim() ?? l.name}</span>
+              <span class="legend-val">{l.final >= 0 ? '+' : ''}{l.final.toFixed(1)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <!-- ── Playoff cumulative chart ── -->
+    <div class="chart-wrap" id="chart-wrap-playoff" style="display:none">
+      {hasPlayoffChartData ? (
+        <svg class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet">
+          {[...Array(5)].map((_, i) => {
+            const gv = pcYMin + (i / 4) * (pcYMax - pcYMin);
+            const gy = pcPy(gv).toFixed(1);
+            return (
+              <g>
+                <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy}
+                  stroke="rgba(13,13,20,0.06)" stroke-width="1" />
+                <text x={(PAD.l - 6).toFixed(1)} y={gy}
+                  text-anchor="end" dominant-baseline="middle"
+                  font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
+                  {gv >= 0 ? '+' : ''}{gv.toFixed(0)}
+                </text>
+              </g>
+            );
+          })}
+          <line x1={PAD.l} y1={pcPy0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={pcPy0.toFixed(1)}
+            stroke="rgba(13,13,20,0.32)" stroke-width="1.5" stroke-dasharray="4 3" />
+          <text x={(PAD.l + cW + 4).toFixed(1)} y={pcPy0.toFixed(1)}
+            dominant-baseline="middle" font-family="JetBrains Mono, monospace"
+            font-size="8" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">AVG</text>
+          {playoffChartLines.map(line => (
+            <g class="goalie-line" data-id={line.goalie_id}>
+              <path d={makePlayoffPath(line.points)} fill="none"
+                stroke={line.color} stroke-width="1.8"
+                stroke-linejoin="round" stroke-linecap="round"
+                class="line-vis" style="transition:opacity 0.15s;pointer-events:none" />
+              <path d={makePlayoffPath(line.points)} fill="none"
+                stroke="transparent" stroke-width="14"
+                stroke-linejoin="round" stroke-linecap="round"
+                class="line-hit" style="cursor:crosshair"
+                data-id={line.goalie_id}
+                data-name={line.name}
+                data-team={line.team}
+                data-final={line.final} />
+            </g>
+          ))}
+          <text x={(PAD.l + cW / 2).toFixed(1)} y={(SVG_H - 4).toFixed(1)}
+            text-anchor="middle" font-family="JetBrains Mono, monospace"
+            font-size="9" fill="rgba(13,13,20,0.32)" letter-spacing="0.08em">GAME #</text>
+        </svg>
+      ) : (
+        <div class="chart-placeholder">
+          PLAYOFF DATA AVAILABLE ONCE POSTSEASON BEGINS
+        </div>
+      )}
+      {hasPlayoffChartData && (
+        <div class="chart-legend" id="chart-legend-playoff">
+          {playoffLegendItems.map(l => (
+            <div class="legend-chip" data-id={l.goalie_id}>
+              <span class="legend-dot" style={`background:${l.color}`}></span>
+              <span class="legend-name">{l.name.split('.').pop()?.trim() ?? l.name}</span>
+              <span class="legend-val">{l.final >= 0 ? '+' : ''}{l.final.toFixed(1)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </section>
+
+  <!-- Floating tooltip -->
+  <div id="ctip"><div class="ctip-name" id="ctip-name"></div><div class="ctip-val" id="ctip-val"></div></div>
+
+  <!-- ── Sortable table — React TanStack island ── -->
+  <section class="lb-section">
+    <div class="section-head">
+      <div class="section-title">Season <span style="color:var(--red)">Leaderboard</span></div>
+    </div>
+
+    <GoaliesTable
+      regularRows={tableRows}
+      playoffRows={playoffRows}
+      statsDate={_statsDate}
+      teams={[...new Set(allGoalies.map(g => g.team_abbrev).filter(Boolean))].sort() as string[]}
+      defaultGameType={isPlayoffSeason ? 'playoffs' : 'regular'}
+      client:load
+    />
+
+    <!-- Methodology strip -->
+    <div class="lb-method">
+      <div class="lb-method-grid">
+        <div class="lb-method-card">
+          <div class="k">GSAx <span class="badge badge-core">CORE</span></div>
+          <div class="v">Goals Saved Above Expected — xGA minus actual GA. Positive = saved more goals than expected given shot quality faced. 0 = exactly average. HGB XGBoost model (AUC 0.77), all situations.</div>
+        </div>
+        <div class="lb-method-card">
+          <div class="k">xGA</div>
+          <div class="v">Expected goals against using HGB XGBoost model (AUC 0.77), trained on shot location, angle, type, rebound, and rush context. Fenwick shots only — blocked and empty-net excluded.</div>
+        </div>
+        <div class="lb-method-card">
+          <div class="k">vs Exp</div>
+          <div class="v">Actual SV% minus expected SV% (xGA ÷ SA). Positive means the goalie is outperforming their expected save rate; negative = underperforming. Rate-based complement to the cumulative GSAx.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="lb-footer">HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · GOALIES GSAx</footer>
+
+<script>
+  // Sync chart visibility when React table toggles game type
+  document.addEventListener('hgb:goalie-game-type', (e: Event) => {
+    const t = (e as CustomEvent<string>).detail;
+    const isPlayoff = t === 'playoffs';
+    const regWrap   = document.getElementById('chart-wrap-reg');
+    const poWrap    = document.getElementById('chart-wrap-playoff');
+    const chartMeta = document.getElementById('chart-meta');
+    if (regWrap)    regWrap.style.display  = isPlayoff ? 'none' : '';
+    if (poWrap)     poWrap.style.display   = isPlayoff ? '' : 'none';
+    if (chartMeta)  chartMeta.textContent  = isPlayoff
+      ? 'Top 12 goalies by |playoff GSAx| · postseason running total'
+      : 'Top 12 goalies by |GSAx| · season running total';
+  });
+</script>
+
+<script>
+  // ── Chart interactivity: hover tooltip + click-to-isolate ─────────────────
+  const svg    = document.querySelector('.chart-svg');
+  if (!svg) { /* no chart data yet */ }
+  else {
+    const tip     = document.getElementById('ctip');
+    const tipName = document.getElementById('ctip-name');
+    const tipVal  = document.getElementById('ctip-val');
+    const allVis  = () => document.querySelectorAll<HTMLElement>('.goalie-line');
+
+    let lockedId = null;
+
+    function setFocus(id) {
+      allVis().forEach(g => {
+        const vis = g.querySelector<HTMLElement>('.line-vis');
+        if (!vis) return;
+        vis.style.opacity  = (id === null || g.dataset.id === id) ? '1'    : '0.1';
+        vis.style.strokeWidth = (id !== null && g.dataset.id === id) ? '2.5' : '1.8';
+      });
+      // Sync legend chips
+      document.querySelectorAll<HTMLElement>('.legend-chip').forEach(chip => {
+        chip.classList.toggle('dimmed', id !== null && chip.dataset.id !== id);
+      });
+    }
+
+    function showTip(e, name, team, final) {
+      const sgn = v => v >= 0 ? '+' : '';
+      tipName.textContent = name.split('.').pop()?.trim() ?? name;
+      tipVal.textContent  = `${team}  ·  GSAx ${sgn(final)}${parseFloat(final).toFixed(2)}`;
+      tip.style.display = 'block';
+      moveTip(e);
+    }
+    function moveTip(e) {
+      const x = e.clientX + 14, y = e.clientY - 28;
+      tip.style.left = (x + tip.offsetWidth > window.innerWidth - 8 ? e.clientX - tip.offsetWidth - 8 : x) + 'px';
+      tip.style.top  = Math.max(4, y) + 'px';
+    }
+    function hideTip() { tip.style.display = 'none'; }
+
+    // Hit-area paths: hover + click
+    document.querySelectorAll<HTMLElement>('.line-hit').forEach(path => {
+      const id    = path.dataset.id;
+      const name  = path.dataset.name;
+      const team  = path.dataset.team;
+      const final = path.dataset.final;
+
+      path.addEventListener('mouseenter', e => {
+        if (!lockedId) setFocus(id);
+        showTip(e, name, team, final);
+      });
+      path.addEventListener('mousemove', moveTip);
+      path.addEventListener('mouseleave', () => {
+        if (!lockedId) setFocus(null);
+        hideTip();
+      });
+      path.addEventListener('click', e => {
+        e.stopPropagation();
+        if (lockedId === id) { lockedId = null; setFocus(null); }
+        else { lockedId = id; setFocus(id); }
+      });
+    });
+
+    // Legend chips: click-to-isolate
+    document.querySelectorAll<HTMLElement>('.legend-chip').forEach(chip => {
+      const id    = chip.dataset.id;
+      const hit   = document.querySelector<HTMLElement>(`.line-hit[data-id="${id}"]`);
+      const name  = hit?.dataset.name ?? '';
+      const team  = hit?.dataset.team ?? '';
+      const final = hit?.dataset.final ?? '0';
+
+      chip.addEventListener('mouseenter', e => {
+        if (!lockedId) setFocus(id);
+        showTip(e, name, team, final);
+      });
+      chip.addEventListener('mousemove', moveTip);
+      chip.addEventListener('mouseleave', () => {
+        if (!lockedId) setFocus(null);
+        hideTip();
+      });
+      chip.addEventListener('click', e => {
+        e.stopPropagation();
+        if (lockedId === id) { lockedId = null; setFocus(null); }
+        else { lockedId = id; setFocus(id); }
+      });
+    });
+
+    // Click outside chart → unlock
+    document.addEventListener('click', () => {
+      if (lockedId) { lockedId = null; setFocus(null); }
+    });
+  }
+</script>
+
+</body>
+</html>
