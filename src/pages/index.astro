@@ -2013,7 +2013,55 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
   }
 
   // ── Ticker ───────────────────────────────────────────────────────────────────
+  let _goalsCache = [];
+  let _lastGoalsTickerHtml = '';
+
+  async function fetchGoals() {
+    const HGB_API = 'https://api.hockeygamebot.com';
+    try {
+      const r = await fetch(`${HGB_API}/v1/goals`, { cache: 'no-store' });
+      if (r.ok) {
+        const data = await r.json();
+        const todayGoals = (data.goals ?? []).filter(g => g.period && g.period <= 5);
+        if (todayGoals.length) { _goalsCache = todayGoals; renderGoalsTicker(); return; }
+      }
+    } catch {}
+    // Fall back to yesterday
+    try {
+      const yest = new Date(); yest.setDate(yest.getDate() - 1);
+      const yd = yest.toISOString().slice(0, 10);
+      const r = await fetch(`${HGB_API}/v1/goals?date=${yd}`, { cache: 'no-store' });
+      if (r.ok) { const data = await r.json(); _goalsCache = data.goals ?? []; renderGoalsTicker(); }
+    } catch {}
+  }
+
+  function renderGoalsTicker() {
+    if (!_goalsCache.length) return;
+    const EMOJIS = ['🚨', '🥅', '🏒', '🚨', '🏒', '🥅'];
+    const shuffled = [..._goalsCache].sort(() => Math.random() - 0.5).slice(0, 30);
+    const items = shuffled.map((g, i) => {
+      const scorer = g.scorer?.name ? g.scorer.name.split(' ').pop() : null;
+      const team = g.scoring_team?.abbrev || '?';
+      const away = g.away_team?.abbrev || '?', home = g.home_team?.abbrev || '?';
+      const score = `${away} ${g.away_score}–${g.home_score} ${home}`;
+      const period = g.period ? (g.period <= 3 ? `P${g.period}` : g.period === 4 ? 'OT' : 'SO') : '';
+      const time = g.time_in_period || '';
+      const strength = g.strength === 'pp' ? ' <em>PP</em>' : g.strength === 'sh' ? ' <em>SH</em>' : '';
+      const who = scorer ? `<strong>${scorer}</strong> (${team})${strength}` : `<strong>${team}</strong>${strength}`;
+      const ctx = [period, time].filter(Boolean).join(' ');
+      return `<div class="tk-item">${EMOJIS[i % EMOJIS.length]} ${who} <span class="sep">·</span> <span class="score">${score}</span>${ctx ? `<span class="sep">·</span>${ctx}` : ''}</div>`;
+    }).join('');
+    if (items === _lastGoalsTickerHtml) return;
+    _lastGoalsTickerHtml = items;
+    const track = document.getElementById('ticker-track');
+    if (track) {
+      track.innerHTML = items + items;
+      track.style.animationDuration = `${Math.max(36, shuffled.length * 6)}s`;
+    }
+  }
+
   function renderTicker(data) {
+    if (_goalsCache.length) { renderGoalsTicker(); return; }
     const state = pageState(data);
     const source = state==='post' ? (data.previous_day?.games??[]) : (data.games??[]);
     if (!source.length) return;
@@ -2442,8 +2490,12 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
   }
 
   fetchAndRender();
+  fetchGoals();
   // Disable polling for mock mode and historical replay — data is static
-  if (!mockState && !replayDate) setInterval(fetchAndRender, 30000);
+  if (!mockState && !replayDate) {
+    setInterval(fetchAndRender, 30000);
+    setInterval(fetchGoals, 300_000);
+  }
 
 
   // ── Prefs + tracked teams (all users — prefs improve YG section; results for logged-in) ──
