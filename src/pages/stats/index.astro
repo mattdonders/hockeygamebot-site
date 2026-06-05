@@ -476,6 +476,14 @@ const topTeams = (() => {
     .draft-empty { padding: 14px; font-family: var(--body); font-weight: 500; font-size: 13px; color: var(--ink-32); }
     .draft-fallback-note { padding: 6px 14px 8px; font-family: var(--mono); font-size: 8px; color: var(--ink-20); letter-spacing: 0.06em; border-top: 1px solid var(--ink-06); }
 
+    /* ── Personalization loading overlay ── */
+    #personal-wrap { position: relative; }
+    #personal-wrap.is-loading { pointer-events: none; }
+    .personal-spinner-overlay { display: none; position: absolute; inset: 0; background: rgba(239,238,232,0.88); align-items: center; justify-content: center; z-index: 10; border-radius: 2px; }
+    #personal-wrap.is-loading .personal-spinner-overlay { display: flex; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .personal-spin { width: 28px; height: 28px; border: 3px solid var(--ink-14); border-top-color: var(--ink); border-radius: 50%; animation: spin 0.7s linear infinite; }
+
     /* ── Visibility ── */
     .view-li { display: block; }
     .view-lo { display: none; }
@@ -591,6 +599,8 @@ const topTeams = (() => {
 <!-- ═══════════════════════════ LOGGED-IN VIEW ═══════════════════════════ -->
 <div class="view-li">
 <div class="page-wrap">
+  <div id="personal-wrap">
+  <div class="personal-spinner-overlay" id="personal-spinner"><div class="personal-spin"></div></div>
   <div class="page-grid">
 
     <!-- LEFT COLUMN -->
@@ -601,7 +611,7 @@ const topTeams = (() => {
         <span class="section-title">Your Teams</span>
         <a href="/account" class="section-link">Edit follows →</a>
       </div>
-      <div class="team-cards">
+      <div class="team-cards" id="personal-teams">
         {followedTeams.map(abbrev => {
           const d = teamData[abbrev];
           return (
@@ -634,7 +644,7 @@ const topTeams = (() => {
       </div>
 
       <!-- YOUR PLAYERS -->
-      <div class="players-section">
+      <div class="players-section" id="personal-players-wrap">
         <div class="section-head">
           <span class="section-title">Your Players</span>
           <span class="section-link" style="cursor:default;border-bottom:1px solid var(--ink-14);padding-bottom:10px;">sorted by IMP% ↓</span>
@@ -681,7 +691,7 @@ const topTeams = (() => {
                 {draftYear} draft{draftGeneratedAt ? ` · ${draftGeneratedAt}` : ''}
               </span>
             </div>
-            <div class="draft-stack">
+            <div class="draft-stack personal-draft-stack">
               {followedTeams.length === 0 && (
                 <div class="draft-empty" style="background:var(--surface);border:1px solid var(--ink-14);padding:14px;">Follow teams to track draft capital</div>
               )}
@@ -787,7 +797,7 @@ const topTeams = (() => {
                 {draftYear} draft{draftGeneratedAt ? ` · ${draftGeneratedAt}` : ''}
               </span>
             </div>
-            <div class="draft-stack">
+            <div class="draft-stack personal-draft-stack">
               {followedTeams.length === 0 && (
                 <div class="draft-empty" style="background:var(--surface);border:1px solid var(--ink-14);padding:14px;">Follow teams to track draft capital</div>
               )}
@@ -857,6 +867,7 @@ const topTeams = (() => {
 
     </div><!-- /right col -->
   </div><!-- /page-grid -->
+  </div><!-- /personal-wrap -->
 
 
 </div><!-- /page-wrap -->
@@ -1024,6 +1035,273 @@ const topTeams = (() => {
       })
       .catch(function() {});
   }
+
+  // Show spinner immediately for logged-in users so mock data doesn't flash
+  if (hasSession && !forceLo) {
+    var pw = document.getElementById('personal-wrap');
+    if (pw) pw.classList.add('is-loading');
+  }
+</script>
+
+<script is:inline define:vars={{ activeTeams: [...PLAYOFFS_ACTIVE], playoffOddsData: playoffOdds }}>
+  window._HGB_PLAYOFF_ACTIVE = activeTeams;
+  window._HGB_PLAYOFF_ODDS = playoffOddsData;
+</script>
+
+<script is:inline>
+(function() {
+  var API = 'https://api.hockeygamebot.com';
+  var token = null;
+  try { token = localStorage.getItem('hgb_session'); } catch(e) {}
+  if (!token) return; // cookie-only session path handled separately
+
+  var TEAM_COLORS = {
+    'ANA':'#FC4C02','BOS':'#FFB81C','BUF':'#003087','CGY':'#C8102E','CAR':'#CC0000',
+    'CHI':'#CF0A2C','COL':'#6F263D','CBJ':'#002654','DAL':'#006847','DET':'#CE1126',
+    'EDM':'#FF4C00','FLA':'#C8102E','LAK':'#A2AAAD','MIN':'#154734','MTL':'#AF1E2D',
+    'NSH':'#FFB81C','NJD':'#CE1126','NYI':'#F47D30','NYR':'#0038A8','OTT':'#C8102E',
+    'PHI':'#F74902','PIT':'#FCB514','SJS':'#006D75','SEA':'#99D9D9','STL':'#002F87',
+    'TBL':'#002868','TOR':'#00205B','UTA':'#6CACE4','VAN':'#00843D','VGK':'#B4975A',
+    'WSH':'#C8102E','WPG':'#004C97','ARI':'#8C2633'
+  };
+  var TEAM_NAMES = {
+    'ANA':'Ducks','BOS':'Bruins','BUF':'Sabres','CGY':'Flames','CAR':'Hurricanes',
+    'CHI':'Blackhawks','COL':'Avalanche','CBJ':'Blue Jackets','DAL':'Stars','DET':'Red Wings',
+    'EDM':'Oilers','FLA':'Panthers','LAK':'Kings','MIN':'Wild','MTL':'Canadiens',
+    'NSH':'Predators','NJD':'Devils','NYI':'Islanders','NYR':'Rangers','OTT':'Senators',
+    'PHI':'Flyers','PIT':'Penguins','SJS':'Sharks','SEA':'Kraken','STL':'Blues',
+    'TBL':'Lightning','TOR':'Maple Leafs','UTA':'Utah HC','VAN':'Canucks','VGK':'Golden Knights',
+    'WSH':'Capitals','WPG':'Jets','ARI':'Coyotes'
+  };
+
+  function tc(a) { return TEAM_COLORS[a] || '#E8002D'; }
+
+  function computeWarPct(allPlayers, player) {
+    var grp = player.pos_group;
+    var peers = allPlayers.filter(function(p) { return p.pos_group === grp && p.war != null; });
+    peers.sort(function(a, b) { return a.war - b.war; });
+    var idx = peers.findIndex(function(p) { return p.player_id === player.player_id; });
+    if (idx < 0 || peers.length < 2) return null;
+    return Math.round((idx / (peers.length - 1)) * 100);
+  }
+
+  function getCurrentTeamStats(teamsData, abbrev) {
+    return (teamsData.regular || []).find(function(t) {
+      return t.team_abbrev === abbrev && t.season === '2025-26';
+    }) || null;
+  }
+
+  function computeImpactRank(teamsData, abbrev) {
+    var current = (teamsData.regular || []).filter(function(t) { return t.season === '2025-26'; });
+    current.sort(function(a, b) { return b.xgf_pct_5v5 - a.xgf_pct_5v5; });
+    var idx = current.findIndex(function(t) { return t.team_abbrev === abbrev; });
+    return idx >= 0 ? idx + 1 : null;
+  }
+
+  function teamLabel(rank) {
+    if (!rank) return { text: '—', color: 'rgba(13,13,20,0.40)' };
+    if (rank <= 8)  return { text: 'Contender Profile', color: '#166534' };
+    if (rank <= 16) return { text: 'Playoff Fringe',    color: '#92400e' };
+    if (rank <= 24) return { text: 'Rebuild Watch',     color: 'rgba(13,13,20,0.40)' };
+    return              { text: 'Full Rebuild',         color: 'rgba(13,13,20,0.40)' };
+  }
+
+  function ordinal(n) { return n + (n===1?'st':n===2?'nd':n===3?'rd':'th'); }
+
+  function renderTeamCard(abbrev, stats, rank, playoffActive, playoffOdds) {
+    var color = tc(abbrev);
+    var record = stats ? stats.wins + '-' + stats.losses + '-' + stats.ot_losses : '—';
+    var xgf = stats ? (stats.xgf_pct_5v5 * 100).toFixed(1) + '%' : '—';
+    var gf  = stats ? (stats.gf_pct_5v5  * 100).toFixed(1) + '%' : '—';
+    var lbl = teamLabel(rank);
+    var rankStr = rank ? ordinal(rank) : '—';
+    var isActive = playoffActive && playoffActive.indexOf(abbrev) >= 0;
+    var odds = playoffOdds && playoffOdds[abbrev] != null ? Math.round(playoffOdds[abbrev] * 100) : null;
+    var badge = isActive && odds != null
+      ? '<span class="odds-badge ' + (odds > 50 ? 'high' : 'low') + '">PO: ' + odds + '%</span>'
+      : '<span class="odds-badge eliminated">ELIM</span>';
+    var fullName = (abbrev === 'UTA' ? 'Utah Hockey Club' : (abbrev + ' ' + (TEAM_NAMES[abbrev] || '')));
+    return '<div class="team-card" data-color style="--team-color:' + color + '">' +
+      badge +
+      '<div class="team-editorial-label" style="color:' + lbl.color + ';margin-bottom:8px;">' + lbl.text + '</div>' +
+      '<div class="team-card-head">' +
+        '<img src="https://assets.nhle.com/logos/nhl/svg/' + abbrev + '_light.svg" alt="' + abbrev + '" class="team-logo" style="width:52px;height:52px;" />' +
+        '<div><div class="team-abbrev">' + fullName + '</div><div class="team-record">' + record + '</div></div>' +
+      '</div>' +
+      '<div class="team-card-stats">' +
+        '<div class="team-stat"><div class="team-stat-k">xGF% 5v5</div><div class="team-stat-v">' + xgf + '</div></div>' +
+        '<div class="team-stat"><div class="team-stat-k">GF%</div><div class="team-stat-v">' + gf + '</div></div>' +
+        '<div class="team-stat"><div class="team-stat-k">Impact Rank</div><div class="team-stat-v">' + rankStr + '</div></div>' +
+      '</div>' +
+      '<div class="team-card-links">' +
+        '<a href="/teams/' + abbrev.toLowerCase() + '" class="team-card-link">Team Page</a>' +
+        '<a href="/stats/skaters" class="team-card-link">Players</a>' +
+        '<a href="/stats/lines" class="team-card-link">Lines</a>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function pctColor(v) {
+    if (v == null) return 'rgba(13,13,20,0.32)';
+    if (v >= 75) return '#166534';
+    if (v <= 35) return '#991b1b';
+    return 'rgba(13,13,20,0.72)';
+  }
+
+  function renderPlayerTable(players, allPlayers) {
+    if (!players.length) return '<div style="color:var(--ink-48);font-size:13px;padding:12px 0;">No players followed. <a href="/account">Add players →</a></div>';
+    var rows = players.map(function(p) {
+      var warPct = computeWarPct(allPlayers, p);
+      var rtng = p.hgb_rating_percentile != null ? Math.round(p.hgb_rating_percentile) : null;
+      var imp  = p.gs_pct != null ? Math.round(p.gs_pct) : null;
+      var g = p.goals || 0, a = p.assists || 0, pts = g + a;
+      var name = p.first_name + ' ' + p.last_name;
+      function cell(v) { return v != null ? '<span style="font-weight:700;color:' + pctColor(v) + '">' + v + '</span>' : '—'; }
+      return '<tr class="player-row" style="cursor:pointer" onclick="location.href=\'/stats/player/' + (p.slug || '') + '\'">' +
+        '<td class="pr-name"><img src="https://assets.nhle.com/logos/nhl/svg/' + p.team_abbrev + '_light.svg" style="width:20px;height:20px;object-fit:contain;margin-right:8px;vertical-align:middle" onerror="this.style.display=\'none\'">' + name + '</td>' +
+        '<td style="font-family:var(--mono);font-size:11px;font-weight:700;color:rgba(13,13,20,0.48);letter-spacing:0.06em;text-align:center">' + p.team_abbrev + '</td>' +
+        '<td style="font-family:var(--mono);font-size:11px;color:rgba(13,13,20,0.32);text-align:center">' + p.pos + '</td>' +
+        '<td style="text-align:right">' + p.gp + '</td>' +
+        '<td style="text-align:right">' + g + '</td>' +
+        '<td style="text-align:right">' + a + '</td>' +
+        '<td style="text-align:right;font-weight:700;color:#0d0d14">' + pts + '</td>' +
+        '<td style="text-align:center">' + cell(warPct) + '</td>' +
+        '<td style="text-align:center">' + cell(rtng) + '</td>' +
+        '<td style="text-align:center">' + cell(imp) + '</td>' +
+      '</tr>';
+    }).join('');
+    return '<table class="player-table" style="width:100%;border-collapse:collapse">' +
+      '<thead><tr>' +
+        '<th class="pr-name" style="text-align:left">PLAYER</th>' +
+        '<th style="text-align:center">TM</th>' +
+        '<th style="text-align:center">POS</th>' +
+        '<th style="text-align:right">GP</th>' +
+        '<th style="text-align:right">G</th>' +
+        '<th style="text-align:right">A</th>' +
+        '<th style="text-align:right">P</th>' +
+        '<th style="text-align:center">WAR%</th>' +
+        '<th style="text-align:center">RTNG%</th>' +
+        '<th style="text-align:center">IMP%</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
+  }
+
+  function renderDraftStack(teams, allPicks) {
+    if (!teams.length) return '<div style="color:var(--ink-48);font-size:13px;padding:12px 0;">No teams followed. <a href="/account">Add teams →</a></div>';
+    return teams.map(function(abbrev) {
+      var picks = allPicks.filter(function(p) { return p.team === abbrev; }).sort(function(a,b){ return a.overall - b.overall; });
+      var color = tc(abbrev);
+      var fullName = TEAM_NAMES[abbrev] || abbrev;
+      var firstPick = picks[0];
+      var top64 = picks.filter(function(p) { return p.overall <= 64; }).length;
+      var acquired = picks.filter(function(p) { return p.is_traded; }).length;
+      var picksHtml = picks.map(function(p) {
+        return '<div class="draft-pick-chip">' +
+          '<span class="draft-pick-overall">#' + p.overall + '</span>' +
+          '<span class="draft-pick-round">R' + p.round + '</span>' +
+          (p.is_traded ? '<span class="draft-pick-source" title="' + p.original_team_name + '">from ' + p.original_team + '</span>' : '<span class="draft-pick-source">own</span>') +
+        '</div>';
+      }).join('');
+      var heroHtml = firstPick ? (
+        '<div class="draft-hero-grid">' +
+          '<div class="draft-pick-col">' +
+            '<div class="draft-col-label">First Pick</div>' +
+            '<div class="draft-hero-number">#' + firstPick.overall + '</div>' +
+            '<div class="draft-hero-meta">R' + firstPick.round + ' · ' + (firstPick.is_traded ? 'from ' + firstPick.original_team : 'own') + '</div>' +
+          '</div>' +
+          '<div class="draft-inv-col">' +
+            '<div class="draft-col-label">Pick Inventory</div>' +
+            '<div class="draft-inv-row"><span class="draft-inv-val">' + picks.length + '</span><span class="draft-inv-lbl">Picks</span></div>' +
+            '<div class="draft-inv-row"><span class="draft-inv-val">' + top64 + '</span><span class="draft-inv-lbl">Top-64</span></div>' +
+            (acquired ? '<div class="draft-inv-net">+' + acquired + ' acquired</div>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="draft-picks-list">' + picksHtml + '</div>'
+      ) : '<div class="draft-picks-list" style="color:var(--ink-32);font-family:var(--body);font-size:12px;">No 2026 picks currently owned</div>';
+      return '<div class="draft-team-card">' +
+        '<div class="draft-team-bar" style="background:' + color + '"></div>' +
+        '<div class="draft-team-head">' +
+          '<img src="https://assets.nhle.com/logos/nhl/svg/' + abbrev + '_light.svg" alt="' + abbrev + '" class="draft-team-logo">' +
+          '<div class="draft-team-name">' + fullName + '</div>' +
+        '</div>' +
+        heroHtml +
+      '</div>';
+    }).join('');
+  }
+
+  async function loadPersonalized() {
+    var headers = { 'Authorization': 'Bearer ' + token };
+    var results = await Promise.all([
+      fetch(API + '/v1/account/prefs', { headers: headers, credentials: 'include' }).then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
+      fetch(API + '/v1/stats/teams').then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
+      fetch(API + '/v1/stats/players').then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
+      fetch(API + '/v1/stats/draft-picks').then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
+    ]);
+    var prefs = results[0], teamsData = results[1], playersData = results[2], draftsData = results[3];
+    var trackedTeams = prefs.tracked_teams || [];
+    var trackedPlayerIds = prefs.tracked_players || [];
+    var allPlayers = playersData.players || [];
+    var allPicks = draftsData.picks || [];
+
+    // Build lookup sets
+    var playerIdSet = {};
+    trackedPlayerIds.forEach(function(id) { playerIdSet[id] = true; });
+    var trackedPlayers = allPlayers.filter(function(p) { return playerIdSet[p.player_id]; });
+    trackedPlayers.sort(function(a,b){ return (b.gs_pct||0) - (a.gs_pct||0); });
+
+    // Get playoff state from window (SSR already fetched it)
+    var playoffActive = window._HGB_PLAYOFF_ACTIVE || [];
+    var playoffOdds = window._HGB_PLAYOFF_ODDS || {};
+
+    // Render teams
+    var teamsEl = document.getElementById('personal-teams');
+    if (teamsEl) {
+      if (!trackedTeams.length) {
+        teamsEl.innerHTML = '<div style="color:var(--ink-48);font-size:13px;padding:12px 0;">No teams followed. <a href="/account">Add teams →</a></div>';
+      } else {
+        teamsEl.innerHTML = trackedTeams.map(function(abbrev) {
+          var stats = getCurrentTeamStats(teamsData, abbrev);
+          var rank = computeImpactRank(teamsData, abbrev);
+          return renderTeamCard(abbrev, stats, rank, playoffActive, playoffOdds);
+        }).join('');
+      }
+    }
+
+    // Render players
+    var playersEl = document.getElementById('personal-players-wrap');
+    if (playersEl) {
+      var tableHtml = renderPlayerTable(trackedPlayers, allPlayers);
+      // Replace just the component mount point, keep the section-head and note
+      var existing = playersEl.querySelector('astro-island, [data-astro-source-file]');
+      if (existing) {
+        existing.outerHTML = tableHtml;
+      } else {
+        // fallback: replace all content after the section-head
+        var head = playersEl.querySelector('.section-head');
+        playersEl.innerHTML = (head ? head.outerHTML : '') +
+          tableHtml +
+          '<div style="margin-top:8px;font-family:var(--body);font-size:11px;color:var(--ink-48);">WAR% · RTNG% · IMP% = percentile vs. position group</div>';
+      }
+    }
+
+    // Render draft stacks
+    var draftStacks = document.querySelectorAll('.personal-draft-stack');
+    draftStacks.forEach(function(el) {
+      el.innerHTML = renderDraftStack(trackedTeams, allPicks);
+    });
+
+    // Done — remove spinner
+    var pw = document.getElementById('personal-wrap');
+    if (pw) pw.classList.remove('is-loading');
+  }
+
+  loadPersonalized().catch(function(err) {
+    // On failure, still remove spinner so mock data shows
+    var pw = document.getElementById('personal-wrap');
+    if (pw) pw.classList.remove('is-loading');
+  });
+})();
 </script>
 
 </body>
