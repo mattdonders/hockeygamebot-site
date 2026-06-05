@@ -689,55 +689,6 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         <a href="/stats/skaters" class="explore-pill">Leaderboards →</a>
       </div>
 
-      <!-- WAR BREAKDOWN (hidden for soft launch) -->
-      {false && player.war != null && (() => {
-        const wc          = player.war_components;
-        const ev5RapmComp = wc?.ev5_rapm_war  ?? wc?.ev5 ?? 0;
-        const finishComp  = wc?.finishing_war  ?? 0;
-        const ppComp      = wc?.pp  ?? 0;
-        const pkComp      = wc?.pk  ?? 0;
-        const penComp     = wc?.pen ?? 0;
-        const fmt     = (v: number) => (v >= 0 ? '+' : '') + v.toFixed(2);
-        // Scale so the largest component fills ~85% of the bar track
-        const maxAbs  = Math.max(Math.abs(ev5RapmComp), Math.abs(finishComp), Math.abs(ppComp), Math.abs(pkComp), Math.abs(penComp), 0.01);
-        const BAR_REF = maxAbs / 0.85;
-        const pct     = (v: number) => Math.max(0, Math.min(100, (Math.abs(v) / BAR_REF) * 100)).toFixed(1);
-        const mkRow = (label: string, val: number) => ({
-          label, val,
-          barC: val >= 0.02 ? '#137333' : val < -0.01 ? 'var(--red)' : 'rgba(13,13,20,0.20)',
-          valC: val >= 0.02 ? '#137333' : val < -0.01 ? 'var(--red)' : 'var(--ink-32)',
-        });
-        const rows = [
-          mkRow('EV5 RAPM',          ev5RapmComp),
-          mkRow('Finishing',         finishComp),
-          mkRow('PP RAPM',           ppComp),
-          mkRow('PK RAPM',           pkComp),
-          mkRow('Pen. Differential', penComp),
-        ].filter(r => wc != null || r.label === 'EV5 RAPM');
-        return (
-          <div class="card">
-            <div class="card-head">
-              <span class="card-eyebrow">WAR <span class="accent">Breakdown</span></span>
-              <span class="card-meta">2025–26 season · WAR components</span>
-            </div>
-            <div class="war-components">
-              {rows.map(r => (
-                <div class="war-row">
-                  <div class="war-row-label">{r.label}</div>
-                  <div class="war-bar-track">
-                    <div class="war-bar-fill" style={`width:${pct(r.val)}%;background:${r.barC}`}></div>
-                  </div>
-                  <div class="war-row-val" style={`color:${r.valC}`}>{fmt(r.val)}</div>
-                </div>
-              ))}
-            </div>
-            <div class="war-total-row">
-              <div class="war-total-label">Total WAR</div>
-              <div class={`war-total-val ${player.war >= 0 ? 'pos' : 'neg'}`}>{fmt(player.war)}</div>
-            </div>
-          </div>
-        );
-      })()}
 
       <!-- CAREER STATS TABLE -->
       {player.career_seasons && player.career_seasons.length > 0 && (
@@ -1161,6 +1112,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     team:        player.team_abbrev,
     gp:          player.gp,
     toiAvgSec:   player.toi_avg_sec,
+    currentSeason:          currentSeasonNorm,
     war:                    player.war,
     warPct:                 warPct,
     hgb_rating:             player.hgb_rating ?? null,
@@ -1201,6 +1153,14 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     qot_pct_3yr:         (player as any).qot_pct_3yr         ?? null,
     posGroup:            player.pos_group,
     edge: player.edge ?? null,
+    war_components: {
+      ev_off_war:    (player as any).war_components?.ev_off_war    ?? null,
+      ev_def_war:    (player as any).war_components?.ev_def_war    ?? null,
+      finishing_war: (player as any).war_components?.finishing_war ?? null,
+      pp:            (player as any).war_components?.pp            ?? null,
+      pk:            (player as any).war_components?.pk            ?? null,
+      pen:           (player as any).war_components?.pen           ?? null,
+    },
     recentGS:    allGames.slice(-10).map(g => g.gs_display),
     teamColor:   teamColor,
     headshotUrl: headshotUrl,
@@ -2182,6 +2142,177 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       return canvas;
     }
 
+    // ── Season WAR + EDGE card ────────────────────────────────────────────────
+    async function drawSeasonWARCard(selectedSeason: string) {
+      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const W = 560, SCALE = 2, PAD = 24;
+      const wc = D.war_components;
+      const e  = D.edge;
+
+      // ── WAR section layout ──
+      const WAR_ROWS = 6, WAR_ROW_H = 34, WAR_LABEL_W = 148, BAR_TOTAL_W = W - PAD * 2 - WAR_LABEL_W - 44;
+      const WAR_SCALE = 3.0; // ±3.0 = full bar
+      const WAR_SECTION_H = 16 + WAR_ROWS * WAR_ROW_H + 8 + 34 + 16; // label + rows + sep + total + pad
+      // ── EDGE section (reuse helpers) ──
+      const EDGE_H = e ? 541 : 48;
+      // ── Header + identity (same as drawCard) ──
+      const HDR_H = 48, CHIP_H = 30, ID_H = 100, SEP_H = 1;
+      const FOOT_H = 36;
+      const TOTAL_H = HDR_H + CHIP_H + 6 + ID_H + SEP_H + 16 + WAR_SECTION_H + EDGE_H + FOOT_H;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = TOTAL_H * SCALE;
+      const ctx = canvas.getContext('2d')!;
+      ctx.scale(SCALE, SCALE);
+
+      // ── background ──
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, TOTAL_H);
+
+      // ── team color bar ──
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, W, 5);
+
+      let y = 5;
+
+      // ── header strip ──
+      ctx.fillStyle = BG;
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('HOCKEYGAMEBOT', PAD, y + HDR_H / 2);
+      ctx.textAlign = 'right';
+      ctx.fillText('HGB STATS', W - PAD, y + HDR_H / 2);
+      y += HDR_H;
+
+      // ── season chip ──
+      ctx.fillStyle = TEAM_C;
+      const chipTxt = selectedSeason + ' · PLAYER SEASON CARD';
+      const chipW = ctx.measureText(chipTxt).width + 24;
+      roundRect(ctx, PAD, y + 5, chipW, 20, 3);
+      ctx.fill();
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(chipTxt, PAD + 12, y + 15);
+      y += CHIP_H + 6;
+
+      // ── identity block ──
+      const hs = new Image();
+      hs.src = D.headshotUrl;
+      await new Promise(r => { hs.onload = r; hs.onerror = r; });
+      const HS = 72;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(PAD + HS / 2, y + HS / 2, HS / 2, 0, Math.PI * 2); ctx.clip();
+      if (hs.complete && hs.naturalWidth) ctx.drawImage(hs, PAD, y, HS, HS);
+      ctx.restore();
+      ctx.font = '800 26px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(D.firstName.toUpperCase(), PAD + HS + 14, y + 4);
+      ctx.font = '800 26px "Barlow Condensed", sans-serif'; ctx.fillStyle = TEAM_C;
+      ctx.fillText(D.lastName.toUpperCase(), PAD + HS + 14, y + 32);
+      ctx.font = '500 10px "JetBrains Mono", monospace'; ctx.fillStyle = INK48;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${D.team} · ${D.pos} · ${D.gp} GP · ${selectedSeason}`, PAD + HS + 14, y + 68);
+      const warSign = D.war != null && D.war >= 0 ? '+' : '';
+      ctx.font = '700 10px "JetBrains Mono", monospace'; ctx.fillStyle = TEAM_C;
+      ctx.fillText(`${warSign}${D.war?.toFixed(2) ?? '—'} WAR  ·  ${D.warPct ?? '—'}%ile`, PAD + HS + 14, y + 86);
+      y += ID_H;
+
+      // ── separator ──
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, W, 1); y += 1 + 16;
+
+      // ── WAR section label ──
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('WAR BREAKDOWN', PAD, y + 7);
+      ctx.fillStyle = INK14; ctx.fillRect(PAD + ctx.measureText('WAR BREAKDOWN').width + 8, y + 7, W - PAD * 2 - ctx.measureText('WAR BREAKDOWN').width - 8, 1);
+      y += 16;
+
+      // ── WAR component rows ──
+      const warRows = [
+        { label: 'EV OFFENCE',  val: wc?.ev_off_war    ?? null },
+        { label: 'EV DEFENCE',  val: wc?.ev_def_war    ?? null },
+        { label: 'FINISHING',   val: wc?.finishing_war ?? null },
+        { label: 'POWERPLAY',   val: wc?.pp            ?? null },
+        { label: 'PENALTY KILL', val: wc?.pk           ?? null },
+        { label: 'PENALTIES',   val: wc?.pen           ?? null },
+      ];
+
+      const ZERO_X = PAD + WAR_LABEL_W + (BAR_TOTAL_W / 2); // zero line x
+
+      for (const row of warRows) {
+        const v = row.val ?? 0;
+        const barPx = Math.min(Math.abs(v) / WAR_SCALE, 1.0) * (BAR_TOTAL_W / 2);
+        const isPos = v >= 0;
+        const barColor = isPos ? '#137333' : '#991b1b';
+        const dimColor = 'rgba(13,13,20,0.08)';
+
+        // row bg on hover area
+        const ry = y + (WAR_ROW_H - 20) / 2;
+
+        // label
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK48; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(row.label, PAD, y + WAR_ROW_H / 2);
+
+        // bar track
+        ctx.fillStyle = dimColor; ctx.fillRect(PAD + WAR_LABEL_W, ry, BAR_TOTAL_W, 20);
+
+        // zero line
+        ctx.fillStyle = INK32; ctx.fillRect(ZERO_X, ry, 1, 20);
+
+        // filled bar
+        ctx.fillStyle = row.val == null ? INK14 : barColor;
+        if (isPos) ctx.fillRect(ZERO_X, ry, barPx, 20);
+        else       ctx.fillRect(ZERO_X - barPx, ry, barPx, 20);
+
+        // value label
+        const valStr = row.val == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2);
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = row.val == null ? INK32 : barColor;
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillText(valStr, W - PAD, y + WAR_ROW_H / 2);
+
+        y += WAR_ROW_H;
+      }
+
+      // ── total row ──
+      y += 8;
+      ctx.fillStyle = INK14; ctx.fillRect(PAD, y, W - PAD * 2, 1); y += 10;
+      ctx.font = '800 12px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('TOTAL WAR', PAD, y + 12);
+      const totStr = D.war != null ? (D.war >= 0 ? '+' : '') + D.war.toFixed(2) : '—';
+      ctx.font = '800 14px "Barlow Condensed", sans-serif'; ctx.fillStyle = TEAM_C;
+      ctx.textAlign = 'right';
+      ctx.fillText(totStr, W - PAD, y + 12);
+      y += 34 + 16;
+
+      // ── EDGE section ──
+      if (e) {
+        y = drawEdgeDivider(ctx, y, W) + 8;
+        const bw = (W - PAD * 2 - 10) / 2, bh = 86;
+        const pairs = [
+          ['TOP SPEED',      e.speed_max_mph != null ? `${e.speed_max_mph} mph` : '—',    e.speed_max_pct,     e.speed_max_league_avg_mph    != null ? `avg ${e.speed_max_league_avg_mph} mph` : ''],
+          ['MILES SKATED',   e.distance_mi   != null ? `${e.distance_mi} mi` : '—',       e.distance_pct,      e.distance_league_avg_mi      != null ? `avg ${e.distance_league_avg_mi} mi` : ''],
+          ['BURSTS > 20 MPH',e.bursts_over_20 != null ? `${e.bursts_over_20}` : '—',      e.bursts_over_20_pct,e.bursts_over_20_league_avg   != null ? `avg ${e.bursts_over_20_league_avg}` : ''],
+          ['HARDEST SHOT',   e.shot_speed_max_mph != null ? `${e.shot_speed_max_mph} mph` : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? `avg ${e.shot_speed_max_league_avg_mph} mph` : ''],
+        ];
+        for (let i = 0; i < 4; i++) {
+          const col = i % 2, row_i = Math.floor(i / 2);
+          drawEdgeStatBox(ctx, PAD + col * (bw + 10), y + row_i * (bh + 10), bw, bh, pairs[i][0] as string, pairs[i][1] as string, pairs[i][2] as number, pairs[i][3] as string, false);
+        }
+        y += 2 * (bh + 10) - 10 + 12;
+        y = drawZoneBar(ctx, y, W, PAD, e, TEAM_C) + 12;
+        y = drawShotDanger(ctx, y, W, PAD, e) + 10;
+      }
+
+      // ── footer ──
+      ctx.fillStyle = INK10; ctx.fillRect(0, TOTAL_H - FOOT_H, W, FOOT_H);
+      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · ' + selectedSeason + ' · EDGE DATA: NHL, INC.', W / 2, TOTAL_H - FOOT_H / 2);
+
+      return canvas;
+    }
+
     // ── Landscape card: portrait left (560px) + teal divider + EDGE right (339px) ──
     async function drawLandscapeCard() {
       const SCALE   = 2;
@@ -2845,6 +2976,26 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         }
       });
     }
+
+    // Season WAR card — season-aware binding (season can change via row click)
+    (() => {
+      let _selectedSeason = D.currentSeason ?? '2025-26';
+      document.addEventListener('hgb:season-select', (e: any) => { _selectedSeason = e.detail?.season ?? _selectedSeason; });
+      const btn = document.getElementById('download-season-card-btn');
+      const status = document.getElementById('card-status');
+      if (btn) btn.addEventListener('click', async () => {
+        const label = btn.textContent ?? '';
+        btn.textContent = 'Generating…'; (btn as HTMLButtonElement).disabled = true;
+        if (status) status.style.display = 'block';
+        try {
+          if (document.fonts?.ready) await document.fonts.ready;
+          const canvas = await drawSeasonWARCard(_selectedSeason);
+          downloadCanvas(canvas, `hgb_war_${D.slug}_${_selectedSeason}.png`);
+          if (status) { status.textContent = 'Downloaded ✓'; setTimeout(() => { if (status) status.style.display = 'none'; }, 3000); }
+        } catch(err) { console.error(err); if (status) status.textContent = 'Error — try again'; }
+        finally { btn.textContent = label; (btn as HTMLButtonElement).disabled = false; }
+      });
+    })();
 
     bindCardBtn('download-card-btn',     'Player Card →',      drawCard,              `hgb_${D.slug}_25-26.png`);
     bindCardBtn('download-expanded-btn', 'Expanded Card →',    drawLandscapeCard,     `hgb_${D.slug}_expanded_25-26.png`, '900px · 2× retina PNG');
@@ -3515,7 +3666,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // _seasonStats and _evOffFallback / _evDefFallback come from define:vars above
     // (they are globals serialized into this script's scope by Astro).
     const seasonMap = {};
-    (_seasonStats || []).forEach(s => { seasonMap[s.season] = s; });
+    // _seasonStats is injected by define:vars into the inline script block above.
+    // Access via window to cross the module boundary safely.
+    ((typeof _seasonStats !== 'undefined' ? _seasonStats : (window as any)._seasonStats) || [])
+      .forEach((s: any) => { seasonMap[s.season] = s; });
 
     // Current RAPM mode — we only update EV bars in SEASON mode
     let currentRapmMode = 'season';
@@ -3535,8 +3689,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // Apply a season's RAPM data to the EV bars (SEASON mode only)
     function applySeasonToEvBars(seasonStr) {
       const entry = seasonMap[seasonStr];
-      const offVal = (entry?.rapm_off_pct != null) ? entry.rapm_off_pct : _evOffFallback;
-      const defVal = (entry?.rapm_def_pct != null) ? entry.rapm_def_pct : _evDefFallback;
+      const _off = typeof _evOffFallback !== 'undefined' ? _evOffFallback : (window as any)._evOffFallback ?? 50;
+      const _def = typeof _evDefFallback !== 'undefined' ? _evDefFallback : (window as any)._evDefFallback ?? 50;
+      const offVal = (entry?.rapm_off_pct != null) ? entry.rapm_off_pct : _off;
+      const defVal = (entry?.rapm_def_pct != null) ? entry.rapm_def_pct : _def;
 
       document.querySelectorAll('#pct-profile-card .pct-row[data-bar-key]').forEach(row => {
         const key    = row.dataset.barKey;
