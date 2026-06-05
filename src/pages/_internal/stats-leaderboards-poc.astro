@@ -1,0 +1,567 @@
+---
+// /internal/stats-leaderboards-poc — Global leaderboards placeholder POC
+// noindex, never linked from nav. Run locally with `npm run dev`.
+// Visit: localhost:4321/internal/stats-leaderboards-poc
+
+import Nav from '../../components/Nav.astro';
+import Fonts from '../../components/Fonts.astro';
+
+const statsLinks = [
+  { href: '/stats/skaters', label: 'Skaters'        },
+  { href: '/stats/goalies', label: 'Goalies'         },
+  { href: '/stats/teams',   label: 'Teams'           },
+  { href: '/stats/lines',   label: 'Lines'           },
+  { href: '/stats/impact',  label: 'Impact'          },
+  { href: '/stats/records', label: 'Series Records'  },
+  { href: '/stats/wowy',    label: 'WOWY'            },
+];
+
+const leaderboardCards = [
+  {
+    href: "/stats/skaters",
+    label: "Skaters",
+    abbrev: "SKT",
+    description: "All NHL skaters ranked by WAR, Goals/60, xG/60, Finishing, HGB Impact, and more. Sortable — switch views with tab chips. Min 20 GP.",
+    stats: ["WAR", "G/60", "xG/60", "Finishing", "Impact", "RAPM"],
+    note: "Full season · 2025–26 · 500+ players",
+  },
+  {
+    href: "/stats/goalies",
+    label: "Goalies",
+    abbrev: "GOA",
+    description: "Goalie performance by GSAx (Goals Saved Above Expected), Save%, High-Danger Save%, and HGB Rating. Adjusts for shot quality.",
+    stats: ["GSAx", "SV%", "HDSV%", "xGA", "Rating"],
+    note: "Min 10 starts · 2025–26",
+  },
+  {
+    href: "/stats/teams",
+    label: "Teams",
+    abbrev: "TMS",
+    description: "All 32 teams ranked by xGF%, GF%, HDCF%, shot share, and HGB Impact. Filters for score state and strength state.",
+    stats: ["xGF%", "GF%", "HDCF%", "Shot Share", "Impact Rank"],
+    note: "5v5 · all situations · 2025–26",
+  },
+  {
+    href: "/stats/lines",
+    label: "Lines",
+    abbrev: "LNS",
+    description: "Forward line and defensive pair combinations with minimum TOI thresholds. On-ice xGF%, GF%, zone starts, and pair Impact.",
+    stats: ["xGF%", "GF%", "TOI/GP", "Zone Start", "Impact"],
+    note: "Min 50 min TOI together · 2025–26",
+  },
+  {
+    href: "/stats/impact",
+    label: "Impact",
+    abbrev: "IMP",
+    description: "HGB Game Score aggregated across the season. Impact captures single-game performance; this page ranks cumulative and per-game averages.",
+    stats: ["Avg Impact", "Total Impact", "Peak", "Consistency"],
+    note: "HGB proprietary · all skaters · 2025–26",
+  },
+];
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Leaderboards POC · HGB Internal</title>
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #EFEEE8;
+      --surface:  #FFFFFF;
+      --ink:      #0D0D14;
+      --red:      #E8002D;
+      --grid-line: rgba(13,13,20,0.04);
+      --ink-04:   rgba(13,13,20,0.04);
+      --ink-06:   rgba(13,13,20,0.06);
+      --ink-10:   rgba(13,13,20,0.10);
+      --ink-14:   rgba(13,13,20,0.14);
+      --ink-20:   rgba(13,13,20,0.20);
+      --ink-32:   rgba(13,13,20,0.32);
+      --ink-48:   rgba(13,13,20,0.48);
+      --ink-72:   rgba(13,13,20,0.72);
+      --display:  'Barlow Condensed', sans-serif;
+      --body:     'Barlow', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--body);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; }
+
+    /* ── POC Banner ── */
+    .poc-banner {
+      background: var(--ink);
+      color: var(--bg);
+      padding: 8px 32px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .poc-banner .pill {
+      background: var(--red);
+      color: #fff;
+      padding: 2px 8px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+    .poc-banner .dim { color: rgba(239,238,232,0.40); }
+
+    /* ── Masthead ── */
+    .mast {
+      position: relative;
+      border-bottom: 2px solid var(--ink);
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 96px 96px;
+    }
+    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
+    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
+    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
+    .mast-inner {
+      position: relative;
+      z-index: 2;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 36px 32px 32px;
+    }
+    .mast-eyebrow {
+      font-family: var(--mono);
+      font-weight: 500;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-48);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; flex-shrink: 0; }
+    .mast-card {
+      background: var(--surface);
+      border: 1px solid var(--ink);
+      padding: 28px 32px 24px;
+    }
+    .mast-headline {
+      font-family: var(--display);
+      font-weight: 800;
+      font-size: clamp(32px, 5vw, 56px);
+      text-transform: uppercase;
+      line-height: 1.0;
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 12px;
+    }
+    .mast-headline em { color: var(--red); font-style: normal; }
+    .mast-lede {
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--ink-48);
+      max-width: 620px;
+    }
+
+    /* ── Inline subnav ── */
+    .stats-subnav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      padding: 0 32px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--ink-14);
+      overflow-x: auto;
+    }
+    .stats-subnav a {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 8px 14px;
+      border: 1px solid var(--ink-14);
+      border-right: none;
+      color: var(--ink-48);
+      white-space: nowrap;
+      text-decoration: none;
+      transition: background 0.1s, color 0.1s;
+    }
+    .stats-subnav a:last-child { border-right: 1px solid var(--ink-14); }
+    .stats-subnav a:hover { background: var(--ink-06); color: var(--ink); }
+    .stats-subnav a.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .subnav-dashboard-chip {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 8px 14px;
+      border: 1px solid var(--ink-14);
+      color: var(--ink-48);
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      text-decoration: none;
+      border-right: none;
+    }
+    .subnav-dashboard-chip:hover { background: var(--ink-06); color: var(--ink); }
+
+    /* ── Main wrap ── */
+    .page-wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 48px 32px 80px;
+    }
+
+    /* ── Context note ── */
+    .context-note {
+      background: var(--surface);
+      border: 1px solid var(--ink-14);
+      border-left: 3px solid var(--ink-20);
+      padding: 14px 18px;
+      margin-bottom: 40px;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .context-note-k {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-32);
+      white-space: nowrap;
+    }
+    .context-note-v {
+      font-family: var(--body);
+      font-size: 13px;
+      color: var(--ink-72);
+      line-height: 1.5;
+    }
+    .context-note-v a {
+      color: var(--red);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .context-note-v a:hover { text-decoration: underline; }
+
+    /* ── Section label ── */
+    .section-title {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-48);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 20px;
+    }
+    .section-title::before {
+      content: '';
+      display: inline-block;
+      width: 14px;
+      height: 1px;
+      background: var(--ink-20);
+    }
+
+    /* ── Leaderboard CTA cards ── */
+    .lb-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+      border: 1px solid var(--ink-14);
+      background: var(--ink-14);
+    }
+    .lb-card {
+      background: var(--surface);
+      padding: 24px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      text-decoration: none;
+      transition: background 0.12s;
+      position: relative;
+      border-right: 1px solid var(--ink-14);
+    }
+    .lb-card:last-child { border-right: none; }
+    .lb-card:hover { background: var(--ink-04); }
+    .lb-card:hover .lb-card-label { color: var(--red); }
+    .lb-card:hover .lb-card-cta { color: var(--red); }
+
+    .lb-card-abbrev {
+      font-family: var(--display);
+      font-weight: 800;
+      font-size: 13px;
+      letter-spacing: 0.20em;
+      color: var(--ink-20);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .lb-card-label {
+      font-family: var(--display);
+      font-weight: 800;
+      font-size: clamp(22px, 2.5vw, 30px);
+      text-transform: uppercase;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      margin-bottom: 12px;
+      line-height: 1.0;
+      transition: color 0.12s;
+    }
+    .lb-card-desc {
+      font-family: var(--body);
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--ink-48);
+      flex: 1;
+      margin-bottom: 16px;
+    }
+    .lb-card-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 14px;
+    }
+    .lb-chip {
+      font-family: var(--mono);
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border: 1px solid var(--ink-14);
+      color: var(--ink-32);
+    }
+    .lb-card-meta {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--ink-32);
+      letter-spacing: 0.06em;
+      margin-bottom: 12px;
+    }
+    .lb-card-cta {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-32);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.12s;
+      border-top: 1px solid var(--ink-06);
+      padding-top: 12px;
+      margin-top: auto;
+    }
+
+    /* ── Dashboard callout ── */
+    .dashboard-note {
+      margin-top: 48px;
+      background: var(--surface);
+      border: 1px solid var(--ink-14);
+      border-left: 3px solid var(--red);
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .dashboard-note-text {}
+    .dashboard-note-k {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--red);
+      opacity: 0.75;
+      margin-bottom: 6px;
+    }
+    .dashboard-note-v {
+      font-family: var(--body);
+      font-size: 13.5px;
+      line-height: 1.5;
+      color: var(--ink-72);
+    }
+    .dashboard-note-v strong { color: var(--ink); font-weight: 700; }
+    .dashboard-cta-btn {
+      flex-shrink: 0;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 10px 20px;
+      background: var(--ink);
+      color: var(--bg);
+      text-decoration: none;
+      border: 1px solid var(--ink);
+      white-space: nowrap;
+      transition: background 0.1s;
+    }
+    .dashboard-cta-btn:hover { background: var(--red); border-color: var(--red); }
+
+    /* ── Footer note ── */
+    .footer-note {
+      margin-top: 36px;
+      padding: 16px 20px;
+      border: 1px dashed var(--ink-14);
+      background: var(--ink-04);
+    }
+    .footer-note-text {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ink-32);
+      letter-spacing: 0.06em;
+      line-height: 1.7;
+    }
+    .footer-note-text strong { color: var(--ink-48); }
+
+    /* ── Responsive ── */
+    @media (max-width: 1024px) {
+      .lb-grid { grid-template-columns: repeat(3, 1fr); }
+      .lb-card { border-right: 1px solid var(--ink-14); }
+    }
+    @media (max-width: 640px) {
+      .stats-subnav { padding: 0 16px; }
+      .stats-subnav a { padding: 7px 10px; font-size: 9px; }
+      .page-wrap { padding: 32px 16px 60px; }
+      .mast-inner { padding: 28px 16px 24px; }
+      .mast-card { padding: 20px 16px 18px; }
+      .lb-grid { grid-template-columns: 1fr 1fr; }
+      .lb-card { border-right: 1px solid var(--ink-14); }
+      .dashboard-note { flex-direction: column; align-items: flex-start; gap: 14px; }
+      .context-note { flex-direction: column; gap: 6px; }
+    }
+    @media (max-width: 400px) {
+      .lb-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<Nav currentPath="/internal/stats-leaderboards-poc" />
+
+<!-- POC BANNER -->
+<div class="poc-banner">
+  <span>INTERNAL POC</span>
+  <span class="pill">LOCAL ONLY</span>
+  <span class="dim">stats-leaderboards-poc · global leaderboard placeholder</span>
+</div>
+
+<!-- MASTHEAD -->
+<section class="mast">
+  <div class="mast-corners">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+  </div>
+  <div class="mast-inner">
+    <div class="mast-eyebrow">
+      <span class="pip"></span>
+      HGB Stats &middot; Leaderboards
+    </div>
+    <div class="mast-card">
+      <h1 class="mast-headline">Global<br /><em>Leaderboards.</em></h1>
+      <p class="mast-lede">Every NHL skater, goalie, team, and line combo — ranked by HGB metrics. Pick a category below to explore the full leaderboard.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SUBNAV -->
+<nav class="stats-subnav" aria-label="Stats section">
+  <a href="/internal/stats-dashboard-poc" class="subnav-dashboard-chip">Dashboard</a>
+  {statsLinks.map(l => (
+    <a href={l.href}>{l.label}</a>
+  ))}
+</nav>
+
+<!-- MAIN CONTENT -->
+<div class="page-wrap">
+
+  <!-- Context note -->
+  <div class="context-note">
+    <span class="context-note-k">// Note</span>
+    <span class="context-note-v">
+      Global leaderboards live at their dedicated pages — each fully sortable and filterable.
+      This page is a navigation hub. In the <a href="/internal/stats-dashboard-poc">logged-in dashboard</a>,
+      leaderboards are secondary to your followed teams and players.
+    </span>
+  </div>
+
+  <!-- Leaderboard CTA grid -->
+  <div class="section-title">Choose a leaderboard</div>
+
+  <div class="lb-grid">
+    {leaderboardCards.map(card => (
+      <a href={card.href} class="lb-card">
+        <div class="lb-card-abbrev">{card.abbrev}</div>
+        <div class="lb-card-label">{card.label}</div>
+        <div class="lb-card-desc">{card.description}</div>
+        <div class="lb-card-chips">
+          {card.stats.map(s => (
+            <span class="lb-chip">{s}</span>
+          ))}
+        </div>
+        <div class="lb-card-meta">{card.note}</div>
+        <div class="lb-card-cta">View leaderboard →</div>
+      </a>
+    ))}
+  </div>
+
+  <!-- Dashboard callout -->
+  <div class="dashboard-note">
+    <div class="dashboard-note-text">
+      <div class="dashboard-note-k">// Personalization</div>
+      <div class="dashboard-note-v">
+        In the <strong>logged-in dashboard</strong>, these leaderboards are secondary to your followed teams + players.
+        Your dashboard surfaces the stats that matter for your teams — leaderboards are a click away when you want the full picture.
+      </div>
+    </div>
+    <a href="/internal/stats-dashboard-poc" class="dashboard-cta-btn">View Your Dashboard →</a>
+  </div>
+
+  <!-- POC design notes -->
+  <div class="footer-note">
+    <div class="footer-note-text">
+      <strong>// POC NOTES</strong>&nbsp;&nbsp;
+      This page represents the "Leaderboards" entry in the stats subnav for logged-in users.
+      Unauthenticated users see the same leaderboard pages — the dashboard tab/chip only appears post-login.
+      The 5-card grid maps 1:1 to the existing stats routes: /stats/skaters, /stats/goalies, /stats/teams, /stats/lines, /stats/impact.
+      Series Records and WOWY are intentionally excluded from "Leaderboards" framing — they live in the subnav but have their own identity.
+    </div>
+  </div>
+
+</div><!-- /page-wrap -->
+
+<footer style="text-align: center; padding: 32px 0 48px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32);">
+  HOCKEYGAMEBOT.COM · HGB STATS · LEADERBOARDS POC · 2025–2026
+</footer>
+
+</body>
+</html>

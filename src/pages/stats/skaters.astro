@@ -15,14 +15,14 @@ const isPlayoffSeason = loadIsPlayoffSeason();
 const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
 
 // Pre-sort rapm arrays for O(n log n) percentile lookup at build time
-const fwdRapm = eligible.filter(p => p.pos_group === 'F').map(p => p.rapm ?? 0).sort((a,b) => a - b);
-const defRapm = eligible.filter(p => p.pos_group === 'D').map(p => p.rapm ?? 0).sort((a,b) => a - b);
+const fwdWar = eligible.filter(p => p.pos_group === 'F' && p.war != null).map(p => p.war as number).sort((a,b) => a - b);
+const defWar = eligible.filter(p => p.pos_group === 'D' && p.war != null).map(p => p.war as number).sort((a,b) => a - b);
 
-function warPct(rapm: number | null, group: 'F' | 'D'): number | null {
-  if (rapm == null) return null;
-  const arr = group === 'F' ? fwdRapm : defRapm;
+function warPct(war: number | null, group: 'F' | 'D'): number | null {
+  if (war == null) return null;
+  const arr = group === 'F' ? fwdWar : defWar;
   let lo = 0, hi = arr.length;
-  while (lo < hi) { const mid = (lo + hi) >>> 1; if (arr[mid] <= rapm) lo = mid + 1; else hi = mid; }
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (arr[mid] <= war) lo = mid + 1; else hi = mid; }
   return Math.round((lo / arr.length) * 100);
 }
 
@@ -80,7 +80,7 @@ const tableRows = eligible.map(p => {
     sog60:    +p.rates_per_60.shots.toFixed(2),
     // Advanced
     war:      p.war ?? null,
-    war_p:    warPct(p.rapm, p.pos_group),
+    war_p:    warPct(p.war ?? null, p.pos_group),
     fin:      +p.rates_per_60.finishing.toFixed(2),
     fin_p:    Math.round(p.percentiles_vs_pos.finishing),
     imp:      +p.avg_gs_display.toFixed(2),

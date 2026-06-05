@@ -2,6 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
 
+function ordinal(n: number): string {
+  const s = ['th','st','nd','rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}
+
 // ── Row type (mirrors skaters.astro tableRows) ────────────────────────────────
 export type SkaterRow = {
   slug: string; name: string; first_name: string; last_name: string; searchText: string; team: string; season?: string;
@@ -160,7 +166,7 @@ function buildColumns(
         cell: (v, r) => (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f2(v as any)}</strong>
-            <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{r.imp_p}th</span>
+            <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.imp_p)}</span>
           </div>
         ),
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
@@ -170,7 +176,7 @@ function buildColumns(
         cell: (v, r) => v != null
           ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
               <strong style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f2(v as any)}</strong>
-              <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{r.war_p}th</span>
+              <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.war_p)}</span>
             </div>
           : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
@@ -180,7 +186,7 @@ function buildColumns(
         cell: (v, r) => v != null
           ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
               <strong style={{ color: (v as number) >= 0 ? POS : NEG, fontVariantNumeric: 'tabular-nums' }}>{sgn(v as number)}{f2(v as any)}</strong>
-              {r.rating_p != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{r.rating_p}th</span>}
+              {r.rating_p != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.rating_p!)}</span>}
             </div>
           : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
@@ -224,6 +230,17 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const [teamFilter,   setTeamFilter]   = useState<string[]>([]);
   const [playerSearch, setPlayerSearch] = useState('');
   const [playerDropOpen, setPlayerDropOpen] = useState(false);
+
+  // Seed player filter + force regular season from ?player= query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const slug = params.get('player');
+    if (slug && rows.some(r => r.slug === slug)) {
+      setPlayerFilter([slug]);
+      setGameType('regular');
+      setMinGP(0);
+    }
+  }, []);
 
   // Reset minGP when switching game types
   useEffect(() => {
@@ -372,7 +389,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
               <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
                 Min GP
                 <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-                  style={{ ...MONO, fontSize: 11, width: 40, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+                  style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
               </label>
               <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
                 Min TOI

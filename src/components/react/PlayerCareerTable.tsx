@@ -197,18 +197,21 @@ export default function PlayerCareerTable({ seasons }: Props) {
       {
         id: 'gp',
         header: 'GP',
+        size: 60,
         accessorFn: (r) => r.gp ?? 0,
         cell: (info) => <span>{info.getValue<number>()}</span>,
       },
       {
         id: 'toi_gp',
         header: 'TOI/GP',
+        size: 80,
         accessorFn: (r) => (r.toi_5v5_sec ?? 0) / Math.max(r.gp ?? 1, 1), // sort by actual seconds
         cell: (info) => <span>{info.row.original.toi_gp}</span>,
       },
       {
         id: 'gf_pct',
         header: 'GF%',
+        size: 72,
         accessorFn: (r) => r.gf_pct,
         cell: (info) => {
           const v = info.getValue<number | null>();
@@ -223,6 +226,7 @@ export default function PlayerCareerTable({ seasons }: Props) {
       {
         id: 'xgf_pct',
         header: 'xGF%',
+        size: 72,
         accessorFn: (r) => r.xgf_pct,
         cell: (info) => {
           const v = info.getValue<number | null>();
@@ -235,11 +239,12 @@ export default function PlayerCareerTable({ seasons }: Props) {
         },
       },
       {
-        id: 'rapm_net_pct',
+        id: 'hgb_rating_pct',
         header: 'RATING %',
-        accessorFn: (r) => r.rapm_net_pct ?? -1,
+        size: 90,
+        accessorFn: (r) => (r as any).hgb_rating_pct ?? -1,
         cell: (info) => {
-          const v = info.row.original.rapm_net_pct;
+          const v = (info.row.original as any).hgb_rating_pct;
           const color = rapmPctColor(v);
           return (
             <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
@@ -251,9 +256,25 @@ export default function PlayerCareerTable({ seasons }: Props) {
       {
         id: 'war_pct',
         header: 'WAR %',
+        size: 90,
         accessorFn: (r) => r.war_pct ?? -1,
         cell: (info) => {
           const v = info.row.original.war_pct;
+          const color = rapmPctColor(v);
+          return (
+            <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
+              {v == null ? '—' : `${Math.round(Number(v))}%`}
+            </span>
+          );
+        },
+      },
+      {
+        id: 'impact_pct',
+        header: 'IMPACT %',
+        size: 90,
+        accessorFn: (r) => (r as any).impact_pct ?? -1,
+        cell: (info) => {
+          const v = (info.row.original as any).impact_pct;
           const color = rapmPctColor(v);
           return (
             <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
@@ -362,13 +383,15 @@ export default function PlayerCareerTable({ seasons }: Props) {
       <p
         style={{
           ...MONO,
-          fontSize: 9,
-          color: 'rgba(13,13,20,0.32)',
-          marginTop: 6,
-          letterSpacing: '0.06em',
+          fontSize: 10,
+          color: 'rgba(13,13,20,0.40)',
+          margin: '12px 18px 14px',
+          letterSpacing: '0.04em',
+          lineHeight: 1.5,
+          textAlign: 'right',
         }}
       >
-        Click a season row to view its EV percentiles above · click column headers to sort · 5v5 only · min 600 TOI · RATING % = single-season EV RAPM · WAR % coming soon
+        hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />RATING % = Blended HGB Rating · WAR % = Single-Season WAR · IMPACT % = HGB Game Score
       </p>
     </div>
   );
