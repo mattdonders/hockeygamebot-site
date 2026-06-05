@@ -1,10 +1,11 @@
 /**
  * DashboardPersonalized — self-fetching components for the logged-in stats dashboard.
  *
- *   DashboardTeamCards  — Your Teams section (real stats + playoff odds)
- *   DashboardTrending   — Trending section (tracked players by L7 impact delta)
+ *   DashboardTeamCards    — Your Teams section (real stats + playoff odds)
+ *   DashboardTrending     — Trending section (tracked players by L7 impact delta)
+ *   DashboardModelSignals — Model Signals section (real rule-based signals from pipeline)
  *
- * Both fetch prefs + relevant stats on mount. No SSR props needed.
+ * All fetch prefs + relevant stats on mount. No SSR props needed.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -217,6 +218,74 @@ export function DashboardTrending() {
           <div className={`trend-delta ${t.dir === 'up' ? 'delta-up' : 'delta-down'}`}>
             {t.dir === 'up' ? '↑' : '↓'} {t.delta}
           </div>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+// ── Model Signals ─────────────────────────────────────────────────────────────
+
+interface Signal {
+  entity_type: string;
+  entity_id: string;
+  rule_id: string;
+  category: string;
+  severity: string;
+  priority: number;
+  copy: string;
+  cta_href: string | null;
+}
+
+const SEVERITY_BORDER: Record<string, string> = {
+  positive: '#166534',
+  warning:  '#991b1b',
+  negative: '#991b1b',
+};
+
+function formatRuleHeader(s: Signal): string {
+  const type = s.entity_type === 'team' ? 'TEAM' : s.entity_type === 'player' ? 'PLAYER' : s.entity_type.toUpperCase();
+  return `${type} SIGNAL · ${s.category.toUpperCase()}`;
+}
+
+async function fetchSignals(prefs: { tracked_teams: string[]; tracked_players: number[] }): Promise<Signal[]> {
+  const r = await fetch(`${API}/v1/stats/signals`);
+  if (!r.ok) return [];
+  const data = await r.json();
+  const all: Signal[] = data.signals ?? (Array.isArray(data) ? data : []);
+
+  const teamSet = new Set(prefs.tracked_teams);
+  const playerSet = new Set(prefs.tracked_players.map(String));
+
+  return all
+    .filter(s => s.entity_type === 'team' ? teamSet.has(s.entity_id) : playerSet.has(s.entity_id))
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, 5);
+}
+
+export function DashboardModelSignals() {
+  const [signals, setSignals] = useState<Signal[] | null>(null);
+
+  useEffect(() => {
+    fetchPrefs()
+      .then(fetchSignals)
+      .then(setSignals)
+      .catch(() => setSignals([]));
+  }, []);
+
+  if (signals === null) {
+    return <div style={{ padding: '12px 0', color: 'rgba(13,13,20,0.32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+  }
+  if (!signals.length) {
+    return <div style={{ color: 'rgba(13,13,20,0.48)', fontSize: 13, padding: '12px 0' }}>No signals for your followed teams and players.</div>;
+  }
+
+  return (
+    <div className="model-notes">
+      {signals.map((s, i) => (
+        <a key={i} href={s.cta_href ?? '#'} className="model-note" style={{ display: 'block', borderLeftColor: SEVERITY_BORDER[s.severity] ?? 'var(--red)' }}>
+          <div className="note-rule">{formatRuleHeader(s)}</div>
+          <div className="note-body">{s.copy}</div>
         </a>
       ))}
     </div>
