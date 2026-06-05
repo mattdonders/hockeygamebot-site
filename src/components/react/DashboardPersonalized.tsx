@@ -258,10 +258,10 @@ export function EntitySignals({ entityId, entityType, limit = 3 }: EntitySignals
           borderLeft: `3px solid ${SEVERITY_BORDER[s.severity] ?? '#C8102E'}`,
           padding: '10px 14px',
         }}>
-          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
+          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 6 }}>
             {s.category}
           </div>
-          <div style={{ fontFamily: 'var(--body, sans-serif)', fontWeight: 600, fontSize: 12.5, lineHeight: 1.55, color: 'rgba(13,13,20,0.72)' }}>
+          <div style={{ fontFamily: 'var(--body, sans-serif)', fontWeight: 700, fontSize: 13.5, lineHeight: 1.55, color: 'rgba(13,13,20,0.80)' }}>
             {s.copy}
           </div>
         </div>
