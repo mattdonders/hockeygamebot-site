@@ -257,10 +257,19 @@ async function fetchSignals(prefs: { tracked_teams: string[]; tracked_players: n
   const teamSet = new Set(prefs.tracked_teams);
   const playerSet = new Set(prefs.tracked_players.map(String));
 
-  return all
+  const relevant = all
+    .filter(s => s.category !== 'Milestone')
     .filter(s => s.entity_type === 'team' ? teamSet.has(s.entity_id) : playerSet.has(s.entity_id))
-    .sort((a, b) => b.priority - a.priority)
-    .slice(0, 5);
+    .sort((a, b) => b.priority - a.priority);
+
+  // Max 1 signal per category for variety
+  const seen = new Set<string>();
+  const deduped: Signal[] = [];
+  for (const s of relevant) {
+    if (!seen.has(s.category)) { seen.add(s.category); deduped.push(s); }
+    if (deduped.length >= 5) break;
+  }
+  return deduped;
 }
 
 export function DashboardModelSignals() {
