@@ -22,13 +22,13 @@ const TEAM_COLORS: Record<string, string> = {
 };
 
 const TEAM_NAMES: Record<string, string> = {
-  ANA:'Ducks', BOS:'Bruins', BUF:'Sabres', CGY:'Flames', CAR:'Hurricanes',
-  CHI:'Blackhawks', COL:'Avalanche', CBJ:'Blue Jackets', DAL:'Stars', DET:'Red Wings',
-  EDM:'Oilers', FLA:'Panthers', LAK:'Kings', MIN:'Wild', MTL:'Canadiens',
-  NSH:'Predators', NJD:'Devils', NYI:'Islanders', NYR:'Rangers', OTT:'Senators',
-  PHI:'Flyers', PIT:'Penguins', SJS:'Sharks', SEA:'Kraken', STL:'Blues',
-  TBL:'Lightning', TOR:'Maple Leafs', UTA:'Utah HC', VAN:'Canucks', VGK:'Golden Knights',
-  WSH:'Capitals', WPG:'Jets', ARI:'Coyotes',
+  ANA:'Anaheim Ducks', BOS:'Boston Bruins', BUF:'Buffalo Sabres', CGY:'Calgary Flames', CAR:'Carolina Hurricanes',
+  CHI:'Chicago Blackhawks', COL:'Colorado Avalanche', CBJ:'Columbus Blue Jackets', DAL:'Dallas Stars', DET:'Detroit Red Wings',
+  EDM:'Edmonton Oilers', FLA:'Florida Panthers', LAK:'Los Angeles Kings', MIN:'Minnesota Wild', MTL:'Montréal Canadiens',
+  NSH:'Nashville Predators', NJD:'New Jersey Devils', NYI:'New York Islanders', NYR:'New York Rangers', OTT:'Ottawa Senators',
+  PHI:'Philadelphia Flyers', PIT:'Pittsburgh Penguins', SJS:'San Jose Sharks', SEA:'Seattle Kraken', STL:'St. Louis Blues',
+  TBL:'Tampa Bay Lightning', TOR:'Toronto Maple Leafs', UTA:'Utah Hockey Club', VAN:'Vancouver Canucks', VGK:'Vegas Golden Knights',
+  WSH:'Washington Capitals', WPG:'Winnipeg Jets', ARI:'Arizona Coyotes',
 };
 
 function tc(a: string) { return TEAM_COLORS[a] ?? '#E8002D'; }
@@ -87,7 +87,7 @@ async function fetchTeamCardData(teams: string[]): Promise<TeamCardData[]> {
     const rank = s ? sorted.findIndex(t => t.team_abbrev === abbrev) + 1 : null;
     return {
       abbrev,
-      name: `${abbrev} ${TEAM_NAMES[abbrev] ?? ''}`,
+      name: TEAM_NAMES[abbrev] ?? abbrev,
       record: s ? `${s.wins}-${s.losses}-${s.ot_losses}` : '—',
       xgf: s ? `${(s.xgf_pct_5v5 * 100).toFixed(1)}%` : '—',
       gf:  s ? `${(s.gf_pct_5v5  * 100).toFixed(1)}%` : '—',
