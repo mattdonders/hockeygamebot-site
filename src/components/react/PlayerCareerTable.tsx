@@ -345,37 +345,61 @@ export default function PlayerCareerTable({ seasons }: Props) {
           {table.getRowModel().rows.map((row, i) => {
             const orig = row.original;
             const isActive = orig.season_normalized === activeSeason;
+            const nextRow = table.getRowModel().rows[i + 1];
+            const currYear = parseInt(orig.season_normalized?.slice(0, 4) || '0');
+            const nextYear = nextRow ? parseInt(nextRow.original.season_normalized?.slice(0, 4) || '0') : null;
+            const hasGap = nextYear !== null && currYear - nextYear > 1;
             return (
-              <tr
-                key={row.id}
-                data-career-season={orig.season_normalized}
-                onClick={() => handleSeasonClick(orig.season_normalized)}
-                style={{
-                  borderBottom: '1px solid rgba(13,13,20,0.05)',
-                  background: isActive
-                    ? (isDark ? 'rgba(239,238,232,0.07)' : 'rgba(13,13,20,0.05)')
-                    : (i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)')),
-                  borderLeft: isActive ? `3px solid ${isActive ? 'rgba(13,13,20,0.45)' : 'transparent'}` : '3px solid transparent',
-                  cursor: 'pointer',
-                }}
-                title={`Click to view ${orig.season_fmt} percentiles`}
-              >
-                {row.getVisibleCells().map((cell, ci) => (
-                  <td
-                    key={cell.id}
-                    style={{
-                      ...MONO,
-                      fontSize: 12,
-                      padding: '10px 10px',
-                      textAlign: ci === 0 ? 'left' : 'center',
-                      whiteSpace: 'nowrap',
-                      borderRight: '1px solid rgba(13,13,20,0.03)',
-                    }}
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
+              <React.Fragment key={row.id}>
+                <tr
+                  data-career-season={orig.season_normalized}
+                  onClick={() => handleSeasonClick(orig.season_normalized)}
+                  style={{
+                    borderBottom: '1px solid rgba(13,13,20,0.05)',
+                    background: isActive
+                      ? (isDark ? 'rgba(239,238,232,0.07)' : 'rgba(13,13,20,0.05)')
+                      : (i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)')),
+                    borderLeft: isActive ? `3px solid rgba(13,13,20,0.45)` : '3px solid transparent',
+                    cursor: 'pointer',
+                  }}
+                  title={`Click to view ${orig.season_fmt} percentiles`}
+                >
+                  {row.getVisibleCells().map((cell, ci) => (
+                    <td
+                      key={cell.id}
+                      style={{
+                        ...MONO,
+                        fontSize: 12,
+                        padding: '10px 10px',
+                        textAlign: ci === 0 ? 'left' : 'center',
+                        whiteSpace: 'nowrap',
+                        borderRight: '1px solid rgba(13,13,20,0.03)',
+                      }}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+                {hasGap && (
+                  <tr style={{ background: 'transparent' }}>
+                    <td
+                      colSpan={row.getVisibleCells().length}
+                      style={{
+                        ...MONO,
+                        fontSize: 10,
+                        textAlign: 'center',
+                        padding: '4px 0',
+                        color: isDark ? 'rgba(239,238,232,0.20)' : 'rgba(13,13,20,0.22)',
+                        letterSpacing: '0.25em',
+                        borderTop: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'rgba(13,13,20,0.08)'}`,
+                        borderBottom: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'rgba(13,13,20,0.08)'}`,
+                      }}
+                    >
+                      · · ·
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             );
           })}
         </tbody>
