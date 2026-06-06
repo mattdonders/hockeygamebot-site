@@ -2196,8 +2196,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const brand = 'HOCKEYGAMEBOT';
       const bcw = ctx.measureText(brand).width + 18;
       rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
-      ctx.fillStyle = INK10; ctx.fill();
-      ctx.fillStyle = INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
       ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
 
       // Panel divider
@@ -2310,10 +2310,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         const EDGE_HDR_H = 36;
         ctx.fillStyle = INK14; ctx.fillRect(RX, ry + EDGE_HDR_H - 1, R_W, 1);
         ctx.font = '800 13px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText('NHL EDGE', RX + R_PAD, ry + EDGE_HDR_H / 2);
-        ctx.fillStyle = '#006D75'; ctx.textAlign = 'right';
-        ctx.fillText('TRACKING', RX + R_W - R_PAD, ry + EDGE_HDR_H / 2);
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = INK; ctx.fillText('NHL EDGE ', RX + R_PAD, ry + EDGE_HDR_H / 2);
+        const edgeLabelW = ctx.measureText('NHL EDGE ').width;
+        ctx.fillStyle = '#006D75'; ctx.fillText('TRACKING', RX + R_PAD + edgeLabelW, ry + EDGE_HDR_H / 2);
         ry += EDGE_HDR_H + 8;
 
         // 2×2 stat tiles
@@ -2329,9 +2329,38 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
           drawEdgeStatBox(ctx, RX + R_PAD + col * (tileW + 10), ry + row * (tileH + 10), tileW, tileH, pairs[i][0], pairs[i][1], pairs[i][2], pairs[i][3], pairs[i][4]);
         }
         ry += 2 * (tileH + 10) - 10 + 12;
-        // drawZoneBar/drawShotDanger use PAD-relative coords — translate ctx to RX
+        // Zone bar (abbreviated labels to avoid overflow in narrow segments)
+        const oz2 = e.oz_pct ?? 45, nz2 = e.nz_pct ?? 32, dz2 = e.dz_pct ?? 23;
+        const zbw = R_W - R_PAD * 2, zbx = RX + R_PAD;
+        ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(zbx - 2, ry - 10, zbw + 4, 90, 4); ctx.fill();
+        ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(zbx - 2, ry - 10, zbw + 4, 90, 4); ctx.stroke();
+        ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText('ZONE TIME — EVEN STRENGTH', zbx + 6, ry - 4);
+        if (e.oz_ev_pct_pct != null) {
+          ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
+          ctx.fillText('OZ: ' + Math.round(e.oz_ev_pct_pct) + 'th', RX + R_W - R_PAD, ry - 4);
+        }
+        ry += 14;
+        ctx.save(); ctx.beginPath(); ctx.roundRect(zbx, ry, zbw, 20, 3); ctx.clip();
+        ctx.fillStyle = TEAM_C;                    ctx.fillRect(zbx,                      ry, zbw * oz2 / 100, 20);
+        ctx.fillStyle = 'rgba(13,13,20,0.18)';     ctx.fillRect(zbx + zbw * oz2 / 100,    ry, zbw * nz2 / 100, 20);
+        ctx.fillStyle = 'rgba(232,0,45,0.30)';     ctx.fillRect(zbx + zbw*(oz2+nz2)/100,  ry, zbw * dz2 / 100, 20);
+        ctx.restore();
+        ry += 26;
+        const zSegs2 = [['OZ', oz2.toFixed(0) + '%', oz2], ['NZ', nz2.toFixed(0) + '%', nz2], ['DZ', dz2.toFixed(0) + '%', dz2]];
+        let zlx = zbx + 6;
+        for (let zi = 0; zi < zSegs2.length; zi++) {
+          const [abbr, pctStr, w] = zSegs2[zi];
+          ctx.font = '800 14px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+          ctx.fillText(pctStr, zlx, ry);
+          ctx.font = '600 7px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+          ctx.fillText(abbr, zlx, ry + 17);
+          zlx += zbw * w / 100;
+        }
+        ry += 40 + 12;
+
+        // Shot danger (translate to RX so helper uses RX-relative coords)
         ctx.save(); ctx.translate(RX, 0);
-        ry = drawZoneBar(ctx, ry, R_W, R_PAD, e, TEAM_C) + 12;
         ry = drawShotDanger(ctx, ry, R_W, R_PAD, e) + 10;
         ctx.restore();
       }
