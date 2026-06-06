@@ -1088,17 +1088,24 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     const isCurrent = idx === 0; // first entry = most recent season
     return {
       season:            s.season,
-      rapm_off_pct:      s.rapm_off_pct       ?? null,
-      rapm_def_pct:      s.rapm_def_pct       ?? null,
-      rapm_net_pct:      s.rapm_net_pct       ?? null,
+      rapm_off_pct:       s.rapm_off_pct       ?? null,
+      rapm_def_pct:       s.rapm_def_pct       ?? null,
+      rapm_net_pct:       s.rapm_net_pct       ?? null,
       rapm_finishing_pct: s.rapm_finishing_pct ?? null,
-      rapm_pp_pct:       s.rapm_pp_pct        ?? null,
-      rapm_pk_pct:       s.rapm_pk_pct        ?? null,
+      rapm_pp_pct:        s.rapm_pp_pct        ?? null,
+      rapm_pk_pct:        s.rapm_pk_pct        ?? null,
+      goals_pct:          isCurrent ? (player.percentiles_vs_pos.goals   ?? null) : ((s as any).goals_pct    ?? null),
+      a1_pct:             isCurrent ? (player.percentiles_vs_pos.a1      ?? null) : ((s as any).a1_pct       ?? null),
+      ixg_pct:            isCurrent ? (player.percentiles_vs_pos.ixg     ?? null) : ((s as any).ixg_pct      ?? null),
+      pen_diff_pct:       isCurrent ? (player.percentiles_vs_pos.pen_diff ?? null): ((s as any).pen_diff_pct ?? null),
+      qoc_pct:            isCurrent ? (player.qoc                        ?? null) : ((s as any).qoc_pct      ?? null),
+      qot_pct:            isCurrent ? (player.qot                        ?? null) : ((s as any).qot_pct      ?? null),
+      limited:            (s as any).limited ?? false,
       // For current season use authoritative players.json values (match page hero)
       hgb_rating_pct: isCurrent ? (player.hgb_rating_percentile ?? null) : (s.hgb_rating_pct ?? null),
       war_pct:        isCurrent ? (warPct ?? null)                        : (s.war_pct        ?? null),
       impact_pct:     isCurrent ? Math.round(player.percentiles_vs_pos.game_score) : (s.impact_pct ?? null),
-      gp:                s.gp ?? null,
+      gp:             s.gp ?? null,
     };
   }),
   // Fallback percentiles from players.json (used when season RAPM is null)
@@ -2143,12 +2150,28 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     }
 
     // ── Season Card: single-season stats left + EDGE right ───────────────────
-    async function drawSeasonCard() {
+    async function drawSeasonCard(selectedSeason) {
       const BG = '#EFEEE8', SURFACE = '#FFFFFF';
       const SCALE = 2;
       const L_W = 520, R_W = 520, W = L_W + R_W;
       const PAD = 24, R_PAD = 20;
       const e = D.edge;
+
+      // Look up season data — current season uses D.percentiles, historical uses _seasonStats
+      var seasonData = null;
+      if (selectedSeason && selectedSeason !== D.currentSeason) {
+        var allSeasons = typeof _seasonStats !== 'undefined' ? _seasonStats : (window._seasonStats || []);
+        seasonData = allSeasons.find(function(s) { return s.season === selectedSeason; }) || null;
+      }
+      var isHistorical = !!seasonData;
+      var isLimited = isHistorical && seasonData.limited;
+
+      // Helper to pick current vs historical percentile
+      function sp(currentVal, histKey) {
+        if (!isHistorical) return currentVal;
+        var v = seasonData[histKey];
+        return v != null ? v : null;
+      }
 
       // Heights
       const HDR_H = 52, CHIP_H = 34;
@@ -2217,10 +2240,15 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
       const heroX = HS_CX + R + 18;
       const heroW = (L_W - heroX - PAD) / 3;
+      var heroRatingPct = isHistorical ? seasonData.hgb_rating_pct : D.hgb_rating_percentile;
+      var heroWarPct    = isHistorical ? seasonData.war_pct        : D.warPct;
+      var heroImpPct    = isHistorical ? seasonData.impact_pct     : (D.impactPct != null ? Math.round(D.impactPct) : null);
+      var heroSeason    = isHistorical ? selectedSeason : (D.currentSeason || '2025-26');
+      var heroGp        = isHistorical ? (seasonData.gp || '—') : D.gp;
       const heroTiles = [
-        { label: 'HGB RATING', pct: D.hgb_rating_percentile,              sub: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating' : '—' },
-        { label: 'HGB WAR',    pct: D.warPct,                              sub: D.war != null ? D.war.toFixed(2) + ' WAR' : '—' },
-        { label: 'HGB IMPACT', pct: D.impactPct != null ? Math.round(D.impactPct) : null, sub: D.avgGsDisplay != null ? D.avgGsDisplay.toFixed(2) + ' Avg' : '—' },
+        { label: 'HGB RATING', pct: heroRatingPct, sub: heroSeason + ' · ' + heroGp + ' GP' + (isLimited ? ' · limited sample' : '') },
+        { label: 'HGB WAR',    pct: heroWarPct,    sub: heroSeason },
+        { label: 'HGB IMPACT', pct: heroImpPct,    sub: heroSeason },
       ];
       for (let i = 0; i < heroTiles.length; i++) {
         const t = heroTiles[i];
@@ -2251,6 +2279,17 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
       // Single-season bars
       const pct = D.percentiles;
+      const bars_ev_off  = sp(pct.ev_offence,  'rapm_off_pct');
+      const bars_ev_def  = sp(pct.ev_defence,  'rapm_def_pct');
+      const bars_goals   = sp(pct.goals,        'goals_pct');
+      const bars_a1      = sp(pct.a1,           'a1_pct');
+      const bars_ixg     = sp(pct.ixg,          'ixg_pct');
+      const bars_fin     = sp(pct.finishing,     'rapm_finishing_pct');
+      const bars_pen     = sp(pct.pen_diff,      'pen_diff_pct');
+      const bars_pp      = sp(pct.pp_off ?? null,'rapm_pp_pct');
+      const bars_pk      = sp(pct.pk_def ?? null,'rapm_pk_pct');
+      const bars_qoc     = sp(D.qoc,             'qoc_pct');
+      const bars_qot     = sp(D.qot,             'qot_pct');
       function barFillS(v, kind) {
         if (kind === 'context') return '#4285f4';
         if (v == null) return 'rgba(13,13,20,0.20)';
@@ -2266,17 +2305,17 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         return '#E8002D';
       }
       const bars = [
-        { label: 'EV Offense',   val: pct.ev_offence, kind: 'performance' },
-        { label: 'EV Defense',   val: pct.ev_defence, kind: 'context'     },
-        { label: 'Goals / 60',   val: pct.goals,      kind: 'performance' },
-        { label: 'A1 / 60',      val: pct.a1,         kind: 'performance' },
-        { label: 'xG / 60',      val: pct.ixg,        kind: 'performance' },
-        { label: 'Finishing',    val: pct.finishing,  kind: 'performance' },
-        { label: 'Pen. Diff',    val: pct.pen_diff,   kind: 'performance' },
-        { label: 'Power Play',   val: pct.pp_off ?? null, kind: 'performance' },
-        { label: 'Penalty Kill', val: pct.pk_def ?? null, kind: 'performance' },
-        { label: 'Opp. Quality', val: D.qoc,          kind: 'context'     },
-        { label: 'Mate Quality', val: D.qot,          kind: 'context'     },
+        { label: 'EV Offense',   val: bars_ev_off, kind: 'performance' },
+        { label: 'EV Defense',   val: bars_ev_def, kind: 'context'     },
+        { label: 'Goals / 60',   val: bars_goals,  kind: 'performance' },
+        { label: 'A1 / 60',      val: bars_a1,     kind: 'performance' },
+        { label: 'xG / 60',      val: bars_ixg,    kind: 'performance' },
+        { label: 'Finishing',    val: bars_fin,    kind: 'performance' },
+        { label: 'Pen. Diff',    val: bars_pen,    kind: 'performance' },
+        { label: 'Power Play',   val: bars_pp,     kind: 'performance' },
+        { label: 'Penalty Kill', val: bars_pk,     kind: 'performance' },
+        { label: 'Opp. Quality', val: bars_qoc,    kind: 'context'     },
+        { label: 'Mate Quality', val: bars_qot,    kind: 'context'     },
       ];
       const BAR_H_PX = 13, BAR_LABEL_W = 96, BAR_RANK_W = 40;
       const BAR_AVAIL = L_W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
@@ -3219,7 +3258,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         if (status) status.style.display = 'block';
         try {
           if (document.fonts?.ready) await document.fonts.ready;
-          const canvas = await drawSeasonCard();
+          const canvas = await drawSeasonCard(_selectedSeason);
           downloadCanvas(canvas, `hgb_season_${D.slug}_${_selectedSeason}.png`);
           if (status) { status.textContent = 'Downloaded ✓'; setTimeout(function() { if (status) status.style.display = 'none'; }, 3000); }
         } catch(err) { console.error(err); if (status) status.textContent = 'Error — try again'; }
