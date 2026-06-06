@@ -2142,7 +2142,210 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       return canvas;
     }
 
-    // ── Season WAR + EDGE card ────────────────────────────────────────────────
+    // ── Season Card: single-season stats left + EDGE right ───────────────────
+    async function drawSeasonCard() {
+      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const SCALE = 2;
+      const L_W = 520, R_W = 520, W = L_W + R_W;
+      const PAD = 24, R_PAD = 20;
+      const e = D.edge;
+
+      // Heights
+      const HDR_H = 52, CHIP_H = 34;
+      const ID_H = 122, BAR_ROW_H = 33, BAR_ROWS = 11;
+      const L_CONTENT_H = 6 + ID_H + 1 + 20 + 12 + BAR_ROWS * BAR_ROW_H + 12;
+      const EDGE_CONTENT_H = e ? 491 : 80; // divider+pairs+zone+shot
+      const CONTENT_H = Math.max(L_CONTENT_H, EDGE_CONTENT_H);
+      const FOOT_H = 36;
+      const H = HDR_H + CHIP_H + CONTENT_H + FOOT_H;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      // Background + left accent bar
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, 4, H);
+
+      // ── SHARED HEADER (white band) ─────────────────────────────────────────
+      ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, HDR_H + CHIP_H);
+      ctx.fillStyle = INK14; ctx.fillRect(0, HDR_H + CHIP_H - 1, W, 1);
+
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, HDR_H / 2);
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
+      ctx.fillText('SEASON CARD · 2025-26', W - PAD, HDR_H / 2);
+
+      // Chips
+      const TEAM_NAMES_S = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
+      const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
+      const chips = [(TEAM_NAMES_S[D.team] || D.team), D.posLabel.toUpperCase(), '2025-26'];
+      let cx = PAD;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      for (let ci = 0; ci < chips.length; ci++) {
+        const cw = ctx.measureText(chips[ci]).width + 18;
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci === 0 ? TEAM_C : INK; ctx.fill();
+        ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+        cx += cw + 8;
+      }
+      const brand = 'HOCKEYGAMEBOT';
+      const bcw = ctx.measureText(brand).width + 18;
+      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+      ctx.fillStyle = INK10; ctx.fill();
+      ctx.fillStyle = INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
+
+      // Panel divider
+      ctx.fillStyle = INK14; ctx.fillRect(L_W, HDR_H + CHIP_H, 1, CONTENT_H);
+
+      // ── LEFT PANEL — identity + single-season bars ─────────────────────────
+      let y = HDR_H + CHIP_H + 6;
+
+      const R = 36, HS_CX = PAD + R, HS_CY = y + ID_H / 2;
+      const hsImg = await loadImg(D.headshotUrl);
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) { ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2); }
+      else { ctx.fillStyle = INK10; ctx.fill(); }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+      const heroX = HS_CX + R + 18;
+      const heroW = (L_W - heroX - PAD) / 3;
+      const heroTiles = [
+        { label: 'HGB RATING', pct: D.hgb_rating_percentile,              sub: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating' : '—' },
+        { label: 'HGB WAR',    pct: D.warPct,                              sub: D.war != null ? D.war.toFixed(2) + ' WAR' : '—' },
+        { label: 'HGB IMPACT', pct: D.impactPct != null ? Math.round(D.impactPct) : null, sub: D.avgGsDisplay != null ? D.avgGsDisplay.toFixed(2) + ' Avg' : '—' },
+      ];
+      for (let i = 0; i < heroTiles.length; i++) {
+        const t = heroTiles[i];
+        const tcx = heroX + i * heroW + heroW / 2;
+        if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(heroX + i * heroW, y + 18, 1, ID_H - 36); }
+        ctx.font = '700 9px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(t.label, tcx, y + 20);
+        ctx.font = '900 36px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = t.pct != null ? TEAM_C : INK32;
+        ctx.fillText(t.pct != null ? t.pct + '%' : '—', tcx, y + 33);
+        ctx.font = '800 12px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK48; ctx.textBaseline = 'top';
+        ctx.fillText(t.sub, tcx, y + 78);
+      }
+      y += ID_H;
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, L_W, 1); y += 1 + 20;
+
+      // Section header
+      const isF = D.posGroup === 'F';
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      ctx.fillText('SINGLE SEASON', PAD, y);
+      ctx.fillStyle = INK10; ctx.fillRect(PAD + ctx.measureText('SINGLE SEASON').width + 8, y - 5, L_W - PAD * 2 - ctx.measureText('SINGLE SEASON').width - 8, 1);
+      ctx.fillStyle = RED; ctx.textAlign = 'right';
+      ctx.fillText(isF ? 'VS. FORWARDS' : 'VS. DEFENSEMEN', L_W - PAD, y);
+      y += 12;
+
+      // Single-season bars
+      const pct = D.percentiles;
+      function barFillS(v, kind) {
+        if (kind === 'context') return '#4285f4';
+        if (v == null) return 'rgba(13,13,20,0.20)';
+        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+        if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373';
+        return '#E8002D';
+      }
+      function pctColorS(v, kind) {
+        if (kind === 'context') return '#4285f4';
+        if (v == null) return 'rgba(13,13,20,0.35)';
+        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+        if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
+        return '#E8002D';
+      }
+      const bars = [
+        { label: 'EV Offense',   val: pct.ev_offence, kind: 'performance' },
+        { label: 'EV Defense',   val: pct.ev_defence, kind: 'context'     },
+        { label: 'Goals / 60',   val: pct.goals,      kind: 'performance' },
+        { label: 'A1 / 60',      val: pct.a1,         kind: 'performance' },
+        { label: 'xG / 60',      val: pct.ixg,        kind: 'performance' },
+        { label: 'Finishing',    val: pct.finishing,  kind: 'performance' },
+        { label: 'Pen. Diff',    val: pct.pen_diff,   kind: 'performance' },
+        { label: 'Power Play',   val: pct.pp_off ?? null, kind: 'performance' },
+        { label: 'Penalty Kill', val: pct.pk_def ?? null, kind: 'performance' },
+        { label: 'Opp. Quality', val: D.qoc,          kind: 'context'     },
+        { label: 'Mate Quality', val: D.qot,          kind: 'context'     },
+      ];
+      const BAR_H_PX = 13, BAR_LABEL_W = 96, BAR_RANK_W = 40;
+      const BAR_AVAIL = L_W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
+      for (let bi = 0; bi < bars.length; bi++) {
+        const b = bars[bi], rowY = y + bi * BAR_ROW_H, bby = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
+        ctx.font = '600 11px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(b.label, PAD, rowY + BAR_ROW_H / 2);
+        const bx = PAD + BAR_LABEL_W;
+        rrect(ctx, bx, bby, BAR_AVAIL, BAR_H_PX, 3); ctx.fillStyle = INK10; ctx.fill();
+        if (b.val != null) {
+          rrect(ctx, bx, bby, Math.max(6, (b.val / 100) * BAR_AVAIL), BAR_H_PX, 3);
+          ctx.fillStyle = barFillS(b.val, b.kind); ctx.fill();
+        }
+        ctx.font = '800 15px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorS(b.val, b.kind);
+        ctx.fillText(b.val == null ? '—' : Math.round(b.val) + '%', L_W - PAD, rowY + BAR_ROW_H / 2);
+      }
+
+      // ── RIGHT PANEL — NHL EDGE ─────────────────────────────────────────────
+      const RX = L_W + 1;
+      let ry = HDR_H + CHIP_H;
+      if (!e) {
+        ctx.fillStyle = INK10; ctx.fillRect(RX, ry, R_W, CONTENT_H);
+        ctx.font = '700 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('EDGE DATA NOT YET AVAILABLE', RX + R_W / 2, ry + CONTENT_H / 2);
+      } else {
+        // EDGE header
+        const EDGE_HDR_H = 36;
+        ctx.fillStyle = INK14; ctx.fillRect(RX, ry + EDGE_HDR_H - 1, R_W, 1);
+        ctx.font = '800 13px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('NHL EDGE', RX + R_PAD, ry + EDGE_HDR_H / 2);
+        ctx.fillStyle = '#006D75'; ctx.textAlign = 'right';
+        ctx.fillText('TRACKING', RX + R_W - R_PAD, ry + EDGE_HDR_H / 2);
+        ry += EDGE_HDR_H + 8;
+
+        // 2×2 stat tiles
+        const tileW = (R_W - R_PAD * 2 - 10) / 2, tileH = 86;
+        const pairs = [
+          ['TOP SPEED',      e.speed_max_mph != null ? e.speed_max_mph + ' mph' : '—',       e.speed_max_pct,      e.speed_max_league_avg_mph != null ? 'avg ' + e.speed_max_league_avg_mph + ' mph' : '', false],
+          ['MILES SKATED',   e.distance_mi   != null ? e.distance_mi + ' mi' : '—',          e.distance_pct,       e.distance_league_avg_mi != null ? 'avg ' + e.distance_league_avg_mi + ' mi' : '',  false],
+          ['BURSTS > 20 MPH',e.bursts_over_20 != null ? String(e.bursts_over_20) : '—',      e.bursts_over_20_pct, e.bursts_over_20_league_avg != null ? 'avg ' + e.bursts_over_20_league_avg : '',     false],
+          ['HARDEST SHOT',   e.shot_speed_max_mph != null ? e.shot_speed_max_mph + ' mph' : '—', e.shot_speed_max_pct, e.shot_speed_max_league_avg_mph != null ? 'avg ' + e.shot_speed_max_league_avg_mph + ' mph' : '', false],
+        ];
+        for (let i = 0; i < 4; i++) {
+          const col = i % 2, row = Math.floor(i / 2);
+          drawEdgeStatBox(ctx, RX + R_PAD + col * (tileW + 10), ry + row * (tileH + 10), tileW, tileH, pairs[i][0], pairs[i][1], pairs[i][2], pairs[i][3], pairs[i][4]);
+        }
+        ry += 2 * (tileH + 10) - 10 + 12;
+        // drawZoneBar/drawShotDanger use PAD-relative coords — translate ctx to RX
+        ctx.save(); ctx.translate(RX, 0);
+        ry = drawZoneBar(ctx, ry, R_W, R_PAD, e, TEAM_C) + 12;
+        ry = drawShotDanger(ctx, ry, R_W, R_PAD, e) + 10;
+        ctx.restore();
+      }
+
+      // Footer
+      ctx.fillStyle = INK10; ctx.fillRect(0, H - FOOT_H, W, FOOT_H);
+      ctx.font = '700 8px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26 · EDGE DATA: NHL, INC.', W / 2, H - FOOT_H / 2);
+
+      return canvas;
+    }
+
+    // ── Season WAR card ────────────────────────────────────────────────────── (removed)
     async function drawSeasonWARCard(selectedSeason) {
       const BG = '#EFEEE8', SURFACE = '#FFFFFF';
       const W = 560, SCALE = 2, PAD = 24;
@@ -2987,8 +3190,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         if (status) status.style.display = 'block';
         try {
           if (document.fonts?.ready) await document.fonts.ready;
-          const canvas = await drawLandscapeCard();
-          downloadCanvas(canvas, `hgb_${D.slug}_${_selectedSeason}.png`);
+          const canvas = await drawSeasonCard();
+          downloadCanvas(canvas, `hgb_season_${D.slug}_${_selectedSeason}.png`);
           if (status) { status.textContent = 'Downloaded ✓'; setTimeout(function() { if (status) status.style.display = 'none'; }, 3000); }
         } catch(err) { console.error(err); if (status) status.textContent = 'Error — try again'; }
         finally { btn.textContent = label; btn.disabled = false; }
