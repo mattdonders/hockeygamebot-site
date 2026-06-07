@@ -52,7 +52,7 @@ export type HGBTableProps<T> = {
   globalSearchField?: (row: T) => string;
   searchPlaceholder?: string;
   filters?: HGBFilter[];
-  rowHref?: (row: T) => string;
+  rowHref?: (row: T) => string | undefined;
   exportFilename?: string;
   maxHeight?: number | string;
   emptyMessage?: string;
