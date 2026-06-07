@@ -469,32 +469,24 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Prop
   const isPlayoffs = mode === 'playoffs';
   const noPlayoffData = isPlayoffs && playoffRows.length === 0;
 
-  // Pill toggle — matches the mono/uppercase chip aesthetic used site-wide
-  const pillBase: React.CSSProperties = {
+  // Chip toggle — matches the shared ChipGroup style used in HGBTable/SkatersTable
+  const chip = (active: boolean): React.CSSProperties => ({
     ...MONO,
-    fontSize: 11,
-    letterSpacing: '0.08em',
+    fontSize: 10,
+    letterSpacing: '0.14em',
     textTransform: 'uppercase',
-    padding: '5px 14px',
+    padding: '5px 10px',
+    border: BORDER,
+    background: active ? INK : 'transparent',
+    color: active ? BG : MUTED,
     cursor: 'pointer',
-    border: 'none',
-    background: 'transparent',
-    color: MUTED,
-    fontWeight: 600,
-    borderRadius: 4,
-  };
-  const pillActive: React.CSSProperties = {
-    ...pillBase,
-    background: isDark ? 'rgba(239,238,232,0.10)' : '#0d0d14',
-    color: isDark ? INK_DARK : '#fff',
-    fontWeight: 700,
-  };
+  });
 
   return (
     <div style={{ ...BODY, color: INK, overflowX: 'auto' }}>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 10, padding: 3, background: BG, border: BORDER, borderRadius: 6, width: 'fit-content' }}>
-        <button style={mode === 'regular' ? pillActive : pillBase} onClick={() => setMode('regular')}>Regular Season</button>
-        <button style={mode === 'playoffs' ? pillActive : pillBase} onClick={() => setMode('playoffs')}>Playoffs</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 10 }}>
+        <button style={chip(mode === 'regular')} onClick={() => setMode('regular')}>Regular Season</button>
+        <button style={chip(mode === 'playoffs')} onClick={() => setMode('playoffs')}>Playoffs</button>
       </div>
 
       {noPlayoffData ? (
