@@ -235,6 +235,30 @@ function fmtXgf(v: number | null | undefined): string { return v != null ? v.toF
 
 const canonUrl = `https://hockeygamebot.com/stats/series/${Astro.params.slug}`;
 const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`;
+
+// ── Client-side series data: build-time lookups passed via define:vars ──────
+// playoffLineMap: sorted player_ids key → full-playoff TOI/xGF% + line slug.
+// Client joins series-specific data vs season-long playoff data in one row.
+const playoffLineMap: Record<string, { toi: string; xgfPct: string; xgfCls: string; slug: string }> = {};
+for (const l of seriesLines) {
+  const key = [...l.player_ids].sort((a, b) => a - b).join(',');
+  if (key) {
+    playoffLineMap[key] = {
+      toi:    toMMSS(l.toi_min),
+      xgfPct: fmtXgf(l.xgf_pct),
+      xgfCls: (l.xgf_pct ?? 50) >= 55 ? 'xgf-pos' : (l.xgf_pct ?? 50) <= 45 ? 'xgf-neg' : '',
+      slug:   toLineSlug(l),
+    };
+  }
+}
+// player_id → slug for series skater links
+const playerSlugMap: Record<number, string> = {};
+for (const p of seriesPlayers) {
+  if (p.player_id != null && p.slug) playerSlugMap[p.player_id] = p.slug;
+}
+const clientSeriesId = _matchedSeries?.series_id ?? null;
+const clientTeamA    = series.team_a;
+const clientTeamB    = series.team_b;
 ---
 <!doctype html>
 <html lang="en">
@@ -474,72 +498,52 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
     </div>
   )}
 
-  {/* FORWARD LINES — hidden until series line data exists (game_log was removed
-      from lines.json; series-filtered line aggregates need DE — see prompt) */}
-  {hasSeriesLines && (
-  <div class="section">
-    <div>
-      <span class="section-label">Top Forward Lines — This Series (by TOI)</span>
-      {hasSeriesLines ? (
-        <div class="two-col">
-          {[{ team: series.team_a, rows: sfLinesA }, { team: series.team_b, rows: sfLinesB }].map(({ team, rows }) => (
-            <div class="team-block">
-              <div class="team-label">{team}</div>
-              {rows.length > 0 ? (
-                <table class="line-table">
-                  <thead><tr><th>Line</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
-                  <tbody>
-                    {rows.map(r => (
-                      <tr>
-                        <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
-                        <td>{r.toi}</td>
-                        <td class={r.xgfCls}>{r.xgfPct}</td>
-                        <td>{r.gfga}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No line data for this matchup yet</p>}
-            </div>
-          ))}
-        </div>
-      ) : <div class="no-series-data">No games played in this series yet</div>}
+  <!-- TOP SKATERS — client-side from /v1/series/{series_id}/players -->
+  <div class="section" id="skaters-section" style="display:none">
+    <span class="section-label">Top Skaters — This Series</span>
+    <div class="two-col">
+      <div class="team-block" id="skaters-a">
+        <div class="team-label">{series.team_a}</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">Loading…</div>
+      </div>
+      <div class="team-block" id="skaters-b">
+        <div class="team-label">{series.team_b}</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">Loading…</div>
+      </div>
     </div>
   </div>
-  )}
 
-  {/* DEFENSIVE PAIRS — hidden until series line data exists (see DE prompt) */}
-  {hasSeriesLines && (
-  <div class="section">
-    <div>
-      <span class="section-label">Top Defensive Pairs — This Series (by TOI)</span>
-      {hasSeriesLines ? (
-        <div class="two-col">
-          {[{ team: series.team_a, rows: sdPairsA }, { team: series.team_b, rows: sdPairsB }].map(({ team, rows }) => (
-            <div class="team-block">
-              <div class="team-label">{team}</div>
-              {rows.length > 0 ? (
-                <table class="line-table">
-                  <thead><tr><th>Pair</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
-                  <tbody>
-                    {rows.map(r => (
-                      <tr>
-                        <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
-                        <td>{r.toi}</td>
-                        <td class={r.xgfCls}>{r.xgfPct}</td>
-                        <td>{r.gfga}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No pair data for this matchup yet</p>}
-            </div>
-          ))}
-        </div>
-      ) : <div class="no-series-data">No games played in this series yet</div>}
+  <!-- FORWARD LINES — client-side from /v1/series/{series_id}/lines -->
+  <!-- Columns: Line | Series TOI | Series xGF% | Playoff TOI | Playoff xGF% -->
+  <!-- Playoff columns joined at build time via sorted player_ids → playoffLineMap -->
+  <div class="section" id="flines-section" style="display:none">
+    <span class="section-label">Top Forward Lines — This Series</span>
+    <div class="two-col">
+      <div class="team-block" id="flines-a">
+        <div class="team-label">{series.team_a}</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">Loading…</div>
+      </div>
+      <div class="team-block" id="flines-b">
+        <div class="team-label">{series.team_b}</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">Loading…</div>
+      </div>
     </div>
   </div>
-  )}
+
+  <!-- DEFENSIVE PAIRS — client-side from /v1/series/{series_id}/lines -->
+  <div class="section" id="dpairs-section" style="display:none">
+    <span class="section-label">Top Defensive Pairs — This Series</span>
+    <div class="two-col">
+      <div class="team-block" id="dpairs-a">
+        <div class="team-label">{series.team_a}</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">Loading…</div>
+      </div>
+      <div class="team-block" id="dpairs-b">
+        <div class="team-label">{series.team_b}</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">Loading…</div>
+      </div>
+    </div>
+  </div>
 
   <!-- SHOT MAP — loaded client-side to avoid D1 reads at build time -->
   <div class="section" id="shot-map-section"
@@ -555,37 +559,6 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
     <p style="font-family:var(--mono);font-size:10px;color:var(--ink-32);margin-top:8px">Solid = goal · Open = shot · <span style={`color:${colorA};font-weight:700`}>{series.team_a}</span> for · <span style={`color:${colorB};font-weight:700`}>{series.team_b}</span> against · This series</p>
   </div>
 
-  {/* TOP SKATERS — hidden: current data is regular-season, not series-specific.
-      Re-enable once DE exposes per-series player points (see DE prompt). */}
-  {false && (
-  <div class="section">
-    <span class="section-label">Top Skaters — {seasonLabel} Playoffs by Points (min 3 GP)</span>
-    <div class="two-col">
-      {[{ team: series.team_a, rows: skatersA }, { team: series.team_b, rows: skatersB }].map(({ team, rows }) => (
-        <div class="team-block">
-          <div class="team-label">{team}</div>
-          {rows.length > 0 ? (
-            <table class="player-table">
-              <thead><tr><th>Player</th><th>GP</th><th>G</th><th>A</th><th>Rating</th></tr></thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr>
-                    <td><a href={`/stats/player/${r.slug}`}>{r.name}</a><span class="pos-badge">{r.pos}</span></td>
-                    <td>{r.gp}</td>
-                    <td>{r.goals}</td>
-                    <td>{r.assists}</td>
-                    <td>{r.rating}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No player data yet</p>}
-        </div>
-      ))}
-    </div>
-  </div>
-  )}
-
 
   <div class="page-foot">
     <span>HOCKEYGAMEBOT.COM · HGB STATS · {year} PLAYOFFS</span>
@@ -593,6 +566,110 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
   </div>
 
 </div>
+
+<script define:vars={{ clientSeriesId, clientTeamA, clientTeamB, playoffLineMap, playerSlugMap }}>
+// Series player + line sections — fetch /v1/series/{id}/players and /lines
+(async () => {
+  if (!clientSeriesId) return;
+  const API = 'https://api.hockeygamebot.com';
+
+  function mmss(min) {
+    const m = Math.floor(min), s = Math.round((min - m) * 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+  function xgfFmt(v) { return v != null ? v.toFixed(1) + '%' : '—'; }
+  function xgfCls(v) { return (v ?? 50) >= 55 ? 'xgf-pos' : (v ?? 50) <= 45 ? 'xgf-neg' : ''; }
+
+  const [playersRes, linesRes] = await Promise.all([
+    fetch(`${API}/v1/series/${clientSeriesId}/players`).catch(() => null),
+    fetch(`${API}/v1/series/${clientSeriesId}/lines`).catch(() => null),
+  ]);
+
+  // ── Top Skaters ────────────────────────────────────────────────────────────
+  if (playersRes?.ok) {
+    const data = await playersRes.json();
+    const players = data.players ?? [];
+    if (players.length) {
+      const section = document.getElementById('skaters-section');
+      if (section) {
+        section.style.display = '';
+        for (const [teamId, elId] of [[clientTeamA, 'skaters-a'], [clientTeamB, 'skaters-b']]) {
+          const tp = players.filter(p => p.team === teamId).slice(0, 5);
+          const el = document.getElementById(elId);
+          if (!el || !tp.length) continue;
+          const rows = tp.map(p => {
+            const slug = playerSlugMap[p.player_id];
+            const name = slug ? `<a href="/stats/player/${slug}">${p.name}</a>` : p.name;
+            return `<tr>
+              <td>${name}<span class="pos-badge">${p.pos}</span></td>
+              <td>${p.gp}</td><td>${p.goals}</td><td>${p.a1 + p.a2}</td><td>${p.points}</td>
+            </tr>`;
+          }).join('');
+          el.innerHTML = `<div class="team-label">${teamId}</div>
+            <table class="player-table">
+              <thead><tr><th>Player</th><th>GP</th><th>G</th><th>A</th><th>PTS</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>`;
+        }
+      }
+    }
+  }
+
+  // ── Forward Lines + Defensive Pairs ───────────────────────────────────────
+  if (linesRes?.ok) {
+    const data = await linesRes.json();
+    const lines = data.lines ?? [];
+    if (lines.length) {
+      for (const [type, secId, slotA, slotB, maxRows, label] of [
+        ['F', 'flines-section', 'flines-a', 'flines-b', 4, 'Line'],
+        ['D', 'dpairs-section', 'dpairs-a', 'dpairs-b', 3, 'Pair'],
+      ]) {
+        const section = document.getElementById(secId);
+        if (!section) continue;
+        let anyRendered = false;
+
+        for (const [teamId, elId] of [[clientTeamA, slotA], [clientTeamB, slotB]]) {
+          const tl = lines
+            .filter(l => l.type === type && l.team === teamId)
+            .sort((a, b) => b.toi_min - a.toi_min)
+            .slice(0, maxRows);
+          const el = document.getElementById(elId);
+          if (!el || !tl.length) continue;
+          anyRendered = true;
+
+          const rows = tl.map(l => {
+            // Join series line vs full-playoff aggregate by sorted player_ids key
+            const key = l.player_ids.slice().sort((a, b) => a - b).join(',');
+            const po  = playoffLineMap[key] ?? null;
+            const nameCell = po?.slug
+              ? `<a href="/stats/lines/${po.slug}">${l.players}</a>`
+              : l.players;
+            return `<tr>
+              <td>${nameCell}</td>
+              <td>${mmss(l.toi_min)}</td>
+              <td class="${xgfCls(l.xgf_pct)}">${xgfFmt(l.xgf_pct)}</td>
+              <td>${po?.toi ?? '—'}</td>
+              <td class="${po?.xgfCls ?? ''}">${po?.xgfPct ?? '—'}</td>
+            </tr>`;
+          }).join('');
+
+          el.innerHTML = `<div class="team-label">${teamId}</div>
+            <table class="line-table">
+              <thead><tr>
+                <th>${label}</th>
+                <th>Series TOI</th><th>Series xGF%</th>
+                <th>PO TOI</th><th>PO xGF%</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>`;
+        }
+
+        if (anyRendered) section.style.display = '';
+      }
+    }
+  }
+})();
+</script>
 
 <script>
 import { buildSeriesShotMapSVG, type FullRinkShot } from '../../../lib/rink-svg';
