@@ -128,6 +128,11 @@ const rapmOff = player.rapm_off ?? null;
 const rapmDef = player.rapm_def ?? null;
 
 const teamColor     = pickTeamColor(player.team_abbrev);
+// All-team color map so historical Season Cards can theme to the season's team
+const allTeamColors = Object.fromEntries(
+  ['ANA','BOS','BUF','CAR','CBJ','CGY','CHI','COL','DAL','DET','EDM','FLA','LAK','MIN','MTL','NSH','NJD','NYI','NYR','OTT','PHI','PIT','SEA','SJS','STL','TBL','TOR','UTA','VAN','VGK','WSH','WPG']
+    .map(t => [t, pickTeamColor(t)])
+);
 const headshotUrl   = `https://api.hockeygamebot.com/v1/proxy/headshot/${player.team_abbrev}/${player.player_id}`;
 const allGames      = [...playerGames].sort((a, b) => a.game_date.localeCompare(b.game_date));
 const recentGames   = [...allGames].reverse();  // all games, newest first
@@ -1016,6 +1021,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         RAPM Card →
       </button>
       <div class="cta-note" id="card-status" style="display:none"></div>
+      <div class="cta-note" id="edge-availability-note" style="display:none;margin-top:8px;font-size:10px;line-height:1.4;opacity:0.6;"></div>
     </div>
 
     <!-- SIDEBAR -->
@@ -1109,6 +1115,12 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       qoc_pct:            isCurrent ? (player.qoc                        ?? null) : ((s as any).qoc_pct      ?? null),
       qot_pct:            isCurrent ? (player.qot                        ?? null) : ((s as any).qot_pct      ?? null),
       limited:            (s as any).limited ?? false,
+      // Raw counting stats — used to fill the Season Card counting strip on historical seasons
+      goals:       (s as any).goals       ?? null,
+      assists:     (s as any).assists     ?? null,
+      points:      (s as any).points      ?? null,
+      toi_avg_sec: (s as any).toi_avg_sec ?? null,
+      team:        (s as any).team        ?? null,
       // For current season use authoritative players.json values (match page hero)
       hgb_rating_pct: isCurrent ? (player.hgb_rating_percentile ?? null) : (s.hgb_rating_pct ?? null),
       war_pct:        isCurrent ? (warPct ?? null)                        : (s.war_pct        ?? null),
@@ -1168,6 +1180,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     qot_pct_3yr:         (player as any).qot_pct_3yr         ?? null,
     posGroup:            player.pos_group,
     edge: player.edge ?? null,
+    edgeHistory: (player as any).edge_history ?? null,
+    teamColors: allTeamColors,
     war_components: {
       ev_off_war:    (player as any).war_components?.ev_off_war    ?? null,
       ev_def_war:    (player as any).war_components?.ev_def_war    ?? null,
@@ -2164,9 +2178,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     async function drawSeasonCard(selectedSeason) {
       const BG = '#EFEEE8', SURFACE = '#FFFFFF';
       const SCALE = 2;
-      const L_W = 520, R_W = 520, W = L_W + R_W;
+      const L_W = 520, R_W = 520;
       const PAD = 24, R_PAD = 20;
-      const e = D.edge;
 
       // Look up season data — current season uses D.percentiles, historical uses _seasonStats
       var seasonData = null;
@@ -2176,6 +2189,20 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       }
       var isHistorical = !!seasonData;
       var isLimited = isHistorical && seasonData.limited;
+
+      // EDGE source for the selected season: current → D.edge; historical → edge_history[season].
+      // NHL EDGE only exists 2021-22+, so older seasons have no EDGE → render a narrow card.
+      const e = isHistorical
+        ? (D.edgeHistory ? (D.edgeHistory[selectedSeason] || null) : null)
+        : D.edge;
+      const hasEdge = !!e;
+      const W = hasEdge ? L_W + R_W : L_W;
+      // Season label for header + chips (defined early; hero tiles reuse it)
+      var heroSeason = isHistorical ? selectedSeason : (D.currentSeason || '2025-26');
+      // Theme the whole card to the SEASON's team (historical players may have moved).
+      // Shadows the module-level TEAM_C for every reference inside this function.
+      var seasonTeam = isHistorical ? (seasonData.team || D.team) : D.team;
+      const TEAM_C = (D.teamColors && D.teamColors[seasonTeam]) ? D.teamColors[seasonTeam] : (D.teamColor || INK);
 
       // Helper to pick current vs historical percentile
       function sp(currentVal, histKey) {
@@ -2217,7 +2244,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // Chips
       const TEAM_NAMES_S = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
       const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
-      const chips = [(TEAM_NAMES_S[D.team] || D.team), D.posLabel.toUpperCase(), heroSeason];
+      const chips = [(TEAM_NAMES_S[seasonTeam] || seasonTeam), D.posLabel.toUpperCase(), heroSeason];
       let cx = PAD;
       ctx.font = '700 9px "Barlow Condensed", sans-serif';
       for (let ci = 0; ci < chips.length; ci++) {
@@ -2235,8 +2262,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
       ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
 
-      // Panel divider
-      ctx.fillStyle = INK14; ctx.fillRect(L_W, HDR_H + CHIP_H, 1, CONTENT_H);
+      // Panel divider (only when the EDGE panel is present)
+      if (hasEdge) { ctx.fillStyle = INK14; ctx.fillRect(L_W, HDR_H + CHIP_H, 1, CONTENT_H); }
 
       // ── LEFT PANEL — identity + single-season bars ─────────────────────────
       let y = HDR_H + CHIP_H + 6;
@@ -2255,7 +2282,6 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       var heroRatingPct = isHistorical ? seasonData.hgb_rating_pct : D.hgb_rating_percentile;
       var heroWarPct    = isHistorical ? seasonData.war_pct        : D.warPct;
       var heroImpPct    = isHistorical ? seasonData.impact_pct     : (D.impactPct != null ? Math.round(D.impactPct) : null);
-      var heroSeason    = isHistorical ? selectedSeason : (D.currentSeason || '2025-26');
       var heroGp        = isHistorical ? (seasonData.gp || '—') : D.gp;
       var s = function(n) { return n != null ? (n >= 0 ? '+' : '') + n.toFixed(2) : '—'; };
       const heroTiles = [
@@ -2281,20 +2307,19 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
       // ── Counting stats strip — G / A / PTS / GP / TOI/GP ─────────────────
       ctx.fillStyle = SURFACE; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
-      const totalPtsS  = D.totalG + D.totalA;
-      const toiAvgStrS = (() => { const m = Math.floor(D.toiAvgSec/60), s2 = Math.round(D.toiAvgSec%60); return m+':'+(s2<10?'0':'')+s2; })();
-      const countCols = isHistorical ? [
-        { label: 'GOALS',   val: '—',              color: INK32 },
-        { label: 'ASSISTS', val: '—',              color: INK32 },
-        { label: 'POINTS',  val: '—',              color: INK32 },
-        { label: 'GP',      val: String(heroGp),   color: INK },
-        { label: 'TOI/GP',  val: '—',              color: INK32 },
-      ] : [
-        { label: 'GOALS',   val: String(D.totalG),       color: INK },
-        { label: 'ASSISTS', val: String(D.totalA),       color: INK },
-        { label: 'POINTS',  val: String(totalPtsS),      color: TEAM_C },
-        { label: 'GP',      val: String(heroGp),         color: INK },
-        { label: 'TOI/GP',  val: toiAvgStrS,             color: INK },
+      // Pick goals/assists/points/toi from the selected season (historical from
+      // _seasonStats, current from players.json D fields).
+      const cG   = isHistorical ? seasonData.goals   : D.totalG;
+      const cA   = isHistorical ? seasonData.assists : D.totalA;
+      const cP   = isHistorical ? seasonData.points  : (D.totalG + D.totalA);
+      const cToi = isHistorical ? seasonData.toi_avg_sec : D.toiAvgSec;
+      const fmtToiStr = (sec) => sec != null ? `${Math.floor(sec/60)}:${String(Math.round(sec%60)).padStart(2,'0')}` : '—';
+      const countCols = [
+        { label: 'GOALS',   val: cG != null ? String(cG) : '—', color: cG != null ? INK : INK32 },
+        { label: 'ASSISTS', val: cA != null ? String(cA) : '—', color: cA != null ? INK : INK32 },
+        { label: 'POINTS',  val: cP != null ? String(cP) : '—', color: cP != null ? TEAM_C : INK32 },
+        { label: 'GP',      val: String(heroGp),                color: INK },
+        { label: 'TOI/GP',  val: fmtToiStr(cToi),               color: cToi != null ? INK : INK32 },
       ];
       const cColW = (L_W - PAD * 2) / countCols.length;
       for (let ci = 0; ci < countCols.length; ci++) {
@@ -2382,15 +2407,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillText(b.val == null ? '—' : Math.round(b.val) + '%', L_W - PAD, rowY + BAR_ROW_H / 2);
       }
 
-      // ── RIGHT PANEL — NHL EDGE ─────────────────────────────────────────────
+      // ── RIGHT PANEL — NHL EDGE (only when the season has EDGE data) ─────────
       const RX = L_W + 1;
       let ry = HDR_H + CHIP_H;
-      if (!e) {
-        ctx.fillStyle = INK10; ctx.fillRect(RX, ry, R_W, CONTENT_H);
-        ctx.font = '700 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('EDGE DATA NOT YET AVAILABLE', RX + R_W / 2, ry + CONTENT_H / 2);
-      } else {
+      if (hasEdge) {
         // EDGE header
         const EDGE_HDR_H = 36;
         ctx.fillStyle = INK14; ctx.fillRect(RX, ry + EDGE_HDR_H - 1, R_W, 1);
@@ -2401,7 +2421,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillStyle = '#006D75'; ctx.fillText('TRACKING', RX + R_PAD + edgeLabelW, ry + EDGE_HDR_H / 2);
         if (isHistorical) {
           ctx.font = '600 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textAlign = 'right';
-          ctx.fillText('2025-26 only', RX + R_W - R_PAD, ry + EDGE_HDR_H / 2);
+          ctx.fillText(selectedSeason, RX + R_W - R_PAD, ry + EDGE_HDR_H / 2);
         }
         ry += EDGE_HDR_H + 10;
 
@@ -3302,7 +3322,22 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // Season WAR card — season-aware binding (season can change via row click)
     (() => {
       let _selectedSeason = D.currentSeason ?? '2025-26';
-      document.addEventListener('hgb:season-select', function(e) { _selectedSeason = e.detail?.season ?? _selectedSeason; });
+      // Earliest season with NHL EDGE data (launched 2021-22) — drives the availability note
+      const _edgeSeasons = D.edgeHistory ? Object.keys(D.edgeHistory).sort() : [];
+      const _earliestEdge = _edgeSeasons.length ? _edgeSeasons[0] : null;
+      const _edgeNote = document.getElementById('edge-availability-note');
+      function _updateEdgeNote() {
+        if (!_edgeNote) return;
+        const hasEdge = D.edgeHistory ? !!D.edgeHistory[_selectedSeason] : (_selectedSeason === D.currentSeason);
+        if (!hasEdge && _earliestEdge) {
+          _edgeNote.textContent = `* NHL EDGE tracking data available from ${_earliestEdge} onward — the ${_selectedSeason} card shows season stats only.`;
+          _edgeNote.style.display = 'block';
+        } else {
+          _edgeNote.style.display = 'none';
+        }
+      }
+      document.addEventListener('hgb:season-select', function(e) { _selectedSeason = e.detail?.season ?? _selectedSeason; _updateEdgeNote(); });
+      _updateEdgeNote();
       const btn = document.getElementById('download-season-card-btn');
       const status = document.getElementById('card-status');
       if (btn) btn.addEventListener('click', async function() {

@@ -173,6 +173,9 @@ export const PlayerRecordSchema = z.object({
     shooting_pct_long:        z.number().nullable(),
     shooting_pct_long_pct:    z.number().nullable(),
   }).nullable().optional(),
+  // Per-season EDGE history, keyed by season ("2021-22" → same shape as `edge`).
+  // Loose record — the Season Card reads fields directly. Added Jun 2026.
+  edge_history: z.record(z.string(), z.record(z.string(), z.number().nullable())).nullable().optional(),
   // Situation splits — added May 2026
   goals_ev:         z.number().int().optional(),
   goals_pp:         z.number().int().optional(),
