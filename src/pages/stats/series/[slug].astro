@@ -190,8 +190,10 @@ const summB = teamXgSummary(series.team_b);
 // ── This-series stats: read from series_stats.json (correct, pipeline-computed).
 // game_log was removed from lines.json (too large). series_stats.json has per-team
 // xgf_5v5/xga_5v5 computed from player_game_features — the authoritative source.
+// series.season is 8-digit ("20252026"); series_stats uses dashed ("2025-26")
+const _normSeason = (s: string) => /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(6)}` : s;
 const _matchedSeries = allSeriesStats.series.find((s: any) =>
-  s.season === series.season &&
+  _normSeason(s.season) === _normSeason(series.season) &&
   s.round  === series.round  &&
   series.team_a in s.teams   &&
   series.team_b in s.teams
@@ -437,109 +439,46 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
     <div class="section" id="compare-section">
       <span class="section-label">5v5 Expected Goals</span>
 
-      <div class="scope-toggle" role="group" aria-label="Data scope">
-        <button class="scope-btn active" data-scope="playoffs" type="button">All Playoffs</button>
-        {(hasSeriesData || hasSeriesLines) && (
-          <button class="scope-btn" data-scope="series" type="button">This Series</button>
-        )}
-      </div>
+      {hasSeriesData ? (
+        <>
+          <div class="compare-grid">
+            <div class="cg-header">{series.team_a}</div>
+            <div class="cg-label">Metric</div>
+            <div class="cg-header">{series.team_b}</div>
 
-      {/* ALL PLAYOFFS view */}
-      <div class="scope-view active" data-scope-view="playoffs">
-        <div class="compare-grid">
-          <div class="cg-header">{series.team_a}</div>
-          <div class="cg-label">Metric</div>
-          <div class="cg-header">{series.team_b}</div>
+            <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummA.xgf > seriesSummB.xgf ? 'better' : ''}`}>{fmt2(seriesSummA?.xgf)}</div>
+            <div class="cg-label">xGF</div>
+            <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummB.xgf > seriesSummA.xgf ? 'better' : ''}`}>{fmt2(seriesSummB?.xgf)}</div>
 
-          <div class={`cg-val ${summA && summB && summA.xgf > summB.xgf ? 'better' : ''}`}>{fmt2(summA?.xgf)}</div>
-          <div class="cg-label">xGF</div>
-          <div class={`cg-val ${summA && summB && summB.xgf > summA.xgf ? 'better' : ''}`}>{fmt2(summB?.xgf)}</div>
+            <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummA.xga < seriesSummB.xga ? 'better' : seriesSummA && seriesSummB && seriesSummA.xga > seriesSummB.xga ? 'worse' : ''}`}>{fmt2(seriesSummA?.xga)}</div>
+            <div class="cg-label">xGA</div>
+            <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummB.xga < seriesSummA.xga ? 'better' : seriesSummA && seriesSummB && seriesSummB.xga > seriesSummA.xga ? 'worse' : ''}`}>{fmt2(seriesSummB?.xga)}</div>
 
-          <div class={`cg-val ${summA && summB && summA.xga < summB.xga ? 'better' : summA && summB && summA.xga > summB.xga ? 'worse' : ''}`}>{fmt2(summA?.xga)}</div>
-          <div class="cg-label">xGA</div>
-          <div class={`cg-val ${summA && summB && summB.xga < summA.xga ? 'better' : summA && summB && summB.xga > summA.xga ? 'worse' : ''}`}>{fmt2(summB?.xga)}</div>
+            <div class={`cg-val ${seriesSummA && seriesSummB && (seriesSummA.xgfPct ?? 0) > (seriesSummB.xgfPct ?? 0) ? 'better' : seriesSummA && seriesSummB && (seriesSummA.xgfPct ?? 0) < (seriesSummB.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(seriesSummA?.xgfPct)}</div>
+            <div class="cg-label">xGF%</div>
+            <div class={`cg-val ${seriesSummA && seriesSummB && (seriesSummB.xgfPct ?? 0) > (seriesSummA.xgfPct ?? 0) ? 'better' : seriesSummA && seriesSummB && (seriesSummB.xgfPct ?? 0) < (seriesSummA.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(seriesSummB?.xgfPct)}</div>
 
-          <div class={`cg-val ${summA && summB && (summA.xgfPct ?? 0) > (summB.xgfPct ?? 0) ? 'better' : summA && summB && (summA.xgfPct ?? 0) < (summB.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(summA?.xgfPct)}</div>
-          <div class="cg-label">xGF%</div>
-          <div class={`cg-val ${summA && summB && (summB.xgfPct ?? 0) > (summA.xgfPct ?? 0) ? 'better' : summA && summB && (summB.xgfPct ?? 0) < (summA.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(summB?.xgfPct)}</div>
+            <div class="cg-val">{seriesSummA?.gf ?? '—'}</div>
+            <div class="cg-label">GF</div>
+            <div class="cg-val">{seriesSummB?.gf ?? '—'}</div>
 
-          <div class="cg-val">{summA?.gf ?? '—'}</div>
-          <div class="cg-label">GF</div>
-          <div class="cg-val">{summB?.gf ?? '—'}</div>
-
-          <div class="cg-val">{summA?.ga ?? '—'}</div>
-          <div class="cg-label">GA</div>
-          <div class="cg-val">{summB?.ga ?? '—'}</div>
-        </div>
-        <p class="scope-note">Entire {seasonLabel} playoff run · 5v5 aggregated from playoff line data (min 30 min TOI)</p>
-      </div>
-
-      {/* THIS SERIES view */}
-      <div class="scope-view" data-scope-view="series">
-        {hasSeriesData ? (
-          <>
-            <div class="compare-grid">
-              <div class="cg-header">{series.team_a}</div>
-              <div class="cg-label">Metric</div>
-              <div class="cg-header">{series.team_b}</div>
-
-              <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummA.xgf > seriesSummB.xgf ? 'better' : ''}`}>{fmt2(seriesSummA?.xgf)}</div>
-              <div class="cg-label">xGF</div>
-              <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummB.xgf > seriesSummA.xgf ? 'better' : ''}`}>{fmt2(seriesSummB?.xgf)}</div>
-
-              <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummA.xga < seriesSummB.xga ? 'better' : seriesSummA && seriesSummB && seriesSummA.xga > seriesSummB.xga ? 'worse' : ''}`}>{fmt2(seriesSummA?.xga)}</div>
-              <div class="cg-label">xGA</div>
-              <div class={`cg-val ${seriesSummA && seriesSummB && seriesSummB.xga < seriesSummA.xga ? 'better' : seriesSummA && seriesSummB && seriesSummB.xga > seriesSummA.xga ? 'worse' : ''}`}>{fmt2(seriesSummB?.xga)}</div>
-
-              <div class={`cg-val ${seriesSummA && seriesSummB && (seriesSummA.xgfPct ?? 0) > (seriesSummB.xgfPct ?? 0) ? 'better' : seriesSummA && seriesSummB && (seriesSummA.xgfPct ?? 0) < (seriesSummB.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(seriesSummA?.xgfPct)}</div>
-              <div class="cg-label">xGF%</div>
-              <div class={`cg-val ${seriesSummA && seriesSummB && (seriesSummB.xgfPct ?? 0) > (seriesSummA.xgfPct ?? 0) ? 'better' : seriesSummA && seriesSummB && (seriesSummB.xgfPct ?? 0) < (seriesSummA.xgfPct ?? 0) ? 'worse' : ''}`}>{fmtXgf(seriesSummB?.xgfPct)}</div>
-
-              <div class="cg-val">{seriesSummA?.gf ?? '—'}</div>
-              <div class="cg-label">GF</div>
-              <div class="cg-val">{seriesSummB?.gf ?? '—'}</div>
-
-              <div class="cg-val">{seriesSummA?.ga ?? '—'}</div>
-              <div class="cg-label">GA</div>
-              <div class="cg-val">{seriesSummB?.ga ?? '—'}</div>
-            </div>
-            <p class="scope-note">{seriesSummA?.games ?? seriesSummB?.games ?? 0} game{(seriesSummA?.games ?? 0) !== 1 ? 's' : ''} in this series · team-level 5v5 only · line data reflects full playoff run</p>
-          </>
-        ) : (
-          <div class="no-series-data">No games played in this series yet</div>
-        )}
-      </div>
+            <div class="cg-val">{seriesSummA?.ga ?? '—'}</div>
+            <div class="cg-label">GA</div>
+            <div class="cg-val">{seriesSummB?.ga ?? '—'}</div>
+          </div>
+          <p class="scope-note">{seriesSummA?.games ?? seriesSummB?.games ?? 0} game{(seriesSummA?.games ?? 0) !== 1 ? 's' : ''} in this series · 5v5, min 30 min TOI</p>
+        </>
+      ) : (
+        <div class="no-series-data">No games played in this series yet</div>
+      )}
     </div>
   )}
 
-  <!-- FORWARD LINES -->
+  {/* FORWARD LINES — hidden until series line data exists (game_log was removed
+      from lines.json; series-filtered line aggregates need DE — see prompt) */}
+  {hasSeriesLines && (
   <div class="section">
-    <div class="scope-view active" data-scope-view="playoffs">
-      <span class="section-label">Top Forward Lines — Entire {seasonLabel} Playoff Run (by TOI)</span>
-      <div class="two-col">
-        {[{ team: series.team_a, rows: fLinesA }, { team: series.team_b, rows: fLinesB }].map(({ team, rows }) => (
-          <div class="team-block">
-            <div class="team-label">{team}</div>
-            {rows.length > 0 ? (
-              <table class="line-table">
-                <thead><tr><th>Line</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
-                <tbody>
-                  {rows.map(r => (
-                    <tr>
-                      <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
-                      <td>{r.toi}</td>
-                      <td class={r.xgfCls}>{r.xgfPct}</td>
-                      <td>{r.gfga}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No playoff line data yet</p>}
-          </div>
-        ))}
-      </div>
-    </div>
-    <div class="scope-view" data-scope-view="series">
+    <div>
       <span class="section-label">Top Forward Lines — This Series (by TOI)</span>
       {hasSeriesLines ? (
         <div class="two-col">
@@ -567,35 +506,12 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
       ) : <div class="no-series-data">No games played in this series yet</div>}
     </div>
   </div>
+  )}
 
-  <!-- DEFENSIVE PAIRS -->
+  {/* DEFENSIVE PAIRS — hidden until series line data exists (see DE prompt) */}
+  {hasSeriesLines && (
   <div class="section">
-    <div class="scope-view active" data-scope-view="playoffs">
-      <span class="section-label">Top Defensive Pairs — Entire {seasonLabel} Playoff Run (by TOI)</span>
-      <div class="two-col">
-        {[{ team: series.team_a, rows: dPairsA }, { team: series.team_b, rows: dPairsB }].map(({ team, rows }) => (
-          <div class="team-block">
-            <div class="team-label">{team}</div>
-            {rows.length > 0 ? (
-              <table class="line-table">
-                <thead><tr><th>Pair</th><th>TOI</th><th>xGF%</th><th>GF/GA</th></tr></thead>
-                <tbody>
-                  {rows.map(r => (
-                    <tr>
-                      <td><a href={`/stats/lines/${r.slug}`}>{r.players}</a></td>
-                      <td>{r.toi}</td>
-                      <td class={r.xgfCls}>{r.xgfPct}</td>
-                      <td>{r.gfga}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : <p style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:12px 0">No playoff pair data yet</p>}
-          </div>
-        ))}
-      </div>
-    </div>
-    <div class="scope-view" data-scope-view="series">
+    <div>
       <span class="section-label">Top Defensive Pairs — This Series (by TOI)</span>
       {hasSeriesLines ? (
         <div class="two-col">
@@ -623,6 +539,7 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
       ) : <div class="no-series-data">No games played in this series yet</div>}
     </div>
   </div>
+  )}
 
   <!-- SHOT MAP — loaded client-side to avoid D1 reads at build time -->
   <div class="section" id="shot-map-section"
@@ -631,14 +548,16 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
        data-team-b={shotMapTeamB}
        data-color-a={colorA}
        data-color-b={colorB}>
-    <span class="section-label">Shot Map — {series.team_a} for · {series.team_b} against · {seasonLabel} Playoff Run</span>
+    <span class="section-label">Shot Map — {series.team_a} for · {series.team_b} against · This Series</span>
     <div id="shot-map-container" style="background:var(--surface);border:1px solid var(--ink-14);padding:8px;min-height:60px;display:flex;align-items:center;justify-content:center;color:var(--ink-32);font-size:12px">
       Loading shot map…
     </div>
-    <p style="font-family:var(--mono);font-size:10px;color:var(--ink-32);margin-top:8px">Solid = goal · Open = shot · <span style={`color:${colorA};font-weight:700`}>{series.team_a}</span> for · <span style={`color:${colorB};font-weight:700`}>{series.team_b}</span> against · Entire {seasonLabel} playoff run</p>
+    <p style="font-family:var(--mono);font-size:10px;color:var(--ink-32);margin-top:8px">Solid = goal · Open = shot · <span style={`color:${colorA};font-weight:700`}>{series.team_a}</span> for · <span style={`color:${colorB};font-weight:700`}>{series.team_b}</span> against · This series</p>
   </div>
 
-  <!-- TOP SKATERS (sorted by playoff P, HGB Rating for context) -->
+  {/* TOP SKATERS — hidden: current data is regular-season, not series-specific.
+      Re-enable once DE exposes per-series player points (see DE prompt). */}
+  {false && (
   <div class="section">
     <span class="section-label">Top Skaters — {seasonLabel} Playoffs by Points (min 3 GP)</span>
     <div class="two-col">
@@ -665,6 +584,7 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
       ))}
     </div>
   </div>
+  )}
 
 
   <div class="page-foot">
@@ -676,16 +596,6 @@ const title    = `${series.team_a} vs ${series.team_b} · ${year} ${roundLabel}`
 
 <script>
 import { buildSeriesShotMapSVG, type FullRinkShot } from '../../../lib/rink-svg';
-document.querySelectorAll<HTMLButtonElement>('.scope-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const scope = btn.dataset.scope ?? 'playoffs';
-    document.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll<HTMLElement>('.scope-view').forEach(v => {
-      v.classList.toggle('active', v.dataset.scopeView === scope);
-    });
-  });
-});
 
 // Load shot map client-side — kept out of Astro build to avoid D1 reads per deploy
 (async () => {
