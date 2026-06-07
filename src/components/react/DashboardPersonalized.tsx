@@ -236,16 +236,14 @@ export function EntitySignals({ entityId, entityType, limit = 3 }: EntitySignals
   const [signals, setSignals] = useState<Signal[] | null>(null);
 
   useEffect(() => {
-    const safe = (p: Promise<Response>) => p.then(r => r.ok ? r.json() : {}).catch(() => ({}));
-    safe(fetch(`${API}/v1/stats/signals`)).then((data: any) => {
-      const all: Signal[] = data.signals ?? (Array.isArray(data) ? data : []);
+    loadAllSignals().then(all => {
       const filtered = all
         .filter(s => s.entity_type === entityType && s.entity_id === entityId)
         .sort((a, b) => b.priority - a.priority)
         .slice(0, limit);
       setSignals(filtered);
     });
-  }, [entityId, entityType]);
+  }, [entityId, entityType, limit]);
 
   if (signals === null || !signals.length) return null;
 
@@ -289,16 +287,26 @@ const SEVERITY_BORDER: Record<string, string> = {
   negative: '#991b1b',
 };
 
+// Shared signals fetch — memoized so every consumer (each EntitySignals instance
+// + DashboardModelSignals) reuses a single network request for the payload.
+let _signalsPromise: Promise<Signal[]> | null = null;
+function loadAllSignals(): Promise<Signal[]> {
+  if (!_signalsPromise) {
+    _signalsPromise = fetch(`${API}/v1/stats/signals`)
+      .then(r => (r.ok ? r.json() : {}))
+      .catch(() => ({}))
+      .then((data: any) => (data.signals ?? (Array.isArray(data) ? data : [])) as Signal[]);
+  }
+  return _signalsPromise;
+}
+
 function formatRuleHeader(s: Signal): string {
   const type = s.entity_type === 'team' ? 'TEAM' : s.entity_type === 'player' ? 'PLAYER' : s.entity_type.toUpperCase();
   return `${type} SIGNAL · ${s.category.toUpperCase()}`;
 }
 
 async function fetchSignals(prefs: { tracked_teams: string[]; tracked_players: number[] }): Promise<Signal[]> {
-  const r = await fetch(`${API}/v1/stats/signals`);
-  if (!r.ok) return [];
-  const data = await r.json();
-  const all: Signal[] = data.signals ?? (Array.isArray(data) ? data : []);
+  const all = await loadAllSignals();
 
   const teamSet = new Set(prefs.tracked_teams);
   const playerSet = new Set(prefs.tracked_players.map(String));
