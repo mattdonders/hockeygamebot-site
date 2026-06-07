@@ -40,17 +40,20 @@ function slim(r: PlayerSeasonEntry) {
 
 export const GET: APIRoute = async () => {
   const all = loadPlayerSeasonStatsAll();
+  // Names now come from the payload itself (DE added top-level name+slug for all
+  // 2267 players, incl. retired). Fall back to players.json only if a record is
+  // missing them, for safety.
   const players = loadPlayers();
   const nameMap = new Map(players.map(p => [String(p.player_id), p]));
 
   const out: Record<string, unknown> = {};
   for (const [id, rec] of Object.entries(all)) {
+    const r = rec as typeof rec & { name?: string; slug?: string };
     const p = nameMap.get(id);
     const firstRow = (rec.regular?.[0] ?? rec.playoffs?.[0]);
     out[id] = {
-      f: p?.first_name ?? null,
-      l: p?.last_name ?? null,
-      s: p?.slug ?? null,
+      n: r.name ?? (p ? `${p.first_name} ${p.last_name}` : null),
+      s: r.slug ?? p?.slug ?? null,
       pos: firstRow?.pos ?? '',
       r: (rec.regular ?? []).map(slim),
       p: (rec.playoffs ?? []).map(slim),
