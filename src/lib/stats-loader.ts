@@ -290,6 +290,7 @@ export type PlayerSeasonEntry = {
   hgb_rating_pct?: number | null;
   war_pct?: number | null;
   impact_pct?: number | null;
+  limited?: boolean;
 };
 
 export type PlayerSeasonStats = {
@@ -305,6 +306,13 @@ export function loadPlayerSeasonStats(playerId: number): PlayerSeasonStats {
     regular:  Array.isArray(r.regular)  ? (r.regular  as PlayerSeasonEntry[]) : [],
     playoffs: Array.isArray(r.playoffs) ? (r.playoffs as PlayerSeasonEntry[]) : [],
   };
+}
+
+/** Full player-season-stats map (player_id → {regular, playoffs}). Used by the
+ *  /data/skater-season-stats.json build-time endpoint to emit a slim, name-joined,
+ *  client-cacheable asset for the multi-season skaters leaderboard. */
+export function loadPlayerSeasonStatsAll(): Record<string, PlayerSeasonStats> {
+  return (playerSeasonStatsData as Record<string, PlayerSeasonStats>) ?? {};
 }
 
 export function loadSeriesRecords(): { series: any[]; total_series: number; scope?: string; generated_at?: string } {

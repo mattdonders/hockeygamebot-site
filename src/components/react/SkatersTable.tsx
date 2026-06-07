@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
+import { aggregateSeasons, availableSeasons, type SlimData, type AggRow } from '../../lib/aggregate-seasons';
+
+// "20252026" → "2025-26"; passes through if already dashed
+function normSeason(s: string): string {
+  if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(6)}`;
+  return s;
+}
 
 function ordinal(n: number): string {
   const s = ['th','st','nd','rd'];
@@ -216,6 +223,74 @@ function buildColumns(
   return [...fixed, ...tabCols];
 }
 
+// ── Aggregated (multi-season / playoff) columns ───────────────────────────────
+// Counting + Rates only — per-season percentiles and RAPM-derived metrics are not
+// meaningful summed, so Advanced/On-Ice tabs are disabled in this mode.
+function buildAggColumns(
+  tab: Tab, display: Display, isDark: boolean, rangeLabel: string, multi: boolean,
+): HGBColumnDef<AggRow>[] {
+  const fixed: HGBColumnDef<AggRow>[] = [
+    {
+      id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 200,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
+            style={TEAM_LOGO_STYLE} alt={row.team}
+            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+            {row.name}
+            {row.multiTeam && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)', marginLeft: 6 }}>multi</span>}
+          </div>
+        </div>
+      ),
+      exportText: (_v, row) => row.name,
+      sortType: 'string',
+    },
+    { id: 'season', header: 'Seasons', accessor: () => rangeLabel, width: 116, mobileHidden: true,
+      cell: () => <span style={{ ...MONO, fontSize: 11, whiteSpace: 'nowrap' }}>{rangeLabel}</span>, exportText: () => rangeLabel },
+    { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
+    { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
+    { id: 'gp', header: 'GP', accessor: r => r.gp, width: 52 },
+  ];
+
+  const isPer60 = display === 'per60';
+  let tabCols: HGBColumnDef<AggRow>[] = [];
+
+  if (tab === 'rates' || (tab === 'counting' && isPer60)) {
+    tabCols = [
+      { id: 'g60',  header: 'G/60',   accessor: r => r.g60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'a60',  header: 'A/60',   accessor: r => r.a60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'p60',  header: 'P/60',   accessor: r => r.p60,  width: 64, cell: v => <strong>{f2(v as any)}</strong>, exportText: v => f2(v as any) },
+      { id: 'x60',  header: 'ixG/60', accessor: r => r.x60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'sog60',header: 'SOG/60', accessor: r => r.sog60,width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
+      { id: 'toi_pg', header: 'TOI/G', accessor: r => r.toi_pg, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
+    ];
+  } else {
+    tabCols = [
+      { id: 'goals',   header: 'G',   accessor: r => r.goals,   width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'assists', header: 'A',   accessor: r => r.assists, width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'points',  header: 'P',   accessor: r => r.points,  width: 56, cell: v => <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{String(v ?? '—')}</strong>, exportText: v => String(v ?? '—') },
+      { id: 'sog',     header: 'SOG', accessor: r => r.sog,     width: 60, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'ixg',     header: 'ixG', accessor: r => r.ixg,     width: 60, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'toi_pg',  header: 'TOI/G', accessor: r => r.toi_pg, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
+    ];
+  }
+
+  // xGF% always available (TOI-weighted) — append it
+  tabCols.push({
+    id: 'xgf_pct', header: 'xGF%', accessor: r => r.xgf_pct ?? -1, width: 72, mobileHidden: true,
+    cell: (v) => {
+      const n = v as number;
+      if (n < 0) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+      const col = n >= 55 ? POS : n <= 45 ? NEG : undefined;
+      return <strong style={{ color: col }}>{n.toFixed(1)}%</strong>;
+    },
+    exportText: v => (v as number) >= 0 ? `${(v as number).toFixed(1)}%` : '—',
+  });
+
+  return [...fixed, ...tabCols];
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoffSeason = false }: Props) {
   const [tab,      setTab]      = useState<Tab>('counting');
@@ -230,6 +305,29 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const [teamFilter,   setTeamFilter]   = useState<string[]>([]);
   const [playerSearch, setPlayerSearch] = useState('');
   const [playerDropOpen, setPlayerDropOpen] = useState(false);
+
+  // Multi-season state
+  const currentNorm = useMemo(() => normSeason(currentSeason), [currentSeason]);
+  const [fromSeason, setFromSeason] = useState<string>(currentNorm);
+  const [toSeason,   setToSeason]   = useState<string>(currentNorm);
+  const [slimData,   setSlimData]   = useState<SlimData | null>(null);
+  const [slimLoading, setSlimLoading] = useState(false);
+
+  // Use the aggregated (slim) dataset for: any playoff view, or any non-current /
+  // multi-season regular range. Regular + current single season keeps the fast
+  // build-time path untouched.
+  const useAgg = gameType === 'playoffs' || fromSeason !== currentNorm || toSeason !== currentNorm;
+
+  // Lazily fetch the slim multi-season payload the first time it's needed.
+  useEffect(() => {
+    if (!useAgg || slimData || slimLoading) return;
+    setSlimLoading(true);
+    fetch('/data/skater-season-stats.json')
+      .then(r => r.json())
+      .then((d: SlimData) => setSlimData(d))
+      .catch(() => setSlimData({}))
+      .finally(() => setSlimLoading(false));
+  }, [useAgg, slimData, slimLoading]);
 
   // Seed player filter + force regular season from ?player= query param
   useEffect(() => {
@@ -246,6 +344,11 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   useEffect(() => {
     setMinGP(gameType === 'playoffs' ? 1 : 20);
   }, [gameType]);
+
+  // Aggregated mode only supports Counting/Rates — bounce off hidden tabs
+  useEffect(() => {
+    if (useAgg && (tab === 'advanced' || tab === 'onice')) setTab('counting');
+  }, [useAgg, tab]);
   const [isDark,   setIsDark]   = useState(false);
 
   useEffect(() => {
@@ -301,8 +404,46 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     [tab, gameType, strength, display, isDark, currentSeason],
   );
 
-  const tabDisabled = (_t: Tab) => false; // all tabs available; advanced/onice show season context in playoff mode
-  const strDisabled = (s: Strength) => tab === 'advanced' || tab === 'onice';
+  // ── Aggregated (multi-season / playoff) path ──────────────────────────────
+  const multi = fromSeason !== toSeason;
+  const rangeLabel = multi
+    ? `${fmtSeasonShort(fromSeason <= toSeason ? fromSeason : toSeason)} → ${fmtSeasonShort(fromSeason <= toSeason ? toSeason : fromSeason)}`
+    : fmtSeasonShort(fromSeason);
+
+  const seasonOptions = useMemo(
+    () => (slimData ? availableSeasons(slimData, gameType) : [currentNorm]),
+    [slimData, gameType, currentNorm],
+  );
+
+  // In aggregated mode only Counting/Rates are meaningful; fall back if on a hidden tab
+  const aggTab: Tab = (tab === 'advanced' || tab === 'onice') ? 'counting' : tab;
+
+  const aggFiltered = useMemo<AggRow[]>(() => {
+    if (!useAgg || !slimData) return [];
+    let r = aggregateSeasons(slimData, fromSeason, toSeason, gameType);
+    r = r.filter(x => x.gp >= minGP);
+    if (playerFilter.length > 0) r = r.filter(x => x.slug != null && playerFilter.includes(x.slug));
+    if (teamFilter.length > 0) r = r.filter(x => teamFilter.includes(x.team));
+    if (pos !== 'all') r = r.filter(x => x.group === pos);
+    if (topN) {
+      const sortField = aggTab === 'rates' || display === 'per60' ? 'p60' : 'points';
+      r = [...r].sort((a, b) => ((b as any)[sortField] ?? -Infinity) - ((a as any)[sortField] ?? -Infinity)).slice(0, topN);
+    }
+    return r;
+  }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, playerFilter, teamFilter, pos, topN, aggTab, display]);
+
+  const aggColumns = useMemo(
+    () => buildAggColumns(aggTab, display, isDark, rangeLabel, multi),
+    [aggTab, display, isDark, rangeLabel, multi],
+  );
+
+  const aggDefaultSort = useMemo(
+    () => ({ id: aggTab === 'rates' || display === 'per60' ? 'p60' : 'points', desc: true }),
+    [aggTab, display],
+  );
+
+  const tabDisabled = (t: Tab) => useAgg && (t === 'advanced' || t === 'onice');
+  const strDisabled = (_s: Strength) => useAgg || tab === 'advanced' || tab === 'onice';
 
   const [filtersOpen,  setFiltersOpen]  = useState(true);
 
@@ -331,7 +472,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         </>)}
         <div style={{ flex: 1 }} />
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
-          {filtered.length} skaters
+          {useAgg ? (slimLoading ? 'loading…' : `${aggFiltered.length} skaters`) : `${filtered.length} skaters`}
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={() => (document.getElementById('__hgb-csv-hgb-skaters') as HTMLElement)?.click()}
@@ -355,10 +496,24 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             </>)}
           </div>
           <div>
-            {label('Season')}
-            <select value={currentSeason} disabled style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'default', opacity: 1 }}>
-              <option>{currentSeason.includes('-') ? currentSeason.slice(2) : `${currentSeason.slice(2,4)}-${currentSeason.slice(6)}`}</option>
-            </select>
+            {label('Season Range')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select value={fromSeason} onChange={e => setFromSeason(e.target.value)}
+                style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
+              </select>
+              <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)' }}>to</span>
+              <select value={toSeason} onChange={e => setToSeason(e.target.value)}
+                style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
+              </select>
+              {seasonOptions.length > 1 && (
+                <button onClick={() => { setFromSeason(seasonOptions[seasonOptions.length - 1]); setToSeason(seasonOptions[0]); }}
+                  style={{ ...MONO, fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                  All time
+                </button>
+              )}
+            </div>
           </div>
           <div>
             {label('Position')}
@@ -482,26 +637,56 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         </div>
       )}
 
-      <HGBTable
-        data={filtered}
-        columns={columns}
-        defaultSort={defaultSort}
-        rowHref={r => `/stats/player/${r.slug}`}
-        emptyMessage="No skaters match the current filters."
-        exportFilename="hgb-skaters"
-        exportTitle="Skaters"
-        exportChips={[
-          gameType === 'regular' ? 'Reg Season' : 'Playoffs',
-          tab.charAt(0).toUpperCase() + tab.slice(1),
-          pos !== 'all' ? (pos === 'F' ? 'Forwards' : 'Defense') : 'All Positions',
-          strength !== 'all' ? strength.toUpperCase() : 'All Strengths',
-          `Min ${minGP} GP`,
-          ...(topN ? [`Top ${topN}`] : []),
-        ]}
-        hideToolbar
-        virtualize
-      />
-      {statsDate && (
+      {useAgg && slimLoading ? (
+        <div style={{ ...MONO, fontSize: 12, color: 'rgba(13,13,20,0.4)', padding: '48px 0', textAlign: 'center' }}>
+          Loading multi-season data…
+        </div>
+      ) : useAgg ? (
+        <HGBTable
+          data={aggFiltered}
+          columns={aggColumns}
+          defaultSort={aggDefaultSort}
+          rowHref={r => r.slug ? `/stats/player/${r.slug}` : undefined}
+          emptyMessage="No skaters match the current filters."
+          exportFilename="hgb-skaters"
+          exportTitle="Skaters"
+          exportChips={[
+            gameType === 'regular' ? 'Reg Season' : 'Playoffs',
+            rangeLabel,
+            aggTab.charAt(0).toUpperCase() + aggTab.slice(1),
+            pos !== 'all' ? (pos === 'F' ? 'Forwards' : 'Defense') : 'All Positions',
+            `Min ${minGP} GP`,
+            ...(topN ? [`Top ${topN}`] : []),
+          ]}
+          hideToolbar
+          virtualize
+        />
+      ) : (
+        <HGBTable
+          data={filtered}
+          columns={columns}
+          defaultSort={defaultSort}
+          rowHref={r => `/stats/player/${r.slug}`}
+          emptyMessage="No skaters match the current filters."
+          exportFilename="hgb-skaters"
+          exportTitle="Skaters"
+          exportChips={[
+            gameType === 'regular' ? 'Reg Season' : 'Playoffs',
+            tab.charAt(0).toUpperCase() + tab.slice(1),
+            pos !== 'all' ? (pos === 'F' ? 'Forwards' : 'Defense') : 'All Positions',
+            strength !== 'all' ? strength.toUpperCase() : 'All Strengths',
+            `Min ${minGP} GP`,
+            ...(topN ? [`Top ${topN}`] : []),
+          ]}
+          hideToolbar
+          virtualize
+        />
+      )}
+      {useAgg ? (
+        <p style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.32)', marginTop: 6, letterSpacing: '0.06em' }}>
+          {gameType === 'playoffs' ? 'Playoff' : 'Multi-season'} totals · TOI is 5v5 only · per-season ranks hidden when aggregating
+        </p>
+      ) : statsDate && (
         <p style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.32)', marginTop: 6, letterSpacing: '0.06em' }}>
           Updated {statsDate} · 5v5 data via HGB Analytics
         </p>
