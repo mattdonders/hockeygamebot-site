@@ -159,10 +159,32 @@ function dot(sx: string, sy: string, xg: number, isGoal: number, gFill: string, 
     : `<circle cx="${sx}" cy="${sy}" r="${r}" fill="${ngFill}" stroke="${ngStr}" stroke-width="0.7" opacity="0.80"/>`;
 }
 
+export type SeriesShotMapOpts = {
+  teamFor?: string;       // abbrev shown on the FOR side (right)
+  teamAgainst?: string;   // abbrev shown on the AGAINST side (left)
+  colorFor?: string;      // hex for FOR side (defaults to blue)
+  colorAgainst?: string;  // hex for AGAINST side (defaults to red)
+  showXgBar?: boolean;    // bottom xGF/xGA bar — omit when per-shot xG isn't available
+};
+
+// hex (#RRGGBB) → rgba() string at the given alpha
+function rgbaHex(hex: string, a: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 export function buildSeriesShotMapSVG(
   sf: FullRinkShot[],
   sa: FullRinkShot[],
+  opts: SeriesShotMapOpts = {},
 ): { svg: string; xgfPct: number; xgaPct: number } {
+  const cf = opts.colorFor ?? '#1464C8';     // FOR color (default blue)
+  const ca = opts.colorAgainst ?? '#E8002D'; // AGAINST color (default red)
+  const labelFor = opts.teamFor ?? 'FOR';
+  const labelAgainst = opts.teamAgainst ?? 'AGAINST';
+  const showXgBar = opts.showXgBar ?? true;
+
   const xgf = sf.reduce((a, s) => a + (s[2] || 0), 0);
   const xga = sa.reduce((a, s) => a + (s[2] || 0), 0);
   const tot = xgf + xga;
@@ -178,37 +200,39 @@ export function buildSeriesShotMapSVG(
   const p: string[] = [];
   p.push(`<svg class="full-rink-svg" viewBox="0 0 390 170" xmlns="http://www.w3.org/2000/svg" width="100%">`);
   p.push(`<rect x="2" y="2" width="386" height="166" rx="6" fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>`);
-  p.push(`<rect x="${CX}" y="2" width="${CX - 2}" height="166" fill="rgba(20,100,200,${fo})"/>`);
-  p.push(`<rect x="2" y="2" width="${CX - 2}" height="166" fill="rgba(232,0,45,${ao})"/>`);
+  p.push(`<rect x="${CX}" y="2" width="${CX - 2}" height="166" fill="${rgbaHex(cf, parseFloat(fo))}"/>`);
+  p.push(`<rect x="2" y="2" width="${CX - 2}" height="166" fill="${rgbaHex(ca, parseFloat(ao))}"/>`);
   p.push(`<line x1="${CX}" y1="2" x2="${CX}" y2="168" stroke="rgba(13,13,20,0.25)" stroke-width="1.5"/>`);
   p.push(`<circle cx="${CX}" cy="${cY}" r="8" fill="none" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>`);
   // FOR side rink markings
   const fBL = fxFor(0).toFixed(1), fGL = fxFor(100).toFixed(1), fFo = fxFor(69).toFixed(1);
-  p.push(`<line x1="${fBL}" y1="2" x2="${fBL}" y2="168" stroke="rgba(20,100,200,0.28)" stroke-width="1.2" stroke-dasharray="4 3"/>`);
-  p.push(`<line x1="${fGL}" y1="2" x2="${fGL}" y2="168" stroke="rgba(232,0,45,0.40)" stroke-width="1.2"/>`);
-  p.push(`<path d="M${fGL},${cYm} A20,20 0 0,0 ${fGL},${cYp}" fill="rgba(20,100,200,0.07)" stroke="rgba(20,100,200,0.28)" stroke-width="1"/>`);
+  p.push(`<line x1="${fBL}" y1="2" x2="${fBL}" y2="168" stroke="${rgbaHex(cf, 0.28)}" stroke-width="1.2" stroke-dasharray="4 3"/>`);
+  p.push(`<line x1="${fGL}" y1="2" x2="${fGL}" y2="168" stroke="${rgbaHex(cf, 0.40)}" stroke-width="1.2"/>`);
+  p.push(`<path d="M${fGL},${cYm} A20,20 0 0,0 ${fGL},${cYp}" fill="${rgbaHex(cf, 0.07)}" stroke="${rgbaHex(cf, 0.28)}" stroke-width="1"/>`);
   p.push(`<rect x="${fGL}" y="${(fy(0) - 3).toFixed(1)}" width="4" height="6" fill="rgba(13,13,20,0.35)" rx="0.5"/>`);
-  p.push(`<circle cx="${fFo}" cy="${foY1}" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>`);
-  p.push(`<circle cx="${fFo}" cy="${foY2}" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>`);
+  p.push(`<circle cx="${fFo}" cy="${foY1}" r="18" fill="none" stroke="${rgbaHex(cf, 0.18)}" stroke-width="1"/>`);
+  p.push(`<circle cx="${fFo}" cy="${foY2}" r="18" fill="none" stroke="${rgbaHex(cf, 0.18)}" stroke-width="1"/>`);
   // AGAINST side rink markings
   const aBL = fxAga(0).toFixed(1), aGL = fxAga(100).toFixed(1), aFo = fxAga(69).toFixed(1);
-  p.push(`<line x1="${aBL}" y1="2" x2="${aBL}" y2="168" stroke="rgba(232,0,45,0.22)" stroke-width="1.2" stroke-dasharray="4 3"/>`);
-  p.push(`<line x1="${aGL}" y1="2" x2="${aGL}" y2="168" stroke="rgba(232,0,45,0.40)" stroke-width="1.2"/>`);
-  p.push(`<path d="M${aGL},${cYm} A20,20 0 0,1 ${aGL},${cYp}" fill="rgba(232,0,45,0.07)" stroke="rgba(232,0,45,0.28)" stroke-width="1"/>`);
+  p.push(`<line x1="${aBL}" y1="2" x2="${aBL}" y2="168" stroke="${rgbaHex(ca, 0.22)}" stroke-width="1.2" stroke-dasharray="4 3"/>`);
+  p.push(`<line x1="${aGL}" y1="2" x2="${aGL}" y2="168" stroke="${rgbaHex(ca, 0.40)}" stroke-width="1.2"/>`);
+  p.push(`<path d="M${aGL},${cYm} A20,20 0 0,1 ${aGL},${cYp}" fill="${rgbaHex(ca, 0.07)}" stroke="${rgbaHex(ca, 0.28)}" stroke-width="1"/>`);
   p.push(`<rect x="${(parseFloat(aGL) - 4).toFixed(1)}" y="${(fy(0) - 3).toFixed(1)}" width="4" height="6" fill="rgba(13,13,20,0.35)" rx="0.5"/>`);
-  p.push(`<circle cx="${aFo}" cy="${foY1}" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>`);
-  p.push(`<circle cx="${aFo}" cy="${foY2}" r="18" fill="none" stroke="rgba(232,0,45,0.18)" stroke-width="1"/>`);
-  // Labels
-  p.push(`<text x="${CX - 82}" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(232,0,45,0.55)" text-anchor="middle" letter-spacing="0.10em">← AGAINST</text>`);
-  p.push(`<text x="${CX + 82}" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(20,100,200,0.55)" text-anchor="middle" letter-spacing="0.10em">FOR →</text>`);
+  p.push(`<circle cx="${aFo}" cy="${foY1}" r="18" fill="none" stroke="${rgbaHex(ca, 0.18)}" stroke-width="1"/>`);
+  p.push(`<circle cx="${aFo}" cy="${foY2}" r="18" fill="none" stroke="${rgbaHex(ca, 0.18)}" stroke-width="1"/>`);
+  // Labels — team abbreviations, colored by team
+  p.push(`<text x="${CX - 82}" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="${rgbaHex(ca, 0.85)}" text-anchor="middle" letter-spacing="0.10em">← ${labelAgainst}</text>`);
+  p.push(`<text x="${CX + 82}" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="${rgbaHex(cf, 0.85)}" text-anchor="middle" letter-spacing="0.10em">${labelFor} →</text>`);
   // Shots
-  sa.forEach(s => p.push(dot(fxAga(s[0]).toFixed(1), fy(s[1]).toFixed(1), s[2], s[3], '#E8002D', 'rgba(232,0,45,0.13)', 'rgba(232,0,45,0.35)')));
-  sf.forEach(s => p.push(dot(fxFor(s[0]).toFixed(1),  fy(s[1]).toFixed(1), s[2], s[3], 'rgba(20,100,200,0.90)', 'rgba(20,100,200,0.13)', 'rgba(20,100,200,0.35)')));
-  // xGF/xGA bar
-  p.push(`<rect x="2" y="158" width="386" height="10" fill="rgba(232,0,45,0.15)"/>`);
-  p.push(`<rect x="2" y="158" width="${(fp / 100 * 386).toFixed(1)}" height="10" fill="rgba(20,100,200,0.35)"/>`);
-  p.push(`<text x="6" y="166" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(232,0,45,0.70)" letter-spacing="0.06em">xGA ${ap.toFixed(1)}%</text>`);
-  p.push(`<text x="384" y="166" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(20,100,200,0.80)" text-anchor="end" letter-spacing="0.06em">xGF ${fp.toFixed(1)}%</text>`);
+  sa.forEach(s => p.push(dot(fxAga(s[0]).toFixed(1), fy(s[1]).toFixed(1), s[2], s[3], ca, rgbaHex(ca, 0.13), rgbaHex(ca, 0.35))));
+  sf.forEach(s => p.push(dot(fxFor(s[0]).toFixed(1),  fy(s[1]).toFixed(1), s[2], s[3], rgbaHex(cf, 0.90), rgbaHex(cf, 0.13), rgbaHex(cf, 0.35))));
+  // xGF/xGA bar (omitted when per-shot xG isn't available)
+  if (showXgBar) {
+    p.push(`<rect x="2" y="158" width="386" height="10" fill="${rgbaHex(ca, 0.15)}"/>`);
+    p.push(`<rect x="2" y="158" width="${(fp / 100 * 386).toFixed(1)}" height="10" fill="${rgbaHex(cf, 0.35)}"/>`);
+    p.push(`<text x="6" y="166" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="${rgbaHex(ca, 0.70)}" letter-spacing="0.06em">${labelAgainst} xGA ${ap.toFixed(1)}%</text>`);
+    p.push(`<text x="384" y="166" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="${rgbaHex(cf, 0.80)}" text-anchor="end" letter-spacing="0.06em">${labelFor} xGF ${fp.toFixed(1)}%</text>`);
+  }
   p.push(`</svg>`);
 
   return { svg: p.join(''), xgfPct: fp, xgaPct: ap };
