@@ -423,7 +423,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     .content-main { display: flex; flex-direction: column; gap: 16px; grid-column: 1; align-self: start; min-width: 0; }
     .page-sidebar { grid-column: 2; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 20px; align-self: start; }
     .content-side { display: flex; flex-direction: column; gap: 16px; }
-    .cta-card { align-self: start; }
+    .cta-card { width: 100%; }
 
     /* Cards */
     .card { background: var(--surface); border: 1px solid var(--ink-14); box-shadow: 0 1px 3px rgba(13,13,20,0.06); }
@@ -1840,7 +1840,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.strokeStyle = INK10; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.stroke();
       // label
-      ctx.font = '700 7.5px "JetBrains Mono", monospace';
+      ctx.font = '700 10px "JetBrains Mono", monospace';
       ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       ctx.fillText(lbl.toUpperCase(), x + PAD, y + 9);
       // value
@@ -1854,16 +1854,15 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         const fc = edgeTierColor(pct, blue);
         ctx.fillStyle = fc;
         ctx.beginPath(); ctx.roundRect(bx, by, Math.max(6, (pct / 100) * bw), bh, 2); ctx.fill();
-        // pct label
-        ctx.font = '600 10px "Barlow", sans-serif';
+        ctx.font = '600 9px "Barlow", sans-serif';
         ctx.fillStyle = fc; ctx.textBaseline = 'top';
-        ctx.fillText(`${Math.round(pct)}th percentile`, x + PAD, y + h - 22);
-      }
-      // avg
-      if (avgStr) {
-        ctx.font = '400 7.5px "JetBrains Mono", monospace';
-        ctx.fillStyle = INK32; ctx.textBaseline = 'bottom';
-        ctx.fillText(avgStr, x + PAD, y + h - 4);
+        ctx.fillText(ordinal(pct) + ' percentile', x + PAD, y + h - 22);
+        if (avgStr) {
+          ctx.font = '400 10px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textAlign = 'right';
+          ctx.fillText(avgStr, x + w - PAD, y + h - 22);
+          ctx.textAlign = 'left';
+        }
       }
     }
 
@@ -1922,52 +1921,56 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       return y + 44;
     }
 
-    function drawShotDanger(ctx, y, W, PAD, e) {
-      const colW = (W - PAD * 2 - 16) / 3;
+    function drawShotDanger(ctx, y, W, PAD, e, innerPad = 0) {
+      const colPad = PAD + innerPad;
+      const colW = (W - colPad * 2 - 16) / 3;
+      const SD_CHIP = 20, SD_NUM = 24, SD_LSIZE = 10, SD_PSIZE = 9, SD_ROW_GAP = 8, SD_BOT = 12, barH = 5;
+      const row1H = SD_LSIZE + 4 + SD_NUM + 2 + barH + 2 + SD_PSIZE + 2;
+      const row2H = SD_LSIZE + 4 + (SD_NUM - 4) + 2 + barH + 2 + SD_PSIZE + 2;
+      const colH = SD_CHIP + 8 + row1H + SD_ROW_GAP + row2H;
+      const cardH = 22 + colH + SD_BOT;
       const zones = [
-        { lbl: 'HIGH DANGER', color: TEAM_C,    n: e.shots_high,  np: e.shots_high_pct,  sh: e.shooting_pct_high,  shp: e.shooting_pct_high_pct },
-        { lbl: 'MID RANGE',   color: INK32,     n: e.shots_mid,   np: e.shots_mid_pct,   sh: e.shooting_pct_mid,   shp: e.shooting_pct_mid_pct },
-        { lbl: 'LONG RANGE',  color: INK32,     n: e.shots_long,  np: e.shots_long_pct,  sh: e.shooting_pct_long,  shp: e.shooting_pct_long_pct },
+        { lbl: 'HIGH DANGER', n: e.shots_high,  np: e.shots_high_pct,  sh: e.shooting_pct_high,  shp: e.shooting_pct_high_pct },
+        { lbl: 'MID RANGE',   n: e.shots_mid,   np: e.shots_mid_pct,   sh: e.shooting_pct_mid,   shp: e.shooting_pct_mid_pct },
+        { lbl: 'LONG RANGE',  n: e.shots_long,  np: e.shots_long_pct,  sh: e.shooting_pct_long,  shp: e.shooting_pct_long_pct },
       ];
-      // background card
-      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 185, 4); ctx.fill();
-      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, 185, 4); ctx.stroke();
-      ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText('SHOT LOCATION BY DANGER ZONE', PAD + 6, y - 4);
+      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, cardH, 4); ctx.fill();
+      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 10, W - PAD * 2 + 4, cardH, 4); ctx.stroke();
+      ctx.font = `700 ${SD_LSIZE}px "JetBrains Mono", monospace`; ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('SHOT LOCATION BY DANGER ZONE', PAD + 8, y - 1);
       y += 12;
       for (let i = 0; i < 3; i++) {
-        const z = zones[i];
-        const cx = PAD + i * (colW + 8);
-        const ry = y;
-        // zone chip
+        const z = zones[i]; const cx = colPad + i * (colW + 8); let cy = y;
         const chipColor = i === 0 ? `rgba(${parseInt(TEAM_C.slice(1,3),16)},${parseInt(TEAM_C.slice(3,5),16)},${parseInt(TEAM_C.slice(5,7),16)},0.14)` : 'rgba(13,13,20,0.06)';
-        ctx.fillStyle = chipColor; ctx.beginPath(); ctx.roundRect(cx, ry, colW, 16, 2); ctx.fill();
-        ctx.font = '700 7px "JetBrains Mono", monospace'; ctx.fillStyle = i === 0 ? TEAM_C : INK45;
+        ctx.fillStyle = chipColor; ctx.beginPath(); ctx.roundRect(cx, cy, colW, SD_CHIP, 2); ctx.fill();
+        ctx.font = `700 ${SD_LSIZE}px "JetBrains Mono", monospace`; ctx.fillStyle = i === 0 ? TEAM_C : INK45;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(z.lbl, cx + colW / 2, ry + 8);
-        // Attempts
-        ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        ctx.fillText('ATTEMPTS', cx, ry + 22);
-        ctx.font = '800 24px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
-        ctx.fillText(z.n != null ? `${z.n}` : '—', cx, ry + 30);
-        const npColor = edgeTierColor(z.np, false);
-        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = npColor;
-        ctx.fillText(z.np != null ? `${Math.round(z.np)}th` : '', cx, ry + 56);
-        const abw = colW, abh = 5;
-        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, ry + 66, abw, abh, 2); ctx.fill();
-        if (z.np != null) { ctx.fillStyle = npColor; ctx.beginPath(); ctx.roundRect(cx, ry + 66, Math.max(4, (z.np/100)*abw), abh, 2); ctx.fill(); }
-        // Shooting %
-        ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textBaseline = 'top';
-        ctx.fillText('SHOOTING %', cx, ry + 78);
-        ctx.font = '800 20px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
-        ctx.fillText(z.sh != null ? `${z.sh}%` : '—', cx, ry + 88);
+        ctx.fillText(z.lbl, cx + colW / 2, cy + SD_CHIP / 2);
+        cy += SD_CHIP + 8;
+        // Attempts: label → number → bar → pct
+        ctx.font = `700 ${SD_LSIZE}px "JetBrains Mono", monospace`; ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText('ATTEMPTS', cx, cy); cy += SD_LSIZE + 4;
+        ctx.font = `800 ${SD_NUM}px "Barlow Condensed", sans-serif`; ctx.fillStyle = INK;
+        ctx.fillText(z.n != null ? `${z.n}` : '—', cx, cy); cy += SD_NUM + 2;
+        const abw = colW, npColor = edgeTierColor(z.np, false);
+        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, cy, abw, barH, 2); ctx.fill();
+        if (z.np != null) { ctx.fillStyle = npColor; ctx.beginPath(); ctx.roundRect(cx, cy, Math.max(4, (z.np/100)*abw), barH, 2); ctx.fill(); }
+        cy += barH + 2;
+        ctx.font = `600 ${SD_PSIZE}px "Barlow", sans-serif`; ctx.fillStyle = npColor;
+        ctx.fillText(z.np != null ? ordinal(z.np) + 'th' : '', cx, cy); cy += SD_PSIZE + SD_ROW_GAP;
+        // Shooting %: label → number → bar → pct
+        ctx.font = `700 ${SD_LSIZE}px "JetBrains Mono", monospace`; ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+        ctx.fillText('SHOOTING %', cx, cy); cy += SD_LSIZE + 4;
+        ctx.font = `800 ${SD_NUM - 4}px "Barlow Condensed", sans-serif`; ctx.fillStyle = INK;
+        ctx.fillText(z.sh != null ? `${z.sh}%` : '—', cx, cy); cy += SD_NUM - 4 + 2;
         const shpColor = edgeTierColor(z.shp, false);
-        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = shpColor;
-        ctx.fillText(z.shp != null ? `${Math.round(z.shp)}th` : '', cx, ry + 110);
-        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, ry + 121, abw, abh, 2); ctx.fill();
-        if (z.shp != null) { ctx.fillStyle = shpColor; ctx.beginPath(); ctx.roundRect(cx, ry + 121, Math.max(4, (z.shp/100)*abw), abh, 2); ctx.fill(); }
+        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, cy, abw, barH, 2); ctx.fill();
+        if (z.shp != null) { ctx.fillStyle = shpColor; ctx.beginPath(); ctx.roundRect(cx, cy, Math.max(4, (z.shp/100)*abw), barH, 2); ctx.fill(); }
+        cy += barH + 2;
+        ctx.font = `600 ${SD_PSIZE}px "Barlow", sans-serif`; ctx.fillStyle = shpColor;
+        ctx.fillText(z.shp != null ? ordinal(z.shp) + 'th' : '', cx, cy);
       }
-      return y + 133;
+      return y + colH;
     }
 
     function drawEdgeDivider(ctx, y, W) {
@@ -2183,7 +2186,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // Heights
       const HDR_H = 52, CHIP_H = 34;
       const ID_H = 122, BAR_ROW_H = 29, BAR_ROWS = 11;
-      const L_CONTENT_H = 6 + ID_H + 1 + 20 + 12 + BAR_ROWS * BAR_ROW_H + 12;
+      const COUNTS_H_S = 68;
+      const L_CONTENT_H = 6 + ID_H + COUNTS_H_S + 1 + 20 + 12 + BAR_ROWS * BAR_ROW_H + 12;
       const EDGE_CONTENT_H = e ? 473 : 80; // measured: 44(hdr)+194(tiles)+92(zone)+143(shot)
       const CONTENT_H = Math.max(L_CONTENT_H, EDGE_CONTENT_H);
       const FOOT_H = 36;
@@ -2252,10 +2256,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       var heroImpPct    = isHistorical ? seasonData.impact_pct     : (D.impactPct != null ? Math.round(D.impactPct) : null);
       var heroSeason    = isHistorical ? selectedSeason : (D.currentSeason || '2025-26');
       var heroGp        = isHistorical ? (seasonData.gp || '—') : D.gp;
+      var s = function(n) { return n != null ? (n >= 0 ? '+' : '') + n.toFixed(2) : '—'; };
       const heroTiles = [
-        { label: 'HGB RATING', pct: heroRatingPct, sub: heroSeason + ' · ' + heroGp + ' GP' + (isLimited ? ' · limited sample' : '') },
-        { label: 'HGB WAR',    pct: heroWarPct,    sub: heroSeason },
-        { label: 'HGB IMPACT', pct: heroImpPct,    sub: heroSeason },
+        { label: 'HGB RATING', pct: heroRatingPct, sub: isHistorical ? heroSeason : s(D.hgb_rating) + ' Rating' + (isLimited ? ' · limited' : '') },
+        { label: 'HGB WAR',    pct: heroWarPct,    sub: isHistorical ? heroSeason : s(D.war) + ' WAR' },
+        { label: 'HGB IMPACT', pct: heroImpPct,    sub: isHistorical ? heroSeason : s(D.avgGsDisplay) + ' GS avg' },
       ];
       for (let i = 0; i < heroTiles.length; i++) {
         const t = heroTiles[i];
@@ -2272,6 +2277,32 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillText(t.sub, tcx, y + 78);
       }
       y += ID_H;
+
+      // ── Counting stats strip — G / A / PTS / GP / TOI/GP ─────────────────
+      ctx.fillStyle = SURFACE; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
+      const totalPtsS  = D.totalG + D.totalA;
+      const toiAvgStrS = (() => { const m = Math.floor(D.toiAvgSec/60), s2 = Math.round(D.toiAvgSec%60); return m+':'+(s2<10?'0':'')+s2; })();
+      const countCols = [
+        { label: 'GOALS',   val: String(D.totalG),       color: INK },
+        { label: 'ASSISTS', val: String(D.totalA),       color: INK },
+        { label: 'POINTS',  val: String(totalPtsS),      color: TEAM_C },
+        { label: 'GP',      val: String(heroGp),         color: INK },
+        { label: 'TOI/GP',  val: toiAvgStrS,             color: INK },
+      ];
+      const cColW = (L_W - PAD * 2) / countCols.length;
+      for (let ci = 0; ci < countCols.length; ci++) {
+        const cc = countCols[ci];
+        const ccx = PAD + ci * cColW + cColW / 2;
+        if (ci > 0) { ctx.fillStyle = INK06; ctx.fillRect(PAD + ci * cColW, y + 10, 1, COUNTS_H_S - 20); }
+        ctx.font = '800 32px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = cc.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText(cc.val, ccx, y + COUNTS_H_S / 2 - 8);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
+        ctx.fillText(cc.label, ccx, y + COUNTS_H_S / 2 + 16);
+      }
+      y += COUNTS_H_S;
+
       ctx.fillStyle = INK14; ctx.fillRect(0, y, L_W, 1); y += 1 + 20;
 
       // Section header
@@ -2361,10 +2392,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillStyle = INK; ctx.fillText('NHL EDGE ', RX + R_PAD, ry + EDGE_HDR_H / 2);
         const edgeLabelW = ctx.measureText('NHL EDGE ').width;
         ctx.fillStyle = '#006D75'; ctx.fillText('TRACKING', RX + R_PAD + edgeLabelW, ry + EDGE_HDR_H / 2);
-        ry += EDGE_HDR_H + 8;
+        ry += EDGE_HDR_H + 10;
 
         // 2×2 stat tiles
-        const tileW = (R_W - R_PAD * 2 - 10) / 2, tileH = 86;
+        const tileW = (R_W - R_PAD * 2 - 10) / 2, tileH = 90;
         const pairs = [
           ['TOP SPEED',      e.speed_max_mph != null ? e.speed_max_mph + ' mph' : '—',       e.speed_max_pct,      e.speed_max_league_avg_mph != null ? 'avg ' + e.speed_max_league_avg_mph + ' mph' : '', false],
           ['MILES SKATED',   e.distance_mi   != null ? e.distance_mi + ' mi' : '—',          e.distance_pct,       e.distance_league_avg_mi != null ? 'avg ' + e.distance_league_avg_mi + ' mi' : '',  false],
@@ -2375,42 +2406,43 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
           const col = i % 2, row = Math.floor(i / 2);
           drawEdgeStatBox(ctx, RX + R_PAD + col * (tileW + 10), ry + row * (tileH + 10), tileW, tileH, pairs[i][0], pairs[i][1], pairs[i][2], pairs[i][3], pairs[i][4]);
         }
-        ry += 2 * (tileH + 10) - 10 + 12;
-        // Zone bar (abbreviated labels to avoid overflow in narrow segments)
+        ry += 2 * (tileH + 10) - 10 + 25;
+        // Zone bar — white card aligned with tiles; 6px inner padding keeps bar off the card edges
         const oz2 = e.oz_pct ?? 45, nz2 = e.nz_pct ?? 32, dz2 = e.dz_pct ?? 23;
         const zbw = R_W - R_PAD * 2, zbx = RX + R_PAD;
-        ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(zbx, ry - 10, zbw, 90, 4); ctx.fill();
-        ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(zbx, ry - 10, zbw, 90, 4); ctx.stroke();
+        const zBarPad = 10, zBarW = zbw - zBarPad * 2, zBarX = zbx + zBarPad;
+        ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(zbx, ry - 10, zbw, 100, 4); ctx.fill();
+        ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(zbx, ry - 10, zbw, 100, 4); ctx.stroke();
         ctx.font = '700 7.5px "JetBrains Mono", monospace'; ctx.fillStyle = INK45; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        ctx.fillText('ZONE TIME — EVEN STRENGTH', zbx + 6, ry - 4);
+        ctx.fillText('ZONE TIME — EVEN STRENGTH', zbx + 10, ry - 1);
         if (e.oz_ev_pct_pct != null) {
           ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
-          ctx.fillText('OZ: ' + Math.round(e.oz_ev_pct_pct) + 'th', RX + R_W - R_PAD, ry - 4);
+          ctx.fillText('OZ: ' + ordinal(e.oz_ev_pct_pct), zbx + zbw - 10, ry - 1);
         }
         ry += 14;
-        ctx.save(); ctx.beginPath(); ctx.roundRect(zbx, ry, zbw, 20, 3); ctx.clip();
-        ctx.fillStyle = TEAM_C;                    ctx.fillRect(zbx,                      ry, zbw * oz2 / 100, 20);
-        ctx.fillStyle = 'rgba(13,13,20,0.18)';     ctx.fillRect(zbx + zbw * oz2 / 100,    ry, zbw * nz2 / 100, 20);
-        ctx.fillStyle = 'rgba(232,0,45,0.30)';     ctx.fillRect(zbx + zbw*(oz2+nz2)/100,  ry, zbw * dz2 / 100, 20);
+        ctx.save(); ctx.beginPath(); ctx.roundRect(zBarX, ry, zBarW, 20, 3); ctx.clip();
+        ctx.fillStyle = TEAM_C;                    ctx.fillRect(zBarX,                         ry, zBarW * oz2 / 100, 20);
+        ctx.fillStyle = 'rgba(13,13,20,0.18)';     ctx.fillRect(zBarX + zBarW * oz2 / 100,     ry, zBarW * nz2 / 100, 20);
+        ctx.fillStyle = 'rgba(232,0,45,0.30)';     ctx.fillRect(zBarX + zBarW*(oz2+nz2)/100,   ry, zBarW * dz2 / 100, 20);
         ctx.restore();
         ry += 26;
         const zSegs2 = [['OZ', oz2.toFixed(0) + '%', oz2], ['NZ', nz2.toFixed(0) + '%', nz2], ['DZ', dz2.toFixed(0) + '%', dz2]];
-        let zlx = zbx + 6;
+        let zlx = zBarX;
         for (let zi = 0; zi < zSegs2.length; zi++) {
           const [abbr, pctStr, w] = zSegs2[zi];
           ctx.font = '800 14px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
           ctx.fillText(pctStr, zlx, ry);
-          ctx.font = '600 7px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
-          ctx.fillText(abbr, zlx, ry + 17);
-          zlx += zbw * w / 100;
+          ctx.font = '600 10px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+          ctx.fillText(abbr, zlx, ry + 16);
+          zlx += zBarW * w / 100;
         }
-        ry += 40 + 12;
+        ry += 74; // 14(num)+10(lbl)+6(gap) + 8(afterSegGap) + 36(afterZoneGap)
 
-        // Shot danger — clip to tile area width so helper's -2/+4 background doesn't overflow
+        // Shot danger — clip aligned with tiles (R_PAD); pass R_PAD+2 so background card aligns exactly
         ctx.save();
         ctx.translate(RX, 0);
         ctx.beginPath(); ctx.rect(R_PAD, 0, R_W - R_PAD * 2, H); ctx.clip();
-        ry = drawShotDanger(ctx, ry, R_W, R_PAD, e) + 10;
+        ry = drawShotDanger(ctx, ry, R_W, R_PAD + 2, e, 10) + 10;
         ctx.restore();
       }
 
