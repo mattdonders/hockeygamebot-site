@@ -185,10 +185,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Prop
     });
   }, [playoffSeasons]);
 
-  const hasLimitedPlayoff = useMemo(
-    () => playoffRows.some(r => r.limited),
-    [playoffRows],
-  );
 
   // Set initial active season to most recent (first after desc sort)
   useEffect(() => {
@@ -379,10 +375,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Prop
         header: 'GP',
         size: 60,
         accessorFn: (r) => r.gp ?? 0,
-        cell: (info) => {
-          const row = info.row.original;
-          return <span>{info.getValue<number>()}{row.limited ? <span style={{ color: MUTED }}> *</span> : null}</span>;
-        },
+        cell: (info) => <span>{info.getValue<number>()}</span>,
       },
       {
         id: 'toi_gp',
@@ -484,7 +477,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Prop
 
   return (
     <div style={{ ...BODY, color: INK, overflowX: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '12px 18px' }}>
         <button style={chip(mode === 'regular')} onClick={() => setMode('regular')}>Regular Season</button>
         <button style={chip(mode === 'playoffs')} onClick={() => setMode('playoffs')}>Playoffs</button>
       </div>
@@ -601,12 +594,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Prop
           })}
         </tbody>
       </table>
-      )}
-
-      {isPlayoffs && hasLimitedPlayoff && !noPlayoffData && (
-        <p style={{ ...MONO, fontSize: 10, color: MUTED, margin: '10px 18px 0', letterSpacing: '0.04em', lineHeight: 1.5 }}>
-          * fewer than 30 games played — stats may be less stable
-        </p>
       )}
 
       <p
