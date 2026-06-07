@@ -52,7 +52,7 @@ const _META_FALLBACK = {
 
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
-const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, playerCareerData, seriesStatsData, seriesRecordsData, playerSeasonStatsData] = await Promise.all([
+const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, seriesStatsData, seriesRecordsData, playerSeasonStatsData] = await Promise.all([
   _safeFetchJSON('players',      []),
   _safeFetchJSON('leaderboards', {}),
   _safeFetchJSON('player-games', {}),
@@ -61,22 +61,14 @@ const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsDa
   _fetchJSON('goalies').catch(() => []),
   _fetchJSON('lines').catch(() => []),
   _fetchJSON('player-shots').catch(() => ({})),
-  _fetchJSON('player-career').catch(() => ({})),
   _fetchJSON('series-stats').catch(() => ({ series: [], rounds: [] })),
   _fetchJSON('series-records').catch(() => ({ series: [], total_series: 0 })),
   _fetchJSON('player-season-stats').catch(() => ({})),
 ]);
 
-const VALIDATED_PLAYERS_RAW  = parseOrThrow(PlayerRecordsSchema,  playersData,        'players');
-
-// Merge career_seasons after Zod parsing — Zod strip mode rebuilds objects
-// from schema keys only, so mutations to raw data before parsing are lost.
-const careerMap: Record<string, { seasons: unknown[] }> = playerCareerData ?? {};
-const VALIDATED_PLAYERS = VALIDATED_PLAYERS_RAW.map(player => {
-  const career = careerMap[String(player.player_id)];
-  if (!career?.seasons?.length) return player;
-  return { ...player, career_seasons: career.seasons as typeof player.career_seasons };
-});
+// career_seasons is embedded in players.json by the exporter; player_career.json
+// stays in R2 for future retired-player pages (client-side fetch on demand).
+const VALIDATED_PLAYERS = parseOrThrow(PlayerRecordsSchema, playersData, 'players');
 const VALIDATED_LEADERBOARDS = parseOrThrow(LeaderboardsSchema,   leaderboardsData,   'leaderboards');
 const VALIDATED_PLAYER_GAMES = parseOrThrow(PlayerGamesSchema,    playerGamesData,    'player-games');
 const VALIDATED_META         = parseOrThrow(StatsMetaSchema,      metaData,           'meta');
@@ -322,7 +314,7 @@ export function loadSeriesRecords(): { series: any[]; total_series: number; scop
 /** Returns true when enough players have playoff data to indicate playoffs are active.
  *  Used to default table game-type toggles to 'playoffs' during postseason. */
 export function loadIsPlayoffSeason(): boolean {
-  const players = VALIDATED_PLAYERS_RAW;
+  const players = VALIDATED_PLAYERS;
   const withPo = players.filter(p => (p as any).playoff_gp != null && (p as any).playoff_gp >= 1).length;
   return withPo >= 50; // at least 50 players with playoff games = postseason is underway
 }
