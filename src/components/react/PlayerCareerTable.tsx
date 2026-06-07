@@ -56,6 +56,8 @@ type Props = {
   seasons: CareerSeason[];
   playoffSeasons?: PlayoffSeason[];
   playerTeam: string;
+  playerName?: string;
+  playerSlug?: string;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -126,7 +128,7 @@ function normalizeSeasonKey(s: string | undefined): string {
   return s;
 }
 
-export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Props) {
+export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerName = 'Player', playerSlug = 'player' }: Props) {
   const [isDark, setIsDark] = useState(false);
   // Active season: defaults to most recent (first after desc sort)
   const [activeSeason, setActiveSeason] = useState<string>('');
@@ -475,11 +477,58 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Prop
     cursor: 'pointer',
   });
 
+  // PNG export — uses the shared window.HGB_Export.downloadTablePng (table-export.js)
+  function exportPng() {
+    const exp = (window as any).HGB_Export;
+    if (!exp?.downloadTablePng) return;
+    const data = activeTable.getRowModel().rows.map(r => r.original as CareerRow & PlayoffRow);
+    const pctFmt = (v: any) => v != null ? `${Math.round(Number(v))}%` : '—';
+    const oneFmt = (v: any) => v != null ? `${Number(v).toFixed(1)}%` : '—';
+    const pctColor = (v: any, _r: any, tok: any) => v == null ? null : v >= 55 ? tok.pos : v <= 45 ? tok.neg : null;
+    const rankColor = (v: any, _r: any, tok: any) => v == null ? null : v >= 70 ? tok.pos : v <= 30 ? tok.neg : null;
+    // Mark the active sort column so the export shows the arrow + bold header (matches HGBTable)
+    const cur = sorting[0];
+    const mark = (sortId: string) => ({
+      sorted: cur?.id === sortId,
+      sortDir: cur?.id === sortId ? (cur.desc ? 'desc' : 'asc') : null,
+    });
+    const columns = isPlayoffs ? [
+      { label: 'Season', key: 'season_fmt', width: 92,  align: 'left',   fontFamily: 'mono', ...mark('season') },
+      { label: 'Team',   key: 'team',       width: 68,  align: 'center', fontFamily: 'mono', ...mark('team') },
+      { label: 'GP',     key: 'gp',         width: 58,  align: 'center', ...mark('gp') },
+      { label: 'TOI/GP', key: 'toi_gp',     width: 78,  align: 'center', ...mark('toi_gp') },
+      { label: 'G',      key: 'goals',      width: 54,  align: 'center', ...mark('goals') },
+      { label: 'A',      key: 'assists',    width: 54,  align: 'center', ...mark('assists') },
+      { label: 'P',      key: 'points',     width: 60,  align: 'center', bold: true, ...mark('points') },
+      { label: 'xGF%',   key: 'xgf_pct_5v5',width: 76,  align: 'center', format: oneFmt, color: pctColor, ...mark('xgf_pct') },
+      { label: 'GAx',    key: 'gax',        width: 70,  align: 'center', format: (v: any) => v == null ? '—' : `${v > 0 ? '+' : ''}${Number(v).toFixed(2)}`, color: pctColor, ...mark('gax') },
+    ] : [
+      { label: 'Season',  key: 'season_fmt',     width: 92,  align: 'left',   fontFamily: 'mono', ...mark('season') },
+      { label: 'Team',    key: 'team',           width: 68,  align: 'center', fontFamily: 'mono', ...mark('team') },
+      { label: 'GP',      key: 'gp',             width: 58,  align: 'center', ...mark('gp') },
+      { label: 'TOI/GP',  key: 'toi_gp',         width: 78,  align: 'center', ...mark('toi_gp') },
+      { label: 'GF%',     key: 'gf_pct',         width: 74,  align: 'center', format: oneFmt, color: pctColor, ...mark('gf_pct') },
+      { label: 'xGF%',    key: 'xgf_pct',        width: 74,  align: 'center', format: oneFmt, color: pctColor, ...mark('xgf_pct') },
+      { label: 'Rating%', key: 'hgb_rating_pct', width: 80,  align: 'center', format: pctFmt, color: rankColor, ...mark('hgb_rating_pct') },
+      { label: 'WAR%',    key: 'war_pct',        width: 74,  align: 'center', format: pctFmt, color: rankColor, ...mark('war_pct') },
+      { label: 'Impact%', key: 'impact_pct',     width: 80,  align: 'center', format: pctFmt, color: rankColor, ...mark('impact_pct') },
+    ];
+    exp.downloadTablePng({
+      title: `${playerName} · Career`,
+      filterChips: [isPlayoffs ? 'Playoffs' : 'Regular Season', 'Season by Season'],
+      rows: data,
+      columns,
+      filename: `hgb_career_${playerSlug}_${isPlayoffs ? 'playoffs' : 'regular'}.png`,
+    });
+  }
+
   return (
     <div style={{ ...BODY, color: INK, overflowX: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '12px 18px' }}>
         <button style={chip(mode === 'regular')} onClick={() => setMode('regular')}>Regular Season</button>
         <button style={chip(mode === 'playoffs')} onClick={() => setMode('playoffs')}>Playoffs</button>
+        <div style={{ flex: 1 }} />
+        <button style={chip(false)} onClick={exportPng} title="Download this table as a PNG">↓ PNG</button>
       </div>
 
       {noPlayoffData ? (
