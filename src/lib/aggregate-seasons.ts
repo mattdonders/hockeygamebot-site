@@ -18,7 +18,7 @@ export type SlimRow = {
   g: number; a1: number; a2: number; a: number; pts: number;
   sog: number; ixg: number; toi: number; xgf: number | null; cf: number | null; lim: number;
 };
-export type SlimPlayer = { f: string | null; l: string | null; s: string | null; pos: string; r: SlimRow[]; p: SlimRow[] };
+export type SlimPlayer = { n: string | null; s: string | null; pos: string; r: SlimRow[]; p: SlimRow[] };
 export type SlimData = Record<string, SlimPlayer>;
 export type GameType = 'regular' | 'playoffs';
 
@@ -79,9 +79,10 @@ export function aggregateSeasons(
     if (multi && gp < 5) continue;
 
     const hr = toi / 3600 || 1;
-    const first = pl.f ?? '';
-    const last = pl.l ?? '';
-    const name = (first || last) ? `${first} ${last}`.trim() : `#${id}`;
+    const name = pl.n ?? `#${id}`;
+    const sp = pl.n ? pl.n.indexOf(' ') : -1;
+    const first = sp > 0 ? pl.n!.slice(0, sp) : (pl.n ?? '');
+    const last = sp > 0 ? pl.n!.slice(sp + 1) : '';
 
     out.push({
       player_id: id,
