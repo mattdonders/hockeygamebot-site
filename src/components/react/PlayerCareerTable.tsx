@@ -35,8 +35,26 @@ export type CareerSeason = {
   war_pct?: number | null;
 };
 
+// Playoff season row from player-season-stats (playoffs[] array). Shape differs
+// from regular career rows: raw counting stats present, RAPM/WAR null, GF/xGF
+// suffixed _5v5.
+export type PlayoffSeason = {
+  season?: string;
+  team?: string;
+  gp?: number;
+  toi_5v5_sec?: number;
+  goals?: number;
+  assists?: number;
+  points?: number;
+  ixg?: number;
+  gf_pct_5v5?: number | null;
+  xgf_pct_5v5?: number | null;
+  limited?: boolean;
+};
+
 type Props = {
   seasons: CareerSeason[];
+  playoffSeasons?: PlayoffSeason[];
   playerTeam: string;
 };
 
@@ -88,7 +106,16 @@ type CareerRow = CareerSeason & {
   season_normalized: string; // e.g. "2025-26" for event dispatch
 };
 
+type PlayoffRow = PlayoffSeason & {
+  season_fmt: string;
+  toi_gp: string;
+  is_current: boolean;
+  season_normalized: string;
+  gax: number | null; // goals - ixg
+};
+
 const CURRENT_SEASON = '20252026';
+const CURRENT_SEASON_NORM = '2025-26';
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -99,10 +126,12 @@ function normalizeSeasonKey(s: string | undefined): string {
   return s;
 }
 
-export default function PlayerCareerTable({ seasons }: Props) {
+export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Props) {
   const [isDark, setIsDark] = useState(false);
   // Active season: defaults to most recent (first after desc sort)
   const [activeSeason, setActiveSeason] = useState<string>('');
+  // Regular / Playoffs toggle
+  const [mode, setMode] = useState<'regular' | 'playoffs'>('regular');
 
   useEffect(() => {
     const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
@@ -138,6 +167,28 @@ export default function PlayerCareerTable({ seasons }: Props) {
     }));
     return mapped;
   }, [seasons]);
+
+  const playoffRows = useMemo<PlayoffRow[]>(() => {
+    return playoffSeasons.map(row => {
+      const norm = normalizeSeasonKey(row.season);
+      const gax = row.goals != null && row.ixg != null
+        ? Math.round((row.goals - row.ixg) * 100) / 100
+        : null;
+      return {
+        ...row,
+        season_fmt: fmtSeason(row.season ?? ''),
+        toi_gp: fmtToi5v5(row.toi_5v5_sec ?? 0, row.gp ?? 0),
+        is_current: norm === CURRENT_SEASON_NORM,
+        season_normalized: norm,
+        gax,
+      };
+    });
+  }, [playoffSeasons]);
+
+  const hasLimitedPlayoff = useMemo(
+    () => playoffRows.some(r => r.limited),
+    [playoffRows],
+  );
 
   // Set initial active season to most recent (first after desc sort)
   useEffect(() => {
@@ -288,6 +339,114 @@ export default function PlayerCareerTable({ seasons }: Props) {
     [],
   );
 
+  // Playoff columns: counting stats forward (the headline story), plus GAx.
+  // RAPM/WAR/Impact are null in playoff rows, so they're omitted entirely.
+  const playoffColumns = useMemo<ColumnDef<PlayoffRow>[]>(
+    () => [
+      {
+        id: 'season',
+        header: 'Season',
+        size: 90,
+        accessorFn: (r) => r.season ?? '',
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <span style={{ ...MONO, fontWeight: row.is_current ? 700 : 500, color: row.is_current ? INK : 'rgba(13,13,20,0.72)' }}>
+              {row.season_fmt}
+            </span>
+          );
+        },
+        sortingFn: 'alphanumeric',
+      },
+      {
+        id: 'team',
+        header: 'Team',
+        size: 100,
+        accessorFn: (r) => r.team ?? '',
+        cell: (info) => {
+          const abbr = info.getValue<string>();
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <img src={teamLogoSrc(abbr)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE} style={TEAM_LOGO_STYLE} alt={abbr} />
+              <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr}</span>
+            </div>
+          );
+        },
+        enableSorting: false,
+      },
+      {
+        id: 'gp',
+        header: 'GP',
+        size: 60,
+        accessorFn: (r) => r.gp ?? 0,
+        cell: (info) => {
+          const row = info.row.original;
+          return <span>{info.getValue<number>()}{row.limited ? <span style={{ color: MUTED }}> *</span> : null}</span>;
+        },
+      },
+      {
+        id: 'toi_gp',
+        header: 'TOI/GP',
+        size: 80,
+        accessorFn: (r) => (r.toi_5v5_sec ?? 0) / Math.max(r.gp ?? 1, 1),
+        cell: (info) => <span title="5v5 TOI only">{info.row.original.toi_gp}</span>,
+      },
+      {
+        id: 'goals',
+        header: 'G',
+        size: 50,
+        accessorFn: (r) => r.goals ?? 0,
+        cell: (info) => <span style={{ fontWeight: 700 }}>{info.getValue<number>() ?? '—'}</span>,
+      },
+      {
+        id: 'assists',
+        header: 'A',
+        size: 50,
+        accessorFn: (r) => r.assists ?? 0,
+        cell: (info) => <span>{info.getValue<number>() ?? '—'}</span>,
+      },
+      {
+        id: 'points',
+        header: 'PTS',
+        size: 56,
+        accessorFn: (r) => r.points ?? 0,
+        cell: (info) => <span style={{ fontWeight: 700 }}>{info.getValue<number>() ?? '—'}</span>,
+      },
+      {
+        id: 'xgf_pct',
+        header: 'xGF%',
+        size: 72,
+        accessorFn: (r) => r.xgf_pct_5v5,
+        cell: (info) => {
+          const v = info.getValue<number | null>();
+          const color = pctColor(v ?? null);
+          return (
+            <span style={{ fontWeight: 700, color: color ?? 'rgba(13,13,20,0.72)' }}>
+              {v == null ? '—' : `${Number(v).toFixed(1)}%`}
+            </span>
+          );
+        },
+      },
+      {
+        id: 'gax',
+        header: 'GAx',
+        size: 64,
+        accessorFn: (r) => r.gax ?? -999,
+        cell: (info) => {
+          const v = info.row.original.gax;
+          const color = v == null ? 'rgba(13,13,20,0.72)' : v > 0 ? POS : v < 0 ? NEG : 'rgba(13,13,20,0.72)';
+          return (
+            <span style={{ fontWeight: 700, color }}>
+              {v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`}
+            </span>
+          );
+        },
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [INK, MUTED],
+  );
+
   const table = useReactTable({
     data: rows,
     columns,
@@ -297,8 +456,52 @@ export default function PlayerCareerTable({ seasons }: Props) {
     getSortedRowModel: getSortedRowModel(),
   });
 
+  const playoffTable = useReactTable({
+    data: playoffRows,
+    columns: playoffColumns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  const activeTable = mode === 'playoffs' ? playoffTable : table;
+  const isPlayoffs = mode === 'playoffs';
+  const noPlayoffData = isPlayoffs && playoffRows.length === 0;
+
+  // Pill toggle — matches the mono/uppercase chip aesthetic used site-wide
+  const pillBase: React.CSSProperties = {
+    ...MONO,
+    fontSize: 11,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    padding: '5px 14px',
+    cursor: 'pointer',
+    border: 'none',
+    background: 'transparent',
+    color: MUTED,
+    fontWeight: 600,
+    borderRadius: 4,
+  };
+  const pillActive: React.CSSProperties = {
+    ...pillBase,
+    background: isDark ? 'rgba(239,238,232,0.10)' : '#0d0d14',
+    color: isDark ? INK_DARK : '#fff',
+    fontWeight: 700,
+  };
+
   return (
     <div style={{ ...BODY, color: INK, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10, padding: 3, background: BG, border: BORDER, borderRadius: 6, width: 'fit-content' }}>
+        <button style={mode === 'regular' ? pillActive : pillBase} onClick={() => setMode('regular')}>Regular Season</button>
+        <button style={mode === 'playoffs' ? pillActive : pillBase} onClick={() => setMode('playoffs')}>Playoffs</button>
+      </div>
+
+      {noPlayoffData ? (
+        <div style={{ ...MONO, fontSize: 12, color: MUTED, padding: '28px 18px', textAlign: 'center', background: SURFACE, border: BORDER }}>
+          No playoff data available.
+        </div>
+      ) : (
       <table
         style={{
           width: '100%',
@@ -309,7 +512,7 @@ export default function PlayerCareerTable({ seasons }: Props) {
         }}
       >
         <thead>
-          {table.getHeaderGroups().map(hg => (
+          {activeTable.getHeaderGroups().map(hg => (
             <tr key={hg.id} style={{ borderBottom: BORDER, background: BG }}>
               {hg.headers.map((h, hi) => {
                 const isSorted = h.column.getIsSorted();
@@ -342,27 +545,29 @@ export default function PlayerCareerTable({ seasons }: Props) {
           ))}
         </thead>
         <tbody>
-          {table.getRowModel().rows.map((row, i) => {
-            const orig = row.original;
-            const isActive = orig.season_normalized === activeSeason;
-            const nextRow = table.getRowModel().rows[i + 1];
+          {activeTable.getRowModel().rows.map((row, i) => {
+            const orig = row.original as CareerRow & PlayoffRow;
+            // Row selection (drives EV bars) only applies in regular mode
+            const isActive = !isPlayoffs && orig.season_normalized === activeSeason;
+            const allRows = activeTable.getRowModel().rows;
+            const nextRow = allRows[i + 1];
             const currYear = parseInt(orig.season_normalized?.slice(0, 4) || '0');
-            const nextYear = nextRow ? parseInt(nextRow.original.season_normalized?.slice(0, 4) || '0') : null;
+            const nextYear = nextRow ? parseInt((nextRow.original as any).season_normalized?.slice(0, 4) || '0') : null;
             const hasGap = nextYear !== null && currYear - nextYear > 1;
             return (
               <React.Fragment key={row.id}>
                 <tr
                   data-career-season={orig.season_normalized}
-                  onClick={() => handleSeasonClick(orig.season_normalized)}
+                  onClick={isPlayoffs ? undefined : () => handleSeasonClick(orig.season_normalized)}
                   style={{
                     borderBottom: '1px solid rgba(13,13,20,0.05)',
                     background: isActive
                       ? (isDark ? 'rgba(239,238,232,0.07)' : 'rgba(13,13,20,0.05)')
                       : (i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)')),
                     borderLeft: isActive ? `3px solid rgba(13,13,20,0.45)` : '3px solid transparent',
-                    cursor: 'pointer',
+                    cursor: isPlayoffs ? 'default' : 'pointer',
                   }}
-                  title={`Click to view ${orig.season_fmt} percentiles`}
+                  title={isPlayoffs ? undefined : `Click to view ${orig.season_fmt} percentiles`}
                 >
                   {row.getVisibleCells().map((cell, ci) => (
                     <td
@@ -404,6 +609,14 @@ export default function PlayerCareerTable({ seasons }: Props) {
           })}
         </tbody>
       </table>
+      )}
+
+      {isPlayoffs && hasLimitedPlayoff && !noPlayoffData && (
+        <p style={{ ...MONO, fontSize: 10, color: MUTED, margin: '10px 18px 0', letterSpacing: '0.04em', lineHeight: 1.5 }}>
+          * fewer than 30 games played — stats may be less stable
+        </p>
+      )}
+
       <p
         style={{
           ...MONO,
@@ -415,7 +628,9 @@ export default function PlayerCareerTable({ seasons }: Props) {
           textAlign: 'right',
         }}
       >
-        hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />RATING % = Blended HGB Rating · WAR % = Single-Season WAR · IMPACT % = HGB Game Score
+        {isPlayoffs
+          ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP is 5v5 only</>
+          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />RATING % = Blended HGB Rating · WAR % = Single-Season WAR · IMPACT % = HGB Game Score</>}
       </p>
     </div>
   );
