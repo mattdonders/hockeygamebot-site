@@ -7,6 +7,20 @@ that's shipped is on `main`; this is what's left. Grouped by owner.
 
 ## A. DE / data pipeline
 
+### A0. Series page — restore Lines/Pairs + Top Skaters (this-series data) — added 2026-06-07
+The series page (`/stats/series/[slug]`) is now correctly **this-series only**, but
+two sections are hidden because the series-filtered data doesn't exist:
+- **Lines / Pairs** — `game_log` was removed from `lines.json` ("too large"), so
+  `seriesLineRows()` (which filters `game_log` by opponent) always returns empty.
+  Need either per-series line/pair aggregates in a series-scoped feed, or `game_log`
+  re-added. The frontend sections are gated on `hasSeriesLines` → they auto-return
+  when data is present, no FE change needed.
+- **Top Skaters** — currently the only player feed is regular-season totals
+  (players.json) and whole-playoff `playoff_points`; neither is series-specific.
+  Need per-series player points (G/A/P vs this opponent). Section is behind
+  `{false &&}` → flip on + wire fields once available.
+- Shot map per-shot xG: NOT needed (confirmed we don't size dots by xG).
+
 ### A1. Names on `player-season-stats` (blocks skaters retired players)
 Full prompt: `prompts/2026-06-06-skaters-name-join-DE.md`.
 TL;DR: add top-level `name` + `slug` per player to `player-season-stats`. ~1,552
