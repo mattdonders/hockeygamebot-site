@@ -538,7 +538,10 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [] }: Prop
             const nextRow = allRows[i + 1];
             const currYear = parseInt(orig.season_normalized?.slice(0, 4) || '0');
             const nextYear = nextRow ? parseInt((nextRow.original as any).season_normalized?.slice(0, 4) || '0') : null;
-            const hasGap = nextYear !== null && currYear - nextYear > 1;
+            // The "· · ·" gap marker only means anything when rows are in chronological
+            // order — i.e. sorted by season. Suppress it for any other sort column.
+            const sortedBySeason = sorting[0]?.id === 'season';
+            const hasGap = sortedBySeason && nextYear !== null && currYear - nextYear > 1;
             return (
               <React.Fragment key={row.id}>
                 <tr
