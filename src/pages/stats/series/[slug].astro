@@ -411,6 +411,13 @@ const clientTeamB    = series.team_b;
           <span class="series-status">Series upcoming</span>
         )}
       </div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--ink-10)">
+        <button id="dl-series-card" disabled
+          style="font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;padding:7px 18px;background:var(--ink);color:var(--bg);border:none;cursor:pointer;opacity:0.4;transition:opacity 0.15s"
+          onmouseenter="if(!this.disabled)this.style.opacity='0.8'" onmouseleave="if(!this.disabled)this.style.opacity='1'">
+          Download Series Card
+        </button>
+      </div>
     </div>
   </div>
 </section>
@@ -569,18 +576,32 @@ const clientTeamB    = series.team_b;
 
 </div>
 
-<script define:vars={{ clientSeriesId, clientTeamA, clientTeamB, playoffLineMap, playerSlugMap }}>
-// Series player + line sections — fetch /v1/series/{id}/players and /lines
+<script define:vars={{
+  clientSeriesId, clientTeamA, clientTeamB, playoffLineMap, playerSlugMap,
+  colorA, colorB, winsA, winsB, roundLabel, seasonLabel, gamesPlayed,
+  seriesXgfPctA: seriesSummA?.xgfPct ?? null,
+  seriesXgfPctB: seriesSummB?.xgfPct ?? null,
+  seriesXgfA: seriesSummA?.xgf ?? null,  seriesXgaA: seriesSummA?.xga ?? null,
+  seriesGfA:  seriesSummA?.gf  ?? 0,     seriesGaA:  seriesSummA?.ga  ?? 0,
+  seriesXgfB: seriesSummB?.xgf ?? null,  seriesXgaB: seriesSummB?.xga ?? null,
+  seriesGfB:  seriesSummB?.gf  ?? 0,     seriesGaB:  seriesSummB?.ga  ?? 0,
+}}>
+// ── Shared helpers ───────────────────────────────────────────────────────────
+function mmss(min) {
+  const m = Math.floor(min), s = Math.round((min - m) * 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+function xgfFmt(v) { return v != null ? v.toFixed(1) + '%' : '—'; }
+function xgfCls(v) { return (v ?? 50) >= 55 ? 'xgf-pos' : (v ?? 50) <= 45 ? 'xgf-neg' : ''; }
+
+// Card data populated after fetch, read by draw function on click
+let _cardPlayers = null;
+let _cardLines   = null;
+
+// ── Series fetch + DOM render ────────────────────────────────────────────────
 (async () => {
   if (!clientSeriesId) return;
   const API = 'https://api.hockeygamebot.com';
-
-  function mmss(min) {
-    const m = Math.floor(min), s = Math.round((min - m) * 60);
-    return `${m}:${String(s).padStart(2, '0')}`;
-  }
-  function xgfFmt(v) { return v != null ? v.toFixed(1) + '%' : '—'; }
-  function xgfCls(v) { return (v ?? 50) >= 55 ? 'xgf-pos' : (v ?? 50) <= 45 ? 'xgf-neg' : ''; }
 
   const [playersRes, linesRes] = await Promise.all([
     fetch(`${API}/v1/series/${clientSeriesId}/players`).catch(() => null),
@@ -591,6 +612,7 @@ const clientTeamB    = series.team_b;
   if (playersRes?.ok) {
     const data = await playersRes.json();
     const players = data.players ?? [];
+    _cardPlayers = players;
     if (players.length) {
       const section = document.getElementById('skaters-section');
       if (section) {
@@ -622,6 +644,7 @@ const clientTeamB    = series.team_b;
   if (linesRes?.ok) {
     const data = await linesRes.json();
     const lines = data.lines ?? [];
+    _cardLines = lines;
     if (lines.length) {
       for (const [type, secId, slotA, slotB, maxRows, label] of [
         ['F', 'flines-section', 'flines-a', 'flines-b', 4, 'Line'],
@@ -630,7 +653,6 @@ const clientTeamB    = series.team_b;
         const section = document.getElementById(secId);
         if (!section) continue;
         let anyRendered = false;
-
         for (const [teamId, elId] of [[clientTeamA, slotA], [clientTeamB, slotB]]) {
           const tl = lines
             .filter(l => l.type === type && l.team === teamId)
@@ -639,9 +661,7 @@ const clientTeamB    = series.team_b;
           const el = document.getElementById(elId);
           if (!el || !tl.length) continue;
           anyRendered = true;
-
           const rows = tl.map(l => {
-            // Join series line vs full-playoff aggregate by sorted player_ids key
             const key = l.player_ids.slice().sort((a, b) => a - b).join(',');
             const po  = playoffLineMap[key] ?? null;
             const displayName = l.players.map(n => n.replace(/^\S+\s+/, '')).join('-');
@@ -656,7 +676,6 @@ const clientTeamB    = series.team_b;
               <td class="${po?.xgfCls ?? ''}">${po?.xgfPct ?? '—'}</td>
             </tr>`;
           }).join('');
-
           el.innerHTML = `<div class="team-label">${teamId}</div>
             <table class="line-table">
               <thead><tr>
@@ -667,12 +686,299 @@ const clientTeamB    = series.team_b;
               <tbody>${rows}</tbody>
             </table>`;
         }
-
         if (anyRendered) section.style.display = '';
       }
     }
   }
+
+  // Enable download button once data is ready
+  if (_cardPlayers || _cardLines) {
+    const btn = document.getElementById('dl-series-card');
+    if (btn) { btn.removeAttribute('disabled'); btn.style.opacity = '1'; }
+  }
 })();
+
+// ── Series card — Canvas drawing ─────────────────────────────────────────────
+const TEAM_NAMES = {
+  ANA:'Anaheim Ducks', BOS:'Boston Bruins', BUF:'Buffalo Sabres',
+  CGY:'Calgary Flames', CAR:'Carolina Hurricanes', CHI:'Chicago Blackhawks',
+  COL:'Colorado Avalanche', CBJ:'Columbus Blue Jackets', DAL:'Dallas Stars',
+  DET:'Detroit Red Wings', EDM:'Edmonton Oilers', FLA:'Florida Panthers',
+  LAK:'Los Angeles Kings', MIN:'Minnesota Wild', MTL:'Montréal Canadiens',
+  NSH:'Nashville Predators', NJD:'New Jersey Devils', NYI:'New York Islanders',
+  NYR:'New York Rangers', OTT:'Ottawa Senators', PHI:'Philadelphia Flyers',
+  PIT:'Pittsburgh Penguins', SJS:'San Jose Sharks', SEA:'Seattle Kraken',
+  STL:'St. Louis Blues', TBL:'Tampa Bay Lightning', TOR:'Toronto Maple Leafs',
+  UTA:'Utah Hockey Club', VAN:'Vancouver Canucks', VGK:'Vegas Golden Knights',
+  WSH:'Washington Capitals', WPG:'Winnipeg Jets',
+};
+
+async function drawSeriesCard() {
+  await document.fonts.ready;
+
+  const SCALE = 2, W = 1080, H = 1080, PAD = 48;
+  const BG = '#EFEEE8', SURF = '#FFFFFF', INK = '#0d0d14', RED = '#E8002D';
+  const ink = a => `rgba(13,13,20,${a})`;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W * SCALE; canvas.height = H * SCALE;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+
+  let y = 0;
+
+  // ── HEADER ──────────────────────────────────────────────────────────────────
+  const HDR_H = 139; // 28 top + 52 title + 14 gap + 21 chips + 24 bottom
+  const CHIP_ROW_Y = y + 28 + 52 + 14;
+
+  ctx.font = `800 52px 'Barlow Condensed'`;
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = INK;
+  ctx.fillText('SERIES STATS', PAD, y + 28);
+
+  function drawChip(text, cx, bg, fg) {
+    ctx.font = `600 11px 'Barlow'`;
+    ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(text).width;
+    const cw = tw + 24;
+    ctx.fillStyle = bg; ctx.fillRect(cx, CHIP_ROW_Y, cw, 21);
+    ctx.fillStyle = fg; ctx.fillText(text, cx + 12, CHIP_ROW_Y + 10.5);
+    return cw;
+  }
+
+  let cx = PAD;
+  cx += drawChip(roundLabel.toUpperCase(), cx, INK, BG) + 6;
+  cx += drawChip(seasonLabel.toUpperCase(), cx, INK, BG) + 6;
+  if (gamesPlayed > 0) drawChip(`${gamesPlayed} GAME${gamesPlayed !== 1 ? 'S' : ''}`, cx, INK, BG);
+
+  ctx.font = `600 11px 'Barlow'`;
+  const redTxt = 'HOCKEYGAMEBOT.COM';
+  const redW = ctx.measureText(redTxt).width + 24;
+  drawChip(redTxt, W - PAD - redW, RED, SURF);
+
+  ctx.fillStyle = INK; ctx.fillRect(0, y + HDR_H, W, 2);
+  y += HDR_H + 2;
+
+  // ── HERO ─────────────────────────────────────────────────────────────────────
+  const HERO_H = 152; // 22 + 96 + 6 + 12 + 16 bottom
+  ctx.fillStyle = SURF; ctx.fillRect(0, y, W, HERO_H);
+
+  // Team A
+  ctx.font = `800 96px 'Barlow Condensed'`; ctx.textBaseline = 'top';
+  ctx.fillStyle = colorA;
+  ctx.fillText(clientTeamA, PAD, y + 22);
+  ctx.font = `600 10px 'Barlow'`; ctx.fillStyle = ink(0.36);
+  ctx.fillText((TEAM_NAMES[clientTeamA] ?? clientTeamA).toUpperCase(), PAD, y + 22 + 96 + 6);
+
+  // Score center
+  const scoreStr = `${winsA}   –   ${winsB}`;
+  ctx.font = `800 72px 'Barlow Condensed'`; ctx.textBaseline = 'top';
+  ctx.fillStyle = INK;
+  const scoreW2 = ctx.measureText(scoreStr).width;
+  ctx.fillText(scoreStr, (W - scoreW2) / 2, y + 22 + 12);
+
+  // Team B (right-aligned)
+  ctx.font = `800 96px 'Barlow Condensed'`; ctx.textBaseline = 'top';
+  ctx.fillStyle = colorB;
+  const abbBW = ctx.measureText(clientTeamB).width;
+  ctx.fillText(clientTeamB, W - PAD - abbBW, y + 22);
+  ctx.font = `600 10px 'Barlow'`; ctx.fillStyle = ink(0.36);
+  const fnB = (TEAM_NAMES[clientTeamB] ?? clientTeamB).toUpperCase();
+  ctx.fillText(fnB, W - PAD - ctx.measureText(fnB).width, y + 22 + 96 + 6);
+
+  ctx.fillStyle = ink(0.14); ctx.fillRect(0, y + HERO_H, W, 1);
+  y += HERO_H + 1;
+
+  // ── xGF BAR ──────────────────────────────────────────────────────────────────
+  const XGF_H = 62; // 14 + 10 label + 10 gap + 10 bar + 18 bottom
+  ctx.fillStyle = SURF; ctx.fillRect(0, y, W, XGF_H);
+
+  ctx.font = `700 10px 'JetBrains Mono'`; ctx.textBaseline = 'top'; ctx.fillStyle = ink(0.40);
+  ctx.fillText('5V5 EXPECTED GOALS %', PAD, y + 14);
+
+  const xpA = seriesXgfPctA ?? 50, xpB = seriesXgfPctB ?? 50;
+  const barY2 = y + 14 + 10 + 10, BAR_H2 = 10;
+  const NUM_W2 = 68, BAR_GAP2 = 18;
+  const bX = PAD + NUM_W2 + BAR_GAP2, bW = W - PAD * 2 - NUM_W2 * 2 - BAR_GAP2 * 2;
+
+  ctx.font = `800 22px 'Barlow Condensed'`; ctx.textBaseline = 'middle';
+  ctx.fillStyle = colorA; ctx.fillText(`${xpA}%`, PAD, barY2 + BAR_H2 / 2);
+  const xpBStr = `${xpB}%`;
+  ctx.fillStyle = colorB; ctx.fillText(xpBStr, W - PAD - ctx.measureText(xpBStr).width, barY2 + BAR_H2 / 2);
+
+  ctx.fillStyle = ink(0.08); ctx.fillRect(bX, barY2, bW, BAR_H2);
+  ctx.fillStyle = colorA;   ctx.fillRect(bX, barY2, bW * (xpA / 100), BAR_H2);
+  ctx.fillStyle = colorB;   ctx.fillRect(bX + bW * (xpA / 100), barY2, bW * (xpB / 100), BAR_H2);
+
+  ctx.fillStyle = ink(0.14); ctx.fillRect(0, y + XGF_H, W, 1);
+  y += XGF_H + 1;
+
+  // ── SERIES AT A GLANCE ───────────────────────────────────────────────────────
+  const GL_H = 82; // 14 + 10 label + 10 gap + 22 vals + 10 + 8 bar label + 8 bottom
+  ctx.fillStyle = SURF; ctx.fillRect(0, y, W, GL_H);
+
+  ctx.font = `700 10px 'JetBrains Mono'`; ctx.textBaseline = 'top'; ctx.fillStyle = ink(0.40);
+  ctx.fillText('SERIES AT A GLANCE', PAD, y + 14);
+
+  const glTiles = [
+    { label: 'GOALS FOR',    a: seriesGfA,                         b: seriesGfB },
+    { label: 'xGF',          a: seriesXgfA != null ? seriesXgfA.toFixed(1) : '—', b: seriesXgfB != null ? seriesXgfB.toFixed(1) : '—' },
+    { label: 'GOALS AGAINST',a: seriesGaA,                         b: seriesGaB },
+    { label: 'xGA',          a: seriesXgaA != null ? seriesXgaA.toFixed(1) : '—', b: seriesXgaB != null ? seriesXgaB.toFixed(1) : '—' },
+  ];
+
+  const tileAreaW = W - PAD * 2, tileW = tileAreaW / glTiles.length;
+  const tileY2 = y + 14 + 10 + 10;
+
+  for (let i = 0; i < glTiles.length; i++) {
+    const t = glTiles[i];
+    const tx = PAD + i * tileW;
+    const tPL = i === 0 ? 0 : 14, tPR = i === glTiles.length - 1 ? 0 : 14;
+
+    if (i > 0) { ctx.fillStyle = ink(0.10); ctx.fillRect(tx, tileY2, 1, 36); }
+
+    const aNum = parseFloat(t.a) || 0, bNum = parseFloat(t.b) || 0;
+    const tot = aNum + bNum || 1;
+
+    ctx.font = `800 22px 'Barlow Condensed'`; ctx.textBaseline = 'top';
+    const aStr = String(t.a ?? '—'), bStr = String(t.b ?? '—');
+    ctx.fillStyle = colorA; ctx.fillText(aStr, tx + tPL, tileY2);
+    const aStrW = ctx.measureText(aStr).width;
+    const bStrW = ctx.measureText(bStr).width;
+    ctx.fillStyle = colorB; ctx.fillText(bStr, tx + tileW - tPR - bStrW, tileY2);
+
+    const mbX = tx + tPL + aStrW + 6, mbW = tileW - tPL - tPR - aStrW - bStrW - 12;
+    const mbY2 = tileY2 + (22 - 6) / 2;
+    ctx.fillStyle = ink(0.07); ctx.fillRect(mbX, mbY2, mbW, 6);
+    ctx.fillStyle = colorA;   ctx.fillRect(mbX, mbY2, mbW * (aNum / tot), 6);
+    ctx.fillStyle = colorB;   ctx.fillRect(mbX + mbW * (aNum / tot), mbY2, mbW * (bNum / tot), 6);
+
+    ctx.font = `700 8px 'JetBrains Mono'`; ctx.textBaseline = 'top'; ctx.fillStyle = ink(0.36);
+    const lblW = ctx.measureText(t.label).width;
+    ctx.fillText(t.label, tx + tPL + (tileW - tPL - tPR - lblW) / 2, tileY2 + 22 + 6);
+  }
+
+  ctx.fillStyle = ink(0.14); ctx.fillRect(0, y + GL_H, W, 1);
+  y += GL_H + 1;
+
+  // ── TWO-COLUMN PLAYER + LINES ─────────────────────────────────────────────
+  const COL_H = H - y, COL_W = W / 2, CPAD = 40, CPAD_Y = 16;
+  const SKAT_ROW = 34, N_SKAT = 4;
+
+  // Center divider
+  ctx.fillStyle = ink(0.10); ctx.fillRect(COL_W, y, 1, COL_H);
+
+  const sortedLines = (_cardLines ?? []).sort((a, b) => b.toi_min - a.toi_min);
+
+  function drawCol(abbrev, colX) {
+    const players = (_cardPlayers ?? [])
+      .filter(p => p.team === abbrev)
+      .sort((a, b) => b.points - a.points);
+    const flines = sortedLines.filter(l => l.type === 'F' && l.team === abbrev);
+    const dpairs = sortedLines.filter(l => l.type === 'D' && l.team === abbrev);
+
+    const innerW = COL_W - CPAD * 2;
+    let cy = y + CPAD_Y;
+
+    // Skaters label
+    ctx.font = `700 10px 'JetBrains Mono'`; ctx.textBaseline = 'top'; ctx.fillStyle = ink(0.40);
+    ctx.fillText(`TOP SCORERS — ${abbrev}`, colX + CPAD, cy);
+    cy += 10 + 8;
+
+    // Skaters box
+    const skatH = N_SKAT * SKAT_ROW;
+    ctx.fillStyle = SURF; ctx.fillRect(colX + CPAD, cy, innerW, skatH);
+    ctx.strokeStyle = ink(0.12); ctx.lineWidth = 1;
+    ctx.strokeRect(colX + CPAD + 0.5, cy + 0.5, innerW - 1, skatH - 1);
+
+    players.slice(0, N_SKAT).forEach((p, i) => {
+      const ry = cy + i * SKAT_ROW, mid = ry + SKAT_ROW / 2;
+      if (i < N_SKAT - 1) { ctx.fillStyle = ink(0.06); ctx.fillRect(colX + CPAD, ry + SKAT_ROW, innerW, 1); }
+
+      // Name
+      ctx.font = `400 12px 'JetBrains Mono'`; ctx.textBaseline = 'middle'; ctx.fillStyle = ink(0.80);
+      ctx.fillText(p.name, colX + CPAD + 10, mid);
+
+      // G | A | PTS stats, right-aligned
+      const STAT_W = 34, statsL = colX + COL_W - CPAD - STAT_W * 3;
+      ctx.fillStyle = ink(0.08); ctx.fillRect(statsL - 6, ry + 6, 1, SKAT_ROW - 12);
+      [[p.goals, 'G', 14], [p.a1 + p.a2, 'A', 14], [p.points, 'PTS', 16]].forEach(([val, lbl, fs], j) => {
+        const sx = statsL + j * STAT_W;
+        if (j > 0) { ctx.fillStyle = ink(0.08); ctx.fillRect(sx, ry + 6, 1, SKAT_ROW - 12); }
+        ctx.font = `700 ${fs}px 'JetBrains Mono'`; ctx.textBaseline = 'middle'; ctx.fillStyle = INK;
+        const vs = String(val), vw = ctx.measureText(vs).width;
+        ctx.fillText(vs, sx + (STAT_W - vw) / 2, mid - 5);
+        ctx.font = `700 9px 'JetBrains Mono'`; ctx.fillStyle = ink(0.36);
+        const lw = ctx.measureText(lbl).width;
+        ctx.fillText(lbl, sx + (STAT_W - lw) / 2, mid + 7);
+      });
+    });
+    cy += skatH + 14;
+
+    // Lines label
+    ctx.font = `700 10px 'JetBrains Mono'`; ctx.textBaseline = 'top'; ctx.fillStyle = ink(0.40);
+    ctx.fillText(`TOP LINES & PAIRS — ${abbrev} · 5V5`, colX + CPAD, cy);
+    cy += 10 + 8;
+
+    // Lines box — fills remaining column height
+    const linesH = COL_H - (cy - y) - CPAD_Y;
+    ctx.fillStyle = SURF; ctx.fillRect(colX + CPAD, cy, innerW, linesH);
+    ctx.strokeStyle = ink(0.12); ctx.lineWidth = 1;
+    ctx.strokeRect(colX + CPAD + 0.5, cy + 0.5, innerW - 1, linesH - 1);
+
+    const allLines = [...flines.slice(0, 3), ...dpairs.slice(0, 2)];
+    const lineRowH = allLines.length > 0 ? linesH / allLines.length : linesH;
+
+    allLines.forEach((l, i) => {
+      const ry = cy + i * lineRowH, lMid = ry + lineRowH / 2;
+      const LX = colX + CPAD + 10;
+      if (i < allLines.length - 1) { ctx.fillStyle = ink(0.06); ctx.fillRect(colX + CPAD, ry + lineRowH, innerW, 1); }
+
+      // Type badge (F/D) — inline with name
+      ctx.font = `700 11px 'JetBrains Mono'`; ctx.textBaseline = 'middle'; ctx.fillStyle = ink(0.52);
+      ctx.fillText(l.type, LX, lMid - 8);
+      const typeW = ctx.measureText(l.type).width + 6;
+
+      // Line name
+      const dispName = l.players.map(n => n.replace(/^\S+\s+/, '')).join(' – ');
+      ctx.font = `700 13px 'JetBrains Mono'`; ctx.fillStyle = INK;
+      ctx.fillText(dispName, LX + typeW, lMid - 8);
+
+      // xGF% + TOI stats below
+      const xp = l.xgf_pct;
+      const xpStr = xp != null ? `${xp.toFixed(1)}% xGF` : '—';
+      const xpColor = (xp ?? 50) >= 55 ? '#166534' : (xp ?? 50) <= 45 ? '#991b1b' : ink(0.48);
+      ctx.font = `600 11px 'JetBrains Mono'`; ctx.fillStyle = xpColor;
+      ctx.fillText(xpStr, LX, lMid + 8);
+      const xpW = ctx.measureText(xpStr).width + 10;
+      ctx.fillStyle = ink(0.48);
+      ctx.fillText(`${mmss(l.toi_min)} TOI`, LX + xpW, lMid + 8);
+    });
+  }
+
+  drawCol(clientTeamA, 0);
+  drawCol(clientTeamB, COL_W);
+
+  return canvas;
+}
+
+// ── Download button handler ──────────────────────────────────────────────────
+document.getElementById('dl-series-card')?.addEventListener('click', async () => {
+  const btn = document.getElementById('dl-series-card');
+  if (btn) { btn.textContent = 'Generating…'; btn.setAttribute('disabled', ''); }
+  const canvas = await drawSeriesCard();
+  canvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `hgb-series-${clientTeamA}-${clientTeamB}.png`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    if (btn) { btn.textContent = 'Download Series Card'; btn.removeAttribute('disabled'); }
+  });
+});
 </script>
 
 <script>
