@@ -21,7 +21,9 @@ import {
 const _BASE = 'https://api.hockeygamebot.com/v1/stats';
 
 async function _fetchJSON(path: string) {
-  const res = await fetch(`${_BASE}/${path}`);
+  // cache: 'no-store' + unique query param ensures CF edge cache is bypassed at
+  // build time so uploads to R2 are reflected immediately in the next build.
+  const res = await fetch(`${_BASE}/${path}?_b=${Date.now()}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`stats-loader: GET ${path} returned ${res.status}`);
   return res.json();
 }
