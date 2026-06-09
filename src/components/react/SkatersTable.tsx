@@ -422,6 +422,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     if (!useAgg || !slimData) return [];
     let r = aggregateSeasons(slimData, fromSeason, toSeason, gameType);
     r = r.filter(x => x.gp >= minGP);
+    if (minToi > 0) r = r.filter(x => x.toi_pg * x.gp >= minToi);
     if (playerFilter.length > 0) r = r.filter(x => x.slug != null && playerFilter.includes(x.slug));
     if (teamFilter.length > 0) r = r.filter(x => teamFilter.includes(x.team));
     if (pos !== 'all') r = r.filter(x => x.group === pos);
@@ -430,7 +431,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
       r = [...r].sort((a, b) => ((b as any)[sortField] ?? -Infinity) - ((a as any)[sortField] ?? -Infinity)).slice(0, topN);
     }
     return r;
-  }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, playerFilter, teamFilter, pos, topN, aggTab, display]);
+  }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, minToi, playerFilter, teamFilter, pos, topN, aggTab, display]);
 
   const aggColumns = useMemo(
     () => buildAggColumns(aggTab, display, isDark, rangeLabel, multi),
@@ -548,8 +549,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
               </label>
               <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
                 Min TOI
-                <input type="number" value={minToi} min={0} max={2000} step={10} onChange={e => setMinToi(Number(e.target.value))}
-                  style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+                <input type="number" value={minToi} min={0} max={9999} step={100} onChange={e => setMinToi(Number(e.target.value))}
+                  style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
                 <span style={{ color: 'rgba(13,13,20,0.32)' }}>min</span>
               </label>
               {group(<>
@@ -659,7 +660,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             ...(topN ? [`Top ${topN}`] : []),
           ]}
           hideToolbar
-          virtualize
+          showRank
         />
       ) : (
         <HGBTable
@@ -679,7 +680,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             ...(topN ? [`Top ${topN}`] : []),
           ]}
           hideToolbar
-          virtualize
+          showRank
         />
       )}
       {useAgg ? (

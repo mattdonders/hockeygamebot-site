@@ -61,6 +61,8 @@ export type HGBTableProps<T> = {
   virtualize?: boolean;
   /** Hides the built-in toolbar (search, row count, exports). Use when the parent renders its own toolbar. */
   hideToolbar?: boolean;
+  /** Prepend a "#" rank column showing each row's 1-based sort position. */
+  showRank?: boolean;
   /** Big Barlow title shown in the PNG export header. If omitted, PNG button is hidden. */
   exportTitle?: string;
   /** Active filter labels shown as chips in PNG export (e.g. ["REG SEASON", "FORWARDS"]). */
@@ -331,6 +333,7 @@ export default function HGBTable<T extends object>({
   hideToolbar = false,
   exportTitle,
   exportChips = [],
+  showRank = false,
 }: HGBTableProps<T>) {
   const isMobile = useIsMobile();
 
@@ -679,6 +682,9 @@ export default function HGBTable<T extends object>({
                 key={hg.id}
                 style={{ borderBottom: '1px solid rgba(13,13,20,0.14)', background: BG }}
               >
+                {showRank && (
+                  <th style={{ ...MONO, fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, fontWeight: 500, padding: isMobile ? '8px 8px' : '8px 10px', textAlign: 'center', width: 36 }}>#</th>
+                )}
                 {hg.headers.map(h => {
                   const colDef = columnDefs.find(c => c.id === h.id);
                   const align = colDef?.align ?? (h.id === columnDefs[0]?.id ? 'left' : 'center');
@@ -757,6 +763,9 @@ export default function HGBTable<T extends object>({
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
                     >
+                      {showRank && (
+                        <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: 'center', color: 'rgba(13,13,20,0.28)', whiteSpace: 'nowrap', width: 36 }}>{vr.index + 1}</td>
+                      )}
                       {row.getVisibleCells().map(cell => {
                         const colDef = columnDefs.find(c => c.id === cell.column.id);
                         const isFirst = cell.column.id === columnDefs[0]?.id;
@@ -797,6 +806,9 @@ export default function HGBTable<T extends object>({
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
                   >
+                    {showRank && (
+                      <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: 'center', color: 'rgba(13,13,20,0.28)', whiteSpace: 'nowrap', width: 36 }}>{i + 1}</td>
+                    )}
                     {row.getVisibleCells().map(cell => {
                       const colDef = columnDefs.find(c => c.id === cell.column.id);
                       const isFirst = cell.column.id === columnDefs[0]?.id;
