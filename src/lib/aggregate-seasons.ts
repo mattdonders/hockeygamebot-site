@@ -16,7 +16,10 @@
 export type SlimRow = {
   season: string; team: string; pos: string; gp: number;
   g: number; a1: number; a2: number; a: number; pts: number;
-  sog: number; ixg: number; toi: number; xgf: number | null; cf: number | null; lim: number;
+  sog: number; ixg: number; toi: number;
+  xgf: number | null; xga: number | null;   // raw on-ice xGF/xGA at 5v5
+  gf:  number | null; ga:  number | null;   // raw on-ice GF/GA at 5v5
+  cf: number | null; lim: number;
 };
 export type SlimPlayer = { n: string | null; s: string | null; pos: string; r: SlimRow[]; p: SlimRow[] };
 export type SlimData = Record<string, SlimPlayer>;
@@ -30,9 +33,14 @@ export type AggRow = {
   pos: string; group: 'F' | 'D';
   seasonsCount: number;
   gp: number; goals: number; assists: number; points: number; sog: number; ixg: number;
-  toi_pg: number;          // 5v5 minutes per game
+  toi_pg: number;           // 5v5 minutes per game
   g60: number; a60: number; p60: number; x60: number; sog60: number;  // per-60 of 5v5 TOI
-  xgf_pct: number | null;  // TOI-weighted 5v5
+  // On-ice 5v5 (summed raw counts → rates)
+  xgf_pct: number | null;
+  xgf60:   number | null;
+  xga60:   number | null;
+  gf_diff:    number | null;
+  gf_diff_60: number | null;
   limited: boolean;
 };
 
@@ -63,13 +71,15 @@ export function aggregateSeasons(
     if (!rows.length) continue;
 
     let gp = 0, g = 0, a = 0, pts = 0, sog = 0, ixg = 0, toi = 0;
-    let xgfNum = 0, xgfDen = 0, lim = false;
+    let xgfSum = 0, xgaSum = 0, gfSum = 0, gaSum = 0;
+    let hasOnice = false, lim = false;
     let latestSeason = '', latestTeam = '';
     const teams = new Set<string>();
 
     for (const r of rows) {
       gp += r.gp; g += r.g; a += r.a; pts += r.pts; sog += r.sog; ixg += r.ixg; toi += r.toi;
-      if (r.xgf != null && r.toi > 0) { xgfNum += r.xgf * r.toi; xgfDen += r.toi; }
+      if (r.xgf != null && r.xga != null) { xgfSum += r.xgf; xgaSum += r.xga; hasOnice = true; }
+      if (r.gf != null && r.ga != null)   { gfSum  += r.gf;  gaSum  += r.ga; }
       if (r.lim) lim = true;
       if (r.team) teams.add(r.team);
       if (r.season > latestSeason) { latestSeason = r.season; latestTeam = r.team; }
@@ -79,6 +89,7 @@ export function aggregateSeasons(
     if (multi && gp < 5) continue;
 
     const hr = toi / 3600 || 1;
+    const xgfDen = xgfSum + xgaSum;
     const name = pl.n ?? `#${id}`;
     const sp = pl.n ? pl.n.indexOf(' ') : -1;
     const first = sp > 0 ? pl.n!.slice(0, sp) : (pl.n ?? '');
@@ -104,7 +115,11 @@ export function aggregateSeasons(
       p60: +((g + a) / hr).toFixed(2),
       x60: +(ixg / hr).toFixed(2),
       sog60: +(sog / hr).toFixed(2),
-      xgf_pct: xgfDen > 0 ? +(xgfNum / xgfDen).toFixed(1) : null,
+      xgf_pct:    hasOnice && xgfDen > 0 ? +(xgfSum / xgfDen * 100).toFixed(1) : null,
+      xgf60:      hasOnice ? +(xgfSum / hr).toFixed(2) : null,
+      xga60:      hasOnice ? +(xgaSum / hr).toFixed(2) : null,
+      gf_diff:    hasOnice ? gfSum - gaSum : null,
+      gf_diff_60: hasOnice ? +((gfSum - gaSum) / hr).toFixed(2) : null,
       limited: lim,
     });
   }

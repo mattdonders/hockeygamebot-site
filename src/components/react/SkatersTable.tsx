@@ -241,8 +241,8 @@ function buildColumns(
 }
 
 // ── Aggregated (multi-season / playoff) columns ───────────────────────────────
-// Counting + Rates only — per-season percentiles and RAPM-derived metrics are not
-// meaningful summed, so Advanced/On-Ice tabs are disabled in this mode.
+// Counting, Rates, and On-Ice 5v5 are supported. Advanced (RAPM/WAR) is disabled
+// because per-season percentiles are not meaningful when summed across seasons.
 function buildAggColumns(
   tab: Tab, display: Display, isDark: boolean, rangeLabel: string, multi: boolean,
 ): HGBColumnDef<AggRow>[] {
@@ -293,17 +293,56 @@ function buildAggColumns(
     ];
   }
 
-  // xGF% always available (TOI-weighted) — append it
-  tabCols.push({
-    id: 'xgf_pct', header: 'xGF%', accessor: r => r.xgf_pct ?? -1, width: 72, mobileHidden: true,
-    cell: (v) => {
-      const n = v as number;
-      if (n < 0) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
-      const col = n >= 55 ? POS : n <= 45 ? NEG : undefined;
-      return <strong style={{ color: col }}>{n.toFixed(1)}%</strong>;
-    },
-    exportText: v => (v as number) >= 0 ? `${(v as number).toFixed(1)}%` : '—',
-  });
+  if (tab !== 'onice') {
+    // xGF% appended to Counting/Rates views
+    tabCols.push({
+      id: 'xgf_pct', header: 'xGF%', accessor: r => r.xgf_pct ?? -1, width: 72, mobileHidden: true,
+      cell: (v) => {
+        const n = v as number;
+        if (n < 0) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+        const col = n >= 55 ? POS : n <= 45 ? NEG : undefined;
+        return <strong style={{ color: col }}>{n.toFixed(1)}%</strong>;
+      },
+      exportText: v => (v as number) >= 0 ? `${(v as number).toFixed(1)}%` : '—',
+    });
+  } else {
+    tabCols = [
+      {
+        id: 'xgf_pct', header: 'xGF%', accessor: r => r.xgf_pct ?? -1, width: 72,
+        cell: (v) => {
+          const n = v as number;
+          if (n < 0) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+          const col = n >= 55 ? POS : n <= 45 ? NEG : undefined;
+          return <strong style={{ color: col }}>{n.toFixed(1)}%</strong>;
+        },
+        exportText: v => (v as number) >= 0 ? `${(v as number).toFixed(1)}%` : '—',
+      },
+      { id: 'xgf60', header: 'xGF/60', accessor: r => r.xgf60 ?? null, width: 72,
+        cell: v => v != null ? f2(v as number) : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        exportText: v => v != null ? f2(v as number) : '—' },
+      { id: 'xga60', header: 'xGA/60', accessor: r => r.xga60 ?? null, width: 72,
+        cell: v => v != null ? f2(v as number) : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        exportText: v => v != null ? f2(v as number) : '—' },
+      ...(display === 'totals' ? [{
+        id: 'gf_diff', header: 'G±', accessor: (r: AggRow) => r.gf_diff ?? null, width: 60,
+        cell: (v: string | number | null) => {
+          if (v == null) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+          const n = v as number;
+          return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{sgn(n)}{n}</span>;
+        },
+        exportText: (v: string | number | null) => v != null ? `${sgn(v as number)}${v}` : '—',
+      }] : []),
+      {
+        id: 'gf_diff_60', header: 'G±/60', accessor: r => r.gf_diff_60 ?? null, width: 72,
+        cell: v => {
+          if (v == null) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+          const n = v as number;
+          return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{sgn(n)}{Math.abs(n).toFixed(2)}</span>;
+        },
+        exportText: v => v != null ? `${sgn(v as number)}${Math.abs(v as number).toFixed(2)}` : '—',
+      },
+    ];
+  }
 
   return [...fixed, ...tabCols];
 }
@@ -362,9 +401,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     setMinGP(gameType === 'playoffs' ? 1 : 20);
   }, [gameType]);
 
-  // Aggregated mode only supports Counting/Rates — bounce off hidden tabs
+  // Aggregated mode does not support Advanced — bounce back if on that tab
   useEffect(() => {
-    if (useAgg && (tab === 'advanced' || tab === 'onice')) setTab('counting');
+    if (useAgg && tab === 'advanced') setTab('counting');
   }, [useAgg, tab]);
   const [isDark,   setIsDark]   = useState(false);
 
@@ -432,8 +471,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     [slimData, gameType, currentNorm],
   );
 
-  // In aggregated mode only Counting/Rates are meaningful; fall back if on a hidden tab
-  const aggTab: Tab = (tab === 'advanced' || tab === 'onice') ? 'counting' : tab;
+  // Advanced is not available in aggregated mode; fall back to counting
+  const aggTab: Tab = tab === 'advanced' ? 'counting' : tab;
 
   const aggFiltered = useMemo<AggRow[]>(() => {
     if (!useAgg || !slimData) return [];
@@ -444,7 +483,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     if (teamFilter.length > 0) r = r.filter(x => teamFilter.includes(x.team));
     if (pos !== 'all') r = r.filter(x => x.group === pos);
     if (topN) {
-      const sortField = aggTab === 'rates' || display === 'per60' ? 'p60' : 'points';
+      const sortField = aggTab === 'onice' ? 'gf_diff_60' : aggTab === 'rates' || display === 'per60' ? 'p60' : 'points';
       r = [...r].sort((a, b) => ((b as any)[sortField] ?? -Infinity) - ((a as any)[sortField] ?? -Infinity)).slice(0, topN);
     }
     return r;
@@ -455,12 +494,12 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     [aggTab, display, isDark, rangeLabel, multi],
   );
 
-  const aggDefaultSort = useMemo(
-    () => ({ id: aggTab === 'rates' || display === 'per60' ? 'p60' : 'points', desc: true }),
-    [aggTab, display],
-  );
+  const aggDefaultSort = useMemo(() => {
+    if (aggTab === 'onice') return { id: 'gf_diff_60', desc: true };
+    return { id: aggTab === 'rates' || display === 'per60' ? 'p60' : 'points', desc: true };
+  }, [aggTab, display]);
 
-  const tabDisabled = (t: Tab) => useAgg && (t === 'advanced' || t === 'onice');
+  const tabDisabled = (t: Tab) => useAgg && t === 'advanced';
   const strDisabled = (_s: Strength) => useAgg || tab === 'advanced' || tab === 'onice';
 
   const [filtersOpen,  setFiltersOpen]  = useState(true);

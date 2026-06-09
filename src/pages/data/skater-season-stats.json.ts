@@ -32,7 +32,11 @@ function slim(r: PlayerSeasonEntry) {
     sog: r.shots ?? 0,
     ixg: r.ixg ?? 0,
     toi: r.toi_5v5_sec ?? 0,
-    xgf: r.xgf_pct_5v5 ?? null,
+    // Raw on-ice 5v5 counts — summed across seasons for multi-season rates
+    xgf: r.xgf_5v5 ?? null,
+    xga: r.xga_5v5 ?? null,
+    gf:  r.gf_5v5  ?? null,
+    ga:  r.ga_5v5  ?? null,
     cf: r.cf_pct_5v5 ?? null,
     lim: r.limited ? 1 : 0,
   };
