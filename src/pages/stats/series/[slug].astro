@@ -208,6 +208,7 @@ function _seriesTeamSumm(team: string) {
     xgf: +xgf.toFixed(2), xga: +xga.toFixed(2),
     xgfPct: xgfPct ? +xgfPct.toFixed(1) : null,
     gf: t.gf ?? 0, ga: t.ga ?? 0,
+    gsax: t.gsax ?? null,
     games: _matchedSeries.games_played ?? 0,
   };
 }
@@ -583,8 +584,10 @@ const clientTeamB    = series.team_b;
   seriesXgfPctB: seriesSummB?.xgfPct ?? null,
   seriesXgfA: seriesSummA?.xgf ?? null,  seriesXgaA: seriesSummA?.xga ?? null,
   seriesGfA:  seriesSummA?.gf  ?? 0,     seriesGaA:  seriesSummA?.ga  ?? 0,
+  seriesGsaxA: seriesSummA?.gsax ?? null,
   seriesXgfB: seriesSummB?.xgf ?? null,  seriesXgaB: seriesSummB?.xga ?? null,
   seriesGfB:  seriesSummB?.gf  ?? 0,     seriesGaB:  seriesSummB?.ga  ?? 0,
+  seriesGsaxB: seriesSummB?.gsax ?? null,
 }}>
 // ── Shared helpers ───────────────────────────────────────────────────────────
 function mmss(min) {
@@ -817,49 +820,54 @@ async function drawSeriesCard() {
   y += XGF_H + 1;
 
   // ── SERIES AT A GLANCE ───────────────────────────────────────────────────────
-  const GL_H = 82; // 14 + 10 label + 10 gap + 22 vals + 10 + 8 bar label + 8 bottom
+  const GL_H = 96;
   ctx.fillStyle = SURF; ctx.fillRect(0, y, W, GL_H);
 
   ctx.font = `700 10px 'JetBrains Mono'`; ctx.textBaseline = 'top'; ctx.fillStyle = ink(0.40);
   ctx.fillText('SERIES AT A GLANCE', PAD, y + 14);
 
-  const glTiles = [
-    { label: 'GOALS FOR',    a: seriesGfA,                         b: seriesGfB },
-    { label: 'xGF',          a: seriesXgfA != null ? seriesXgfA.toFixed(1) : '—', b: seriesXgfB != null ? seriesXgfB.toFixed(1) : '—' },
-    { label: 'GOALS AGAINST',a: seriesGaA,                         b: seriesGaB },
-    { label: 'xGA',          a: seriesXgaA != null ? seriesXgaA.toFixed(1) : '—', b: seriesXgaB != null ? seriesXgaB.toFixed(1) : '—' },
-  ];
+  const glTileW = (W - PAD * 2) / 4;
+  const glTop = y + 14 + 10 + 8; // baseline for tile content
 
-  const tileAreaW = W - PAD * 2, tileW = tileAreaW / glTiles.length;
-  const tileY2 = y + 14 + 10 + 10;
-
-  for (let i = 0; i < glTiles.length; i++) {
-    const t = glTiles[i];
-    const tx = PAD + i * tileW;
-    const tPL = i === 0 ? 0 : 14, tPR = i === glTiles.length - 1 ? 0 : 14;
-
-    if (i > 0) { ctx.fillStyle = ink(0.10); ctx.fillRect(tx, tileY2, 1, 36); }
-
-    const aNum = parseFloat(t.a) || 0, bNum = parseFloat(t.b) || 0;
-    const tot = aNum + bNum || 1;
-
-    ctx.font = `800 22px 'Barlow Condensed'`; ctx.textBaseline = 'top';
-    const aStr = String(t.a ?? '—'), bStr = String(t.b ?? '—');
-    ctx.fillStyle = colorA; ctx.fillText(aStr, tx + tPL, tileY2);
-    const aStrW = ctx.measureText(aStr).width;
-    const bStrW = ctx.measureText(bStr).width;
-    ctx.fillStyle = colorB; ctx.fillText(bStr, tx + tileW - tPR - bStrW, tileY2);
-
-    const mbX = tx + tPL + aStrW + 6, mbW = tileW - tPL - tPR - aStrW - bStrW - 12;
-    const mbY2 = tileY2 + (22 - 6) / 2;
-    ctx.fillStyle = ink(0.07); ctx.fillRect(mbX, mbY2, mbW, 6);
-    ctx.fillStyle = colorA;   ctx.fillRect(mbX, mbY2, mbW * (aNum / tot), 6);
-    ctx.fillStyle = colorB;   ctx.fillRect(mbX + mbW * (aNum / tot), mbY2, mbW * (bNum / tot), 6);
-
-    ctx.font = `700 8px 'JetBrains Mono'`; ctx.textBaseline = 'top'; ctx.fillStyle = ink(0.36);
-    const lblW = ctx.measureText(t.label).width;
-    ctx.fillText(t.label, tx + tPL + (tileW - tPL - tPR - lblW) / 2, tileY2 + 22 + 6);
+  // G/xG tile: actual goals vs xG side-by-side with sublabels + "Goals — TEAM" label
+  function drawGvxTile(tx, tw, gf, xgf, teamColor, abbrev, isFirst) {
+    if (!isFirst) { ctx.fillStyle = ink(0.10); ctx.fillRect(tx, glTop, 1, 50); }
+    const pl = isFirst ? 0 : 12, pr = 12;
+    const gStr = String(gf ?? '—'), xStr = xgf != null ? xgf.toFixed(1) : '—';
+    ctx.font = `800 28px 'Barlow Condensed'`; ctx.textBaseline = 'top';
+    const gW = ctx.measureText(gStr).width, xW = ctx.measureText(xStr).width;
+    const pairW = gW + 16 + xW;
+    const pairX = tx + pl + Math.max(0, (tw - pl - pr - pairW) / 2);
+    ctx.fillStyle = teamColor; ctx.fillText(gStr, pairX, glTop);
+    ctx.fillStyle = ink(0.32); ctx.fillText(xStr, pairX + gW + 16, glTop);
+    ctx.font = `700 9px 'JetBrains Mono'`; ctx.fillStyle = ink(0.36);
+    ctx.fillText('G', pairX, glTop + 28 + 3);
+    ctx.fillText('xG', pairX + gW + 16, glTop + 28 + 3);
+    const lbl = `Goals — ${abbrev}`;
+    const lblW = ctx.measureText(lbl).width;
+    ctx.fillText(lbl, tx + pl + Math.max(0, (tw - pl - pr - lblW) / 2), glTop + 28 + 3 + 9 + 5);
   }
+
+  // GSAx tile: single signed number in green/red + "GSAx — TEAM" label
+  function drawGsaxTile(tx, tw, gsax, abbrev) {
+    ctx.fillStyle = ink(0.10); ctx.fillRect(tx, glTop, 1, 50);
+    const pl = 12, pr = 12;
+    const gsaxStr = gsax != null ? `${gsax >= 0 ? '+' : ''}${gsax.toFixed(1)}` : '—';
+    const gsaxColor = gsax != null ? (gsax >= 0 ? '#166534' : '#991b1b') : ink(0.36);
+    ctx.font = `800 36px 'Barlow Condensed'`; ctx.textBaseline = 'top';
+    const nW = ctx.measureText(gsaxStr).width;
+    ctx.fillStyle = gsaxColor;
+    ctx.fillText(gsaxStr, tx + pl + Math.max(0, (tw - pl - pr - nW) / 2), glTop);
+    ctx.font = `700 9px 'JetBrains Mono'`; ctx.fillStyle = ink(0.36);
+    const lbl = `GSAx — ${abbrev}`;
+    const lW = ctx.measureText(lbl).width;
+    ctx.fillText(lbl, tx + pl + Math.max(0, (tw - pl - pr - lW) / 2), glTop + 36 + 4);
+  }
+
+  drawGvxTile(PAD,                   glTileW, seriesGfA, seriesXgfA, colorA, clientTeamA, true);
+  drawGvxTile(PAD + glTileW,         glTileW, seriesGfB, seriesXgfB, colorB, clientTeamB, false);
+  drawGsaxTile(PAD + glTileW * 2,    glTileW, seriesGsaxA, clientTeamA);
+  drawGsaxTile(PAD + glTileW * 3,    glTileW, seriesGsaxB, clientTeamB);
 
   ctx.fillStyle = ink(0.14); ctx.fillRect(0, y + GL_H, W, 1);
   y += GL_H + 1;
