@@ -196,6 +196,9 @@ export const PlayerRecordSchema = z.object({
   shots_pk:  z.number().int().optional(),
   sum_xg_pp: z.number().optional(),
   sum_xg_pk: z.number().optional(),
+  // On-ice 5v5 goal differential (G±) — added Jun 2026
+  gf_diff:    z.number().int().optional(),
+  gf_diff_60: z.number().optional(),
   // Penalty differential — draw/take counts for WAR breakdown display
   penalties_drawn: z.number().int().optional(),
   penalties_taken: z.number().int().optional(),

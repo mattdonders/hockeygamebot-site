@@ -28,6 +28,7 @@ export type SkaterRow = {
   rating: number | null; rating_p: number | null;
   // On-ice 5v5
   xgf_pct: number; xgf60: number; xga60: number; sc60: number; hdc60: number;
+  gf_diff: number; gf_diff_60: number;
   // Strength splits
   goals_ev: number; goals_pp: number; goals_sh: number;
   a_ev: number; a_pp: number; a_pk: number;
@@ -215,6 +216,22 @@ function buildColumns(
       },
       { id: 'xgf60', header: 'xGF/60', accessor: r => r.xgf60, width: 72, cell: v => f2(v as any), exportText: v => f2(v as any) },
       { id: 'xga60', header: 'xGA/60', accessor: r => r.xga60, width: 72, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      {
+        id: 'gf_diff', header: 'G±', accessor: r => r.gf_diff, width: 60,
+        cell: v => {
+          const n = v as number;
+          return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{sgn(n)}{n}</span>;
+        },
+        exportText: v => { const n = v as number; return `${sgn(n)}${n}`; },
+      },
+      {
+        id: 'gf_diff_60', header: 'G±/60', accessor: r => r.gf_diff_60, width: 68,
+        cell: v => {
+          const n = v as number;
+          return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{sgn(n)}{Math.abs(n).toFixed(2)}</span>;
+        },
+        exportText: v => { const n = v as number; return `${sgn(n)}${Math.abs(n).toFixed(2)}`; },
+      },
       { id: 'sc60',  header: 'SC/60',  accessor: r => r.sc60,  width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
       { id: 'hdc60', header: 'HDC/60', accessor: r => r.hdc60, width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
     ];
