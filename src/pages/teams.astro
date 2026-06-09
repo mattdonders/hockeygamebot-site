@@ -778,10 +778,18 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   ),
   _playoffMode: playoffMode,
 }}>
+  // Bridge Astro frontmatter data to the processed module below (define:vars
+  // requires is:inline, which can't use ESM imports).
+  window.__HGB_TEAMS_DATA = { rows: _teamRows, playoffMode: _playoffMode };
+</script>
+
+<script>
+import { getPrefs } from '../lib/auth-client';
+
 (function () {
-  const ROWS = _teamRows;
-  const PLAYOFF = _playoffMode;
-  const API = 'https://api.hockeygamebot.com';
+  const _data = (window as any).__HGB_TEAMS_DATA || {};
+  const ROWS = _data.rows || {};
+  const PLAYOFF = _data.playoffMode;
 
   function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -833,24 +841,16 @@ footer { background: var(--ink); color: #fff; border-top: 2px solid var(--ink); 
   }
 
   async function init() {
-    let token;
-    try { token = localStorage.getItem('hgb_session'); } catch {}
-    if (!token) return;
+    const prefs = await getPrefs();
+    if (!prefs) return;
 
-    try {
-      const res = await fetch(`${API}/v1/account/prefs`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const prefs = await res.json();
-      const tracked = (prefs.tracked_teams || []).filter(a => ROWS[a]);
-      if (!tracked.length) return;
+    const tracked = (prefs.tracked_teams || []).filter(a => ROWS[a]);
+    if (!tracked.length) return;
 
-      const grid = document.getElementById('tracked-grid');
-      const section = document.getElementById('tracked-section');
-      grid.innerHTML = tracked.map(a => renderCard(ROWS[a])).join('');
-      section.style.display = 'block';
-    } catch {}
+    const grid = document.getElementById('tracked-grid');
+    const section = document.getElementById('tracked-section');
+    grid.innerHTML = tracked.map(a => renderCard(ROWS[a])).join('');
+    section.style.display = 'block';
   }
 
   init();

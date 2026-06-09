@@ -1009,11 +1009,24 @@ const topTeams = (() => {
   window._HGB_PLAYOFF_ODDS = playoffOddsData;
 </script>
 
+<!-- Bridge the shared auth-client onto window for the is:inline script below. -->
+<script>
+import { getSessionToken, getPrefs } from '../../lib/auth-client';
+(window as any).__hgbAuth = { getSessionToken, getPrefs };
+</script>
+
 <script is:inline>
-(function() {
+(async function() {
   var API = 'https://api.hockeygamebot.com';
-  var token = null;
-  try { token = localStorage.getItem('hgb_session'); } catch(e) {}
+
+  // Wait for the auth-client bridge (a deferred module) to attach.
+  for (var i = 0; i < 50 && !window.__hgbAuth; i++) {
+    await new Promise(function(r){ setTimeout(r, 20); });
+  }
+  var auth = window.__hgbAuth;
+  if (!auth) return;
+
+  var token = auth.getSessionToken();
   if (!token) return; // cookie-only session path handled separately
 
   var TEAM_COLORS = {
@@ -1192,12 +1205,11 @@ const topTeams = (() => {
   }
 
   async function loadPersonalized() {
-    var headers = { 'Authorization': 'Bearer ' + token };
     var results = await Promise.all([
-      fetch(API + '/v1/account/prefs', { headers: headers, credentials: 'include' }).then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
+      auth.getPrefs(),
       fetch(API + '/v1/stats/draft-picks').then(function(r){ return r.ok ? r.json() : {}; }).catch(function(){ return {}; }),
     ]);
-    var prefs = results[0], draftsData = results[1];
+    var prefs = results[0] || {}, draftsData = results[1];
     var trackedTeams = prefs.tracked_teams || [];
     var allPicks = draftsData.picks || [];
 

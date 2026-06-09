@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { getPrefs } from '../../lib/auth-client';
 
 const API = 'https://api.hockeygamebot.com';
 
@@ -43,15 +44,12 @@ function teamLabel(rank: number | null): { text: string; color: string } {
   return              { text: 'Full Rebuild',         color: 'rgba(13,13,20,0.40)' };
 }
 
-async function getToken(): Promise<string | null> {
-  try { return localStorage.getItem('hgb_session'); } catch { return null; }
-}
-
 async function fetchPrefs(): Promise<{ tracked_teams: string[]; tracked_players: number[] }> {
-  const token = await getToken();
-  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const r = await fetch(`${API}/v1/account/prefs`, { headers, credentials: 'include' });
-  return r.ok ? r.json() : { tracked_teams: [], tracked_players: [] };
+  const prefs = await getPrefs();
+  return {
+    tracked_teams: prefs?.tracked_teams ?? [],
+    tracked_players: prefs?.tracked_players ?? [],
+  };
 }
 
 // ── Team Cards ────────────────────────────────────────────────────────────────

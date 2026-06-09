@@ -252,6 +252,23 @@ img { display: block; max-width: 100%; }
   font-family: var(--mono); font-size: 12px; color: var(--ink-48); padding: 8px 0;
 }
 
+/* Filter presets */
+.filter-presets { display: flex; flex-direction: column; gap: 6px; min-height: 36px; }
+.prefs-empty { font-family: var(--mono); font-size: 12px; color: var(--ink-48); padding: 8px 0; }
+.preset-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 12px; background: var(--bg-2); border: 1px solid var(--ink-10);
+}
+.preset-info { display: flex; align-items: baseline; gap: 12px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.preset-name { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--ink); }
+.preset-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); }
+.preset-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; font-size: 13px; line-height: 1; cursor: pointer;
+  color: var(--ink-48); background: none; border: none; padding: 0; transition: color .12s;
+}
+.preset-del:hover { color: var(--red); }
+
 /* ── FOOTER ──────────────────────────────────────────────────────────────────── */
 .footer { border-top: 1.5px solid var(--ink-14); padding: 24px 0; }
 .footer-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
@@ -362,6 +379,18 @@ img { display: block; max-width: 100%; }
 </footer>
 
 <script>
+import {
+  SESSION_KEY,
+  getSessionToken,
+  setSessionToken,
+  clearSessionToken,
+  apiFetch,
+  getMe,
+  getPrefs,
+  putPrefs,
+  mergeLocalPresets,
+} from '../lib/auth-client';
+
 const API = 'https://api.hockeygamebot.com';
 
 const NHL_TEAMS = [
@@ -403,31 +432,13 @@ const NHL_TEAMS = [
 let _trackedTeams = [];
 let _trackedPlayers = []; // array of player_id ints
 let _allPlayers = [];     // full player list from API
+let _filterPresets = [];  // array of { name, filters } saved filter presets
 
-// ── Session token storage (localStorage + Bearer for Safari ITP compat) ───────
-
-const SESSION_KEY = 'hgb_session';
-
-function saveToken(token) {
-  try { localStorage.setItem(SESSION_KEY, token); } catch {}
-}
-
-function loadToken() {
-  try { return localStorage.getItem(SESSION_KEY) || null; } catch { return null; }
-}
-
-function clearToken() {
-  try { localStorage.removeItem(SESSION_KEY); } catch {}
-}
-
-// Wraps fetch: always sends credentials (cookie) + Authorization header if
-// we have a localStorage token, so both Safari (Bearer) and Chrome (cookie) work.
-function apiFetch(url: string, opts: Record<string, any> = {}) {
-  const token = loadToken();
-  const headers = { ...(opts.headers || {}) };
-  if (token) headers['authorization'] = `Bearer ${token}`;
-  return fetch(url, { ...opts, credentials: 'include', headers });
-}
+// Session token + apiFetch come from the shared auth-client (imported above).
+// Local aliases keep the existing call sites readable.
+const saveToken = setSessionToken;
+const loadToken = getSessionToken;
+const clearToken = clearSessionToken;
 
 // ── State machine ─────────────────────────────────────────────────────────────
 
@@ -512,7 +523,7 @@ async function checkSession() {
   return false;
 }
 
-function setAuthState(user) {
+async function setAuthState(user) {
   setState('auth');
   document.getElementById('user-email').textContent = user.email;
   const tierLabel = user.patreon_tier
@@ -521,6 +532,9 @@ function setAuthState(user) {
   document.getElementById('user-tier-label').textContent = tierLabel;
   document.getElementById('mast-headline').textContent = 'Your Account';
   document.getElementById('mast-sub').textContent = `Welcome back. You're signed in as ${user.email}.`;
+  // Sync any presets saved while logged out into the user's cloud prefs first,
+  // so the rendered prefs (incl. filter presets) reflect the merged set.
+  await mergeLocalPresets();
   renderAuthContent(user);
 }
 
@@ -566,6 +580,15 @@ function renderAuthContent(user) {
       </div>
     </div>
 
+    <div class="prefs-section">
+      <div class="prefs-section-header">
+        <span class="prefs-section-label">Saved Filters</span>
+      </div>
+      <div class="filter-presets" id="filter-presets">
+        <span class="prefs-loading">Loading…</span>
+      </div>
+    </div>
+
     <div style="display:flex;align-items:center;gap:20px;padding-top:8px;">
       <button class="btn-primary" id="save-prefs-btn" style="width:auto;padding:12px 32px;">Save preferences</button>
       <span class="save-indicator" id="save-indicator">Saved</span>
@@ -578,8 +601,8 @@ function renderAuthContent(user) {
 // ── Prefs: load ───────────────────────────────────────────────────────────────
 
 async function loadPrefs() {
-  const [prefsRes, playersRes] = await Promise.all([
-    apiFetch(`${API}/v1/account/prefs`).catch(() => null),
+  const [prefs, playersRes] = await Promise.all([
+    getPrefs(),
     fetch(`${API}/v1/stats/players`).catch(() => null),
   ]);
 
@@ -588,19 +611,69 @@ async function loadPrefs() {
     _allPlayers = Array.isArray(raw) ? raw : (raw.players || []);
   }
 
-  if (prefsRes?.ok) {
-    const prefs = await prefsRes.json();
-    const raw = prefs.tracked_teams || [];
-    _trackedTeams = raw.map(t => typeof t === 'string' ? t : t?.abbrev).filter(Boolean);
+  if (prefs) {
+    const raw = (prefs.tracked_teams || []);
+    _trackedTeams = raw.map(t => typeof t === 'string' ? t : (t as any)?.abbrev).filter(Boolean);
     _trackedPlayers = prefs.tracked_players || [];
+    _filterPresets = prefs.filter_presets || [];
   }
 
   renderTeamChips();
   renderPlayerTags();
   setupPlayerSearch();
+  renderFilterPresets(_filterPresets);
 
   const saveBtn = document.getElementById('save-prefs-btn');
   if (saveBtn) saveBtn.addEventListener('click', savePrefs);
+}
+
+// ── Filter presets ──────────────────────────────────────────────────────────
+
+function renderFilterPresets(presets) {
+  const container = document.getElementById('filter-presets');
+  if (!container) return;
+
+  _filterPresets = presets || [];
+
+  if (!_filterPresets.length) {
+    container.innerHTML = '<span class="prefs-empty">No saved filter presets.</span>';
+    return;
+  }
+
+  container.innerHTML = _filterPresets.map((p, i) => {
+    const f = p.filters || {};
+    const parts = [];
+    if (f.tab) parts.push(f.tab);
+    if (f.fromSeason && f.toSeason) {
+      parts.push(f.fromSeason === f.toSeason ? f.fromSeason : `${f.fromSeason}–${f.toSeason}`);
+    }
+    if (f.pos && f.pos !== 'all') parts.push(f.pos);
+    if (f.strength && f.strength !== 'all') parts.push(f.strength);
+    const meta = parts.join(' · ');
+    return `
+      <div class="preset-row">
+        <div class="preset-info">
+          <span class="preset-name">${escHtml(p.name || 'Untitled')}</span>
+          ${meta ? `<span class="preset-meta">${escHtml(meta)}</span>` : ''}
+        </div>
+        <button class="preset-del" data-idx="${i}" title="Delete preset" aria-label="Delete preset">✕</button>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll<HTMLElement>('.preset-del').forEach(btn => {
+    btn.addEventListener('click', () => deletePreset(Number(btn.dataset.idx)));
+  });
+}
+
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function deletePreset(idx) {
+  const next = _filterPresets.filter((_, i) => i !== idx);
+  const updated = await putPrefs({ filter_presets: next });
+  renderFilterPresets(updated ? (updated.filter_presets || []) : next);
 }
 
 // ── Teams ─────────────────────────────────────────────────────────────────────

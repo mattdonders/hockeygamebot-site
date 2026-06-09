@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
 import { aggregateSeasons, availableSeasons, type SlimData, type AggRow } from '../../lib/aggregate-seasons';
+import { getSessionToken, getPrefs, putPrefs, mergeLocalPresets } from '../../lib/auth-client';
 
 // "20252026" → "2025-26"; passes through if already dashed
 function normSeason(s: string): string {
@@ -48,7 +49,8 @@ type Display  = 'totals'   | 'per60';
 
 type Props = { rows: SkaterRow[]; statsDate: string | null; currentSeason: string; isPlayoffSeason?: boolean };
 
-const API_BASE = 'https://api.hockeygamebot.com';
+// localStorage key for logged-out preset persistence (logged-in users use cloud
+// prefs via auth-client). auth-client owns the same key for migration.
 const LOCAL_PRESETS_KEY = 'hgb_filter_presets';
 
 type FilterSnapshot = {
@@ -521,45 +523,18 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const [saveMode,    setSaveMode]    = useState(false);
   const [saveName,    setSaveName]    = useState('');
 
-  // Load presets on mount: API if logged in, localStorage otherwise.
-  // If the user has localStorage presets AND is logged in, merge them up to
-  // the cloud (local presets that don't conflict by name) then clear local.
+  // Load presets on mount: cloud prefs if logged in, localStorage otherwise.
+  // mergeLocalPresets() migrates any local presets up to the cloud (and clears
+  // local) before we read the authoritative cloud copy.
   useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('hgb_session') : null;
+    const token = getSessionToken();
     if (!token) { loadLocalPresets(); return; }
-    fetch(`${API_BASE}/v1/account/prefs`, {
-      headers: { Authorization: `Bearer ${token}` },
-      credentials: 'include',
-    })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data || data.error) { loadLocalPresets(); return; }
+    mergeLocalPresets()
+      .then(() => getPrefs())
+      .then(prefs => {
+        if (!prefs) { loadLocalPresets(); return; }
         setIsLoggedIn(true);
-        const cloud: FilterPreset[] = data.filter_presets ?? [];
-
-        // Merge any localStorage presets whose names don't already exist in cloud
-        let local: FilterPreset[] = [];
-        try { local = JSON.parse(localStorage.getItem(LOCAL_PRESETS_KEY) ?? '[]'); } catch {}
-        const cloudNames = new Set(cloud.map(p => p.name));
-        const newFromLocal = local.filter(p => !cloudNames.has(p.name));
-
-        if (newFromLocal.length > 0) {
-          const merged = [...cloud, ...newFromLocal].slice(0, 10);
-          setPresets(merged);
-          // Push merged set to cloud, then clear local copy
-          fetch(`${API_BASE}/v1/account/prefs`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            credentials: 'include',
-            body: JSON.stringify({ filter_presets: merged }),
-          }).then(() => {
-            try { localStorage.removeItem(LOCAL_PRESETS_KEY); } catch {}
-          }).catch(() => {});
-        } else {
-          setPresets(cloud);
-          // Cloud is authoritative — clean up stale local copy if it exists
-          try { localStorage.removeItem(LOCAL_PRESETS_KEY); } catch {}
-        }
+        setPresets((prefs.filter_presets as FilterPreset[]) ?? []);
       })
       .catch(() => loadLocalPresets());
   }, []);
@@ -574,13 +549,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   function persistPresets(next: FilterPreset[]) {
     setPresets(next);
     if (isLoggedIn) {
-      const token = localStorage.getItem('hgb_session');
-      fetch(`${API_BASE}/v1/account/prefs`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        credentials: 'include',
-        body: JSON.stringify({ filter_presets: next }),
-      }).catch(() => {});
+      putPrefs({ filter_presets: next as any });
     } else {
       try { localStorage.setItem(LOCAL_PRESETS_KEY, JSON.stringify(next)); } catch {}
     }

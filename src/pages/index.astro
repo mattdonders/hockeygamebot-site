@@ -1129,6 +1129,13 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
 <script type="application/json" id="hgb-init" set:html={JSON.stringify(initData)}></script>
 
 <!-- ── CLIENT JS ── -->
+<!-- Bridge the shared auth-client onto window so the (untyped, is:inline)
+     client script below can use it without ESM imports. -->
+<script>
+import { getPrefs, getSessionToken } from '../lib/auth-client';
+(window as any).__hgbAuth = { getPrefs, getSessionToken };
+</script>
+
 <script is:inline>
 (function () {
   // ── Team colors ─────────────────────────────────────────────────────────────
@@ -2501,16 +2508,19 @@ a.pregame-card:hover .pin-btn, div.live-card-wrap:hover .pin-btn { opacity: 1; }
   // ── Prefs + tracked teams (all users — prefs improve YG section; results for logged-in) ──
   (async function loadPrefsAndTrackedTeams() {
     const HGB_API = 'https://api.hockeygamebot.com';
-    let token = null;
-    try { token = localStorage.getItem('hgb_session'); } catch {}
 
-    let prefs = null;
-    if (token) {
-      try {
-        const r = await fetch(`${HGB_API}/v1/account/prefs`, { headers: { 'Authorization': `Bearer ${token}` } });
-        if (r.ok) prefs = await r.json();
-      } catch {}
+    // Wait for the auth-client bridge (a deferred module) to attach.
+    async function getAuth() {
+      for (let i = 0; i < 50 && !window.__hgbAuth; i++) {
+        await new Promise(r => setTimeout(r, 20));
+      }
+      return window.__hgbAuth;
     }
+    const auth = await getAuth();
+    if (!auth) return; // bridge failed to load — skip prefs personalization
+
+    const token = auth.getSessionToken();
+    let prefs = await auth.getPrefs();
 
     // Save prefs and re-render YG section — only for multi-game nights (single-game uses State D)
     _prefs = prefs ?? {};

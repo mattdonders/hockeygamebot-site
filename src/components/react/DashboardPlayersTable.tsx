@@ -9,6 +9,7 @@
 
 import React, { useState, useEffect } from 'react';
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE } from './HGBTable';
+import { getPrefs } from '../../lib/auth-client';
 
 const API = 'https://api.hockeygamebot.com';
 
@@ -21,20 +22,15 @@ function computeWarPct(all: any[], player: any): number | null {
 }
 
 async function fetchPersonalizedPlayers(): Promise<DashboardPlayerRow[]> {
-  let token: string | null = null;
-  try { token = localStorage.getItem('hgb_session'); } catch {}
-  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-
-  const [prefsRes, playersRes] = await Promise.all([
-    fetch(`${API}/v1/account/prefs`, { headers, credentials: 'include' }),
+  const [prefs, playersRes] = await Promise.all([
+    getPrefs(),
     fetch(`${API}/v1/stats/players`),
   ]);
 
-  const prefs = prefsRes.ok ? await prefsRes.json() : {};
   const raw   = playersRes.ok ? await playersRes.json() : [];
   const allPlayers: any[] = Array.isArray(raw) ? raw : (raw.players ?? []);
 
-  const trackedIds: Set<number> = new Set(prefs.tracked_players ?? []);
+  const trackedIds: Set<number> = new Set(prefs?.tracked_players ?? []);
   const tracked = allPlayers.filter(p => trackedIds.has(p.player_id));
 
   return tracked.map(p => ({
