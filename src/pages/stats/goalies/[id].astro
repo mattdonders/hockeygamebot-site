@@ -8,17 +8,31 @@ import { pickTeamColor } from '../../../lib/team-colors';
 import type { GoalieRecord } from '../../../lib/stats-schemas';
 
 export async function getStaticPaths() {
+  const SA_QUAL = 500; // minimum shots against to be "qualified" for ranking
   const goalies = loadGoalies();
+  // Rank qualified goalies (min 500 SA) by GSAx, descending.
+  const qualified = goalies
+    .filter(g => g.sa >= SA_QUAL)
+    .sort((a, b) => b.gsax - a.gsax);
+  const rankById = new Map<number, number>();
+  qualified.forEach((g, i) => rankById.set(g.goalie_id, i + 1));
+
   return goalies.map(g => ({
     params: { id: String(g.goalie_id) },
-    props:  { goalie: g },
+    props:  {
+      goalie:    g,
+      gsaxRank:  rankById.get(g.goalie_id) ?? null,
+      qualCount: qualified.length,
+    },
   }));
 }
 
-interface Props { goalie: GoalieRecord }
-const { goalie } = Astro.props;
+interface Props { goalie: GoalieRecord; gsaxRank: number | null; qualCount: number }
+const { goalie, gsaxRank, qualCount } = Astro.props;
 
-const teamColor  = pickTeamColor(goalie.team_abbrev);
+const SA_QUAL    = 500; // keep in sync with getStaticPaths qualifier
+const hasTeam    = goalie.team_abbrev != null && goalie.team_abbrev !== '???' && goalie.team_abbrev !== '';
+const teamColor  = hasTeam ? pickTeamColor(goalie.team_abbrev) : '#8a8a8a';
 const initial    = goalie.name.split('.')[0]?.trim() ?? '';
 const lastName   = goalie.name.split('.').pop()?.trim() ?? goalie.name;
 const gsaxSign   = goalie.gsax >= 0 ? '+' : '';
@@ -93,6 +107,37 @@ const shotTypeColumns = [
     format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(1),
     color: signedColor },
 ];
+
+// ── Tweet-card data (passed to client script via define:vars) ───────────────
+// dSv% = actual SV% minus expected SV% (xsv_pct). Both stored as fractions.
+const dSvPct = goalie.dsv_pct != null
+  ? goalie.dsv_pct
+  : (goalie.sv_pct != null && goalie.xsv_pct != null ? goalie.sv_pct - goalie.xsv_pct : null);
+
+const cardData = {
+  name:       goalie.name,
+  goalieId:   goalie.goalie_id,
+  team:       goalie.team_abbrev,
+  hasTeam,
+  teamColor,
+  headshotUrl,
+  gsax:       goalie.gsax,
+  svPct:      goalie.sv_pct ?? null,
+  gaa:        goalie.gaa ?? null,
+  dSvPct,
+  sa:         goalie.sa,
+  rank:       gsaxRank,
+  qualCount,
+  saQual:     SA_QUAL,
+  // Tier bars — re-map raw bin_label to the canonical 5-tier display label
+  bins: goalie.bins.map(b => ({
+    label:        BIN_SHORT[b.bin_label] ?? b.bin_label,
+    gsax:         b.gsax,
+    svPct:        b.sv_pct ?? null,
+    leagueSvPct:  b.league_sv_pct,
+    sa:           b.sa,
+  })),
+};
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -255,7 +300,12 @@ const shotTypeColumns = [
             <span class="badge">{goalie.team_abbrev}</span>
             <span class="badge">G</span>
             <span class="badge">{gsaxSign}{goalie.gsax.toFixed(1)} GSAx</span>
+            <button id="dl-goalie-card" type="button"
+              style={`margin-left:auto;cursor:pointer;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:4px 10px;border:none;background:${teamColor};color:#fff;`}>
+              Download Card →
+            </button>
           </div>
+          <div id="goalie-card-status" style="display:none;font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-48)"></div>
           <div class="hero-name">
             <span class="first">{initial}.</span>
             <span class="last">{lastName}</span>
@@ -419,6 +469,337 @@ const shotTypeColumns = [
 <footer style="max-width:1100px;margin:0 auto;padding:20px 32px;font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:rgba(13,13,20,0.20)">
   HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · GSAx XGBoost AUC 0.77
 </footer>
+
+<canvas id="goalie-card-canvas" style="display:none"></canvas>
+
+<script define:vars={{ G: cardData }}>
+  (function () {
+    const status = document.getElementById('goalie-card-status');
+    const btn    = document.getElementById('dl-goalie-card');
+    if (!btn) return;
+
+    // ── palette (matches skater card) ──────────────────────────────────────
+    const BG      = '#EFEEE8';
+    const SURFACE = '#FFFFFF';
+    const INK     = '#0D0D14';
+    const RED     = '#E8002D';
+    const GREEN   = '#1a7a3e';
+    const INK72   = 'rgba(13,13,20,0.72)';
+    const INK48   = 'rgba(13,13,20,0.48)';
+    const INK32   = 'rgba(13,13,20,0.32)';
+    const INK20   = 'rgba(13,13,20,0.20)';
+    const INK14   = 'rgba(13,13,20,0.14)';
+    const INK10   = 'rgba(13,13,20,0.10)';
+    const INK06   = 'rgba(13,13,20,0.06)';
+    const TEAM_C  = G.hasTeam ? (G.teamColor || INK) : '#8a8a8a';
+
+    const TEAM_NAMES = {
+      ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
+      BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',
+      CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',
+      DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',
+      FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',
+      MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',
+      NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',
+      PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',
+      SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',
+      TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',
+      VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
+    };
+
+    // ── helpers (same patterns as skater card) ─────────────────────────────
+    function rrect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') { ctx.roundRect(x, y, w, h, r); }
+      else {
+        ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+        ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+        ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+        ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+      }
+    }
+    function loadImg(src) {
+      return new Promise(res => {
+        const img = new Image(); img.crossOrigin = 'anonymous';
+        img.onload = () => res(img); img.onerror = () => res(null);
+        img.src = src;
+      });
+    }
+    function ordinal(n) {
+      const a = Math.round(n), m10 = a % 10, m100 = a % 100;
+      if (m100 >= 11 && m100 <= 13) return a + 'th';
+      if (m10 === 1) return a + 'st';
+      if (m10 === 2) return a + 'nd';
+      if (m10 === 3) return a + 'rd';
+      return a + 'th';
+    }
+    const sgn = (v) => (v >= 0 ? '+' : '');
+    // Save % as ".923" (no leading zero); null → "—"
+    const svStr = (v) => v == null ? '—' : v.toFixed(3).replace(/^0/, '');
+
+    // ── card draw ──────────────────────────────────────────────────────────
+    async function drawGoalieCard() {
+      const SCALE = 2;
+      const W = 750, H = 900;
+      const PAD = 28;
+
+      const canvas = document.getElementById('goalie-card-canvas');
+      canvas.width  = W * SCALE;
+      canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(SCALE, SCALE);
+
+      // background
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, H);
+
+      let y = 0;
+
+      // ── HEADER BAND (white, ~110px) ───────────────────────────────────────
+      const HDR_H = 110;
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, y, W, HDR_H);
+      // team-color accent bar (6px). Neutral gray if no team.
+      ctx.fillStyle = TEAM_C;
+      ctx.fillRect(0, y, 6, HDR_H);
+
+      // name
+      ctx.font = '800 32px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left';
+      ctx.fillText(G.name.toUpperCase(), PAD, y + 44);
+
+      // chips row: TEAM · G · +X.X GSAx
+      const chipH = 18, chipY0 = y + 62;
+      const gsaxChip = sgn(G.gsax) + G.gsax.toFixed(1) + ' GSAx';
+      const chips = [
+        { t: G.hasTeam ? G.team : 'FA', bg: TEAM_C,  fg: BG  },
+        { t: 'G',                       bg: INK,     fg: BG  },
+        { t: gsaxChip,                  bg: INK,     fg: BG, accent: G.gsax >= 0 ? GREEN : RED },
+      ];
+      let cx = PAD;
+      ctx.font = '500 9px "JetBrains Mono", monospace';
+      ctx.textBaseline = 'middle';
+      for (const c of chips) {
+        const tw = ctx.measureText(c.t).width;
+        const cw = tw + 18;
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = c.accent || c.bg; ctx.fill();
+        ctx.fillStyle = c.fg; ctx.textAlign = 'left';
+        ctx.fillText(c.t, cx + 9, chipY0 + chipH / 2 + 0.5);
+        cx += cw + 8;
+      }
+      // HGB wordmark chip (red pill, right)
+      const brand = 'HGB STATS';
+      const btw = ctx.measureText(brand).width, bcw = btw + 18;
+      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textAlign = 'left';
+      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2 + 0.5);
+
+      // header bottom border
+      ctx.fillStyle = INK10;
+      ctx.fillRect(0, y + HDR_H - 1, W, 1);
+      y += HDR_H;
+
+      // ── HERO ROW (~200px, cream) ─────────────────────────────────────────
+      const HERO_H = 200;
+      const R = 70, HS_CX = PAD + R, HS_CY = y + HERO_H / 2;
+      const hsImg = await loadImg(G.headshotUrl);
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
+      } else {
+        ctx.fillStyle = INK10; ctx.fillRect(HS_CX - R, HS_CY - R, R * 2, R * 2);
+      }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 3; ctx.stroke();
+
+      // KPI grid (2×2) to the right
+      const gridX = HS_CX + R + 28;
+      const gridW = W - gridX - PAD;
+      const dSvDisplay = G.dSvPct != null;
+      const kpis = [
+        { label: 'GSAx', val: sgn(G.gsax) + G.gsax.toFixed(1),
+          color: G.gsax >= 0 ? GREEN : RED },
+        { label: 'Sv%',  val: svStr(G.svPct), color: INK },
+        { label: 'GAA',  val: G.gaa != null ? G.gaa.toFixed(2) : '—', color: INK },
+      ];
+      if (dSvDisplay) {
+        // dSv% shown in percentage points
+        const d = G.dSvPct * 100;
+        kpis.push({ label: 'dSv%', val: (d >= 0 ? '+' : '') + d.toFixed(2),
+          color: d >= 0 ? GREEN : RED });
+      }
+      const cols = 2;
+      const cellW = gridW / cols;
+      const cellH = HERO_H / 2 - 6;
+      for (let i = 0; i < kpis.length; i++) {
+        const k = kpis[i];
+        const col = i % cols, row = Math.floor(i / cols);
+        const kx = gridX + col * cellW;
+        const ky = y + 18 + row * (cellH + 8);
+        ctx.font = '500 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        ctx.fillText(k.label.toUpperCase(), kx, ky + 12);
+        ctx.font = '800 42px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = k.color;
+        ctx.fillText(k.val, kx, ky + 56);
+      }
+      y += HERO_H;
+
+      // ── RANK CONTEXT LINE (~40px) ────────────────────────────────────────
+      const RANK_H = 40;
+      ctx.font = '500 12px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK48; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      let rankTxt;
+      if (G.rank != null) {
+        rankTxt = ordinal(G.rank) + ' of ' + G.qualCount + ' qualified goalies (min. ' + G.saQual + ' SA)';
+      } else {
+        rankTxt = G.sa.toLocaleString() + ' shots against · below ' + G.saQual + ' SA qualifier';
+      }
+      ctx.fillText(rankTxt, W / 2, y + RANK_H / 2);
+      y += RANK_H;
+
+      // ── GSAx BY xG TIER BARS (~440px) ────────────────────────────────────
+      const TIER_TOP = y + 8;
+      // title
+      ctx.font = '800 18px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText('GSAx BY xG DIFFICULTY TIER', PAD, TIER_TOP + 18);
+      // subtitle
+      ctx.font = '400 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32;
+      ctx.fillText('GOALS SAVED ABOVE EXPECTED WITHIN EACH SHOT-DIFFICULTY BAND', PAD, TIER_TOP + 36);
+
+      const barsTop = TIER_TOP + 56;
+      const footerTop = H - 60;
+      const barsBottom = footerTop - 16;
+
+      if (G.bins && G.bins.length > 0) {
+        const absMax = Math.max(...G.bins.map(b => Math.abs(b.gsax)), 1);
+        const LABEL_W = 92;
+        const VAL_W   = 130; // right column for GSAx + sv label
+        const chartL  = PAD + LABEL_W;
+        const chartR  = W - PAD - VAL_W;
+        const zeroX   = chartL + (chartR - chartL) / 2;
+        const halfW   = (chartR - chartL) / 2;
+        const rowGap  = (barsBottom - barsTop) / G.bins.length;
+        const barH    = Math.min(24, rowGap - 18);
+
+        for (let i = 0; i < G.bins.length; i++) {
+          const b = G.bins[i];
+          const rowCY = barsTop + i * rowGap + rowGap / 2;
+          const isPos = b.gsax >= 0;
+          const barLen = (Math.abs(b.gsax) / absMax) * halfW;
+
+          // tier label (left)
+          ctx.font = '500 12px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK72; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+          ctx.fillText(b.label, PAD + LABEL_W - 12, rowCY);
+
+          // zero line
+          ctx.fillStyle = INK20;
+          ctx.fillRect(zeroX, rowCY - barH / 2 - 4, 1, barH + 8);
+
+          // bar
+          ctx.fillStyle = isPos ? GREEN : RED;
+          if (isPos) {
+            rrect(ctx, zeroX, rowCY - barH / 2, Math.max(2, barLen), barH, 2);
+          } else {
+            rrect(ctx, zeroX - Math.max(2, barLen), rowCY - barH / 2, Math.max(2, barLen), barH, 2);
+          }
+          ctx.fill();
+
+          // GSAx value at end of bar
+          ctx.font = '500 13px "JetBrains Mono", monospace';
+          ctx.fillStyle = isPos ? GREEN : RED;
+          ctx.textBaseline = 'middle';
+          if (isPos) {
+            ctx.textAlign = 'left';
+            ctx.fillText(sgn(b.gsax) + b.gsax.toFixed(1), zeroX + Math.max(2, barLen) + 8, rowCY);
+          } else {
+            ctx.textAlign = 'right';
+            ctx.fillText(b.gsax.toFixed(1), zeroX - Math.max(2, barLen) - 8, rowCY);
+          }
+
+          // Sv% vs league label (far right)
+          ctx.font = '400 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textAlign = 'right';
+          const svLbl = b.svPct != null
+            ? svStr(b.svPct) + ' vs ' + svStr(b.leagueSvPct) + ' lg'
+            : '— vs ' + svStr(b.leagueSvPct) + ' lg';
+          ctx.fillText(svLbl, W - PAD, rowCY);
+        }
+      } else {
+        ctx.font = '500 13px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Tier breakdown refreshing — available after next pipeline run.',
+          W / 2, (barsTop + barsBottom) / 2);
+      }
+
+      // ── FOOTER STRIP (~60px) ─────────────────────────────────────────────
+      ctx.fillStyle = INK06;
+      ctx.fillRect(0, footerTop, W, 1);
+      ctx.font = '400 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('HOCKEYGAMEBOT.COM · 2025–26 REGULAR SEASON · GSAx XGBoost',
+        PAD, footerTop + 30);
+
+      return canvas;
+    }
+
+    // ── download modal (same pattern as skater card) ───────────────────────
+    function showCardModal(canvas, filename) {
+      document.getElementById('hgb-card-modal')?.remove();
+      const dataUrl = canvas.toDataURL('image/png');
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const overlay = document.createElement('div');
+      overlay.id = 'hgb-card-modal';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
+      overlay.innerHTML = `
+        <div style="position:relative;max-width:min(90vw,820px);width:100%;">
+          <button id="hgb-modal-close" style="position:absolute;top:-40px;right:0;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;opacity:0.7;">×</button>
+          <img src="${dataUrl}" alt="${filename}" style="width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,0.12);" />
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:12px;">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.06em;">
+              ${isIOS ? 'Long-press image to save · ' : ''}${filename}
+            </span>
+            ${!isIOS ? `<a href="${dataUrl}" download="${filename}" style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.10em;text-transform:uppercase;padding:6px 14px;background:#fff;color:#0d0d14;text-decoration:none;white-space:nowrap;">↓ Download</a>` : ''}
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      document.getElementById('hgb-modal-close').addEventListener('click', () => overlay.remove());
+      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+      document.addEventListener('keydown', function esc(e) {
+        if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
+      });
+    }
+
+    // ── wire button ────────────────────────────────────────────────────────
+    btn.addEventListener('click', async () => {
+      const label = btn.textContent;
+      btn.textContent = 'Generating…'; btn.disabled = true;
+      if (status) { status.style.display = 'block'; status.textContent = 'Drawing…'; }
+      try {
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+        const canvas = await drawGoalieCard();
+        const slug = G.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        showCardModal(canvas, `hgb_goalie_${slug}_25-26.png`);
+        if (status) { status.textContent = 'Done ✓'; setTimeout(() => { if (status) status.style.display = 'none'; }, 3000); }
+      } catch (e) {
+        console.error(e);
+        if (status) status.textContent = 'Error — try again';
+      } finally {
+        btn.textContent = label; btn.disabled = false;
+      }
+    });
+  })();
+</script>
 
 </body>
 </html>
