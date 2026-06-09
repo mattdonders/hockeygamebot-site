@@ -228,9 +228,9 @@ function buildColumns(
         id: 'gf_diff_60', header: 'G±/60', accessor: r => r.gf_diff_60, width: 68,
         cell: v => {
           const n = v as number;
-          return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{sgn(n)}{Math.abs(n).toFixed(2)}</span>;
+          return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}</span>;
         },
-        exportText: v => { const n = v as number; return `${sgn(n)}${Math.abs(n).toFixed(2)}`; },
+        exportText: v => { const n = v as number; return `${n >= 0 ? '+' : ''}${n.toFixed(2)}`; },
       },
       { id: 'sc60',  header: 'SC/60',  accessor: r => r.sc60,  width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
       { id: 'hdc60', header: 'HDC/60', accessor: r => r.hdc60, width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
@@ -337,9 +337,9 @@ function buildAggColumns(
         cell: v => {
           if (v == null) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
           const n = v as number;
-          return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{sgn(n)}{Math.abs(n).toFixed(2)}</span>;
+          return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}</span>;
         },
-        exportText: v => v != null ? `${sgn(v as number)}${Math.abs(v as number).toFixed(2)}` : '—',
+        exportText: v => v != null ? `${(v as number) >= 0 ? '+' : ''}${(v as number).toFixed(2)}` : '—',
       },
     ];
   }
