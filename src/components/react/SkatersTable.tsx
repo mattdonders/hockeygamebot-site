@@ -48,6 +48,15 @@ type Display  = 'totals'   | 'per60';
 
 type Props = { rows: SkaterRow[]; statsDate: string | null; currentSeason: string; isPlayoffSeason?: boolean };
 
+const API_BASE = 'https://api.hockeygamebot.com';
+const LOCAL_PRESETS_KEY = 'hgb_filter_presets';
+
+type FilterSnapshot = {
+  tab: Tab; fromSeason: string; toSeason: string; gameType: GameType;
+  pos: Pos; display: Display; strength: Strength; minGP: number; minToi: number;
+};
+type FilterPreset = { name: string; filters: FilterSnapshot };
+
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const POS  = '#166534'; const NEG = '#991b1b';
 const sgn = (v: number) => v >= 0 ? '+' : '';
@@ -506,6 +515,107 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const [findInput, setFindInput] = useState('');
   const [findKey,   setFindKey]   = useState(0);
 
+  // ── Saved filter presets ──────────────────────────────────────────────────
+  const [presets,     setPresets]     = useState<FilterPreset[]>([]);
+  const [isLoggedIn,  setIsLoggedIn]  = useState(false);
+  const [saveMode,    setSaveMode]    = useState(false);
+  const [saveName,    setSaveName]    = useState('');
+
+  // Load presets on mount: API if logged in, localStorage otherwise.
+  // If the user has localStorage presets AND is logged in, merge them up to
+  // the cloud (local presets that don't conflict by name) then clear local.
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hgb_session') : null;
+    if (!token) { loadLocalPresets(); return; }
+    fetch(`${API_BASE}/v1/account/prefs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || data.error) { loadLocalPresets(); return; }
+        setIsLoggedIn(true);
+        const cloud: FilterPreset[] = data.filter_presets ?? [];
+
+        // Merge any localStorage presets whose names don't already exist in cloud
+        let local: FilterPreset[] = [];
+        try { local = JSON.parse(localStorage.getItem(LOCAL_PRESETS_KEY) ?? '[]'); } catch {}
+        const cloudNames = new Set(cloud.map(p => p.name));
+        const newFromLocal = local.filter(p => !cloudNames.has(p.name));
+
+        if (newFromLocal.length > 0) {
+          const merged = [...cloud, ...newFromLocal].slice(0, 10);
+          setPresets(merged);
+          // Push merged set to cloud, then clear local copy
+          fetch(`${API_BASE}/v1/account/prefs`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            credentials: 'include',
+            body: JSON.stringify({ filter_presets: merged }),
+          }).then(() => {
+            try { localStorage.removeItem(LOCAL_PRESETS_KEY); } catch {}
+          }).catch(() => {});
+        } else {
+          setPresets(cloud);
+          // Cloud is authoritative — clean up stale local copy if it exists
+          try { localStorage.removeItem(LOCAL_PRESETS_KEY); } catch {}
+        }
+      })
+      .catch(() => loadLocalPresets());
+  }, []);
+
+  function loadLocalPresets() {
+    try {
+      const raw = localStorage.getItem(LOCAL_PRESETS_KEY);
+      if (raw) setPresets(JSON.parse(raw));
+    } catch {}
+  }
+
+  function persistPresets(next: FilterPreset[]) {
+    setPresets(next);
+    if (isLoggedIn) {
+      const token = localStorage.getItem('hgb_session');
+      fetch(`${API_BASE}/v1/account/prefs`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ filter_presets: next }),
+      }).catch(() => {});
+    } else {
+      try { localStorage.setItem(LOCAL_PRESETS_KEY, JSON.stringify(next)); } catch {}
+    }
+  }
+
+  function currentSnapshot(): FilterSnapshot {
+    return { tab, fromSeason, toSeason, gameType, pos, display, strength, minGP, minToi };
+  }
+
+  function applyPreset(p: FilterPreset) {
+    const f = p.filters;
+    setTab(f.tab);
+    setFromSeason(f.fromSeason);
+    setToSeason(f.toSeason);
+    setGameType(f.gameType);
+    setPos(f.pos);
+    setDisplay(f.display);
+    setStrength(f.strength);
+    setMinGP(f.minGP);
+    setMinToi(f.minToi);
+  }
+
+  function savePreset() {
+    const name = saveName.trim();
+    if (!name) return;
+    const next = [...presets.filter(p => p.name !== name), { name, filters: currentSnapshot() }];
+    persistPresets(next);
+    setSaveName('');
+    setSaveMode(false);
+  }
+
+  function deletePreset(name: string) {
+    persistPresets(presets.filter(p => p.name !== name));
+  }
+
   const jumpToRow = findInput.trim()
     ? { predicate: (r: SkaterRow | AggRow) => r.name.toLowerCase().includes(findInput.trim().toLowerCase()), key: findKey }
     : undefined;
@@ -710,6 +820,51 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Saved filter presets bar ─────────────────────────────────────── */}
+      {(presets.length > 0 || filtersOpen) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          {presets.map(p => (
+            <div key={p.name} style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid rgba(13,13,20,0.2)', background: '#fff' }}>
+              <button
+                onClick={() => applyPreset(p)}
+                style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 10px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(13,13,20,0.72)' }}
+              >
+                {p.name}
+              </button>
+              <button
+                onClick={() => deletePreset(p.name)}
+                style={{ ...MONO, fontSize: 10, padding: '4px 6px 4px 2px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(13,13,20,0.3)', lineHeight: 1 }}
+                title="Delete preset"
+              >×</button>
+            </div>
+          ))}
+          {filtersOpen && !saveMode && (
+            <button
+              onClick={() => { setSaveMode(true); setSaveName(''); }}
+              style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 10px', border: '1px dashed rgba(13,13,20,0.2)', background: 'none', cursor: 'pointer', color: 'rgba(13,13,20,0.4)' }}
+            >
+              + Save filters
+            </button>
+          )}
+          {filtersOpen && saveMode && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input
+                autoFocus
+                type="text"
+                placeholder="Preset name…"
+                value={saveName}
+                onChange={e => setSaveName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') savePreset(); if (e.key === 'Escape') setSaveMode(false); }}
+                maxLength={40}
+                style={{ ...MONO, fontSize: 11, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#fff', outline: 'none', width: 160, color: '#0d0d14' }}
+              />
+              <button onClick={savePreset} style={{ ...MONO, fontSize: 10, padding: '4px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>Save</button>
+              <button onClick={() => setSaveMode(false)} style={{ ...MONO, fontSize: 10, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'none', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Cancel</button>
+            </div>
+          )}
         </div>
       )}
 
