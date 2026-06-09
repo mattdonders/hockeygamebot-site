@@ -2187,13 +2187,17 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const PAD = 24, R_PAD = 20;
 
       // Look up season data — current season uses D.percentiles, historical uses _seasonStats
+      var allSeasons = typeof _seasonStats !== 'undefined' ? _seasonStats : (window._seasonStats || []);
       var seasonData = null;
       if (selectedSeason && selectedSeason !== D.currentSeason) {
-        var allSeasons = typeof _seasonStats !== 'undefined' ? _seasonStats : (window._seasonStats || []);
         seasonData = allSeasons.find(function(s) { return s.season === selectedSeason; }) || null;
       }
       var isHistorical = !!seasonData;
       var isLimited = isHistorical && seasonData.limited;
+      // For the current season, we still want RAPM percentiles from allSeasons (they're not on D.percentiles)
+      var currentSeasonEntry = !isHistorical
+        ? (allSeasons.find(function(s) { return s.season === (selectedSeason || D.currentSeason); }) || null)
+        : null;
 
       // EDGE source for the selected season: current → D.edge; historical → edge_history[season].
       // NHL EDGE only exists 2021-22+, so older seasons have no EDGE → render a narrow card.
@@ -2209,11 +2213,16 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       var seasonTeam = isHistorical ? (seasonData.team || D.team) : D.team;
       const TEAM_C = (D.teamColors && D.teamColors[seasonTeam]) ? D.teamColors[seasonTeam] : (D.teamColor || INK);
 
-      // Helper to pick current vs historical percentile
+      // Helper to pick current vs historical percentile.
+      // For historical seasons: pull from seasonData. For current season: prefer RAPM from
+      // allSeasons (rapm_off_pct / rapm_def_pct) over the raw on-ice percentile on D.percentiles.
       function sp(currentVal, histKey) {
-        if (!isHistorical) return currentVal;
-        var v = seasonData[histKey];
-        return v != null ? v : null;
+        if (isHistorical) {
+          var v = seasonData[histKey];
+          return v != null ? v : null;
+        }
+        if (currentSeasonEntry && currentSeasonEntry[histKey] != null) return currentSeasonEntry[histKey];
+        return currentVal;
       }
 
       // Heights
