@@ -63,6 +63,8 @@ export type HGBTableProps<T> = {
   hideToolbar?: boolean;
   /** Prepend a "#" rank column showing each row's 1-based sort position. */
   showRank?: boolean;
+  /** Jump to first matching row with a yellow highlight. Increment `key` to re-trigger. */
+  jumpToRow?: { predicate: (row: T) => boolean; key: number };
   /** Big Barlow title shown in the PNG export header. If omitted, PNG button is hidden. */
   exportTitle?: string;
   /** Active filter labels shown as chips in PNG export (e.g. ["REG SEASON", "FORWARDS"]). */
@@ -334,6 +336,7 @@ export default function HGBTable<T extends object>({
   exportTitle,
   exportChips = [],
   showRank = false,
+  jumpToRow,
 }: HGBTableProps<T>) {
   const isMobile = useIsMobile();
 
@@ -360,6 +363,8 @@ export default function HGBTable<T extends object>({
   const [filterState, setFilterState] = useState<FilterState>(() =>
     buildInitialFilterState(filters),
   );
+
+  const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
 
   // Column visibility: user-toggled overrides + mobile auto-hides
   const [userVisibility, setUserVisibility] = useState<VisibilityState>(() => {
@@ -435,6 +440,18 @@ export default function HGBTable<T extends object>({
     estimateSize: () => 44,
     overscan: 8,
   });
+
+  // Jump-to-row: scroll virtualizer to first matching row + briefly highlight it
+  useEffect(() => {
+    if (!jumpToRow || !virtualize) return;
+    const idx = tableRows.findIndex(r => jumpToRow.predicate(r.original));
+    if (idx < 0) return;
+    virt.scrollToIndex(idx, { align: 'center' });
+    setHighlightIndex(idx);
+    const t = setTimeout(() => setHighlightIndex(null), 2000);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpToRow?.key]);
 
   // Padding-spacer approach: two sentinel <tr> rows bookend the virtual items.
   // This keeps <tbody> as a normal table-row-group (no display:block/flex tricks)
@@ -675,12 +692,9 @@ export default function HGBTable<T extends object>({
         >
           <thead>
             {table.getHeaderGroups().map(hg => (
-              <tr
-                key={hg.id}
-                style={{ borderBottom: '1px solid rgba(13,13,20,0.14)', background: BG }}
-              >
+              <tr key={hg.id} style={{ background: BG }}>
                 {showRank && (
-                  <th style={{ ...MONO, fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, fontWeight: 500, padding: isMobile ? '8px 8px' : '8px 10px', textAlign: 'center', width: 36 }}>#</th>
+                  <th style={{ ...MONO, fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, fontWeight: 500, padding: isMobile ? '8px 8px' : '8px 10px', textAlign: 'center', width: 36, position: 'sticky', top: 0, background: BG, zIndex: 2, boxShadow: 'inset 0 -1px 0 rgba(13,13,20,0.14)' }}>#</th>
                 )}
                 {hg.headers.map(h => {
                   const colDef = columnDefs.find(c => c.id === h.id);
@@ -707,6 +721,7 @@ export default function HGBTable<T extends object>({
                         top: 0,
                         background: BG,
                         zIndex: 2,
+                        boxShadow: 'inset 0 -1px 0 rgba(13,13,20,0.14)',
                         ...(colDef?.width ? { width: colDef.width } : {}),
                       }}
                     >
@@ -743,7 +758,9 @@ export default function HGBTable<T extends object>({
                 {virtItems.map(vr => {
                   const row = tableRows[vr.index];
                   const href = rowHref ? rowHref(row.original) : undefined;
-                  const bg = vr.index % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
+                  const bg = highlightIndex === vr.index
+                    ? 'rgba(236,168,0,0.18)'
+                    : vr.index % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
                   return (
                     <tr
                       key={row.id}
@@ -786,7 +803,9 @@ export default function HGBTable<T extends object>({
               // ── Normal rows ────────────────────────────────────────────────
               tableRows.map((row, i) => {
                 const href = rowHref ? rowHref(row.original) : undefined;
-                const bg = i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
+                const bg = highlightIndex === i
+                  ? 'rgba(236,168,0,0.18)'
+                  : i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
                 const rowStyle: React.CSSProperties = {
                   borderBottom: '1px solid rgba(13,13,20,0.05)',
                   background: bg,

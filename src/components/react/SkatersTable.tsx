@@ -216,14 +216,14 @@ function buildColumns(
       },
       { id: 'xgf60', header: 'xGF/60', accessor: r => r.xgf60, width: 72, cell: v => f2(v as any), exportText: v => f2(v as any) },
       { id: 'xga60', header: 'xGA/60', accessor: r => r.xga60, width: 72, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      {
-        id: 'gf_diff', header: 'G±', accessor: r => r.gf_diff, width: 60,
-        cell: v => {
+      ...(display === 'totals' ? [{
+        id: 'gf_diff', header: 'G±', accessor: (r: SkaterRow) => r.gf_diff, width: 60,
+        cell: (v: string | number | null) => {
           const n = v as number;
           return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{sgn(n)}{n}</span>;
         },
-        exportText: v => { const n = v as number; return `${sgn(n)}${n}`; },
-      },
+        exportText: (v: string | number | null) => { const n = v as number; return `${sgn(n)}${n}`; },
+      }] : []),
       {
         id: 'gf_diff_60', header: 'G±/60', accessor: r => r.gf_diff_60, width: 68,
         cell: v => {
@@ -464,6 +464,12 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const strDisabled = (_s: Strength) => useAgg || tab === 'advanced' || tab === 'onice';
 
   const [filtersOpen,  setFiltersOpen]  = useState(true);
+  const [findInput, setFindInput] = useState('');
+  const [findKey,   setFindKey]   = useState(0);
+
+  const jumpToRow = findInput.trim()
+    ? { predicate: (r: SkaterRow | AggRow) => r.name.toLowerCase().includes(findInput.trim().toLowerCase()), key: findKey }
+    : undefined;
 
   const chip = (active: boolean, label: string, onClick: () => void, disabled = false) => (
     <button onClick={disabled ? undefined : onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: disabled ? 'not-allowed' : 'pointer', background: active ? '#0d0d14' : '#fff', color: active ? '#EFEEE8' : disabled ? 'rgba(13,13,20,0.2)' : 'rgba(13,13,20,0.48)', opacity: disabled ? 0.5 : 1 }}>
@@ -630,6 +636,19 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             </div>
           </div>
 
+          {/* FIND PLAYER — jump-to-row */}
+          <div>
+            {label('Find Player')}
+            <input
+              type="search"
+              placeholder="Name → Enter"
+              value={findInput}
+              onChange={e => setFindInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') setFindKey(k => k + 1); }}
+              style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', outline: 'none', width: 140, color: '#0d0d14' }}
+            />
+          </div>
+
           {/* TEAM — multi-chip */}
           <div>
             {label('Team')}
@@ -678,6 +697,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           ]}
           hideToolbar
           showRank
+          virtualize={true}
+          jumpToRow={jumpToRow}
         />
       ) : (
         <HGBTable
@@ -698,6 +719,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           ]}
           hideToolbar
           showRank
+          virtualize={true}
+          jumpToRow={jumpToRow}
         />
       )}
       {useAgg ? (
