@@ -390,9 +390,11 @@ const clientTeamB    = series.team_b;
     <div class="mast-card">
       <div class="series-matchup">
         <div class="series-teams">
-          <span class="series-team">{series.team_a}</span>
+          <img src={`/logos/${series.team_a}_light.svg`} alt={series.team_a} style="width:44px;height:44px;object-fit:contain;flex-shrink:0" />
+          <span class="series-team" style={`color:${colorA}`}>{series.team_a}</span>
           <span class="series-vs">vs</span>
-          <span class="series-team">{series.team_b}</span>
+          <span class="series-team" style={`color:${colorB}`}>{series.team_b}</span>
+          <img src={`/logos/${series.team_b}_light.svg`} alt={series.team_b} style="width:44px;height:44px;object-fit:contain;flex-shrink:0" />
         </div>
         <div class="series-score">
           <span class="score-num">{winsA}</span>
@@ -581,6 +583,7 @@ const clientTeamB    = series.team_b;
 <script define:vars={{
   clientSeriesId, clientTeamA, clientTeamB, playoffLineMap, playerSlugMap,
   colorA, colorB, winsA, winsB, roundLabel, seasonLabel, gamesPlayed,
+  seriesWinPctA: series.win_pct_a, seriesWinPctB: series.win_pct_b,
   seriesXgfPctA: seriesSummA?.xgfPct ?? null,
   seriesXgfPctB: seriesSummB?.xgfPct ?? null,
   seriesXgfA: seriesSummA?.xgf ?? null,  seriesXgaA: seriesSummA?.xga ?? null,
@@ -722,6 +725,14 @@ const TEAM_NAMES = {
 async function drawSeriesCard() {
   await document.fonts.ready;
 
+  function _loadImg(src) {
+    return new Promise(res => { const img = new Image(); img.onload = () => res(img); img.onerror = () => res(null); img.src = src; });
+  }
+  const [logoA, logoB] = await Promise.all([
+    _loadImg(`/logos/${clientTeamA}_light.svg`),
+    _loadImg(`/logos/${clientTeamB}_light.svg`),
+  ]);
+
   const SCALE = 2, W = 1080, H = 1080, PAD = 48;
   const BG = '#EFEEE8', SURF = '#FFFFFF', INK = '#0d0d14', RED = '#E8002D';
   const ink = a => `rgba(13,13,20,${a})`;
@@ -757,8 +768,7 @@ async function drawSeriesCard() {
 
   let cx = PAD;
   cx += drawChip(roundLabel.toUpperCase(), cx, INK, BG) + 6;
-  cx += drawChip(seasonLabel.toUpperCase(), cx, INK, BG) + 6;
-  if (gamesPlayed > 0) drawChip(`${gamesPlayed} GAME${gamesPlayed !== 1 ? 'S' : ''}`, cx, INK, BG);
+  drawChip(seasonLabel.toUpperCase(), cx, INK, BG);
 
   ctx.font = `600 11px 'Barlow'`;
   const redTxt = 'HOCKEYGAMEBOT.COM';
@@ -768,32 +778,65 @@ async function drawSeriesCard() {
   ctx.fillStyle = INK; ctx.fillRect(0, y + HDR_H, W, 2);
   y += HDR_H + 2;
 
-  // ── HERO ─────────────────────────────────────────────────────────────────────
-  const HERO_H = 152; // 22 + 96 + 6 + 12 + 16 bottom
+  // ── HERO — logos + abbrev + win% bar ─────────────────────────────────────────
+  const HERO_H = 168;
+  const HERO_TOP = 18;
+  const LOGO_SZ = 72, LOGO_PAD = 16;
   ctx.fillStyle = SURF; ctx.fillRect(0, y, W, HERO_H);
 
-  // Team A
+  const abbrevTop = y + HERO_TOP;
+  const logoTop   = abbrevTop + Math.round((96 - LOGO_SZ) / 2);
+
+  // Logos
+  if (logoA) ctx.drawImage(logoA, PAD, logoTop, LOGO_SZ, LOGO_SZ);
+  if (logoB) ctx.drawImage(logoB, W - PAD - LOGO_SZ, logoTop, LOGO_SZ, LOGO_SZ);
+
+  // Team A abbrev + fullname (right of logo)
+  const abbrevAX = PAD + LOGO_SZ + LOGO_PAD;
   ctx.font = `800 96px 'Barlow Condensed'`; ctx.textBaseline = 'top';
   ctx.fillStyle = colorA;
-  ctx.fillText(clientTeamA, PAD, y + 22);
+  ctx.fillText(clientTeamA, abbrevAX, abbrevTop);
   ctx.font = `600 10px 'Barlow'`; ctx.fillStyle = ink(0.36);
-  ctx.fillText((TEAM_NAMES[clientTeamA] ?? clientTeamA).toUpperCase(), PAD, y + 22 + 96 + 6);
+  ctx.fillText((TEAM_NAMES[clientTeamA] ?? clientTeamA).toUpperCase(), abbrevAX, abbrevTop + 96 + 6);
 
-  // Score center
+  // Team B abbrev + fullname (left of logo, right-aligned)
+  ctx.font = `800 96px 'Barlow Condensed'`; ctx.textBaseline = 'top';
+  ctx.fillStyle = colorB;
+  const abbBW = ctx.measureText(clientTeamB).width;
+  ctx.fillText(clientTeamB, W - PAD - LOGO_SZ - LOGO_PAD - abbBW, abbrevTop);
+  ctx.font = `600 10px 'Barlow'`; ctx.fillStyle = ink(0.36);
+  const fnB = (TEAM_NAMES[clientTeamB] ?? clientTeamB).toUpperCase();
+  ctx.fillText(fnB, W - PAD - LOGO_SZ - LOGO_PAD - ctx.measureText(fnB).width, abbrevTop + 96 + 6);
+
+  // Score (center)
   const scoreStr = `${winsA}   –   ${winsB}`;
   ctx.font = `800 72px 'Barlow Condensed'`; ctx.textBaseline = 'top';
   ctx.fillStyle = INK;
   const scoreW2 = ctx.measureText(scoreStr).width;
-  ctx.fillText(scoreStr, (W - scoreW2) / 2, y + 22 + 12);
+  ctx.fillText(scoreStr, (W - scoreW2) / 2, abbrevTop);
 
-  // Team B (right-aligned)
-  ctx.font = `800 96px 'Barlow Condensed'`; ctx.textBaseline = 'top';
+  // Win% bar (below score)
+  const WIN_BAR_W = 260, WIN_BAR_H = 6;
+  const winBarY = abbrevTop + 72 + 8;
+  const winBarX = (W - WIN_BAR_W) / 2;
+  const PCT_COL = 44, PCT_GAP = 10;
+  const innerBarX = winBarX + PCT_COL + PCT_GAP;
+  const innerBarW = WIN_BAR_W - PCT_COL * 2 - PCT_GAP * 2;
+
+  ctx.font = `800 16px 'Barlow Condensed'`; ctx.textBaseline = 'middle';
+  ctx.fillStyle = colorA;
+  ctx.fillText(`${seriesWinPctA}%`, winBarX, winBarY + WIN_BAR_H / 2);
+  const pBStr = `${seriesWinPctB}%`;
   ctx.fillStyle = colorB;
-  const abbBW = ctx.measureText(clientTeamB).width;
-  ctx.fillText(clientTeamB, W - PAD - abbBW, y + 22);
-  ctx.font = `600 10px 'Barlow'`; ctx.fillStyle = ink(0.36);
-  const fnB = (TEAM_NAMES[clientTeamB] ?? clientTeamB).toUpperCase();
-  ctx.fillText(fnB, W - PAD - ctx.measureText(fnB).width, y + 22 + 96 + 6);
+  ctx.fillText(pBStr, winBarX + WIN_BAR_W - ctx.measureText(pBStr).width, winBarY + WIN_BAR_H / 2);
+
+  ctx.fillStyle = ink(0.08); ctx.fillRect(innerBarX, winBarY, innerBarW, WIN_BAR_H);
+  ctx.fillStyle = colorA;   ctx.fillRect(innerBarX, winBarY, innerBarW * (seriesWinPctA / 100), WIN_BAR_H);
+  ctx.fillStyle = colorB;   ctx.fillRect(innerBarX + innerBarW * (seriesWinPctA / 100), winBarY, innerBarW * (seriesWinPctB / 100), WIN_BAR_H);
+
+  ctx.font = `700 9px 'JetBrains Mono'`; ctx.textBaseline = 'top'; ctx.fillStyle = ink(0.32);
+  const winLbl = 'SERIES WIN %'; const winLblW = ctx.measureText(winLbl).width;
+  ctx.fillText(winLbl, (W - winLblW) / 2, winBarY + WIN_BAR_H + 4);
 
   ctx.fillStyle = ink(0.14); ctx.fillRect(0, y + HERO_H, W, 1);
   y += HERO_H + 1;
