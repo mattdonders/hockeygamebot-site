@@ -655,15 +655,12 @@ export default function HGBTable<T extends object>({
 
       {/* Table */}
       <div
-        ref={virtualize ? scrollRef : undefined}
+        ref={scrollRef}
         style={{
           overflowX: 'auto',
           WebkitOverflowScrolling: 'touch',
-          ...(virtualize
-            ? { height: maxHeight ?? 'calc(100vh - 300px)', overflowY: 'auto' }
-            : maxHeight
-              ? { maxHeight, overflowY: 'auto' }
-              : {}),
+          maxHeight: maxHeight ?? 'calc(100vh - 300px)',
+          overflowY: 'auto',
         }}
       >
         <table
