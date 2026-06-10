@@ -242,7 +242,7 @@ export function buildGoalieHeatmapSVG(bins: GoalieHeatBin[]): string {
     const rectX  = fxFor(bxN);
     const rectY  = byN === minY ? RINK_TOP : fy(byN);
     const rectY2 = byN === maxY ? RINK_BOT : fy(byN + 10);
-    const rectW  = bxN === maxX ? (EB - rectX) : BIN_W;  // last radial bin → end boards
+    const rectW  = BIN_W;  // standard 10-ft width; clipPath handles any overflow past GL/EB
     const rectH  = rectY2 - rectY;
 
     const fr = heatFill(b.sv_pct ?? null, selfSv,                  shots);
