@@ -150,6 +150,66 @@ const shotTypeColumns = [
     color: signedColor },
 ];
 
+// ── Game log table ─────────────────────────────────────────────────────────
+function secToTOI(sec: number | null | undefined): string {
+  if (sec == null) return '—';
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+const gameLogRows = [...goalie.games]
+  .sort((a, b) => b.game_date.localeCompare(a.game_date))
+  .map(g => ({
+    date_fmt: g.game_date.slice(5).replace('-', '/'),
+    opp:      g.opp_abbrev ?? '—',
+    decision: g.decision ?? '—',
+    type_lbl: g.game_type === 3 ? 'PO' : 'RS',
+    toi_fmt:  secToTOI(g.toi_sec),
+    sa:       g.sa,
+    ga:       g.ga,
+    sv_pct:   g.sv_pct,
+    xga:      g.xga,
+    gsax:     g.gsax,
+  }));
+
+const gameLogColumns = [
+  { key: 'date_fmt', label: 'Date',  type: 'label' as const },
+  { key: 'opp',     label: 'Opp',   type: 'label' as const, bold: true },
+  { key: 'decision',label: 'Dec',   type: 'label' as const },
+  { key: 'type_lbl',label: 'Type',  type: 'label' as const },
+  { key: 'toi_fmt', label: 'TOI',   type: 'number' as const },
+  { key: 'sa',      label: 'SA',    type: 'number' as const },
+  { key: 'ga',      label: 'GA',    type: 'number' as const },
+  { key: 'sv_pct',  label: 'SV%',   type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(3) },
+  { key: 'xga',     label: 'xGA',   type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(2) },
+  { key: 'gsax',    label: 'GSAx',  type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+    color: signedColor },
+];
+
+// ── EDGE zone map ───────────────────────────────────────────────────────────
+const edgeZones = goalie.edge?.zones ?? [];
+const hdZone  = edgeZones[0] ?? null;
+const midZone = edgeZones[1] ?? null;
+const lngZone = edgeZones[2] ?? null;
+const hasEdgeZones = hdZone != null && midZone != null && lngZone != null;
+
+function zoneColor(pct: number | null): string {
+  if (pct == null) return 'rgba(13,13,20,0.12)';
+  const p = pct * 100;
+  if (p >= 75) return '#1a7a3e';
+  if (p >= 50) return '#34a853';
+  if (p >= 25) return '#c07020';
+  return '#E8002D';
+}
+function zoneFill(pct: number | null): string {
+  const c = zoneColor(pct);
+  return c.startsWith('#') ? c + '30' : c.replace(')', ',0.15)').replace('rgba', 'rgba');
+}
+
 // ── Tweet-card data (passed to client script via define:vars) ───────────────
 // dSv% = actual SV% minus expected SV% (xsv_pct). Both stored as fractions.
 const dSvPct = goalie.dsv_pct != null
@@ -376,8 +436,21 @@ const cardData = {
     .peer-gsax.pos { color: #00A86B; }
     .peer-gsax.neg { color: var(--red); }
 
+    /* ── EDGE Zone map ── */
+    .zone-map-body { padding: 16px 20px 12px; }
+    .zone-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--ink-10); border: 1px solid var(--ink-10); margin-top: 14px; }
+    .zone-col { background: var(--surface); padding: 12px 14px; }
+    .zone-col-lbl { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
+    .zone-col-sv { font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1; margin-bottom: 4px; }
+    .zone-col-pct { font-family: var(--mono); font-size: 10px; font-weight: 600; margin-bottom: 2px; }
+    .zone-col-meta { font-family: var(--mono); font-size: 9px; color: var(--ink-48); line-height: 1.4; }
+
+    /* ── Game log table ── */
+    .sec-body .tbl-wrap { border: none; }
+
     @media (max-width: 768px) {
       .mast-inner, .wrap { padding-left: 16px; padding-right: 16px; }
+      .zone-stats { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -573,6 +646,99 @@ const cardData = {
       </div>
     </div>
   </div>
+
+  <!-- ── EDGE Zone Shot Map ── -->
+  {hasEdgeZones && (
+    <div class="sec-card">
+      <div class="sec-head">
+        <div class="sec-title">Save % by Zone</div>
+        <div class="sec-sub">NHL EDGE tracking · shot location profile vs league average</div>
+      </div>
+      <div class="zone-map-body">
+        <svg viewBox="0 0 380 200" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">
+          <defs>
+            <clipPath id="rink-clip-zones">
+              <rect x="8" y="4" width="364" height="190" rx="22" />
+            </clipPath>
+          </defs>
+          {/* Ice surface background */}
+          <rect x="8" y="4" width="364" height="190" rx="22" fill="var(--surface)" stroke="var(--ink-14)" stroke-width="1.5"/>
+          <g clip-path="url(#rink-clip-zones)">
+            {/* Long range zone (full surface bg) */}
+            <rect x="8" y="4" width="364" height="190" fill={zoneFill(lngZone!.svpct_pct)} />
+            {/* Mid range arc */}
+            <ellipse cx="190" cy="218" rx="157" ry="145" fill={zoneFill(midZone!.svpct_pct)} />
+            {/* High danger arc */}
+            <ellipse cx="190" cy="218" rx="73" ry="67" fill={zoneFill(hdZone!.svpct_pct)} />
+          </g>
+          {/* Zone boundary dashes */}
+          <ellipse cx="190" cy="218" rx="157" ry="145" fill="none" stroke="rgba(13,13,20,0.12)" stroke-width="1" stroke-dasharray="6 4"/>
+          <ellipse cx="190" cy="218" rx="73" ry="67" fill="none" stroke="rgba(13,13,20,0.12)" stroke-width="1" stroke-dasharray="6 4"/>
+          {/* Blue line */}
+          <rect x="8" y="71" width="364" height="3" fill="rgba(0,100,210,0.28)" />
+          {/* Goal line */}
+          <line x1="8" y1="181" x2="372" y2="181" stroke="rgba(210,0,30,0.4)" stroke-width="2"/>
+          {/* Crease arc */}
+          <path d="M 163,181 A 27,27 0 0 1 217,181" fill="rgba(210,0,30,0.06)" stroke="rgba(210,0,30,0.4)" stroke-width="1.5"/>
+          {/* Goal net */}
+          <rect x="165" y="181" width="50" height="11" fill="none" stroke="rgba(13,13,20,0.4)" stroke-width="2" rx="1"/>
+          {/* Rink border on top */}
+          <rect x="8" y="4" width="364" height="190" rx="22" fill="none" stroke="var(--ink-20)" stroke-width="1.5"/>
+          {/* Zone labels */}
+          <text x="190" y="33" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9" font-weight="700" fill="rgba(13,13,20,0.3)" letter-spacing="0.12em">LONG RANGE</text>
+          <text x="42" y="130" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" fill="rgba(13,13,20,0.28)" letter-spacing="0.06em">MID</text>
+          <text x="42" y="142" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" fill="rgba(13,13,20,0.28)" letter-spacing="0.06em">RANGE</text>
+          <text x="338" y="130" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" fill="rgba(13,13,20,0.28)" letter-spacing="0.06em">MID</text>
+          <text x="338" y="142" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" fill="rgba(13,13,20,0.28)" letter-spacing="0.06em">RANGE</text>
+          <text x="190" y="157" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(13,13,20,0.38)" letter-spacing="0.08em">HIGH DANGER</text>
+        </svg>
+
+        <div class="zone-stats">
+          {[
+            { lbl: 'High Danger', z: hdZone! },
+            { lbl: 'Mid Range',   z: midZone! },
+            { lbl: 'Long Range',  z: lngZone! },
+          ].map(({ lbl, z }) => {
+            const pct100 = z.svpct_pct != null ? z.svpct_pct * 100 : null;
+            const color  = zoneColor(z.svpct_pct);
+            return (
+              <div class="zone-col">
+                <div class="zone-col-lbl" style={`color:${color}`}>{lbl}</div>
+                <div class="zone-col-sv" style={`color:${color}`}>{z.svpct != null ? z.svpct.toFixed(3) : '—'}</div>
+                <div class="zone-col-pct" style={`color:${color}`}>
+                  {pct100 != null ? ordinal(Math.round(pct100)) + ' pct' : '—'}
+                </div>
+                <div class="zone-col-meta">
+                  {z.svpct_league_avg != null ? `avg ${z.svpct_league_avg.toFixed(3)}` : ''}
+                </div>
+                <div class="zone-col-meta">
+                  {z.saves != null ? `${z.saves} sv · ${z.ga} ga` : ''}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  )}
+
+  <!-- ── Game Log Table ── -->
+  {gameLogRows.length > 0 && (
+    <div class="sec-card">
+      <div class="sec-head">
+        <div class="sec-title">Game Log</div>
+        <div class="sec-sub">{gameLogRows.length} games · most recent first · RS = regular season · PO = playoffs</div>
+      </div>
+      <div class="sec-body" style="padding:0">
+        <Table
+          columns={gameLogColumns}
+          rows={gameLogRows}
+          sticky={true}
+          ariaLabel="Game log"
+        />
+      </div>
+    </div>
+  )}
 
 </div><!-- /content-main -->
 
