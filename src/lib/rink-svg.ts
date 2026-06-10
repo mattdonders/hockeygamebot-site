@@ -193,8 +193,17 @@ export interface GoalieHeatBin {
 export function buildGoalieHeatmapSVG(bins: GoalieHeatBin[]): string {
   if (!bins.length) return '';
 
-  const BIN_W = (10 / 100) * 182;   // fxFor(10)−fxFor(0) = 18.2
-  const BIN_H = (10 / 85)  * 164;   // fy(10)−fy(0) ≈ 19.3
+  const BIN_W = (10 / 100) * 182;   // fxFor(10)−fxFor(0) = 18.2 — one radial bin
+  const BIN_H = (10 / 85)  * 164;   // fy(10)−fy(0) ≈ 19.3 — one lateral bin
+
+  // Rink extremes in SVG units — bins at the edges are extended to fill to the boards
+  const RINK_TOP = fy(-42.5);  // ≈ 3  (top board in SVG)
+  const RINK_BOT = fy(42.5);   // ≈ 167 (bottom board in SVG)
+
+  const validBins = bins.filter(b => b.x != null && b.y != null);
+  const minY = validBins.length ? Math.min(...validBins.map(b => b.y!)) : -40;
+  const maxY = validBins.length ? Math.max(...validBins.map(b => b.y!)) : 30;
+  const maxX = validBins.length ? Math.max(...validBins.map(b => b.x!)) : 80;
 
   const totalShots = bins.reduce((s, b) => s + (b.shots ?? 0), 0);
   const totalGoals = bins.reduce((s, b) => s + (b.goals ?? 0), 0);
@@ -225,20 +234,24 @@ export function buildGoalieHeatmapSVG(bins: GoalieHeatBin[]): string {
   p.push(`<rect x="${BL.toFixed(1)}" y="2" width="${(EB - BL).toFixed(1)}" height="166" fill="rgba(20,100,200,0.04)"/>`);
 
   // Layer 2: heat bins (clipped to rink boundary)
+  // Edge bins are stretched to the rink boundary so there are no bare-ice gaps at boards/end boards.
   p.push(`<g clip-path="url(#gheat-clip)">`);
   for (const b of bins) {
     const bxN = b.x ?? 0, byN = b.y ?? 0, shots = b.shots ?? 0;
-    const bx = fxFor(bxN).toFixed(1);
-    const by = fy(byN).toFixed(1);
-    const bw = BIN_W.toFixed(1);
-    const bh = BIN_H.toFixed(1);
-    const fr = heatFill(b.sv_pct ?? null, selfSv,                b.shots ?? 0);
-    const fl = heatFill(b.sv_pct ?? null, b.league_sv_pct ?? null, shots);
-    p.push(`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="${fr}" data-fill-raw="${fr}" data-fill-league="${fl}" stroke="rgba(13,13,20,0.06)" stroke-width="0.5"/>`);
+
+    const rectX  = fxFor(bxN);
+    const rectY  = byN === minY ? RINK_TOP : fy(byN);
+    const rectY2 = byN === maxY ? RINK_BOT : fy(byN + 10);
+    const rectW  = bxN === maxX ? (EB - rectX) : BIN_W;  // last radial bin → end boards
+    const rectH  = rectY2 - rectY;
+
+    const fr = heatFill(b.sv_pct ?? null, selfSv,                  shots);
+    const fl = heatFill(b.sv_pct ?? null, b.league_sv_pct ?? null,  shots);
+    p.push(`<rect x="${rectX.toFixed(1)}" y="${rectY.toFixed(1)}" width="${rectW.toFixed(1)}" height="${rectH.toFixed(1)}" fill="${fr}" data-fill-raw="${fr}" data-fill-league="${fl}" stroke="rgba(13,13,20,0.06)" stroke-width="0.5"/>`);
   }
   p.push(`</g>`);
 
-  // Layer 3: rink markings overlay (draw over bins so structure stays readable)
+  // Layer 3: rink markings overlay (on top so structure stays readable)
   p.push(`<rect x="${GL.toFixed(1)}" y="2" width="${(EB - GL).toFixed(1)}" height="166" fill="rgba(13,13,20,0.03)"/>`);
   p.push(`<line x1="195" y1="2" x2="195" y2="168" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>`);
   p.push(`<circle cx="195" cy="${cY}" r="21" fill="none" stroke="rgba(13,13,20,0.15)" stroke-width="1"/>`);
@@ -255,15 +268,19 @@ export function buildGoalieHeatmapSVG(bins: GoalieHeatBin[]): string {
   p.push(`<text x="${BL.toFixed(1)}" y="14" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(20,100,200,0.55)" text-anchor="middle" letter-spacing="0.08em">BLUE LINE</text>`);
   p.push(`<text x="${(GL - 8).toFixed(1)}" y="14" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(232,0,45,0.50)" text-anchor="end" letter-spacing="0.06em">GOAL</text>`);
 
-  // Layer 4: SV% text labels
+  // Layer 4: SV% text labels — font-size=5 fits within 18.2-unit-wide bins at all render sizes.
+  // Centered on the ORIGINAL 10-ft bin (not the edge-extended area) so positions stay consistent.
+  // Clipped to the rink area so extended-bin labels don't spill outside the mapped zone.
+  p.push(`<g clip-path="url(#gheat-clip)">`);
   for (const b of bins) {
     const shots = b.shots ?? 0;
     if (shots < 5 || b.sv_pct == null) continue;
     const tx = (fxFor(b.x ?? 0) + BIN_W / 2).toFixed(1);
-    const ty = (fy(b.y ?? 0)    + BIN_H / 2 + 3).toFixed(1);
+    const ty = (fy(b.y ?? 0)    + BIN_H / 2 + 2).toFixed(1);
     const opacity = shots >= 10 ? 'rgba(13,13,20,0.80)' : 'rgba(13,13,20,0.45)';
-    p.push(`<text x="${tx}" y="${ty}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" fill="${opacity}">${b.sv_pct.toFixed(3).replace(/^0/, '')}</text>`);
+    p.push(`<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-family="JetBrains Mono,monospace" font-size="5" fill="${opacity}">${b.sv_pct.toFixed(3).replace(/^0/, '')}</text>`);
   }
+  p.push(`</g>`);
 
   p.push(`</svg>`);
   return p.join('');
