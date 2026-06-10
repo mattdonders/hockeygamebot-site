@@ -88,14 +88,16 @@ export function buildPlayerShotMapSVG(
   const p = rinkElementsFor();
 
   // Shots (outlined) first so goals render on top
+  // y is negated: SQL normalization produces y_n where positive = upper faceoff area,
+  // but fy() maps +y to SVG bottom. Negating aligns with HockeyViz orientation.
   for (const s of shots) {
     if (s[2]) continue;
-    p.push(`<circle cx="${fxFor(s[0]).toFixed(1)}" cy="${fy(s[1]).toFixed(1)}" r="2.8" fill="${teamColor}18" stroke="${teamColor}" stroke-width="0.7" opacity="0.70"/>`);
+    p.push(`<circle cx="${fxFor(s[0]).toFixed(1)}" cy="${fy(-s[1]).toFixed(1)}" r="2.8" fill="${teamColor}18" stroke="${teamColor}" stroke-width="0.7" opacity="0.70"/>`);
   }
   // Goals (solid)
   for (const s of shots) {
     if (!s[2]) continue;
-    p.push(`<circle cx="${fxFor(s[0]).toFixed(1)}" cy="${fy(s[1]).toFixed(1)}" r="4" fill="${teamColor}" stroke="white" stroke-width="0.8" opacity="0.92"/>`);
+    p.push(`<circle cx="${fxFor(s[0]).toFixed(1)}" cy="${fy(-s[1]).toFixed(1)}" r="4" fill="${teamColor}" stroke="white" stroke-width="0.8" opacity="0.92"/>`);
   }
 
   return `<svg id="player-shot-map-svg" viewBox="${VB_X} 0 ${VB_W} 170" xmlns="http://www.w3.org/2000/svg" class="shot-map-svg">${p.join('')}</svg>`;
@@ -277,8 +279,8 @@ export function buildSeriesShotMapSVG(
   p.push(`<text x="${CX - 82}" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="${rgbaHex(ca, 0.85)}" text-anchor="middle" letter-spacing="0.10em">← ${labelAgainst}</text>`);
   p.push(`<text x="${CX + 82}" y="14" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="${rgbaHex(cf, 0.85)}" text-anchor="middle" letter-spacing="0.10em">${labelFor} →</text>`);
   // Shots
-  sa.forEach(s => p.push(dot(fxAga(s[0]).toFixed(1), fy(s[1]).toFixed(1), s[2], s[3], ca, rgbaHex(ca, 0.13), rgbaHex(ca, 0.35))));
-  sf.forEach(s => p.push(dot(fxFor(s[0]).toFixed(1),  fy(s[1]).toFixed(1), s[2], s[3], rgbaHex(cf, 0.90), rgbaHex(cf, 0.13), rgbaHex(cf, 0.35))));
+  sa.forEach(s => p.push(dot(fxAga(s[0]).toFixed(1), fy(-s[1]).toFixed(1), s[2], s[3], ca, rgbaHex(ca, 0.13), rgbaHex(ca, 0.35))));
+  sf.forEach(s => p.push(dot(fxFor(s[0]).toFixed(1),  fy(-s[1]).toFixed(1), s[2], s[3], rgbaHex(cf, 0.90), rgbaHex(cf, 0.13), rgbaHex(cf, 0.35))));
   // xGF/xGA bar (omitted when per-shot xG isn't available)
   if (showXgBar) {
     p.push(`<rect x="2" y="158" width="386" height="10" fill="${rgbaHex(ca, 0.15)}"/>`);
