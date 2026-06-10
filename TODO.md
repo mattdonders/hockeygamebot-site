@@ -148,6 +148,11 @@ Currently a beta page with a leaderboard table + EV Off vs EV Def scatter plot. 
 
 ## Completed
 
+- [x] **Player career table — gap indicators** (`PlayerCareerTable.tsx`): non-consecutive seasons separated by `· · ·` dashed rows
+- [x] **Player career table — remove 600-min TOI floor** (`export_stats_data.py` on Hetzner, commit `1bb6997`): depth forwards with full seasons were being excluded
+- [x] **Expanded Card (`drawExpandedCard`)** — 1040×auto landscape canvas: left panel = Rating bars, right panel = season history table with RAPM %s
+- [x] **History Card chip placement** — moved HOCKEYGAMEBOT chip from inline left chips to right-aligned (matches Rating Card pattern)
+
 - [x] **Chips/Pills/Badges migration** (2026-05-28, `docs/plans/chips-migration-workflow.mjs`) — migrated all hand-rolled `.btn-group`/status-span/badge UI to the shared `ChipGroup`/`StatusPill`/`Badge` components per `hgb-docs/CHIPS.md`. 21 candidates audited → 11 correctly skipped as out-of-scope (§10), 10 migrated: `stats/{skaters,goalies,lines,interactive,index,player/[slug]}.astro`, `index.astro`, `games/index.astro`, `scoreboard.astro`, `components/home/LiveHero.astro`. Consolidated the drifted pulse keyframes (`pulse-bg`/`pulse-dot`/`ringPulse`) into the component-owned `hgb-status-pulse`. JS-`innerHTML` status indicators emit the global `.status-pill`/`data-state` markup primed by an SSR component instance. Clean build = 5242 pages (unchanged). NOTE: light/dark visual sign-off still pending (all CSS uses tokens, should flip automatically). Out-of-scope leftovers flagged for a later pass: `stats/lines` & `interactive` `.pos-badge` (owned by Table.astro), `player/[slug]` dead `.badge`/`.hero-*` CSS, `scoreboard`/`LiveHero` per-strength color coding collapsed to `matchup`/`default` (no blue/amber/green Badge kinds exist).
 - [x] `/playoffs/2026` modal: color overrides for red/red (OTT→gold #C2912C) and orange/orange (ANA→gold #FCD116) matchups
 - [x] `/playoffs/2026` modal: a11y focus-on-open, telemetry bullet removal, unit spacing fix

@@ -190,7 +190,7 @@ const gameLogColumns = [
     color: signedColor },
 ];
 
-// ── EDGE zone map ───────────────────────────────────────────────────────────
+// ── EDGE zone stats (3-zone summary) ────────────────────────────────────────
 const edgeZones = goalie.edge?.zones ?? [];
 const hdZone  = edgeZones[0] ?? null;
 const midZone = edgeZones[1] ?? null;
@@ -205,10 +205,43 @@ function zoneColor(pct: number | null): string {
   if (p >= 25) return '#c07020';
   return '#E8002D';
 }
-function zoneFill(pct: number | null): string {
-  const c = zoneColor(pct);
-  return c.startsWith('#') ? c + '30' : c.replace(')', ',0.15)').replace('rgba', 'rgba');
+
+// ── Coordinate shot-bin heatmap ─────────────────────────────────────────────
+const heatBins = goalie.shot_bins ?? [];
+const hasHeatmap = heatBins.length > 0;
+
+const HEAT_W = 420, HEAT_H = 316;
+const HEAT_PL = 32, HEAT_PR = 388, HEAT_PT = 20;
+const X_MIN = 20, X_MAX = 89, Y_MIN = -42, Y_MAX = 42;
+const HEAT_PLOT_W = HEAT_PR - HEAT_PL;
+const HEAT_PLOT_H = HEAT_H - HEAT_PT - 50;
+const HEAT_PB = HEAT_PT + HEAT_PLOT_H;
+const HEAT_BIN_W = 10 / (Y_MAX - Y_MIN) * HEAT_PLOT_W;
+const HEAT_BIN_H = 10 / (X_MAX - X_MIN) * HEAT_PLOT_H;
+const HEAT_GOAL_CX = HEAT_PL + HEAT_PLOT_W / 2;
+const HEAT_CREASE_RX = 6 / (Y_MAX - Y_MIN) * HEAT_PLOT_W;
+const HEAT_CREASE_RY = 6 / (X_MAX - X_MIN) * HEAT_PLOT_H;
+const HEAT_BLUE_Y = HEAT_PT + (25 - X_MIN) / (X_MAX - X_MIN) * HEAT_PLOT_H;
+
+function heatSvgX(y: number): number {
+  return HEAT_PL + (y - Y_MIN) / (Y_MAX - Y_MIN) * HEAT_PLOT_W;
 }
+function heatSvgY(x: number): number {
+  return HEAT_PT + (x - X_MIN) / (X_MAX - X_MIN) * HEAT_PLOT_H;
+}
+function binFillColor(sv: number | null, lg: number | null, shots: number): string {
+  if (sv == null || shots < 1) return 'rgba(13,13,20,0.03)';
+  if (lg == null) return 'rgba(13,13,20,0.07)';
+  const delta = sv - lg;
+  const intensity = Math.min(1, Math.abs(delta) / 0.07);
+  const alpha = (0.12 + intensity * 0.78).toFixed(2);
+  return delta > 0 ? `rgba(26,122,62,${alpha})` : `rgba(232,0,45,${alpha})`;
+}
+
+// ── Career stats ─────────────────────────────────────────────────────────────
+const careerRS = (goalie.career_seasons ?? []).filter(s => s.game_type === 2);
+const careerPO = (goalie.career_seasons ?? []).filter(s => s.game_type === 3);
+const hasCareer = careerRS.length > 0 || careerPO.length > 0;
 
 // ── Tweet-card data (passed to client script via define:vars) ───────────────
 // dSv% = actual SV% minus expected SV% (xsv_pct). Both stored as fractions.
@@ -436,14 +469,36 @@ const cardData = {
     .peer-gsax.pos { color: #00A86B; }
     .peer-gsax.neg { color: var(--red); }
 
-    /* ── EDGE Zone map ── */
-    .zone-map-body { padding: 16px 20px 12px; }
-    .zone-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--ink-10); border: 1px solid var(--ink-10); margin-top: 14px; }
+    /* ── EDGE Zone stats (compact) ── */
+    .zone-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--ink-10); border: 1px solid var(--ink-10); }
     .zone-col { background: var(--surface); padding: 12px 14px; }
     .zone-col-lbl { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px; }
     .zone-col-sv { font-family: var(--display); font-weight: 800; font-size: 28px; line-height: 1; margin-bottom: 4px; }
     .zone-col-pct { font-family: var(--mono); font-size: 10px; font-weight: 600; margin-bottom: 2px; }
     .zone-col-meta { font-family: var(--mono); font-size: 9px; color: var(--ink-48); line-height: 1.4; }
+
+    /* ── Shot bin heatmap ── */
+    .heatmap-legend { display: flex; gap: 20px; margin-top: 10px; font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.06em; flex-wrap: wrap; }
+    .heat-swatch { display: inline-block; width: 10px; height: 10px; vertical-align: middle; margin-right: 4px; }
+
+    /* ── Career stats table ── */
+    .career-tabs { display: flex; gap: 8px; padding: 12px 20px 0; }
+    .career-tab { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 6px 14px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; }
+    .career-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .career-tab:hover:not(.active) { border-color: var(--ink-48); color: var(--ink); }
+    .career-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .career-tbl th { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-32); padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--ink-10); white-space: nowrap; }
+    .career-tbl th:first-child { text-align: left; }
+    .career-tbl td { font-family: var(--mono); font-size: 12px; padding: 7px 12px; text-align: right; border-bottom: 1px solid var(--ink-06); }
+    .career-tbl td:first-child { text-align: left; font-weight: 700; }
+    .career-tbl tr:hover td { background: var(--bg); }
+    .career-tbl tr:last-child td { border-bottom: none; }
+    .career-team-cell { display: flex; align-items: center; gap: 8px; }
+    .career-team-logo { width: 20px; height: 20px; object-fit: contain; }
+    .career-season-row.rs-row { }
+    .career-season-row.po-row { display: none; }
+    .career-gsax-pos { color: var(--green); font-weight: 700; }
+    .career-gsax-neg { color: var(--red);   font-weight: 700; }
 
     /* ── Game log table ── */
     .sec-body .tbl-wrap { border: none; }
@@ -647,77 +702,190 @@ const cardData = {
     </div>
   </div>
 
-  <!-- ── EDGE Zone Shot Map ── -->
-  {hasEdgeZones && (
+  <!-- ── Coordinate Shot-Bin Heatmap ── -->
+  {hasHeatmap && (
+    <div class="sec-card">
+      <div class="sec-head">
+        <div class="sec-title">Save % by Shot Location</div>
+        <div class="sec-sub">10×10 ft bins · normalized to attacking end · green = above league avg · red = below</div>
+      </div>
+      <div class="sec-body" style="padding:14px 20px 16px">
+        <svg viewBox={`0 0 ${HEAT_W} ${HEAT_H}`} style="width:100%;height:auto;display:block">
+          <!-- Ice background -->
+          <rect x={HEAT_PL} y={HEAT_PT} width={HEAT_PLOT_W} height={HEAT_PLOT_H} fill="var(--surface)" stroke="var(--ink-10)" stroke-width="1"/>
+          <!-- Colored bins -->
+          {heatBins.map(b => {
+            const bx = heatSvgX(b.y);
+            const by = heatSvgY(b.x);
+            const bh = b.x === 80
+              ? (9 / (X_MAX - X_MIN) * HEAT_PLOT_H)
+              : HEAT_BIN_H;
+            return (
+              <rect
+                x={bx.toFixed(1)} y={by.toFixed(1)}
+                width={HEAT_BIN_W.toFixed(1)} height={bh.toFixed(1)}
+                fill={binFillColor(b.sv_pct, b.league_sv_pct, b.shots)}
+                stroke="rgba(13,13,20,0.05)" stroke-width="0.5"
+              />
+            );
+          })}
+          <!-- SV% text labels (bins with ≥5 shots) -->
+          {heatBins.filter(b => b.shots >= 5 && b.sv_pct != null).map(b => (
+            <text
+              x={(heatSvgX(b.y) + HEAT_BIN_W / 2).toFixed(1)}
+              y={(heatSvgY(b.x) + HEAT_BIN_H / 2 + 3).toFixed(1)}
+              text-anchor="middle"
+              font-family="JetBrains Mono,monospace"
+              font-size="7.5"
+              fill={b.shots >= 10 ? 'rgba(13,13,20,0.72)' : 'rgba(13,13,20,0.4)'}
+            >
+              {(b.sv_pct as number).toFixed(3).replace(/^0/, '')}
+            </text>
+          ))}
+          <!-- Blue line -->
+          <line x1={HEAT_PL} y1={HEAT_BLUE_Y.toFixed(1)} x2={HEAT_PR} y2={HEAT_BLUE_Y.toFixed(1)}
+            stroke="rgba(0,100,210,0.55)" stroke-width="2.5"/>
+          <text x={(HEAT_PL - 4)} y={HEAT_BLUE_Y.toFixed(1)} text-anchor="end" dominant-baseline="middle"
+            font-family="JetBrains Mono,monospace" font-size="8" fill="rgba(0,100,210,0.7)">BL</text>
+          <!-- Goal line -->
+          <line x1={HEAT_PL} y1={HEAT_PB} x2={HEAT_PR} y2={HEAT_PB}
+            stroke="rgba(210,0,30,0.5)" stroke-width="2"/>
+          <text x={(HEAT_PL - 4)} y={HEAT_PB} text-anchor="end" dominant-baseline="middle"
+            font-family="JetBrains Mono,monospace" font-size="8" fill="rgba(210,0,30,0.7)">GL</text>
+          <!-- Crease arc (extends above goal line) -->
+          <path
+            d={`M ${(HEAT_GOAL_CX - HEAT_CREASE_RX).toFixed(1)},${HEAT_PB} A ${HEAT_CREASE_RX.toFixed(1)},${HEAT_CREASE_RY.toFixed(1)} 0 0 0 ${(HEAT_GOAL_CX + HEAT_CREASE_RX).toFixed(1)},${HEAT_PB} Z`}
+            fill="rgba(210,0,30,0.07)" stroke="rgba(210,0,30,0.4)" stroke-width="1.5"
+          />
+          <!-- Goal net -->
+          <rect
+            x={(HEAT_GOAL_CX - 13).toFixed(1)} y={HEAT_PB}
+            width="26" height="14" rx="1"
+            fill="none" stroke="rgba(13,13,20,0.45)" stroke-width="2"
+          />
+          <!-- Rink border -->
+          <rect x={HEAT_PL} y={HEAT_PT} width={HEAT_PLOT_W} height={HEAT_PLOT_H} fill="none" stroke="var(--ink-20)" stroke-width="1"/>
+          <!-- Center-ice line (y=0) -->
+          <line x1={HEAT_GOAL_CX} y1={HEAT_PT} x2={HEAT_GOAL_CX} y2={HEAT_PB}
+            stroke="rgba(13,13,20,0.08)" stroke-width="1" stroke-dasharray="4 3"/>
+        </svg>
+        <div class="heatmap-legend">
+          <div><span class="heat-swatch" style="background:rgba(26,122,62,0.7)"></span>ABOVE LEAGUE AVG</div>
+          <div><span class="heat-swatch" style="background:rgba(232,0,45,0.7)"></span>BELOW LEAGUE AVG</div>
+          <div>LABELS = SV% · MIN 5 SHOTS</div>
+          <div>{heatBins.reduce((s, b) => s + b.shots, 0).toLocaleString()} SA · {heatBins.reduce((s, b) => s + b.goals, 0)} GA total</div>
+        </div>
+      </div>
+      {hasEdgeZones && (
+        <div style="border-top:1px solid var(--ink-10)">
+          <div style="padding:10px 20px 8px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-32)">NHL EDGE Zones</div>
+          <div class="zone-stats" style="margin:0 20px 14px;border-radius:0">
+            {[
+              { lbl: 'High Danger', z: hdZone! },
+              { lbl: 'Mid Range',   z: midZone! },
+              { lbl: 'Long Range',  z: lngZone! },
+            ].map(({ lbl, z }) => {
+              const pct100 = z.svpct_pct != null ? z.svpct_pct * 100 : null;
+              const color  = zoneColor(z.svpct_pct);
+              return (
+                <div class="zone-col">
+                  <div class="zone-col-lbl" style={`color:${color}`}>{lbl}</div>
+                  <div class="zone-col-sv" style={`color:${color}`}>{z.svpct != null ? z.svpct.toFixed(3) : '—'}</div>
+                  <div class="zone-col-pct" style={`color:${color}`}>{pct100 != null ? ordinal(Math.round(pct100)) + ' pct' : '—'}</div>
+                  <div class="zone-col-meta">{z.svpct_league_avg != null ? `avg ${z.svpct_league_avg.toFixed(3)}` : ''}</div>
+                  <div class="zone-col-meta">{z.saves != null ? `${z.saves} sv · ${z.ga} ga` : ''}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )}
+  {!hasHeatmap && hasEdgeZones && (
     <div class="sec-card">
       <div class="sec-head">
         <div class="sec-title">Save % by Zone</div>
         <div class="sec-sub">NHL EDGE tracking · shot location profile vs league average</div>
       </div>
-      <div class="zone-map-body">
-        <svg viewBox="0 0 380 200" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">
-          <defs>
-            <clipPath id="rink-clip-zones">
-              <rect x="8" y="4" width="364" height="190" rx="22" />
-            </clipPath>
-          </defs>
-          {/* Ice surface background */}
-          <rect x="8" y="4" width="364" height="190" rx="22" fill="var(--surface)" stroke="var(--ink-14)" stroke-width="1.5"/>
-          <g clip-path="url(#rink-clip-zones)">
-            {/* Long range zone (full surface bg) */}
-            <rect x="8" y="4" width="364" height="190" fill={zoneFill(lngZone!.svpct_pct)} />
-            {/* Mid range arc */}
-            <ellipse cx="190" cy="218" rx="157" ry="145" fill={zoneFill(midZone!.svpct_pct)} />
-            {/* High danger arc */}
-            <ellipse cx="190" cy="218" rx="73" ry="67" fill={zoneFill(hdZone!.svpct_pct)} />
-          </g>
-          {/* Zone boundary dashes */}
-          <ellipse cx="190" cy="218" rx="157" ry="145" fill="none" stroke="rgba(13,13,20,0.12)" stroke-width="1" stroke-dasharray="6 4"/>
-          <ellipse cx="190" cy="218" rx="73" ry="67" fill="none" stroke="rgba(13,13,20,0.12)" stroke-width="1" stroke-dasharray="6 4"/>
-          {/* Blue line */}
-          <rect x="8" y="71" width="364" height="3" fill="rgba(0,100,210,0.28)" />
-          {/* Goal line */}
-          <line x1="8" y1="181" x2="372" y2="181" stroke="rgba(210,0,30,0.4)" stroke-width="2"/>
-          {/* Crease arc */}
-          <path d="M 163,181 A 27,27 0 0 1 217,181" fill="rgba(210,0,30,0.06)" stroke="rgba(210,0,30,0.4)" stroke-width="1.5"/>
-          {/* Goal net */}
-          <rect x="165" y="181" width="50" height="11" fill="none" stroke="rgba(13,13,20,0.4)" stroke-width="2" rx="1"/>
-          {/* Rink border on top */}
-          <rect x="8" y="4" width="364" height="190" rx="22" fill="none" stroke="var(--ink-20)" stroke-width="1.5"/>
-          {/* Zone labels */}
-          <text x="190" y="33" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9" font-weight="700" fill="rgba(13,13,20,0.3)" letter-spacing="0.12em">LONG RANGE</text>
-          <text x="42" y="130" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" fill="rgba(13,13,20,0.28)" letter-spacing="0.06em">MID</text>
-          <text x="42" y="142" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" fill="rgba(13,13,20,0.28)" letter-spacing="0.06em">RANGE</text>
-          <text x="338" y="130" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" fill="rgba(13,13,20,0.28)" letter-spacing="0.06em">MID</text>
-          <text x="338" y="142" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" fill="rgba(13,13,20,0.28)" letter-spacing="0.06em">RANGE</text>
-          <text x="190" y="157" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="8" font-weight="700" fill="rgba(13,13,20,0.38)" letter-spacing="0.08em">HIGH DANGER</text>
-        </svg>
-
-        <div class="zone-stats">
-          {[
-            { lbl: 'High Danger', z: hdZone! },
-            { lbl: 'Mid Range',   z: midZone! },
-            { lbl: 'Long Range',  z: lngZone! },
-          ].map(({ lbl, z }) => {
+      <div class="sec-body" style="padding:0">
+        <div class="zone-stats" style="border:none">
+          {[{ lbl: 'High Danger', z: hdZone! }, { lbl: 'Mid Range', z: midZone! }, { lbl: 'Long Range', z: lngZone! }].map(({ lbl, z }) => {
             const pct100 = z.svpct_pct != null ? z.svpct_pct * 100 : null;
             const color  = zoneColor(z.svpct_pct);
             return (
               <div class="zone-col">
                 <div class="zone-col-lbl" style={`color:${color}`}>{lbl}</div>
                 <div class="zone-col-sv" style={`color:${color}`}>{z.svpct != null ? z.svpct.toFixed(3) : '—'}</div>
-                <div class="zone-col-pct" style={`color:${color}`}>
-                  {pct100 != null ? ordinal(Math.round(pct100)) + ' pct' : '—'}
-                </div>
-                <div class="zone-col-meta">
-                  {z.svpct_league_avg != null ? `avg ${z.svpct_league_avg.toFixed(3)}` : ''}
-                </div>
-                <div class="zone-col-meta">
-                  {z.saves != null ? `${z.saves} sv · ${z.ga} ga` : ''}
-                </div>
+                <div class="zone-col-pct" style={`color:${color}`}>{pct100 != null ? ordinal(Math.round(pct100)) + ' pct' : '—'}</div>
+                <div class="zone-col-meta">{z.svpct_league_avg != null ? `avg ${z.svpct_league_avg.toFixed(3)}` : ''}</div>
+                <div class="zone-col-meta">{z.saves != null ? `${z.saves} sv · ${z.ga} ga` : ''}</div>
               </div>
             );
           })}
         </div>
+      </div>
+    </div>
+  )}
+
+  <!-- ── Career Stats ── -->
+  {hasCareer && (
+    <div class="sec-card">
+      <div class="sec-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div>
+          <div class="sec-title">Career Stats — <span style={`color:${teamColor}`}>Season by Season</span></div>
+          <div class="sec-sub">xG-model stats · all seasons with 100+ SA faced</div>
+        </div>
+      </div>
+      <div class="career-tabs">
+        <button class="career-tab active" data-type="2">Regular Season</button>
+        {careerPO.length > 0 && <button class="career-tab" data-type="3">Playoffs</button>}
+      </div>
+      <div style="overflow-x:auto;padding-bottom:4px">
+        <table class="career-tbl">
+          <thead>
+            <tr>
+              <th>Season</th>
+              <th>Team</th>
+              <th>GP</th>
+              <th>SA</th>
+              <th>GA</th>
+              <th>SV%</th>
+              <th>xGA</th>
+              <th>GSAx</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...careerRS, ...careerPO].map(s => {
+              const gsaxSign = s.gsax >= 0 ? '+' : '';
+              const cls = s.game_type === 2 ? 'career-season-row rs-row' : 'career-season-row po-row';
+              return (
+                <tr class={cls}>
+                  <td>{s.season}</td>
+                  <td>
+                    <div class="career-team-cell">
+                      {s.team_abbrev && (
+                        <img class="career-team-logo"
+                          src={`https://assets.nhle.com/logos/nhl/svg/${s.team_abbrev}_light.svg`}
+                          alt={s.team_abbrev} width="20" height="20" />
+                      )}
+                      <span>{s.team_abbrev ?? '—'}</span>
+                    </div>
+                  </td>
+                  <td>{s.gp}</td>
+                  <td>{s.sa.toLocaleString()}</td>
+                  <td>{s.ga}</td>
+                  <td>{s.sv_pct != null ? s.sv_pct.toFixed(3) : '—'}</td>
+                  <td>{s.xga.toFixed(1)}</td>
+                  <td class={s.gsax >= 0 ? 'career-gsax-pos' : 'career-gsax-neg'}>{gsaxSign}{s.gsax.toFixed(1)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:8px 20px;font-family:var(--mono);font-size:9px;color:var(--ink-20);letter-spacing:0.06em">
+        HOCKEYGAMEBOT.COM · GSAx = xGA − GA via XGBoost model · min 100 SA
       </div>
     </div>
   )}
@@ -785,6 +953,24 @@ const cardData = {
 
 <canvas id="goalie-card-canvas" style="display:none"></canvas>
 <script is:inline src="/js/table-export.js"></script>
+
+<script is:inline>
+(function () {
+  var careerTabs = document.querySelectorAll('.career-tab');
+  careerTabs.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      careerTabs.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var type = btn.getAttribute('data-type');
+      document.querySelectorAll('.career-season-row').forEach(function (row) {
+        row.style.display = type === '2'
+          ? (row.classList.contains('rs-row') ? '' : 'none')
+          : (row.classList.contains('po-row') ? '' : 'none');
+      });
+    });
+  });
+})();
+</script>
 
 <script define:vars={{ G: cardData }}>
   (function () {
