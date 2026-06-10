@@ -25,7 +25,10 @@ export function toLineSlug(line: LineRecord): string {
         .replace(/[^a-z0-9]/g, '');
     })
     .sort(); // alphabetical — makes slug deterministic regardless of API order
-  const season = line.season.slice(0, 4) + '-' + line.season.slice(6); // "20252026" → "2025-26"
+  // season may be raw "20252026" or already formatted "2025-26"
+  const season = /^\d{8}$/.test(line.season)
+    ? line.season.slice(0, 4) + '-' + line.season.slice(6)
+    : line.season;
   const gameType = line.game_type === 3 ? 'playoffs' : 'regular';
   return [team, ...lastNames, season, gameType].join('-');
 }
@@ -43,7 +46,7 @@ export const LINE_SLUG_JS = `
       var parts = _sd(p.trim()).split(/\\s+/);
       return (parts[parts.length - 1] || 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '');
     }).sort();
-    var season = line.season.slice(0,4) + '-' + line.season.slice(6);
+    var season = /^\d{8}$/.test(line.season) ? line.season.slice(0,4) + '-' + line.season.slice(6) : line.season;
     var gt = line.game_type === 3 ? 'playoffs' : 'regular';
     return [team].concat(names).concat([season, gt]).join('-');
   };
