@@ -174,6 +174,101 @@ function rgbaHex(hex: string, a: number): string {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+// ── Goalie coordinate shot-bin heatmap ───────────────────────────────────────
+// Horizontal orientation matching player shot map (goal right, blue line left).
+// Bins are 10×10 NHL-ft rectangles in the attacking end.
+// data-fill-raw = self-normalised (vs goalie's own overall SV%)
+// data-fill-league = zone-by-zone vs league average
+// Clipped to rink boundary via <clipPath> — no overflow past boards/goal line.
+
+export interface GoalieHeatBin {
+  x?: number;           // lower-bound of 10-ft radial bin (NHL ft from centre ice)
+  y?: number;           // lower-bound of 10-ft lateral bin (signed NHL ft)
+  shots?: number;
+  goals?: number;
+  sv_pct?: number | null;
+  league_sv_pct?: number | null;
+}
+
+export function buildGoalieHeatmapSVG(bins: GoalieHeatBin[]): string {
+  if (!bins.length) return '';
+
+  const BIN_W = (10 / 100) * 182;   // fxFor(10)−fxFor(0) = 18.2
+  const BIN_H = (10 / 85)  * 164;   // fy(10)−fy(0) ≈ 19.3
+
+  const totalShots = bins.reduce((s, b) => s + (b.shots ?? 0), 0);
+  const totalGoals = bins.reduce((s, b) => s + (b.goals ?? 0), 0);
+  const selfSv = totalShots > 0 ? (totalShots - totalGoals) / totalShots : 0.910;
+
+  function heatFill(sv: number | null, baseline: number | null, shots: number): string {
+    if (sv == null || shots < 1 || baseline == null) return 'rgba(13,13,20,0.04)';
+    const delta = sv - baseline;
+    const intensity = Math.min(1, Math.abs(delta) / 0.055);
+    const alpha = (0.10 + intensity * 0.72).toFixed(2);
+    return delta >= 0 ? `rgba(0,160,100,${alpha})` : `rgba(210,90,0,${alpha})`;
+  }
+
+  const cY   = fy(0).toFixed(1);
+  const cYm  = (fy(0) - 20).toFixed(1);
+  const cYp  = (fy(0) + 20).toFixed(1);
+  const foY1 = fy(-22).toFixed(1);
+  const foY2 = fy(22).toFixed(1);
+  const gpTop = fy(-3).toFixed(1);
+  const gpBot = fy(3).toFixed(1);
+
+  const p: string[] = [];
+  p.push(`<svg id="goalie-heat-svg" viewBox="${VB_X} 0 ${VB_W} 170" xmlns="http://www.w3.org/2000/svg" class="shot-map-svg">`);
+  p.push(`<defs><clipPath id="gheat-clip"><rect x="193" y="2" width="${(EB - 193).toFixed(1)}" height="166"/></clipPath></defs>`);
+
+  // Layer 1: rink background
+  p.push(`<rect x="193" y="2" width="${(EB - 193).toFixed(1)}" height="166" rx="5" fill="#E8F4F8" stroke="rgba(13,13,20,0.14)" stroke-width="1"/>`);
+  p.push(`<rect x="${BL.toFixed(1)}" y="2" width="${(EB - BL).toFixed(1)}" height="166" fill="rgba(20,100,200,0.04)"/>`);
+
+  // Layer 2: heat bins (clipped to rink boundary)
+  p.push(`<g clip-path="url(#gheat-clip)">`);
+  for (const b of bins) {
+    const bxN = b.x ?? 0, byN = b.y ?? 0, shots = b.shots ?? 0;
+    const bx = fxFor(bxN).toFixed(1);
+    const by = fy(byN).toFixed(1);
+    const bw = BIN_W.toFixed(1);
+    const bh = BIN_H.toFixed(1);
+    const fr = heatFill(b.sv_pct ?? null, selfSv,                b.shots ?? 0);
+    const fl = heatFill(b.sv_pct ?? null, b.league_sv_pct ?? null, shots);
+    p.push(`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="${fr}" data-fill-raw="${fr}" data-fill-league="${fl}" stroke="rgba(13,13,20,0.06)" stroke-width="0.5"/>`);
+  }
+  p.push(`</g>`);
+
+  // Layer 3: rink markings overlay (draw over bins so structure stays readable)
+  p.push(`<rect x="${GL.toFixed(1)}" y="2" width="${(EB - GL).toFixed(1)}" height="166" fill="rgba(13,13,20,0.03)"/>`);
+  p.push(`<line x1="195" y1="2" x2="195" y2="168" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>`);
+  p.push(`<circle cx="195" cy="${cY}" r="21" fill="none" stroke="rgba(13,13,20,0.15)" stroke-width="1"/>`);
+  p.push(`<circle cx="195" cy="${cY}" r="2" fill="rgba(13,13,20,0.20)"/>`);
+  p.push(`<line x1="${BL.toFixed(1)}" y1="2" x2="${BL.toFixed(1)}" y2="168" stroke="rgba(20,100,200,0.55)" stroke-width="2.5" stroke-dasharray="5 3"/>`);
+  p.push(`<line x1="${GL.toFixed(1)}" y1="2" x2="${GL.toFixed(1)}" y2="168" stroke="rgba(232,0,45,0.50)" stroke-width="1.5"/>`);
+  p.push(`<line x1="${EB.toFixed(1)}" y1="2" x2="${EB.toFixed(1)}" y2="168" stroke="rgba(13,13,20,0.20)" stroke-width="1"/>`);
+  p.push(`<path d="M${GL.toFixed(1)},${cYm} A20,20 0 0,0 ${GL.toFixed(1)},${cYp}" fill="rgba(20,100,200,0.12)" stroke="rgba(20,100,200,0.40)" stroke-width="1.2"/>`);
+  p.push(`<rect x="${GL.toFixed(1)}" y="${gpTop}" width="5" height="${(parseFloat(gpBot) - parseFloat(gpTop)).toFixed(1)}" fill="rgba(13,13,20,0.40)" rx="0.5"/>`);
+  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY1}" r="18" fill="none" stroke="rgba(232,0,45,0.22)" stroke-width="1"/>`);
+  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY2}" r="18" fill="none" stroke="rgba(232,0,45,0.22)" stroke-width="1"/>`);
+  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY1}" r="2" fill="rgba(232,0,45,0.38)"/>`);
+  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY2}" r="2" fill="rgba(232,0,45,0.38)"/>`);
+  p.push(`<text x="${BL.toFixed(1)}" y="14" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(20,100,200,0.55)" text-anchor="middle" letter-spacing="0.08em">BLUE LINE</text>`);
+  p.push(`<text x="${(GL - 8).toFixed(1)}" y="14" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(232,0,45,0.50)" text-anchor="end" letter-spacing="0.06em">GOAL</text>`);
+
+  // Layer 4: SV% text labels
+  for (const b of bins) {
+    const shots = b.shots ?? 0;
+    if (shots < 5 || b.sv_pct == null) continue;
+    const tx = (fxFor(b.x ?? 0) + BIN_W / 2).toFixed(1);
+    const ty = (fy(b.y ?? 0)    + BIN_H / 2 + 3).toFixed(1);
+    const opacity = shots >= 10 ? 'rgba(13,13,20,0.80)' : 'rgba(13,13,20,0.45)';
+    p.push(`<text x="${tx}" y="${ty}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7" fill="${opacity}">${b.sv_pct.toFixed(3).replace(/^0/, '')}</text>`);
+  }
+
+  p.push(`</svg>`);
+  return p.join('');
+}
+
 export function buildSeriesShotMapSVG(
   sf: FullRinkShot[],
   sa: FullRinkShot[],
