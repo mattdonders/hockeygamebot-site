@@ -17,26 +17,68 @@ export async function getStaticPaths() {
   const rankById = new Map<number, number>();
   qualified.forEach((g, i) => rankById.set(g.goalie_id, i + 1));
 
-  return goalies.map(g => ({
-    params: { id: String(g.goalie_id) },
-    props:  {
-      goalie:    g,
-      gsaxRank:  rankById.get(g.goalie_id) ?? null,
-      qualCount: qualified.length,
-    },
-  }));
+  function findSimilarGoalies(all: GoalieRecord[], current: GoalieRecord) {
+    const curVal = current.gsax;
+    const candidates = all
+      .filter(g => g.goalie_id !== current.goalie_id && g.sa >= SA_QUAL)
+      .sort((a, b) => Math.abs(a.gsax - curVal) - Math.abs(b.gsax - curVal));
+    for (const band of [1.0, 2.5, 5.0]) {
+      const inBand = candidates.filter(g => Math.abs(g.gsax - curVal) <= band);
+      if (inBand.length >= 3) return inBand.slice(0, 4).sort((a, b) => b.gsax - a.gsax);
+    }
+    return candidates.slice(0, 4).sort((a, b) => b.gsax - a.gsax);
+  }
+
+  return goalies.map(g => {
+    const slugParam = g.slug && g.slug.length > 0
+      ? g.slug
+      : `goalie-${g.goalie_id}`;
+    return {
+      params: { slug: slugParam },
+      props:  {
+        goalie:         g,
+        gsaxRank:       rankById.get(g.goalie_id) ?? null,
+        qualCount:      qualified.length,
+        similarGoalies: findSimilarGoalies(goalies, g),
+      },
+    };
+  });
 }
 
-interface Props { goalie: GoalieRecord; gsaxRank: number | null; qualCount: number }
-const { goalie, gsaxRank, qualCount } = Astro.props;
+interface Props { goalie: GoalieRecord; gsaxRank: number | null; qualCount: number; similarGoalies: GoalieRecord[] }
+const { goalie, gsaxRank, qualCount, similarGoalies } = Astro.props;
 
 const SA_QUAL    = 500; // keep in sync with getStaticPaths qualifier
 const hasTeam    = goalie.team_abbrev != null && goalie.team_abbrev !== '???' && goalie.team_abbrev !== '';
 const teamColor  = hasTeam ? pickTeamColor(goalie.team_abbrev) : '#8a8a8a';
 const initial    = goalie.name.split('.')[0]?.trim() ?? '';
 const lastName   = goalie.name.split('.').pop()?.trim() ?? goalie.name;
+const firstName  = (goalie.first_name && goalie.first_name.length > 0) ? goalie.first_name : initial;
+const displayLast = (goalie.last_name && goalie.last_name.length > 0) ? goalie.last_name : lastName;
 const gsaxSign   = goalie.gsax >= 0 ? '+' : '';
+// Hero tile percentiles
+const gsaxPct    = gsaxRank != null && qualCount > 1
+  ? Math.round((qualCount - gsaxRank) / (qualCount - 1) * 100)
+  : null;
+const svPctEdgePct = goalie.edge?.svpct_all?.pct != null
+  ? Math.round(goalie.edge.svpct_all.pct * 100)
+  : null;
+
+function ordinal(n: number): string {
+  const m10 = n % 10, m100 = n % 100;
+  if (m100 >= 11 && m100 <= 13) return `${n}th`;
+  if (m10 === 1) return `${n}st`;
+  if (m10 === 2) return `${n}nd`;
+  if (m10 === 3) return `${n}rd`;
+  return `${n}th`;
+}
 const headshotUrl = `https://assets.nhle.com/mugs/nhl/20252026/${goalie.team_abbrev}/${goalie.goalie_id}.png`;
+const hasPlayoffs  = (goalie.playoff_games ?? 0) > 0 && goalie.playoff_gsax != null;
+const poSvPct      = hasPlayoffs && goalie.playoff_sa != null && goalie.playoff_sa > 0 && goalie.playoff_ga != null
+  ? +(1 - goalie.playoff_ga / goalie.playoff_sa).toFixed(3)
+  : null;
+const poSign       = hasPlayoffs && goalie.playoff_gsax != null && goalie.playoff_gsax >= 0 ? '+' : '';
+
 const vsExp      = goalie.sv_pct != null && goalie.sa > 0
   ? +((goalie.sv_pct - (1 - goalie.xga / goalie.sa)) * 100).toFixed(2)
   : null;
@@ -215,40 +257,79 @@ const cardData = {
     /* ── Hero card (matches player page) ── */
     .mast-top a { color: var(--ink-48); text-decoration: none; }
     .mast-top a:hover { color: var(--ink); }
-    .mast-card { background: var(--surface); border: 1px solid var(--ink); border-left-width: 4px; padding: 24px 28px; }
-    .hero { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; }
-    .headshot-wrap { position: relative; width: 168px; flex-shrink: 0; }
-    .headshot { width: 168px; height: 168px; object-fit: cover; border: 2px solid var(--ink-14);
-      background: var(--surface); display: block; }
-    .headshot-team-bar { position: absolute; bottom: 0; left: 0; right: 0; height: 4px; }
-    .hero-identity { display: flex; flex-direction: column; gap: 8px; }
-    .hero-badges { display: flex; gap: 6px; flex-wrap: wrap; }
-    .badge { display: inline-block; font-family: var(--mono); font-size: 9px; font-weight: 700;
-      letter-spacing: 0.14em; text-transform: uppercase; padding: 2px 7px;
-      border: 1px solid var(--ink-20); color: var(--ink-48); }
-    .hero-name { font-family: var(--display); font-weight: 800; text-transform: uppercase;
-      line-height: 0.92; letter-spacing: -0.01em; }
-    .hero-name .first { font-size: 22px; color: var(--ink-48); font-weight: 700; }
-    .hero-name .last  { font-size: clamp(40px, 5vw, 64px); color: var(--ink); display: block; }
-    .hero-stats { display: flex; flex-wrap: wrap; gap: 0; margin-top: 8px; }
-    .stat-cell { padding: 10px 20px 10px 0; min-width: 80px; }
-    .stat-cell + .stat-cell { border-left: 1px solid var(--ink-10); padding-left: 20px; }
-    .stat-label { font-family: var(--mono); font-size: 9px; font-weight: 700;
-      letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 4px; }
-    .stat-value { font-family: var(--display); font-weight: 800; font-size: 28px;
-      line-height: 1.0; letter-spacing: -0.01em; }
-    .stat-value.pos { color: var(--green); }
-    .stat-value.neg { color: var(--red); }
-    @media (max-width: 640px) {
-      .hero { grid-template-columns: 1fr; gap: 16px; }
-      .headshot-wrap { width: 100px; }
-      .headshot { width: 100px; height: 100px; }
+    .mast-card {
+      background: var(--surface); border: 1px solid var(--ink-14);
+      border-left: 6px solid currentColor; padding: 28px 32px;
+      display: flex; align-items: center; gap: 0; position: relative;
+    }
+    .mast-left { display: flex; align-items: center; gap: 28px; flex: 1; min-width: 0; }
+    .headshot-circle-wrap { flex-shrink: 0; }
+    .headshot-circle {
+      width: 110px; height: 110px; border-radius: 50%; object-fit: cover;
+      border: 3px solid var(--team-c, var(--ink)); display: block;
+      background: var(--surface);
+    }
+    .identity-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .player-name {
+      font-family: var(--display); font-weight: 800; font-size: clamp(36px, 4.5vw, 56px);
+      text-transform: uppercase; line-height: 0.95; letter-spacing: -0.01em; color: var(--ink);
+    }
+    .player-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.04em; }
+    .dl-card-btn {
+      margin-top: 4px; cursor: pointer; font-family: var(--mono); font-size: 9px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: none;
+      background: var(--team-c, var(--ink)); color: #fff; align-self: flex-start;
+    }
+    .mast-right { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; margin-left: 28px; }
+    .hero-tile {
+      background: var(--bg); border: 1px solid var(--ink-14);
+      padding: 16px 10px; text-align: center; min-width: 150px; flex: 1;
+    }
+    .tile-label { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 6px; }
+    .tile-big { font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1; letter-spacing: -0.02em; }
+    .tile-sub { font-family: var(--mono); font-size: 10px; color: var(--ink-48); margin-top: 4px; }
+    .tile-row { display: flex; gap: 12px; }
+    .po-tile-combined {
+      background: var(--bg); border: 1px solid var(--ink-14);
+      padding: 8px 14px; display: flex; align-items: center; gap: 16px;
+      align-self: stretch; box-sizing: border-box;
+    }
+    .po-tile-combined .po-label {
+      font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--team-c, var(--ink)); white-space: nowrap; flex-shrink: 0;
+    }
+    .po-tile-combined .po-val {
+      font-family: var(--display); font-weight: 800; font-size: 24px;
+      line-height: 1; letter-spacing: -0.01em;
+    }
+    .po-tile-combined .po-sep {
+      font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em;
+    }
+
+    @media (max-width: 768px) {
+      .mast-card { flex-wrap: wrap; gap: 16px; padding: 16px; }
+      .mast-right { margin-left: 0; width: 100%; }
+      .tile-row { width: 100%; }
+      .hero-tile { flex: 1 1 0; min-width: 0; }
+    }
+    @media (max-width: 480px) {
+      .headshot-circle { width: 80px; height: 80px; }
     }
 
     /* ── Layout ── */
     .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-top: 32px; }
-    @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+    .content { display: grid; grid-template-columns: 1fr 280px; gap: 24px; padding: 28px 0 80px; align-items: start; }
+    .content-main { display: flex; flex-direction: column; gap: 24px; grid-column: 1; align-self: start; min-width: 0; }
+    .page-sidebar { grid-column: 2; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 20px; align-self: start; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .cta-card { background: var(--ink); padding: 22px 18px; }
+    .cta-btn { display: block; width: 100%; background: var(--red); color: #fff; font-family: var(--body); font-weight: 700; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; border: none; cursor: pointer; text-align: center; margin-bottom: 8px; }
+    .cta-note { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: rgba(255,255,255,0.24); margin-top: 8px; text-align: center; }
+    @media (max-width: 768px) {
+      .content { grid-template-columns: 1fr; padding: 20px 0 60px; }
+      .page-sidebar { grid-column: 1; position: static; }
+      .two-col { grid-template-columns: 1fr; }
+    }
 
     /* ── Section cards ── */
     .sec-card { background: var(--surface); border: 1px solid var(--ink-14); }
@@ -260,8 +341,7 @@ const cardData = {
     .sec-body { padding: 16px 20px; }
 
     /* ── Cumulative chart ── */
-    .chart-full { padding-top: 32px; }
-    .chart-full .sec-card { }
+    .chart-full { }
     .chart-svg { width: 100%; height: auto; display: block; }
 
     /* ── xG Tier chart ── */
@@ -285,10 +365,19 @@ const cardData = {
     /* Shot-type table chrome lives in Table.astro now. */
     .sec-body .tbl-wrap { border: none; }
 
+    /* ── Similar Goalies ── */
+    .peer-strip { display: flex; flex-direction: column; }
+    .peer-row { display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--ink-06); text-decoration: none; color: inherit; }
+    .peer-row:last-child { border-bottom: 0; }
+    .peer-row:hover { background: var(--bg); }
+    .peer-name { font-family: var(--body); font-weight: 600; font-size: 13px; color: rgba(13,13,20,0.72); }
+    .peer-meta { font-family: var(--body); font-weight: 400; font-size: 11px; color: rgba(13,13,20,0.48); }
+    .peer-gsax { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+    .peer-gsax.pos { color: #00A86B; }
+    .peer-gsax.neg { color: var(--red); }
+
     @media (max-width: 768px) {
       .mast-inner, .wrap { padding-left: 16px; padding-right: 16px; }
-      .hero-card { grid-template-columns: 4px 1fr; }
-      .hero-name { font-size: 36px; }
     }
   </style>
 </head>
@@ -308,65 +397,67 @@ const cardData = {
       <div>{goalie.team_abbrev} · G · {goalie.sa.toLocaleString()} SA · 2025–26</div>
     </div>
 
-    <div class="mast-card" style={`border-left-color:${teamColor}`}>
-      <div class="hero">
-        <div class="headshot-wrap">
-          <img class="headshot" src={headshotUrl} alt={goalie.name} width="168" height="168"
-            onerror="this.src='https://assets.nhle.com/logos/nhl/svg/${goalie.team_abbrev}_light.svg';this.style.objectFit='contain';this.style.padding='24px'" />
-          <div class="headshot-team-bar" style={`background:${teamColor}`}></div>
+    <div class="mast-card" style={`border-left-color:${teamColor}; color:${teamColor}; --team-c:${teamColor}`}>
+      <!-- Left: circle headshot + identity -->
+      <div class="mast-left">
+        <div class="headshot-circle-wrap">
+          <img class="headshot-circle" src={headshotUrl} alt={goalie.name} width="110" height="110"
+            style={`border-color:${teamColor}`}
+            onerror="this.src='https://assets.nhle.com/logos/nhl/svg/'+this.dataset.team+'_light.svg';this.style.objectFit='contain';this.style.padding='18px'"
+            data-team={goalie.team_abbrev} />
         </div>
-        <div class="hero-identity">
-          <div class="hero-badges">
-            <span class="badge">{goalie.team_abbrev}</span>
-            <span class="badge">G</span>
-            <span class="badge">{gsaxSign}{goalie.gsax.toFixed(1)} GSAx</span>
-            <button id="dl-goalie-card" type="button"
-              style={`margin-left:auto;cursor:pointer;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:4px 10px;border:none;background:${teamColor};color:#fff;`}>
-              Download Card →
-            </button>
+        <div class="identity-text">
+          <div class="player-name">{firstName}<br/>{displayLast}</div>
+          <div class="player-meta">
+            {goalie.team_abbrev} · G · {goalie.gp ?? goalie.games.length} GP · {goalie.sa.toLocaleString()} SA · 2025–26
           </div>
-          <div id="goalie-card-status" style="display:none;font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-48)"></div>
-          <div class="hero-name">
-            <span class="first">{initial}.</span>
-            <span class="last">{lastName}</span>
-          </div>
-          <div class="hero-stats">
-            <div class="stat-cell">
-              <div class="stat-label">GSAx</div>
-              <div class={`stat-value ${goalie.gsax >= 0 ? 'pos' : 'neg'}`}>{gsaxSign}{goalie.gsax.toFixed(1)}</div>
+          {hasPlayoffs && (
+            <div class="player-meta" style={`color:${teamColor}; margin-top:3px`}>
+              2026 Playoffs · {goalie.playoff_games} GP
+              {goalie.playoff_sa != null && <Fragment> · {goalie.playoff_sa.toLocaleString()} SA</Fragment>}
+              {goalie.playoff_ga != null && <Fragment> · {goalie.playoff_ga} GA</Fragment>}
             </div>
-            <div class="stat-cell">
-              <div class="stat-label">SV%</div>
-              <div class="stat-value">{goalie.sv_pct != null ? goalie.sv_pct.toFixed(3) : '—'}</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-label">xGA</div>
-              <div class="stat-value">{goalie.xga.toFixed(1)}</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-label">GA</div>
-              <div class="stat-value">{goalie.ga}</div>
-            </div>
-            {vsExp != null && (
-              <div class="stat-cell">
-                <div class="stat-label">vs Exp</div>
-                <div class={`stat-value ${vsExp >= 0 ? 'pos' : 'neg'}`}>
-                  {vsExp >= 0 ? '+' : ''}{vsExp.toFixed(2)}%
-                </div>
-              </div>
-            )}
-            <div class="stat-cell">
-              <div class="stat-label">5v5 SA</div>
-              <div class="stat-value">{goalie.sa_5v5.toLocaleString()}</div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
+
+      <!-- Right: hero tiles (reg szn row + optional playoffs row) -->
+      <div class="mast-right">
+        <div class="tile-row">
+          <div class="hero-tile">
+            <div class="tile-label">GSAx</div>
+            <div class="tile-big" style={`color:${teamColor}`}>{gsaxSign}{goalie.gsax.toFixed(2)}</div>
+            <div class="tile-sub">{gsaxPct != null ? `reg szn · ${ordinal(gsaxPct)} pct` : 'reg szn'}</div>
+          </div>
+          <div class="hero-tile">
+            <div class="tile-label">SV%</div>
+            <div class="tile-big" style={`color:${teamColor}`}>{goalie.sv_pct != null ? goalie.sv_pct.toFixed(3) : '—'}</div>
+            <div class="tile-sub">{svPctEdgePct != null ? `reg szn · ${ordinal(svPctEdgePct)} pct` : 'reg szn'}</div>
+          </div>
+        </div>
+        {hasPlayoffs && (
+          <div class="po-tile-combined" style={`--team-c:${teamColor}`}>
+            <span class="po-label">Playoffs</span>
+            <span class="po-val" style={`color:${goalie.playoff_gsax! >= 0 ? '#00A86B' : 'var(--red)'}`}>
+              {poSign}{goalie.playoff_gsax!.toFixed(2)}
+            </span>
+            <span class="po-sep">GSAx</span>
+            {poSvPct != null && <Fragment>
+              <span class="po-sep">·</span>
+              <span class="po-val" style={`color:${teamColor}`}>{poSvPct.toFixed(3)}</span>
+              <span class="po-sep">SV%</span>
+            </Fragment>}
+          </div>
+        )}
+      </div>
     </div>
+
   </div>
 </header>
 
 <main class="wrap">
+<div class="content">
+<div class="content-main">
 
   <!-- ── Cumulative GSAx chart (first) ── -->
   {cumPoints.length > 1 && (
@@ -483,7 +574,43 @@ const cardData = {
     </div>
   </div>
 
+</div><!-- /content-main -->
 
+<!-- ── Sidebar ── -->
+<div class="page-sidebar">
+  <div class="cta-card">
+    <button id="dl-goalie-card" type="button" class="cta-btn" style={`background:${teamColor}`}>
+      2025–26 Goalie Card →
+    </button>
+    <div class="cta-note" id="goalie-card-status" style="display:none"></div>
+  </div>
+
+  {similarGoalies.length > 0 && (
+    <div class="sec-card">
+      <div class="sec-head">
+        <div class="sec-title">Similar <span style={`color:${teamColor}`}>Goalies</span></div>
+        <div class="sec-sub">By GSAx · qualified starters</div>
+      </div>
+      <div class="peer-strip">
+        {similarGoalies.map(g => {
+          const sign = g.gsax >= 0 ? '+' : '';
+          const peerSlug = g.slug && g.slug.length > 0 ? g.slug : `goalie-${g.goalie_id}`;
+          return (
+            <a href={`/stats/goalies/${peerSlug}`} class="peer-row">
+              <div style="flex:1">
+                <div class="peer-name">{g.first_name && g.last_name ? `${g.first_name} ${g.last_name}` : g.name}</div>
+                <div class="peer-meta">{g.team_abbrev} · {g.sa.toLocaleString()} SA</div>
+              </div>
+              <span class={`peer-gsax ${g.gsax >= 0 ? 'pos' : 'neg'}`}>{sign}{g.gsax.toFixed(2)}</span>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  )}
+</div><!-- /page-sidebar -->
+
+</div><!-- /content -->
 </main>
 
 <footer style="max-width:1100px;margin:0 auto;padding:20px 32px;font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:rgba(13,13,20,0.20)">

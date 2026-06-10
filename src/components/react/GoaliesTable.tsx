@@ -4,6 +4,7 @@ import { fmtSeasonShort } from '../../lib/format-season';
 
 export type GoalieRow = {
   goalie_id:   number;
+  slug:        string | null;
   name:        string;
   first_name:  string | null;
   last_name:   string | null;
@@ -138,7 +139,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
           options: teams.map(t => ({ label: t, value: t })),
         },
       ]}
-        rowHref={r => `/stats/goalies/${r.goalie_id}`}
+        rowHref={r => `/stats/goalies/${r.slug || `goalie-${r.goalie_id}`}`}
         exportFilename="hgb-goalies"
         exportTitle="Goalies"
         exportChips={[gameType === 'regular' ? 'Reg Season' : 'Playoffs']}

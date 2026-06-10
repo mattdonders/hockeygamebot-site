@@ -325,6 +325,7 @@ export const GoalieTypeSchema = z.object({
 
 export const GoalieRecordSchema = z.object({
   goalie_id:   z.number().int(),
+  slug:        z.string().optional().default(''),
   name:        z.string(),
   first_name:  z.string().optional().default(''),
   last_name:   z.string().optional().default(''),
