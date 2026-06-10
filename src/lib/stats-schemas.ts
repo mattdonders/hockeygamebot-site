@@ -358,6 +358,23 @@ export const GoalieRecordSchema = z.object({
   games: z.array(GoalieGameSchema),
   bins:  z.array(GoalieBinSchema).optional().default([]),
   types: z.array(GoalieTypeSchema).optional().default([]),
+  edge:  z.object({
+    gaa:             z.object({ value: z.number().nullable(), pct: z.number().nullable(), league_avg: z.number().nullable() }).nullable().optional(),
+    games_above_900: z.object({ value: z.number().nullable(), pct: z.number().nullable(), league_avg: z.number().nullable() }).nullable().optional(),
+    goal_diff_per60: z.object({ value: z.number().nullable(), pct: z.number().nullable(), league_avg: z.number().nullable() }).nullable().optional(),
+    point_pctg:      z.object({ value: z.number().nullable(), pct: z.number().nullable(), league_avg: z.number().nullable() }).nullable().optional(),
+    svpct_all:       z.object({ value: z.number().nullable(), pct: z.number().nullable(), league_avg: z.number().nullable() }).nullable().optional(),
+    zones: z.array(z.object({
+      zone:             z.string(),
+      svpct:            z.number().nullable(),
+      svpct_pct:        z.number().nullable(),
+      svpct_league_avg: z.number().nullable(),
+      saves:            z.number().int().nullable(),
+      saves_pct:        z.number().nullable(),
+      ga:               z.number().int().nullable(),
+      ga_pct:           z.number().nullable(),
+    })).optional().default([]),
+  }).nullable().optional(),
 });
 
 export const GoaliesSchema = z.array(GoalieRecordSchema);
