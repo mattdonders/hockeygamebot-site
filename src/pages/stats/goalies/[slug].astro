@@ -6,7 +6,6 @@ import Table from '../../../components/Table.astro';
 import { loadGoalies } from '../../../lib/stats-loader';
 import { pickTeamColor } from '../../../lib/team-colors';
 import type { GoalieRecord } from '../../../lib/stats-schemas';
-import { buildGoalieRinkOverlaySVG } from '../../../lib/rink-svg';
 
 export async function getStaticPaths() {
   const SA_QUAL = 500; // minimum shots against to be "qualified" for ranking
@@ -206,11 +205,6 @@ function zoneColor(pct: number | null): string {
   if (p >= 25) return '#c07020';
   return '#E8002D';
 }
-
-// ── Coordinate shot-bin heatmap ─────────────────────────────────────────────
-const heatBins = goalie.shot_bins ?? [];
-const hasHeatmap = heatBins.length > 0;
-const goalieRinkSvg = hasHeatmap ? buildGoalieRinkOverlaySVG() : '';
 
 // ── Career stats ─────────────────────────────────────────────────────────────
 const careerRS = (goalie.career_seasons ?? []).filter(s => s.game_type === 2);
@@ -451,14 +445,6 @@ const cardData = {
     .zone-col-pct { font-family: var(--mono); font-size: 10px; font-weight: 600; margin-bottom: 2px; }
     .zone-col-meta { font-family: var(--mono); font-size: 9px; color: var(--ink-48); line-height: 1.4; }
 
-    /* ── Shot bin heatmap ── */
-    .heatmap-legend { display: flex; gap: 20px; margin-top: 10px; font-family: var(--mono); font-size: 9px; color: var(--ink-32); letter-spacing: 0.06em; flex-wrap: wrap; }
-    .heat-swatch { display: inline-block; width: 10px; height: 10px; vertical-align: middle; margin-right: 4px; }
-    .heat-mode-btn { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; padding: 5px 10px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; }
-    .heat-mode-btn.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-    .heat-mode-btn:hover:not(.active) { border-color: var(--ink-48); color: var(--ink); }
-    .shot-map-svg { width: 100%; height: auto; display: block; }
-
     /* ── Career stats table ── */
     .career-tabs { display: flex; gap: 8px; padding: 12px 20px 0; }
     .career-tab { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 6px 14px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; }
@@ -680,59 +666,8 @@ const cardData = {
     </div>
   </div>
 
-  <!-- ── Coordinate Shot-Bin Heatmap ── -->
-  {hasHeatmap && (
-    <div class="sec-card">
-      <div class="sec-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div>
-          <div class="sec-title">Save % by Shot Location</div>
-          <div class="sec-sub" id="heat-sub">smoothed · blue = above your avg · red = below</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="heat-mode-btn active" data-mode="raw">Own SV%</button>
-          <button class="heat-mode-btn" data-mode="league">vs League</button>
-        </div>
-      </div>
-      <div class="sec-body" style="padding:14px 20px 16px">
-        <div style="position:relative;border-radius:5px;overflow:hidden">
-          <canvas id="goalie-heat-canvas" width="380" height="170" style="width:100%;display:block;background:#E8F4F8"></canvas>
-          <Fragment set:html={goalieRinkSvg} />
-        </div>
-        <div class="heatmap-legend">
-          <div><span class="heat-swatch" style="background:rgba(20,100,200,0.75)"></span>BETTER</div>
-          <div><span class="heat-swatch" style="background:rgba(220,40,40,0.75)"></span>WORSE</div>
-          <div id="heat-legend-ctx">vs own avg</div>
-          <div>MIN 5 SHOTS PER BIN</div>
-          <div>{heatBins.reduce((s, b) => s + b.shots, 0).toLocaleString()} SA · {heatBins.reduce((s, b) => s + b.goals, 0)} GA total</div>
-        </div>
-      </div>
-      {hasEdgeZones && (
-        <div style="border-top:1px solid var(--ink-10)">
-          <div style="padding:10px 20px 8px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-32)">NHL EDGE Zones</div>
-          <div class="zone-stats" style="margin:0 20px 14px;border-radius:0">
-            {[
-              { lbl: 'High Danger', z: hdZone! },
-              { lbl: 'Mid Range',   z: midZone! },
-              { lbl: 'Long Range',  z: lngZone! },
-            ].map(({ lbl, z }) => {
-              const pct100 = z.svpct_pct != null ? z.svpct_pct * 100 : null;
-              const color  = zoneColor(z.svpct_pct);
-              return (
-                <div class="zone-col">
-                  <div class="zone-col-lbl" style={`color:${color}`}>{lbl}</div>
-                  <div class="zone-col-sv" style={`color:${color}`}>{z.svpct != null ? z.svpct.toFixed(3) : '—'}</div>
-                  <div class="zone-col-pct" style={`color:${color}`}>{pct100 != null ? ordinal(Math.round(pct100)) + ' pct' : '—'}</div>
-                  <div class="zone-col-meta">{z.svpct_league_avg != null ? `avg ${z.svpct_league_avg.toFixed(3)}` : ''}</div>
-                  <div class="zone-col-meta">{z.saves != null ? `${z.saves} sv · ${z.ga} ga` : ''}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )}
-  {!hasHeatmap && hasEdgeZones && (
+  <!-- ── EDGE Zone Save% ── -->
+  {hasEdgeZones && (
     <div class="sec-card">
       <div class="sec-head">
         <div class="sec-title">Save % by Zone</div>
@@ -901,102 +836,6 @@ const cardData = {
     });
   });
 
-})();
-</script>
-
-<script define:vars={{ HEAT_BINS: heatBins }}>
-(function () {
-  var canvas = document.getElementById('goalie-heat-canvas');
-  if (!canvas || !HEAT_BINS.length) return;
-
-  var bins = HEAT_BINS;
-  var totalS = 0, totalG = 0;
-  for (var i = 0; i < bins.length; i++) { totalS += bins[i].shots || 0; totalG += bins[i].goals || 0; }
-  var selfSv = totalS > 0 ? (totalS - totalG) / totalS : 0.910;
-
-  // Gaussian KDE parameters — match Python card (bw=8ft, slightly wider than script's 6 since we
-  // use bin-center aggregates as sources rather than individual shots)
-  var BW2 = 2 * 8 * 8;         // 2 * bandwidth^2
-  var SUPPORT2 = 24 * 24;       // (3 * bandwidth)^2 — skip bins beyond 3σ
-  var MAX_DELTA = 0.060;
-  // Computation grid: 1.5 ft per cell (~matches Python step=1.5)
-  var GW = 50, GH = 57;         // 75ft/1.5 = 50, 85ft/1.5 ≈ 57
-  var CW = 380, CH = 170;       // canvas intrinsic pixels
-
-  function drawHeat(mode) {
-    var tmp = document.createElement('canvas');
-    tmp.width = GW; tmp.height = GH;
-    var tc = tmp.getContext('2d');
-    var img = tc.createImageData(GW, GH);
-    var d = img.data;
-
-    for (var gy = 0; gy < GH; gy++) {
-      var yFt = -42.5 + (gy / GH) * 85;
-      for (var gx = 0; gx < GW; gx++) {
-        var xFt = 25 + (gx / GW) * 75;
-        var swG = 0, wG = 0, swL = 0, wL = 0;
-        for (var bi = 0; bi < bins.length; bi++) {
-          var b = bins[bi];
-          if (!b.shots) continue;
-          var bx = (b.x || 0) + 5, by = (b.y || 0) + 5;
-          var d2 = (xFt - bx) * (xFt - bx) + (yFt - by) * (yFt - by);
-          if (d2 > SUPPORT2) continue;
-          var w = Math.exp(-d2 / BW2) * b.shots;
-          if (b.sv_pct != null) { swG += w * b.sv_pct; wG += w; }
-          if (b.league_sv_pct != null) { swL += w * b.league_sv_pct; wL += w; }
-        }
-        var pi = (gy * GW + gx) * 4;
-        if (wG < 0.01) { d[pi + 3] = 0; continue; }
-        var gSv = swG / wG;
-        var delta;
-        if (mode === 'league') {
-          if (wL < 0.01) { d[pi + 3] = 0; continue; }
-          delta = gSv - swL / wL;
-        } else {
-          delta = gSv - selfSv;
-        }
-        var t = delta >= 0 ? Math.min(1, delta / MAX_DELTA) : Math.max(-1, delta / MAX_DELTA);
-        var intensity = t < 0 ? -t : t;
-        var alpha = Math.round((0.18 + intensity * 0.74) * 255);
-        d[pi]     = t >= 0 ? 20  : 220;
-        d[pi + 1] = t >= 0 ? 100 : 40;
-        d[pi + 2] = t >= 0 ? 200 : 40;
-        d[pi + 3] = alpha;
-      }
-    }
-
-    tc.putImageData(img, 0, 0);
-    var ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, CW, CH);
-    ctx.fillStyle = '#E8F4F8';
-    ctx.fillRect(0, 0, CW, CH);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(tmp, 0, 0, CW, CH);
-  }
-
-  // Initial render (default: own SV%)
-  drawHeat('raw');
-
-  // Mode toggle
-  var heatBtns = document.querySelectorAll('.heat-mode-btn');
-  heatBtns.forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var mode = btn.getAttribute('data-mode');
-      heatBtns.forEach(function (b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      drawHeat(mode);
-      var sub = document.getElementById('heat-sub');
-      var lctx = document.getElementById('heat-legend-ctx');
-      if (mode === 'league') {
-        if (sub) sub.textContent = 'smoothed · blue = above league avg · red = below';
-        if (lctx) lctx.textContent = 'vs league avg per zone';
-      } else {
-        if (sub) sub.textContent = 'smoothed · blue = above your avg · red = below';
-        if (lctx) lctx.textContent = 'vs own avg';
-      }
-    });
-  });
 })();
 </script>
 
