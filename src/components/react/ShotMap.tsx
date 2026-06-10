@@ -415,32 +415,28 @@ function DensityLayer({
 
 // ── Export helpers ────────────────────────────────────────────────────────────
 
-function downloadSVGAsPNG(svgEl: SVGSVGElement, filename: string) {
-  const serializer = new XMLSerializer();
-  const svgStr     = serializer.serializeToString(svgEl);
-  const blob       = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-  const url        = URL.createObjectURL(blob);
-
-  // Draw into canvas for PNG export
-  const img = new Image();
-  img.onload = () => {
-    const canvas = document.createElement('canvas');
-    const scale  = 3; // export at 3× for sharpness
-    canvas.width  = svgEl.viewBox.baseVal.width  * scale;
-    canvas.height = svgEl.viewBox.baseVal.height * scale;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.scale(scale, scale);
-    ctx.drawImage(img, 0, 0);
-    URL.revokeObjectURL(url);
-
-    const pngUrl = canvas.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href     = pngUrl;
-    a.download = filename;
-    a.click();
-  };
-  img.src = url;
+function svgToCanvas(svgEl: SVGSVGElement): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svgEl);
+    const blob   = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const url    = URL.createObjectURL(blob);
+    const img    = new Image();
+    img.onload = () => {
+      const scale  = 3;
+      const canvas = document.createElement('canvas');
+      canvas.width  = svgEl.viewBox.baseVal.width  * scale;
+      canvas.height = svgEl.viewBox.baseVal.height * scale;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { URL.revokeObjectURL(url); reject(new Error('no ctx')); return; }
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      resolve(canvas);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img load failed')); };
+    img.src = url;
+  });
 }
 
 // ── Chip button ───────────────────────────────────────────────────────────────
@@ -485,8 +481,10 @@ export default function ShotMap({
   colorB = DEFAULT_COLOR_B,
   title,
 }: ShotMapProps) {
-  const [mode,    setMode]    = useState<Mode>('scatter');
-  const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const [mode,      setMode]      = useState<Mode>('scatter');
+  const [tooltip,   setTooltip]   = useState<TooltipData | null>(null);
+  const [modalUrl,  setModalUrl]  = useState<string | null>(null);
+  const [modalFile, setModalFile] = useState<string>('');
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Compute xGF%: since we don't have raw xG per shot in this interface, use
@@ -505,10 +503,15 @@ export default function ShotMap({
 
   const handleLeave = useCallback(() => setTooltip(null), []);
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     if (!svgRef.current) return;
     const slug = `${teamA}-vs-${teamB}-shot-map`.toLowerCase().replace(/\s+/g, '-');
-    downloadSVGAsPNG(svgRef.current, `${slug}.png`);
+    const filename = `${slug}.png`;
+    try {
+      const canvas = await svgToCanvas(svgRef.current);
+      setModalFile(filename);
+      setModalUrl(canvas.toDataURL('image/png'));
+    } catch { /* silent — export unavailable */ }
   }, [teamA, teamB]);
 
   const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
@@ -639,6 +642,41 @@ export default function ShotMap({
           <span>Cell opacity ∝ shot density · Gaussian spread σ=1.5</span>
         )}
       </div>
+
+      {/* Export modal */}
+      {modalUrl && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) setModalUrl(null); }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.92)',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', padding: 16,
+          }}
+        >
+          <div style={{ position: 'relative', maxWidth: 'min(90vw,900px)', width: '100%' }}>
+            <button
+              onClick={() => setModalUrl(null)}
+              style={{
+                position: 'absolute', top: -40, right: 0,
+                background: 'none', border: 'none', color: '#fff',
+                fontSize: 28, cursor: 'pointer', lineHeight: 1, opacity: 0.7,
+              }}
+            >×</button>
+            <img src={modalUrl} alt={modalFile}
+              style={{ width: '100%', height: 'auto', display: 'block', border: '1px solid rgba(255,255,255,0.12)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 12 }}>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.06em' }}>
+                {modalFile}
+              </span>
+              <a href={modalUrl} download={modalFile}
+                style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', padding: '6px 14px', background: '#fff', color: '#0d0d14', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                ↓ Download
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

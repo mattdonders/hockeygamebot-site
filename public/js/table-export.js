@@ -313,21 +313,41 @@
     ctx.fillStyle = TOKENS.bg;
     ctx.fillRect(0, y, W, FOOT_H);
 
-    // ── Download ──────────────────────────────────────────────────────────────
+    // ── Show modal ────────────────────────────────────────────────────────────
     const fname = filename || (title.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.png');
-
-    canvas.toBlob(function (blob) {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a   = document.createElement('a');
-      a.href     = url;
-      a.download = fname;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, 'image/png');
+    showCardModal(canvas, fname);
   }
 
-  window.HGB_Export = { downloadTablePng: downloadTablePng };
+  // ── Shared image modal ────────────────────────────────────────────────────────
+  // Used by downloadTablePng above and by all per-page card generators.
+  // Call HGB_Export.showCardModal(canvas, filename) from any page.
+
+  function showCardModal(canvas, filename) {
+    document.getElementById('hgb-card-modal')?.remove();
+    const dataUrl = canvas.toDataURL('image/png');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                  (navigator.userAgent.includes('Mac') && 'ontouchend' in document);
+    const overlay = document.createElement('div');
+    overlay.id = 'hgb-card-modal';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
+    overlay.innerHTML = `
+      <div style="position:relative;max-width:min(90vw,900px);width:100%;">
+        <button id="hgb-modal-close" style="position:absolute;top:-40px;right:0;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;opacity:0.7;">×</button>
+        <img src="${dataUrl}" alt="${filename}" style="width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,0.12);" />
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:12px;">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.06em;">
+            ${isIOS ? 'Long-press image to save · ' : ''}${filename}
+          </span>
+          ${!isIOS ? `<a href="${dataUrl}" download="${filename}" style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.10em;text-transform:uppercase;padding:6px 14px;background:#fff;color:#0d0d14;text-decoration:none;white-space:nowrap;">↓ Download</a>` : ''}
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('hgb-modal-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    document.addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
+    });
+  }
+
+  window.HGB_Export = { downloadTablePng: downloadTablePng, showCardModal: showCardModal };
 })();
