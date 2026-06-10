@@ -122,13 +122,19 @@ const cardData = {
   teamColor,
   headshotUrl,
   gsax:       goalie.gsax,
+  gsaxPer100: goalie.gsax_per_100 ?? null,
   svPct:      goalie.sv_pct ?? null,
+  xsvPct:     goalie.xsv_pct ?? null,
   gaa:        goalie.gaa ?? null,
   dSvPct,
   sa:         goalie.sa,
   rank:       gsaxRank,
   qualCount,
   saQual:     SA_QUAL,
+  playoffGsax:  goalie.playoff_gsax ?? null,
+  playoffSa:    goalie.playoff_sa ?? null,
+  playoffGa:    goalie.playoff_ga ?? null,
+  playoffGames: goalie.playoff_games ?? null,
   // Tier bars — re-map raw bin_label to the canonical 5-tier display label
   bins: goalie.bins.map(b => ({
     label:        BIN_SHORT[b.bin_label] ?? b.bin_label,
@@ -136,7 +142,20 @@ const cardData = {
     svPct:        b.sv_pct ?? null,
     leagueSvPct:  b.league_sv_pct,
     sa:           b.sa,
+    ga:           b.ga,
   })),
+  // Shot-type breakdown (top 4 by SA, excluding "Other")
+  types: goalie.types
+    .filter(t => t.shot_type_group !== 'Other')
+    .sort((a, b) => b.sa - a.sa)
+    .slice(0, 4)
+    .map(t => ({
+      label:       t.shot_type_group,
+      gsax:        t.gsax,
+      svPct:       t.sv_pct ?? null,
+      leagueSvPct: t.league_sv_pct,
+      sa:          t.sa,
+    })),
   edge: goalie.edge ?? null,
 };
 ---
@@ -508,7 +527,7 @@ const cardData = {
       VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
     };
 
-    // ── helpers (same patterns as skater card) ─────────────────────────────
+    // ── helpers ────────────────────────────────────────────────────────────
     function rrect(ctx, x, y, w, h, r) {
       ctx.beginPath();
       if (typeof ctx.roundRect === 'function') { ctx.roundRect(x, y, w, h, r); }
@@ -538,7 +557,7 @@ const cardData = {
     // Save % as ".923" (no leading zero); null → "—"
     const svStr = (v) => v == null ? '—' : v.toFixed(3).replace(/^0/, '');
 
-    // ── EDGE drawing helpers (goalie) ─────────────────────────────────────
+    // ── drawing helpers ────────────────────────────────────────────────────
     function edgeTierColor(pct) {
       if (pct == null) return INK32;
       if (pct >= 75) return GREEN;
@@ -547,124 +566,57 @@ const cardData = {
       return RED;
     }
 
-    function drawEdgeStatBox(ctx, x, y, w, h, lbl, valStr, pct100, avgStr) {
-      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.fill();
-      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(x, y, w, h, 4); ctx.stroke();
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(lbl, x + 10, y + 9);
-      ctx.font = '800 28px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = INK; ctx.textBaseline = 'top';
-      ctx.fillText(valStr, x + 10, y + 22);
-      const bx = x + 10, bw = w - 20, bh = 5, by = h - 28 + y;
-      ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 2); ctx.fill();
-      const fc = edgeTierColor(pct100);
-      if (pct100 != null) {
-        ctx.fillStyle = fc; ctx.beginPath(); ctx.roundRect(bx, by, Math.max(5, (pct100 / 100) * bw), bh, 2); ctx.fill();
-      }
-      ctx.font = '600 9px "Barlow", sans-serif';
-      ctx.fillStyle = fc; ctx.textBaseline = 'top';
-      ctx.fillText(pct100 != null ? ordinal(Math.round(pct100)) + ' pct' : '', x + 10, by + 7);
-      if (avgStr) {
-        ctx.font = '400 9px "JetBrains Mono", monospace';
-        ctx.fillStyle = INK32; ctx.textAlign = 'right';
-        ctx.fillText(avgStr, x + w - 10, by + 7);
-        ctx.textAlign = 'left';
+    function panel(ctx, x, y, w, h, r) {
+      ctx.fillStyle = SURFACE; ctx.beginPath(); ctx.roundRect(x, y, w, h, r ?? 4); ctx.fill();
+      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(x, y, w, h, r ?? 4); ctx.stroke();
+    }
+
+    function sectionTitle(ctx, x, y, title, subtitle) {
+      ctx.font = '800 16px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(title, x, y);
+      if (subtitle) {
+        ctx.font = '500 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32;
+        ctx.fillText(subtitle, x, y + 19);
       }
     }
 
-    function drawGoalieEdgeSection(ctx, baseY, W, PAD, e) {
-      let y = baseY + 12;
-      // Divider
-      const divW = (W - PAD * 2 - 210) / 2;
-      ctx.fillStyle = INK10; ctx.fillRect(PAD, y + 8, divW, 1);
-      ctx.font = '700 8px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('NHL EDGE GOALIE TRACKING', W / 2, y + 8);
-      ctx.fillStyle = INK10; ctx.fillRect(W / 2 + 105, y + 8, divW, 1);
-      y += 24;
-
-      // 3 stat boxes
-      const bw = (W - PAD * 2 - 20) / 3, bh = 88;
-      const ga900  = e.games_above_900;
-      const gd60   = e.goal_diff_per60;
-      const wpct   = e.point_pctg;
-      const boxes = [
-        { lbl: 'ELITE GAMES (>.900)',
-          val: ga900?.value != null ? (ga900.value * 100).toFixed(1) + '%' : '—',
-          pct: ga900?.pct != null ? ga900.pct * 100 : null,
-          avg: ga900?.league_avg != null ? 'avg ' + (ga900.league_avg * 100).toFixed(1) + '%' : '' },
-        { lbl: 'GOAL DIFF / 60',
-          val: gd60?.value != null ? (gd60.value >= 0 ? '+' : '') + gd60.value.toFixed(2) : '—',
-          pct: gd60?.pct != null ? gd60.pct * 100 : null,
-          avg: gd60?.league_avg != null ? 'avg +' + gd60.league_avg.toFixed(2) : '' },
-        { lbl: 'WIN %',
-          val: wpct?.value != null ? (wpct.value * 100).toFixed(1) + '%' : '—',
-          pct: wpct?.pct != null ? wpct.pct * 100 : null,
-          avg: wpct?.league_avg != null ? 'avg ' + (wpct.league_avg * 100).toFixed(1) + '%' : '' },
-      ];
-      for (let i = 0; i < 3; i++) {
-        drawEdgeStatBox(ctx, PAD + i * (bw + 10), y, bw, bh, boxes[i].lbl, boxes[i].val, boxes[i].pct, boxes[i].avg);
+    function pctBar(ctx, x, y, w, h, pct100, color) {
+      ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(x, y, w, h, 2); ctx.fill();
+      if (pct100 != null && pct100 > 0) {
+        ctx.fillStyle = color || edgeTierColor(pct100);
+        ctx.beginPath(); ctx.roundRect(x, y, Math.max(4, (pct100/100)*w), h, 2); ctx.fill();
       }
-      y += bh + 16;
+    }
 
-      // Zone Sv% card
-      const zones = e.zones || [];
-      const ZONE_LABELS = ['HIGH DANGER', 'MID RANGE', 'LONG RANGE'];
-      const colW = (W - PAD * 2 - 16) / 3;
-      const CARD_H = 148;
-      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 8, W - PAD * 2 + 4, CARD_H, 4); ctx.fill();
-      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(PAD - 2, y - 8, W - PAD * 2 + 4, CARD_H, 4); ctx.stroke();
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText('SAVE % BY SHOT LOCATION', PAD + 8, y + 1);
-      y += 18;
-
-      const CHIP_H = 20;
-      for (let i = 0; i < 3; i++) {
-        const z = zones[i] || {};
-        const cx = PAD + i * (colW + 8);
-        let cy = y;
-        const pct100 = z.svpct_pct != null ? z.svpct_pct * 100 : null;
-        const fc = edgeTierColor(pct100);
-        // zone chip
-        const teamRgb = TEAM_C.startsWith('#') ? `rgba(${parseInt(TEAM_C.slice(1,3),16)},${parseInt(TEAM_C.slice(3,5),16)},${parseInt(TEAM_C.slice(5,7),16)},0.14)` : 'rgba(13,13,20,0.06)';
-        ctx.fillStyle = i === 0 ? teamRgb : 'rgba(13,13,20,0.06)';
-        ctx.beginPath(); ctx.roundRect(cx, cy, colW, CHIP_H, 2); ctx.fill();
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = i === 0 ? TEAM_C : INK32;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(ZONE_LABELS[i], cx + colW / 2, cy + CHIP_H / 2);
-        cy += CHIP_H + 8;
-        // Sv% value
-        ctx.font = '800 30px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        const svVal = z.svpct != null ? z.svpct.toFixed(3).replace(/^0/, '') : '—';
-        ctx.fillText(svVal, cx, cy); cy += 33;
-        // Percentile bar
-        ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(cx, cy, colW, 5, 2); ctx.fill();
-        if (pct100 != null) {
-          ctx.fillStyle = fc; ctx.beginPath(); ctx.roundRect(cx, cy, Math.max(4, (pct100/100)*colW), 5, 2); ctx.fill();
-        }
-        cy += 7;
-        ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = fc; ctx.textBaseline = 'top';
-        ctx.fillText(pct100 != null ? ordinal(Math.round(pct100)) + ' percentile' : '', cx, cy); cy += 13;
-        // League avg
-        ctx.font = '400 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
-        const avgVal = z.svpct_league_avg != null ? 'avg ' + z.svpct_league_avg.toFixed(3).replace(/^0/, '') : '';
-        ctx.fillText(avgVal, cx, cy);
-      }
+    function teamRgba(alpha) {
+      if (!TEAM_C.startsWith('#') || TEAM_C.length < 7) return `rgba(13,13,20,${alpha})`;
+      const r = parseInt(TEAM_C.slice(1,3),16), g = parseInt(TEAM_C.slice(3,5),16), b = parseInt(TEAM_C.slice(5,7),16);
+      return `rgba(${r},${g},${b},${alpha})`;
     }
 
     // ── card draw ──────────────────────────────────────────────────────────
     async function drawGoalieCard() {
       const SCALE = 2;
-      const W = 750;
-      const BASE_H = 900;
-      const PAD = 28;
+      const W = 750, PAD = 28;
       const e = G.edge;
-      const EDGE_H = e ? 300 : 0;
-      const H = BASE_H + EDGE_H;
+      const hasPlayoff = G.playoffGames > 0;
+
+      // Section heights
+      const HDR_H   = 110;
+      const HERO_H  = 210;
+      const TIER_H  = 290;  // GSAx by xG tier
+      const TYPE_H  = G.types && G.types.length > 0 ? 190 : 0;  // shot type breakdown
+      const EDGE_BOX_H = e ? 120 : 0;   // 3 EDGE stat boxes
+      const EDGE_ZON_H = e ? 155 : 0;   // Sv% by zone
+      const PO_H    = hasPlayoff ? 52 : 0;
+      const FOOT_H  = 44;
+      const GAP     = 10; // between sections
+
+      const H = HDR_H + HERO_H + GAP + TIER_H + (TYPE_H ? GAP + TYPE_H : 0)
+              + (EDGE_BOX_H ? GAP + EDGE_BOX_H : 0) + (EDGE_ZON_H ? GAP + EDGE_ZON_H : 0)
+              + (PO_H ? GAP + PO_H : 0) + FOOT_H;
 
       const canvas = document.getElementById('goalie-card-canvas');
       canvas.width  = W * SCALE;
@@ -674,211 +626,351 @@ const cardData = {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.scale(SCALE, SCALE);
 
-      // background
-      ctx.fillStyle = BG;
-      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
 
       let y = 0;
 
-      // ── HEADER BAND (white, ~110px) ───────────────────────────────────────
-      const HDR_H = 110;
-      ctx.fillStyle = SURFACE;
-      ctx.fillRect(0, y, W, HDR_H);
-      // team-color accent bar (6px). Neutral gray if no team.
-      ctx.fillStyle = TEAM_C;
-      ctx.fillRect(0, y, 6, HDR_H);
+      // ── 1. HEADER ─────────────────────────────────────────────────────────
+      ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, HDR_H);
+      ctx.fillStyle = TEAM_C;  ctx.fillRect(0, 0, 6, HDR_H);
 
-      // name
       ctx.font = '800 32px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = INK;
-      ctx.textBaseline = 'alphabetic';
-      ctx.textAlign = 'left';
-      ctx.fillText(G.name.toUpperCase(), PAD, y + 44);
+      ctx.fillStyle = INK; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      const displayName = (G.name || '').toUpperCase();
+      ctx.fillText(displayName, PAD, 44);
 
-      // chips row: TEAM · G · +X.X GSAx
-      const chipH = 18, chipY0 = y + 62;
-      const gsaxChip = sgn(G.gsax) + G.gsax.toFixed(1) + ' GSAx';
+      const chipH = 18, chipY0 = 62;
       const chips = [
-        { t: G.hasTeam ? G.team : 'FA', bg: TEAM_C,  fg: BG  },
-        { t: 'G',                       bg: INK,     fg: BG  },
-        { t: gsaxChip,                  bg: INK,     fg: BG, accent: G.gsax >= 0 ? GREEN : RED },
+        { t: G.hasTeam ? G.team : 'FA', bg: TEAM_C, fg: BG },
+        { t: 'G',                        bg: INK,    fg: BG },
+        { t: sgn(G.gsax) + G.gsax.toFixed(1) + ' GSAx', bg: INK, fg: BG, accent: G.gsax >= 0 ? GREEN : RED },
       ];
-      let cx = PAD;
-      ctx.font = '500 9px "JetBrains Mono", monospace';
-      ctx.textBaseline = 'middle';
+      let cx2 = PAD;
+      ctx.font = '500 9px "JetBrains Mono", monospace'; ctx.textBaseline = 'middle';
       for (const c of chips) {
-        const tw = ctx.measureText(c.t).width;
-        const cw = tw + 18;
-        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        const tw = ctx.measureText(c.t).width, cw = tw + 18;
+        rrect(ctx, cx2, chipY0, cw, chipH, 3);
         ctx.fillStyle = c.accent || c.bg; ctx.fill();
         ctx.fillStyle = c.fg; ctx.textAlign = 'left';
-        ctx.fillText(c.t, cx + 9, chipY0 + chipH / 2 + 0.5);
-        cx += cw + 8;
+        ctx.fillText(c.t, cx2 + 9, chipY0 + chipH / 2 + 0.5);
+        cx2 += cw + 8;
       }
-      // HGB wordmark chip (red pill, right)
-      const brand = 'HGB STATS';
-      const btw = ctx.measureText(brand).width, bcw = btw + 18;
-      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+      const brand = 'HGB STATS', btw2 = ctx.measureText(brand).width, bcw2 = btw2 + 18;
+      rrect(ctx, W - PAD - bcw2, chipY0, bcw2, chipH, 3);
       ctx.fillStyle = RED; ctx.fill();
       ctx.fillStyle = BG; ctx.textAlign = 'left';
-      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2 + 0.5);
+      ctx.fillText(brand, W - PAD - bcw2 + 9, chipY0 + chipH / 2 + 0.5);
 
-      // header bottom border
-      ctx.fillStyle = INK10;
-      ctx.fillRect(0, y + HDR_H - 1, W, 1);
-      y += HDR_H;
+      ctx.fillStyle = INK10; ctx.fillRect(0, HDR_H - 1, W, 1);
+      y = HDR_H;
 
-      // ── HERO ROW (~200px, cream) ─────────────────────────────────────────
-      const HERO_H = 200;
-      const R = 70, HS_CX = PAD + R, HS_CY = y + HERO_H / 2;
+      // ── 2. HERO ROW ────────────────────────────────────────────────────────
+      // White panel flush against header
+      panel(ctx, 0, y, W, HERO_H, 0);
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, y, 6, HERO_H); // accent continues
+
+      const R = 68, HS_CX = PAD + R + 6, HS_CY = y + HERO_H / 2;
       const hsImg = await loadImg(G.headshotUrl);
-      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
-      if (hsImg) {
-        ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
-      } else {
-        ctx.fillStyle = INK10; ctx.fillRect(HS_CX - R, HS_CY - R, R * 2, R * 2);
-      }
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI*2); ctx.clip();
+      if (hsImg) ctx.drawImage(hsImg, HS_CX-R, HS_CY-R, R*2, R*2);
+      else { ctx.fillStyle = INK10; ctx.fillRect(HS_CX-R, HS_CY-R, R*2, R*2); }
       ctx.restore();
-      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI*2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 3; ctx.stroke();
 
-      // KPI grid (2×2) to the right
-      const gridX = HS_CX + R + 28;
-      const gridW = W - gridX - PAD;
-      const dSvDisplay = G.dSvPct != null;
-      const kpis = [
-        { label: 'GSAx', val: sgn(G.gsax) + G.gsax.toFixed(1),
-          color: G.gsax >= 0 ? GREEN : RED },
-        { label: 'Sv%',  val: svStr(G.svPct), color: INK },
-        { label: 'GAA',  val: G.gaa != null ? G.gaa.toFixed(2) : '—', color: INK },
+      // 4 KPI tiles to the right of headshot, with sub-context lines
+      const tileX = HS_CX + R + 24;
+      const tileW = (W - tileX - PAD) / 4;
+      const svPctPct  = e?.svpct_all?.pct  != null ? e.svpct_all.pct * 100 : null;
+      const gaaPct    = e?.gaa?.pct         != null ? e.gaa.pct * 100       : null;
+      const rankPct   = G.rank != null && G.qualCount > 0 ? (1 - (G.rank-1)/G.qualCount)*100 : null;
+      const dVal      = G.dSvPct != null ? G.dSvPct * 100 : null;
+
+      const tiles = [
+        { lbl: 'GSAx',  big: sgn(G.gsax) + G.gsax.toFixed(1),
+          sub: G.gsaxPer100 != null ? G.gsaxPer100.toFixed(2) + ' /100 SA' : '',
+          bigColor: G.gsax >= 0 ? GREEN : RED,
+          pct: rankPct },
+        { lbl: 'SV %',  big: svStr(G.svPct),
+          sub: G.xsvPct != null ? 'xSv ' + svStr(G.xsvPct) : '',
+          bigColor: INK, pct: svPctPct },
+        { lbl: 'GAA',   big: G.gaa != null ? G.gaa.toFixed(2) : '—',
+          sub: e?.gaa?.league_avg != null ? 'lg ' + e.gaa.league_avg.toFixed(2) : '',
+          bigColor: INK, pct: gaaPct },
+        { lbl: 'dSV %', big: dVal != null ? (dVal>=0?'+':'') + dVal.toFixed(2) : '—',
+          sub: 'vs expected',
+          bigColor: dVal != null ? (dVal >= 0 ? GREEN : RED) : INK, pct: null },
       ];
-      if (dSvDisplay) {
-        // dSv% shown in percentage points
-        const d = G.dSvPct * 100;
-        kpis.push({ label: 'dSv%', val: (d >= 0 ? '+' : '') + d.toFixed(2),
-          color: d >= 0 ? GREEN : RED });
-      }
-      const cols = 2;
-      const cellW = gridW / cols;
-      const cellH = HERO_H / 2 - 6;
-      for (let i = 0; i < kpis.length; i++) {
-        const k = kpis[i];
-        const col = i % cols, row = Math.floor(i / cols);
-        const kx = gridX + col * cellW;
-        const ky = y + 18 + row * (cellH + 8);
-        ctx.font = '500 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-        ctx.fillText(k.label.toUpperCase(), kx, ky + 12);
-        ctx.font = '800 42px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = k.color;
-        ctx.fillText(k.val, kx, ky + 56);
-      }
-      y += HERO_H;
 
-      // ── RANK CONTEXT LINE (~40px) ────────────────────────────────────────
-      const RANK_H = 40;
-      ctx.font = '500 12px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK48; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      let rankTxt;
-      if (G.rank != null) {
-        rankTxt = ordinal(G.rank) + ' of ' + G.qualCount + ' qualified goalies (min. ' + G.saQual + ' SA)';
-      } else {
-        rankTxt = G.sa.toLocaleString() + ' shots against · below ' + G.saQual + ' SA qualifier';
+      for (let i = 0; i < tiles.length; i++) {
+        const tx = tileX + i * tileW;
+        const t  = tiles[i];
+        // vertical divider
+        if (i > 0) { ctx.fillStyle = INK06; ctx.fillRect(tx, y + 16, 1, HERO_H - 32); }
+
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText(t.lbl, tx + 10, y + 18);
+
+        ctx.font = '800 36px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = t.bigColor;
+        ctx.fillText(t.big, tx + 10, y + 30);
+
+        if (t.sub) {
+          ctx.font = '500 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+          ctx.fillText(t.sub, tx + 10, y + 72);
+        }
+
+        if (t.pct != null) {
+          const fc = edgeTierColor(t.pct);
+          pctBar(ctx, tx + 10, y + 87, tileW - 20, 4, t.pct, fc);
+          ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = fc;
+          ctx.textBaseline = 'top';
+          ctx.fillText(ordinal(Math.round(t.pct)) + ' pct', tx + 10, y + 94);
+        }
       }
-      ctx.fillText(rankTxt, W / 2, y + RANK_H / 2);
-      y += RANK_H;
 
-      // ── GSAx BY xG TIER BARS (~440px) ────────────────────────────────────
-      const TIER_TOP = y + 8;
-      // title
-      ctx.font = '800 18px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-      ctx.fillText('GSAx BY xG DIFFICULTY TIER', PAD, TIER_TOP + 18);
-      // subtitle
-      ctx.font = '400 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK32;
-      ctx.fillText('GOALS SAVED ABOVE EXPECTED WITHIN EACH SHOT-DIFFICULTY BAND', PAD, TIER_TOP + 36);
+      // rank line at bottom of hero
+      ctx.font = '500 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const rankTxt = G.rank != null
+        ? ordinal(G.rank) + ' of ' + G.qualCount + ' qualified goalies (min. ' + G.saQual + ' SA)'
+        : G.sa.toLocaleString() + ' SA · below ' + G.saQual + ' SA qualifier';
+      ctx.fillText(rankTxt, W / 2, y + HERO_H - 14);
 
-      const barsTop = TIER_TOP + 56;
-      const footerTop = BASE_H - 60;
-      const barsBottom = footerTop - 16;
+      ctx.fillStyle = INK10; ctx.fillRect(0, y + HERO_H - 1, W, 1);
+      y += HERO_H + GAP;
+
+      // ── 3. GSAx BY xG DIFFICULTY TIER ─────────────────────────────────────
+      panel(ctx, PAD - 4, y, W - PAD * 2 + 8, TIER_H, 4);
+      sectionTitle(ctx, PAD + 8, y + 12, 'GSAx BY xG DIFFICULTY TIER',
+        'GOALS SAVED ABOVE EXPECTED · EACH SHOT-DIFFICULTY BAND');
 
       if (G.bins && G.bins.length > 0) {
-        const absMax = Math.max(...G.bins.map(b => Math.abs(b.gsax)), 1);
-        const LABEL_W = 92;
-        const VAL_W   = 130; // right column for GSAx + sv label
-        const chartL  = PAD + LABEL_W;
-        const chartR  = W - PAD - VAL_W;
-        const zeroX   = chartL + (chartR - chartL) / 2;
-        const halfW   = (chartR - chartL) / 2;
-        const rowGap  = (barsBottom - barsTop) / G.bins.length;
-        const barH    = Math.min(24, rowGap - 18);
+        const barsTop2   = y + 44;
+        const barsBot2   = y + TIER_H - 12;
+        const absMax     = Math.max(...G.bins.map(b => Math.abs(b.gsax)), 1);
+        const LABEL_W    = 88, VAL_W = 118;
+        const chartL2    = PAD + LABEL_W;
+        const chartR2    = W - PAD - VAL_W;
+        const zeroX2     = chartL2 + (chartR2 - chartL2) / 2;
+        const halfW2     = (chartR2 - chartL2) / 2;
+        const rowGap2    = (barsBot2 - barsTop2) / G.bins.length;
+        const barH2      = Math.min(22, rowGap2 - 22);
 
         for (let i = 0; i < G.bins.length; i++) {
           const b = G.bins[i];
-          const rowCY = barsTop + i * rowGap + rowGap / 2;
+          const rowCY = barsTop2 + i * rowGap2 + rowGap2 / 2;
           const isPos = b.gsax >= 0;
-          const barLen = (Math.abs(b.gsax) / absMax) * halfW;
+          const barLen = (Math.abs(b.gsax) / absMax) * halfW2;
 
-          // tier label (left)
-          ctx.font = '500 12px "JetBrains Mono", monospace';
+          // tier label
+          ctx.font = '500 11px "JetBrains Mono", monospace';
           ctx.fillStyle = INK72; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-          ctx.fillText(b.label, PAD + LABEL_W - 12, rowCY);
+          ctx.fillText(b.label, PAD + LABEL_W - 8, rowCY - 5);
+          // SA/GA sub-label
+          ctx.font = '400 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32;
+          ctx.fillText(b.sa + ' SA · ' + b.ga + ' GA', PAD + LABEL_W - 8, rowCY + 8);
 
           // zero line
-          ctx.fillStyle = INK20;
-          ctx.fillRect(zeroX, rowCY - barH / 2 - 4, 1, barH + 8);
+          ctx.fillStyle = INK14; ctx.fillRect(zeroX2, rowCY - barH2/2 - 4, 1, barH2 + 8);
 
           // bar
           ctx.fillStyle = isPos ? GREEN : RED;
-          if (isPos) {
-            rrect(ctx, zeroX, rowCY - barH / 2, Math.max(2, barLen), barH, 2);
-          } else {
-            rrect(ctx, zeroX - Math.max(2, barLen), rowCY - barH / 2, Math.max(2, barLen), barH, 2);
-          }
+          if (isPos) { rrect(ctx, zeroX2, rowCY - barH2/2, Math.max(2, barLen), barH2, 2); }
+          else       { rrect(ctx, zeroX2 - Math.max(2, barLen), rowCY - barH2/2, Math.max(2, barLen), barH2, 2); }
           ctx.fill();
 
-          // GSAx value at end of bar
-          ctx.font = '500 13px "JetBrains Mono", monospace';
-          ctx.fillStyle = isPos ? GREEN : RED;
-          ctx.textBaseline = 'middle';
-          if (isPos) {
-            ctx.textAlign = 'left';
-            ctx.fillText(sgn(b.gsax) + b.gsax.toFixed(1), zeroX + Math.max(2, barLen) + 8, rowCY);
-          } else {
-            ctx.textAlign = 'right';
-            ctx.fillText(b.gsax.toFixed(1), zeroX - Math.max(2, barLen) - 8, rowCY);
-          }
+          // GSAx value
+          ctx.font = '600 12px "JetBrains Mono", monospace';
+          ctx.fillStyle = isPos ? GREEN : RED; ctx.textBaseline = 'middle';
+          if (isPos) { ctx.textAlign = 'left';  ctx.fillText(sgn(b.gsax)+b.gsax.toFixed(1), zeroX2+Math.max(2,barLen)+6, rowCY); }
+          else       { ctx.textAlign = 'right'; ctx.fillText(b.gsax.toFixed(1),             zeroX2-Math.max(2,barLen)-6, rowCY); }
 
-          // Sv% vs league label (far right)
+          // Sv% vs league (right col)
           ctx.font = '400 9px "JetBrains Mono", monospace';
           ctx.fillStyle = INK32; ctx.textAlign = 'right';
-          const svLbl = b.svPct != null
-            ? svStr(b.svPct) + ' vs ' + svStr(b.leagueSvPct) + ' lg'
-            : '— vs ' + svStr(b.leagueSvPct) + ' lg';
-          ctx.fillText(svLbl, W - PAD, rowCY);
+          const svLbl2 = (b.svPct != null ? svStr(b.svPct) : '—') + ' vs ' + svStr(b.leagueSvPct) + ' lg';
+          ctx.fillText(svLbl2, W - PAD, rowCY);
         }
-      } else {
-        ctx.font = '500 13px "JetBrains Mono", monospace';
-        ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('Tier breakdown refreshing — available after next pipeline run.',
-          W / 2, (barsTop + barsBottom) / 2);
+      }
+      y += TIER_H + GAP;
+
+      // ── 4. GSAx BY SHOT TYPE ───────────────────────────────────────────────
+      if (G.types && G.types.length > 0) {
+        panel(ctx, PAD - 4, y, W - PAD * 2 + 8, TYPE_H, 4);
+        sectionTitle(ctx, PAD + 8, y + 12, 'GSAx BY SHOT TYPE', 'GOALS SAVED ABOVE EXPECTED · BY SHOT CATEGORY');
+
+        const typeAbsMax = Math.max(...G.types.map(t => Math.abs(t.gsax)), 1);
+        const colW2 = (W - PAD * 2 - 8 - 24) / G.types.length;
+        const colTopY = y + 44;
+        const CHIP2 = 20, NUM2 = 30, BAR2 = 5;
+
+        for (let i = 0; i < G.types.length; i++) {
+          const t = G.types[i];
+          const colX = PAD + 4 + i * (colW2 + 8);
+          let cy2 = colTopY;
+          const isPos = t.gsax >= 0;
+
+          // chip header
+          ctx.fillStyle = i === 0 ? teamRgba(0.12) : INK06;
+          ctx.beginPath(); ctx.roundRect(colX, cy2, colW2, CHIP2, 2); ctx.fill();
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = i === 0 ? TEAM_C : INK48;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(t.label.toUpperCase(), colX + colW2/2, cy2 + CHIP2/2);
+          cy2 += CHIP2 + 8;
+
+          // GSAx big number
+          ctx.font = '800 ' + NUM2 + 'px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = isPos ? GREEN : RED;
+          ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+          ctx.fillText(sgn(t.gsax) + t.gsax.toFixed(1), colX, cy2); cy2 += NUM2 + 4;
+
+          // magnitude bar (right = positive, left = scale anchored at 0)
+          const bLen2 = (Math.abs(t.gsax) / typeAbsMax) * colW2;
+          ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(colX, cy2, colW2, BAR2, 2); ctx.fill();
+          ctx.fillStyle = isPos ? GREEN : RED;
+          ctx.beginPath(); ctx.roundRect(colX, cy2, Math.max(3, bLen2), BAR2, 2); ctx.fill();
+          cy2 += BAR2 + 6;
+
+          // Sv% vs league
+          ctx.font = '500 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+          ctx.fillText('SV%', colX, cy2); cy2 += 11;
+          ctx.font = '800 18px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+          ctx.fillText(svStr(t.svPct), colX, cy2); cy2 += 20;
+          ctx.font = '400 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+          ctx.fillText('vs ' + svStr(t.leagueSvPct) + ' lg', colX, cy2); cy2 += 12;
+
+          // SA volume
+          ctx.font = '400 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+          ctx.fillText(t.sa + ' SA', colX, cy2);
+        }
+        y += TYPE_H + GAP;
       }
 
-      // ── FOOTER STRIP (~60px) ─────────────────────────────────────────────
-      ctx.fillStyle = INK06;
-      ctx.fillRect(0, footerTop, W, 1);
-      ctx.font = '400 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      const footerLabel = e
-        ? 'HOCKEYGAMEBOT.COM · 2025–26 · GSAx XGBoost · EDGE DATA: NHL'
-        : 'HOCKEYGAMEBOT.COM · 2025–26 REGULAR SEASON · GSAx XGBoost';
-      ctx.fillText(footerLabel, PAD, footerTop + 30);
-
-      // ── NHL EDGE SECTION (appended below base card) ───────────────────────
+      // ── 5. EDGE STAT BOXES ─────────────────────────────────────────────────
       if (e) {
-        drawGoalieEdgeSection(ctx, BASE_H, W, PAD, e);
+        // divider label
+        const divW3 = (W - PAD*2 - 200) / 2;
+        ctx.fillStyle = INK14; ctx.fillRect(PAD, y + 8, divW3, 1);
+        ctx.font = '700 8px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('NHL EDGE GOALIE TRACKING', W/2, y + 8);
+        ctx.fillStyle = INK14; ctx.fillRect(W/2 + 100, y + 8, divW3, 1);
+        y += 20;
+
+        const bw3 = (W - PAD*2 - 20) / 3, bh3 = EDGE_BOX_H - 20;
+        const edgeBoxes = [
+          { lbl: 'ELITE GAMES (>.900)',
+            val: e.games_above_900?.value != null ? (e.games_above_900.value*100).toFixed(1)+'%' : '—',
+            pct: e.games_above_900?.pct != null ? e.games_above_900.pct*100 : null,
+            avg: e.games_above_900?.league_avg != null ? 'avg '+(e.games_above_900.league_avg*100).toFixed(1)+'%' : '' },
+          { lbl: 'GOAL DIFF / 60',
+            val: e.goal_diff_per60?.value != null ? (e.goal_diff_per60.value>=0?'+':'')+e.goal_diff_per60.value.toFixed(2) : '—',
+            pct: e.goal_diff_per60?.pct != null ? e.goal_diff_per60.pct*100 : null,
+            avg: e.goal_diff_per60?.league_avg != null ? 'avg +'+ e.goal_diff_per60.league_avg.toFixed(2) : '' },
+          { lbl: 'WIN %',
+            val: e.point_pctg?.value != null ? (e.point_pctg.value*100).toFixed(1)+'%' : '—',
+            pct: e.point_pctg?.pct != null ? e.point_pctg.pct*100 : null,
+            avg: e.point_pctg?.league_avg != null ? 'avg '+(e.point_pctg.league_avg*100).toFixed(1)+'%' : '' },
+        ];
+        for (let i = 0; i < 3; i++) {
+          const bx3 = PAD + i*(bw3+10), b3 = edgeBoxes[i];
+          panel(ctx, bx3, y, bw3, bh3, 4);
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+          ctx.fillText(b3.lbl, bx3+10, y+9);
+          ctx.font = '800 30px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+          ctx.fillText(b3.val, bx3+10, y+21);
+          const barY3 = y + bh3 - 24;
+          pctBar(ctx, bx3+10, barY3, bw3-20, 5, b3.pct);
+          const fc3 = edgeTierColor(b3.pct);
+          ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = fc3; ctx.textBaseline = 'top';
+          ctx.fillText(b3.pct != null ? ordinal(Math.round(b3.pct))+' pct' : '', bx3+10, barY3+7);
+          if (b3.avg) {
+            ctx.font = '400 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textAlign = 'right';
+            ctx.fillText(b3.avg, bx3+bw3-10, barY3+7); ctx.textAlign = 'left';
+          }
+        }
+        y += EDGE_BOX_H + GAP;
+
+        // ── 6. SAVE % BY ZONE ───────────────────────────────────────────────
+        panel(ctx, PAD - 4, y, W - PAD*2 + 8, EDGE_ZON_H, 4);
+        sectionTitle(ctx, PAD + 8, y + 12, 'SAVE % BY SHOT LOCATION ZONE',
+          'HIGH DANGER (HD) · MID RANGE · LONG RANGE');
+
+        const zones2 = e.zones || [];
+        const ZONE_LBLS = ['HIGH DANGER', 'MID RANGE', 'LONG RANGE'];
+        const zColW = (W - PAD*2 - 8 - 16) / 3;
+        const zTop = y + 44;
+
+        for (let i = 0; i < 3; i++) {
+          const z = zones2[i] || {};
+          const zx = PAD + 4 + i*(zColW+8);
+          let zy = zTop;
+          const zPct = z.svpct_pct != null ? z.svpct_pct*100 : null;
+          const zfc  = edgeTierColor(zPct);
+
+          // zone chip
+          ctx.fillStyle = i === 0 ? teamRgba(0.12) : INK06;
+          ctx.beginPath(); ctx.roundRect(zx, zy, zColW, 20, 2); ctx.fill();
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = i === 0 ? TEAM_C : INK48;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(ZONE_LBLS[i], zx + zColW/2, zy + 10);
+          zy += 28;
+
+          // Big Sv%
+          ctx.font = '800 32px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+          ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+          ctx.fillText(z.svpct != null ? svStr(z.svpct) : '—', zx, zy); zy += 36;
+
+          // Percentile bar + label
+          pctBar(ctx, zx, zy, zColW, 5, zPct, zfc); zy += 7;
+          ctx.font = '600 9px "Barlow", sans-serif'; ctx.fillStyle = zfc; ctx.textBaseline = 'top';
+          ctx.fillText(zPct != null ? ordinal(Math.round(zPct))+' percentile' : '', zx, zy); zy += 14;
+
+          // League avg
+          ctx.font = '400 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+          ctx.fillText(z.svpct_league_avg != null ? 'avg '+svStr(z.svpct_league_avg) : '', zx, zy); zy += 13;
+
+          // Saves/GA count
+          ctx.font = '500 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+          ctx.fillText(z.saves != null ? z.saves+' SV · '+z.ga+' GA' : '', zx, zy);
+        }
+        y += EDGE_ZON_H + GAP;
       }
+
+      // ── 7. PLAYOFF STRIP ──────────────────────────────────────────────────
+      if (hasPlayoff) {
+        const svPO = G.playoffSa > 0 ? 1 - G.playoffGa/G.playoffSa : null;
+        ctx.fillStyle = teamRgba(0.06); ctx.fillRect(0, y, W, PO_H);
+        ctx.fillStyle = TEAM_C; ctx.fillRect(0, y, 4, PO_H);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = TEAM_C; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('2026 PLAYOFFS', PAD, y + PO_H/2 - 8);
+        ctx.font = '500 11px "JetBrains Mono", monospace'; ctx.fillStyle = INK48;
+        const poLine = G.playoffGames + ' GP  ·  ' + sgn(G.playoffGsax) + G.playoffGsax.toFixed(1) + ' GSAx'
+          + '  ·  ' + G.playoffGa + ' GA on ' + G.playoffSa + ' SA'
+          + (svPO != null ? '  ·  ' + svStr(svPO) + ' Sv%' : '');
+        ctx.fillText(poLine, PAD, y + PO_H/2 + 8);
+        ctx.fillStyle = INK10; ctx.fillRect(0, y + PO_H - 1, W, 1);
+        y += PO_H + GAP;
+      }
+
+      // ── 8. FOOTER ─────────────────────────────────────────────────────────
+      ctx.fillStyle = INK06; ctx.fillRect(0, y, W, 1);
+      ctx.font = '400 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(
+        e ? 'HOCKEYGAMEBOT.COM · 2025–26 · GSAx XGBoost · EDGE DATA: NHL'
+          : 'HOCKEYGAMEBOT.COM · 2025–26 REGULAR SEASON · GSAx XGBoost',
+        PAD, y + FOOT_H/2
+      );
 
       return canvas;
     }
