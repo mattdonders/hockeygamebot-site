@@ -190,82 +190,39 @@ export interface GoalieHeatBin {
   league_sv_pct?: number | null;
 }
 
-export function buildGoalieHeatmapSVG(bins: GoalieHeatBin[]): string {
-  if (!bins.length) return '';
-
-  const BIN_W = (10 / 100) * 182;   // 18.2 SVG units per 10-ft radial bin
-  const BIN_H = (10 / 85)  * 164;   // 19.3 SVG units per 10-ft lateral bin
-  const PAD   = 4;                   // extra px on each side for inter-bin blur blending
-
-  const totalShots = bins.reduce((s, b) => s + (b.shots ?? 0), 0);
-  const totalGoals = bins.reduce((s, b) => s + (b.goals ?? 0), 0);
-  const selfSv = totalShots > 0 ? (totalShots - totalGoals) / totalShots : 0.910;
-
-  // Blue = better than baseline, red = worse — matches Python card coolwarm_r palette
-  function heatFill(sv: number | null, baseline: number | null, shots: number): string {
-    if (sv == null || shots < 1 || baseline == null) return 'rgba(0,0,0,0)';
-    const delta = sv - baseline;
-    const intensity = Math.min(1, Math.abs(delta) / 0.060);
-    const alpha = (0.25 + intensity * 0.70).toFixed(2);
-    return delta >= 0
-      ? `rgba(20,100,200,${alpha})`   // blue: goalie better than baseline
-      : `rgba(220,40,40,${alpha})`;   // red: goalie worse than baseline
-  }
-
-  const cY   = fy(0).toFixed(1);
+// Goalie heatmap rink overlay — markings only, transparent background.
+// Positioned absolutely over a <canvas> that renders the KDE heat surface.
+// ViewBox crops exactly to the zone (blue line → end boards, board → board)
+// so SVG coordinates align pixel-perfect with canvas coordinate math.
+export function buildGoalieRinkOverlaySVG(): string {
+  const vbX  = fxFor(25).toFixed(1);                     // 240.5
+  const vbY  = fy(-42.5).toFixed(1);                     // 3.0
+  const vbW  = (fxFor(100) - fxFor(25)).toFixed(1);      // 136.5
+  const vbH  = (fy(42.5) - fy(-42.5)).toFixed(1);        // 164.0
+  const topY = fy(-42.5).toFixed(1);
+  const botY = fy(42.5).toFixed(1);
   const cYm  = (fy(0) - 20).toFixed(1);
   const cYp  = (fy(0) + 20).toFixed(1);
   const foY1 = fy(-22).toFixed(1);
   const foY2 = fy(22).toFixed(1);
   const gpTop = fy(-3).toFixed(1);
   const gpBot = fy(3).toFixed(1);
+  const lblY  = (fy(-42.5) + 12).toFixed(1);
 
   const p: string[] = [];
-  p.push(`<svg id="goalie-heat-svg" viewBox="${VB_X} 0 ${VB_W} 170" xmlns="http://www.w3.org/2000/svg" class="shot-map-svg">`);
-  p.push(`<defs>
-    <clipPath id="gheat-clip"><rect x="193" y="2" width="${(EB - 193).toFixed(1)}" height="166"/></clipPath>
-    <filter id="gheat-blur" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="11"/>
-    </filter>
-  </defs>`);
-
-  // Layer 1: rink background
-  p.push(`<rect x="193" y="2" width="${(EB - 193).toFixed(1)}" height="166" rx="5" fill="#E8F4F8" stroke="rgba(13,13,20,0.14)" stroke-width="1"/>`);
-  p.push(`<rect x="${BL.toFixed(1)}" y="2" width="${(EB - BL).toFixed(1)}" height="166" fill="rgba(20,100,200,0.04)"/>`);
-
-  // Layer 2: Gaussian-smoothed heat surface.
-  // Bins are padded for better inter-bin blending; feGaussianBlur creates a continuous surface.
-  // The outer clip-path confines the blurred result to the rink boundary.
-  p.push(`<g clip-path="url(#gheat-clip)"><g filter="url(#gheat-blur)">`);
-  for (const b of bins) {
-    const bxN = b.x ?? 0, byN = b.y ?? 0, shots = b.shots ?? 0;
-    const rectX = fxFor(bxN) - PAD;
-    const rectY = fy(byN) - PAD;
-    const rectW = BIN_W + PAD * 2;
-    const rectH = BIN_H + PAD * 2;
-    const fr = heatFill(b.sv_pct ?? null, selfSv,                  shots);
-    const fl = heatFill(b.sv_pct ?? null, b.league_sv_pct ?? null,  shots);
-    p.push(`<rect x="${rectX.toFixed(1)}" y="${rectY.toFixed(1)}" width="${rectW.toFixed(1)}" height="${rectH.toFixed(1)}" fill="${fr}" data-fill-raw="${fr}" data-fill-league="${fl}"/>`);
-  }
-  p.push(`</g></g>`);
-
-  // Layer 3: rink markings overlay
-  p.push(`<rect x="${GL.toFixed(1)}" y="2" width="${(EB - GL).toFixed(1)}" height="166" fill="rgba(13,13,20,0.03)"/>`);
-  p.push(`<line x1="195" y1="2" x2="195" y2="168" stroke="rgba(13,13,20,0.18)" stroke-width="1"/>`);
-  p.push(`<circle cx="195" cy="${cY}" r="21" fill="none" stroke="rgba(13,13,20,0.15)" stroke-width="1"/>`);
-  p.push(`<circle cx="195" cy="${cY}" r="2" fill="rgba(13,13,20,0.20)"/>`);
-  p.push(`<line x1="${BL.toFixed(1)}" y1="2" x2="${BL.toFixed(1)}" y2="168" stroke="rgba(20,100,200,0.55)" stroke-width="2.5" stroke-dasharray="5 3"/>`);
-  p.push(`<line x1="${GL.toFixed(1)}" y1="2" x2="${GL.toFixed(1)}" y2="168" stroke="rgba(232,0,45,0.50)" stroke-width="1.5"/>`);
-  p.push(`<line x1="${EB.toFixed(1)}" y1="2" x2="${EB.toFixed(1)}" y2="168" stroke="rgba(13,13,20,0.20)" stroke-width="1"/>`);
-  p.push(`<path d="M${GL.toFixed(1)},${cYm} A20,20 0 0,0 ${GL.toFixed(1)},${cYp}" fill="rgba(20,100,200,0.12)" stroke="rgba(20,100,200,0.40)" stroke-width="1.2"/>`);
-  p.push(`<rect x="${GL.toFixed(1)}" y="${gpTop}" width="5" height="${(parseFloat(gpBot) - parseFloat(gpTop)).toFixed(1)}" fill="rgba(13,13,20,0.40)" rx="0.5"/>`);
-  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY1}" r="18" fill="none" stroke="rgba(232,0,45,0.22)" stroke-width="1"/>`);
-  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY2}" r="18" fill="none" stroke="rgba(232,0,45,0.22)" stroke-width="1"/>`);
-  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY1}" r="2" fill="rgba(232,0,45,0.38)"/>`);
-  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY2}" r="2" fill="rgba(232,0,45,0.38)"/>`);
-  p.push(`<text x="${BL.toFixed(1)}" y="14" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(20,100,200,0.55)" text-anchor="middle" letter-spacing="0.08em">BLUE LINE</text>`);
-  p.push(`<text x="${(GL - 8).toFixed(1)}" y="14" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(232,0,45,0.50)" text-anchor="end" letter-spacing="0.06em">GOAL</text>`);
-
+  p.push(`<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none">`);
+  p.push(`<rect x="${GL.toFixed(1)}" y="${topY}" width="${(EB-GL).toFixed(1)}" height="${vbH}" fill="rgba(13,13,20,0.04)"/>`);
+  p.push(`<line x1="${BL.toFixed(1)}" y1="${topY}" x2="${BL.toFixed(1)}" y2="${botY}" stroke="rgba(20,100,200,0.65)" stroke-width="2.5" stroke-dasharray="5 3"/>`);
+  p.push(`<line x1="${GL.toFixed(1)}" y1="${topY}" x2="${GL.toFixed(1)}" y2="${botY}" stroke="rgba(232,0,45,0.60)" stroke-width="1.5"/>`);
+  p.push(`<line x1="${EB.toFixed(1)}" y1="${topY}" x2="${EB.toFixed(1)}" y2="${botY}" stroke="rgba(13,13,20,0.20)" stroke-width="1"/>`);
+  p.push(`<path d="M${GL.toFixed(1)},${cYm} A20,20 0 0,0 ${GL.toFixed(1)},${cYp}" fill="rgba(20,100,200,0.15)" stroke="rgba(20,100,200,0.45)" stroke-width="1.2"/>`);
+  p.push(`<rect x="${GL.toFixed(1)}" y="${gpTop}" width="5" height="${(parseFloat(gpBot)-parseFloat(gpTop)).toFixed(1)}" fill="rgba(13,13,20,0.45)" rx="0.5"/>`);
+  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY1}" r="18" fill="none" stroke="rgba(232,0,45,0.28)" stroke-width="1.2"/>`);
+  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY2}" r="18" fill="none" stroke="rgba(232,0,45,0.28)" stroke-width="1.2"/>`);
+  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY1}" r="2" fill="rgba(232,0,45,0.45)"/>`);
+  p.push(`<circle cx="${FO.toFixed(1)}" cy="${foY2}" r="2" fill="rgba(232,0,45,0.45)"/>`);
+  p.push(`<text x="${BL.toFixed(1)}" y="${lblY}" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(20,100,200,0.65)" text-anchor="middle" letter-spacing="0.08em">BLUE LINE</text>`);
+  p.push(`<text x="${(GL-8).toFixed(1)}" y="${lblY}" font-family="JetBrains Mono,monospace" font-size="7" font-weight="700" fill="rgba(232,0,45,0.60)" text-anchor="end" letter-spacing="0.06em">GOAL</text>`);
   p.push(`</svg>`);
   return p.join('');
 }
