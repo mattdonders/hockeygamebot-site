@@ -319,33 +319,130 @@
   }
 
   // ── Shared image modal ────────────────────────────────────────────────────────
-  // Used by downloadTablePng above and by all per-page card generators.
-  // Call HGB_Export.showCardModal(canvas, filename) from any page.
+  // Accepts a single canvas+filename OR an array of {canvas, filename, label?}.
+  // When multiple cards are passed, left/right arrows appear to cycle between them.
+  // Call HGB_Export.showCardModal(canvas, filename) or
+  //      HGB_Export.showCardModal([{canvas, filename, label}, ...])
 
-  function showCardModal(canvas, filename) {
+  function showCardModal(canvasOrCards, filename) {
     document.getElementById('hgb-card-modal')?.remove();
-    const dataUrl = canvas.toDataURL('image/png');
+
+    // Normalize to array
+    const cards = Array.isArray(canvasOrCards)
+      ? canvasOrCards
+      : [{ canvas: canvasOrCards, filename: filename || 'card.png', label: '' }];
+
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                   (navigator.userAgent.includes('Mac') && 'ontouchend' in document);
+    const multi = cards.length > 1;
+
+    // Pre-render all data URLs up front (canvases are already drawn)
+    const dataUrls = cards.map(c => c.canvas.toDataURL('image/png'));
+
+    let idx = 0;
+
     const overlay = document.createElement('div');
     overlay.id = 'hgb-card-modal';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;';
-    overlay.innerHTML = `
-      <div style="position:relative;max-width:min(90vw,900px);width:100%;">
-        <button id="hgb-modal-close" style="position:absolute;top:-40px;right:0;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;opacity:0.7;">×</button>
-        <img src="${dataUrl}" alt="${filename}" style="width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,0.12);" />
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:12px;">
-          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.06em;">
-            ${isIOS ? 'Long-press image to save · ' : ''}${filename}
-          </span>
-          ${!isIOS ? `<a href="${dataUrl}" download="${filename}" style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.10em;text-transform:uppercase;padding:6px 14px;background:#fff;color:#0d0d14;text-decoration:none;white-space:nowrap;">↓ Download</a>` : ''}
-        </div>
-      </div>`;
+
+    function arrowBtn(dir) {
+      const b = document.createElement('button');
+      b.textContent = dir === 'prev' ? '‹' : '›';
+      b.style.cssText = [
+        'position:absolute;top:50%;transform:translateY(-50%);',
+        dir === 'prev' ? 'left:-48px;' : 'right:-48px;',
+        'background:none;border:1px solid rgba(255,255,255,0.20);color:#fff;',
+        'font-size:28px;line-height:1;width:36px;height:48px;cursor:pointer;',
+        'display:flex;align-items:center;justify-content:center;',
+        'opacity:0.7;transition:opacity .15s;',
+      ].join('');
+      b.onmouseenter = () => { b.style.opacity = '1'; };
+      b.onmouseleave = () => { b.style.opacity = '0.7'; };
+      return b;
+    }
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;max-width:min(90vw,900px);width:100%;';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    closeBtn.style.cssText = 'position:absolute;top:-40px;right:0;background:none;border:none;color:#fff;font-size:28px;cursor:pointer;line-height:1;opacity:0.7;';
+    wrap.appendChild(closeBtn);
+
+    let prevBtn, nextBtn;
+    if (multi) {
+      prevBtn = arrowBtn('prev');
+      nextBtn = arrowBtn('next');
+      wrap.appendChild(prevBtn);
+      wrap.appendChild(nextBtn);
+    }
+
+    const img = document.createElement('img');
+    img.alt = cards[0].filename;
+    img.style.cssText = 'width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,0.12);';
+    wrap.appendChild(img);
+
+    // Dots indicator + label row
+    const meta = document.createElement('div');
+    meta.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:12px;';
+    wrap.appendChild(meta);
+
+    const infoLeft = document.createElement('span');
+    infoLeft.style.cssText = "font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.06em;";
+    meta.appendChild(infoLeft);
+
+    const rightArea = document.createElement('div');
+    rightArea.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    meta.appendChild(rightArea);
+
+    // Dots (only when multi)
+    let dots = [];
+    if (multi) {
+      const dotsWrap = document.createElement('div');
+      dotsWrap.style.cssText = 'display:flex;gap:6px;align-items:center;';
+      for (let i = 0; i < cards.length; i++) {
+        const d = document.createElement('span');
+        d.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.3);transition:background .15s;';
+        dotsWrap.appendChild(d);
+        dots.push(d);
+      }
+      rightArea.appendChild(dotsWrap);
+    }
+
+    const dlBtn = document.createElement('a');
+    dlBtn.style.cssText = "font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.10em;text-transform:uppercase;padding:6px 14px;background:#fff;color:#0d0d14;text-decoration:none;white-space:nowrap;";
+    dlBtn.textContent = '↓ Download';
+    if (!isIOS) rightArea.appendChild(dlBtn);
+
+    overlay.appendChild(wrap);
+
+    function render() {
+      const card = cards[idx];
+      img.src = dataUrls[idx];
+      img.alt = card.filename;
+      const labelStr = multi && card.label ? card.label + ' · ' : '';
+      infoLeft.textContent = (isIOS ? 'Long-press image to save · ' : '') + labelStr + card.filename;
+      dlBtn.href = dataUrls[idx];
+      dlBtn.download = card.filename;
+      dots.forEach((d, i) => { d.style.background = i === idx ? '#fff' : 'rgba(255,255,255,0.3)'; });
+      if (prevBtn) prevBtn.style.visibility = idx === 0 ? 'hidden' : 'visible';
+      if (nextBtn) nextBtn.style.visibility = idx === cards.length - 1 ? 'hidden' : 'visible';
+    }
+
+    if (multi) {
+      prevBtn.addEventListener('click', (e) => { e.stopPropagation(); if (idx > 0) { idx--; render(); } });
+      nextBtn.addEventListener('click', (e) => { e.stopPropagation(); if (idx < cards.length - 1) { idx++; render(); } });
+    }
+
     document.body.appendChild(overlay);
-    document.getElementById('hgb-modal-close').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    render();
+
+    closeBtn.addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     document.addEventListener('keydown', function esc(e) {
       if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
+      if (e.key === 'ArrowRight' && multi && idx < cards.length - 1) { idx++; render(); }
+      if (e.key === 'ArrowLeft'  && multi && idx > 0)                 { idx--; render(); }
     });
   }
 

@@ -1013,26 +1013,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       <button id="download-season-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
         {currentSeasonNorm} Player Card →
       </button>
-      <!-- Rating card carousel: Portrait (520×720) ↔ Social (1200×628) -->
-      <div id="rating-card-carousel" style="margin-bottom:8px;">
-        <div style="display:flex;gap:0;margin-bottom:6px;overflow:hidden;border:1px solid rgba(13,13,20,0.20);">
-          <button class="card-variant-tab" data-variant="portrait"
-            style={`flex:1;padding:7px 10px;border:none;border-right:1px solid rgba(13,13,20,0.20);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.07em;text-transform:uppercase;font-weight:700;background:${teamColor};color:#fff;`}>
-            Portrait
-          </button>
-          <button class="card-variant-tab" data-variant="social"
-            style="flex:1;padding:7px 10px;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.07em;text-transform:uppercase;font-weight:700;background:rgba(13,13,20,0.06);color:rgba(13,13,20,0.48);">
-            Social
-          </button>
-        </div>
-        <div id="card-variant-preview"
-          style="background:#c8c5bc;overflow:hidden;line-height:0;margin-bottom:6px;min-height:72px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
-          <span id="card-preview-placeholder" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:rgba(255,255,255,0.55);letter-spacing:0.08em;text-transform:uppercase;">Click to preview</span>
-        </div>
-        <button id="download-rating-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;background:${teamColor};color:#ffffff;font-weight:800;`}>
-          Rating Card →
-        </button>
-      </div>
+      <button id="download-rating-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
+        Rating Card →
+      </button>
       <button id="download-history-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:700;`}>
         History Card →
       </button>
@@ -3144,21 +3127,20 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     }
 
     // ── Social share card — 1200×628 horizontal (Twitter summary_large_image) ──
+    // Layout: full-width header (headshot + name + chips) → hero stats row → 3×3 grid → footnote
     async function drawCanvasHorizontal() {
       const BG      = '#EFEEE8';
       const SURFACE = '#FFFFFF';
       const SCALE   = 2;
       const W       = 1200;
       const H       = 628;
+      const PAD     = 28;
 
-      const SIDEBAR_W   = 260;
-      const SIDEBAR_PAD = 28;
-      const RIGHT_X     = SIDEBAR_W;
-      const RIGHT_W     = W - SIDEBAR_W;
-
-      const HEADLINE_H = 212;
-      const FOOTNOTE_H = 28;
-      const GRID_H     = H - HEADLINE_H - FOOTNOTE_H;
+      // Row heights
+      const HDR_H  = 120;  // headshot + name + chips
+      const HERO_H = 192;  // 3 headline stat tiles
+      const FOOT_H = 28;
+      const GRID_H = H - HDR_H - HERO_H - FOOT_H; // ~288px → 96px per row
 
       const canvas = document.createElement('canvas');
       canvas.width  = W * SCALE;
@@ -3166,257 +3148,269 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const ctx = canvas.getContext('2d');
       ctx.scale(SCALE, SCALE);
 
-      // Background
+      function pctTier(v) {
+        if (v == null) return { color: '#888888', label: '—'    };
+        if (v >= 85)   return { color: '#15803d', label: 'ELITE'  };
+        if (v >= 70)   return { color: '#22a559', label: 'GOOD'   };
+        if (v >= 40)   return { color: '#888888', label: 'AVG'    };
+        if (v >= 20)   return { color: '#e05c2d', label: 'BELOW'  };
+        return               { color: '#E8002D', label: 'POOR'   };
+      }
+
+      // Full background
       ctx.fillStyle = BG;
       ctx.fillRect(0, 0, W, H);
 
-      // ── LEFT SIDEBAR (white) ──────────────────────────────────────────────
+      // ── HEADER (white, full width) ───────────────────────────────────────
       ctx.fillStyle = SURFACE;
-      ctx.fillRect(0, 0, SIDEBAR_W, H);
-
-      // Team-color left accent bar
+      ctx.fillRect(0, 0, W, HDR_H);
+      // 4px team-color left accent
       ctx.fillStyle = TEAM_C;
-      ctx.fillRect(0, 0, 4, H);
-
-      // Right divider
+      ctx.fillRect(0, 0, 4, HDR_H);
+      // Bottom divider
       ctx.fillStyle = 'rgba(13,13,20,0.10)';
-      ctx.fillRect(SIDEBAR_W - 1, 0, 1, H);
+      ctx.fillRect(0, HDR_H - 1, W, 1);
 
-      // Player name — auto-size to fit sidebar width
-      const nameX = SIDEBAR_PAD;
-      const nameAvailW = SIDEBAR_W - nameX - 10;
-      const firstName = D.firstName.toUpperCase();
-      const lastName  = D.lastName.toUpperCase();
-      let nameFontSize = 44;
-      ctx.font = `900 ${nameFontSize}px "Barlow Condensed", sans-serif`;
-      const longestWord = firstName.length > lastName.length ? firstName : lastName;
-      while (ctx.measureText(longestWord).width > nameAvailW && nameFontSize > 20) {
-        nameFontSize -= 2;
-        ctx.font = `900 ${nameFontSize}px "Barlow Condensed", sans-serif`;
+      // Headshot circle
+      const HS_R  = 44;
+      const HS_CX = PAD + 4 + HS_R + 4;
+      const HS_CY = HDR_H / 2;
+      const hsImg = await loadImg(D.headshotUrl);
+      ctx.save();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - HS_R, HS_CY - HS_R, HS_R * 2, HS_R * 2);
+      } else {
+        ctx.fillStyle = INK10; ctx.fill();
+      }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 3; ctx.stroke();
+
+      // Player name — auto-shrink to fit
+      const nameX = HS_CX + HS_R + 18;
+      const nameMaxW = W * 0.42;
+      let nfs = 56;
+      const fullName = (D.firstName + ' ' + D.lastName).toUpperCase();
+      ctx.font = `900 ${nfs}px "Barlow Condensed", sans-serif`;
+      while (ctx.measureText(fullName).width > nameMaxW && nfs > 28) {
+        nfs -= 2;
+        ctx.font = `900 ${nfs}px "Barlow Condensed", sans-serif`;
       }
       ctx.fillStyle = INK;
-      ctx.textBaseline = 'top';
-      ctx.textAlign = 'left';
-      let sideY = 30;
-      ctx.fillText(firstName, nameX, sideY);
-      sideY += nameFontSize * 0.96;
-      ctx.fillText(lastName, nameX, sideY);
-      sideY += nameFontSize * 0.96 + 14;
+      ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      ctx.fillText(fullName, nameX, HDR_H / 2 - 4);
 
-      // Chips row
-      const chipH = 18;
-      const chipItems = [
+      // Chips row (below name)
+      const chipH  = 19;
+      const chipY0 = HDR_H / 2 + 10;
+      const chipDefs = [
         { label: D.team,                   bg: TEAM_C },
         { label: D.posLabel.toUpperCase(), bg: INK    },
         { label: '2025-26',                bg: INK    },
-        { label: 'HGB',                    bg: RED    },
       ];
       let chipX = nameX;
-      ctx.font = '700 9px "Barlow Condensed", sans-serif';
-      for (const chip of chipItems) {
-        const tw = ctx.measureText(chip.label).width;
-        const cw = tw + 14;
-        if (chipX + cw > SIDEBAR_W - 8) { chipX = nameX; sideY += chipH + 5; }
-        rrect(ctx, chipX, sideY, cw, chipH, 2);
+      ctx.font = '700 10px "Barlow Condensed", sans-serif';
+      for (const chip of chipDefs) {
+        const cw = ctx.measureText(chip.label).width + 18;
+        rrect(ctx, chipX, chipY0, cw, chipH, 2);
         ctx.fillStyle = chip.bg; ctx.fill();
-        ctx.fillStyle = BG;
-        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-        ctx.fillText(chip.label, chipX + 7, sideY + chipH / 2);
-        chipX += cw + 5;
+        ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chip.label, chipX + 9, chipY0 + chipH / 2);
+        chipX += cw + 6;
       }
-      sideY += chipH + 16;
 
-      // Headshot circle — centered in remaining sidebar space above brand line
-      const BRAND_H   = 26;
-      const hsAvailH  = H - sideY - BRAND_H - 20;
-      const R_HS      = Math.min(62, Math.floor(hsAvailH / 2) - 4);
-      const HS_CX     = SIDEBAR_W / 2;
-      const HS_CY     = sideY + hsAvailH / 2;
-      const hsImg     = await loadImg(D.headshotUrl);
-      ctx.save();
-      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R_HS, 0, Math.PI * 2); ctx.clip();
-      if (hsImg) {
-        ctx.drawImage(hsImg, HS_CX - R_HS, HS_CY - R_HS, R_HS * 2, R_HS * 2);
-      } else {
-        ctx.fillStyle = INK10; ctx.fill();
-        ctx.font = '800 28px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-        ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
-      }
-      ctx.restore();
-      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R_HS, 0, Math.PI * 2);
-      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 3; ctx.stroke();
+      // HOCKEYGAMEBOT brand chip — top right
+      const brand = 'HOCKEYGAMEBOT';
+      ctx.font = '700 10px "Barlow Condensed", sans-serif';
+      const bcw = ctx.measureText(brand).width + 18;
+      rrect(ctx, W - PAD - bcw, (HDR_H - chipH) / 2, bcw, chipH, 2);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(brand, W - PAD - bcw + 9, HDR_H / 2);
 
-      // Brand line
-      ctx.font = '700 9px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK32;
-      ctx.textBaseline = 'bottom'; ctx.textAlign = 'center';
-      ctx.fillText('hockeygamebot.com', SIDEBAR_W / 2, H - 10);
-
-      // ── HEADLINE ROW (white, top-right) ──────────────────────────────────
+      // ── HERO STATS ROW (white) ───────────────────────────────────────────
       ctx.fillStyle = SURFACE;
-      ctx.fillRect(RIGHT_X, 0, RIGHT_W, HEADLINE_H);
+      ctx.fillRect(0, HDR_H, W, HERO_H);
       ctx.fillStyle = 'rgba(13,13,20,0.10)';
-      ctx.fillRect(RIGHT_X, HEADLINE_H - 1, RIGHT_W, 1);
+      ctx.fillRect(0, HDR_H + HERO_H - 1, W, 1);
 
       const ratingPct = D.hgb_rating_percentile;
       const warPctH   = D.warPct;
       const impPctH   = D.impactPct != null ? Math.round(D.impactPct) : null;
-      const headlines = [
-        { label: 'HGB RATING',  pct: ratingPct, raw: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating' : '—' },
-        { label: 'HGB WAR',     pct: warPctH,   raw: D.war != null ? D.war.toFixed(2) + ' WAR · 2025-26' : '—' },
-        { label: 'GAME IMPACT', pct: impPctH,   raw: D.avgGsDisplay != null ? (D.avgGsDisplay >= 0 ? '+' : '') + D.avgGsDisplay.toFixed(2) + ' avg' : '—' },
+      const heroStats = [
+        { label: 'HGB RATING',  pct: ratingPct, raw: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating' : '—',       ctx2: '2025-26' },
+        { label: 'HGB WAR',     pct: warPctH,   raw: D.war != null ? D.war.toFixed(2) + ' WAR' : '—',                                                             ctx2: '2025-26' },
+        { label: 'GAME IMPACT', pct: impPctH,   raw: D.avgGsDisplay != null ? (D.avgGsDisplay >= 0 ? '+' : '') + D.avgGsDisplay.toFixed(2) + ' avg' : '—',       ctx2: '2025-26' },
       ];
-      function hPctColor(v) {
-        if (v == null) return INK32;
-        if (v >= 85) return '#15803d';
-        if (v >= 70) return '#22a559';
-        if (v >= 40) return '#888888';
-        if (v >= 20) return '#e05c2d';
-        return '#E8002D';
-      }
-      const colW = RIGHT_W / 3;
-      for (let i = 0; i < 3; i++) {
-        const h    = headlines[i];
-        const colX = RIGHT_X + i * colW;
-        const midX = colX + colW / 2;
-        const pc   = hPctColor(h.pct);
 
-        // Vertical divider
+      // Annotation column on the right (~200px)
+      const ANNOT_W  = 190;
+      const HERO_COL_W = (W - ANNOT_W) / 3;
+      const HERO_TOP = HDR_H;
+
+      for (let i = 0; i < 3; i++) {
+        const h    = heroStats[i];
+        const colX = i * HERO_COL_W;
+        const midX = colX + HERO_COL_W / 2;
+        const tier = pctTier(h.pct);
+
+        // Vertical dividers
         if (i > 0) {
           ctx.fillStyle = 'rgba(13,13,20,0.10)';
-          ctx.fillRect(colX, HEADLINE_H * 0.14, 1, HEADLINE_H * 0.72);
+          ctx.fillRect(colX, HERO_TOP + HERO_H * 0.12, 1, HERO_H * 0.76);
         }
 
         // Label
         ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.40)';
+        ctx.fillStyle = 'rgba(13,13,20,0.45)';
         ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText(h.label, midX, 20);
+        ctx.fillText(h.label, midX, HERO_TOP + 18);
 
         if (h.pct != null) {
-          // Number + superscript %
-          const numStr    = String(h.pct);
-          const bigSize   = 96;
-          const supSize   = 42;
-          ctx.font        = `900 ${bigSize}px "Barlow Condensed", sans-serif`;
-          const numW      = ctx.measureText(numStr).width;
-          ctx.font        = `900 ${supSize}px "Barlow Condensed", sans-serif`;
-          const supW      = ctx.measureText('%').width;
-          const totalW    = numW + 3 + supW;
-          const startX    = midX - totalW / 2;
+          // Big number + superscript %
+          const numStr  = String(h.pct);
+          const bigSize = 88;
+          const supSize = 38;
+          ctx.font = `900 ${bigSize}px "Barlow Condensed", sans-serif`;
+          const numW = ctx.measureText(numStr).width;
+          ctx.font = `900 ${supSize}px "Barlow Condensed", sans-serif`;
+          const supW = ctx.measureText('%').width;
+          const blockW = numW + 4 + supW;
+          const startX = midX - blockW / 2;
 
-          ctx.fillStyle   = pc;
-          ctx.font        = `900 ${bigSize}px "Barlow Condensed", sans-serif`;
+          ctx.fillStyle = tier.color;
+          ctx.font = `900 ${bigSize}px "Barlow Condensed", sans-serif`;
           ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-          ctx.fillText(numStr, startX, 34);
+          ctx.fillText(numStr, startX, HERO_TOP + 34);
+          ctx.font = `900 ${supSize}px "Barlow Condensed", sans-serif`;
+          ctx.fillText('%', startX + numW + 4, HERO_TOP + 42);
 
-          ctx.font        = `900 ${supSize}px "Barlow Condensed", sans-serif`;
-          ctx.fillText('%', startX + numW + 3, 44);
+          // Tier badge chip
+          const badgeLabel = tier.label;
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          const bw = ctx.measureText(badgeLabel).width + 14;
+          const bx = midX - bw / 2;
+          const by = HERO_TOP + 34 + bigSize + 6;
+          rrect(ctx, bx, by, bw, 16, 2);
+          ctx.fillStyle = tier.color; ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+          ctx.fillText(badgeLabel, midX, by + 8);
         } else {
           ctx.font = '900 72px "Barlow Condensed", sans-serif';
-          ctx.fillStyle = INK32;
-          ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-          ctx.fillText('—', midX, 44);
+          ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText('—', midX, HERO_TOP + 38);
         }
 
         // Raw value
         ctx.font = '700 11px "JetBrains Mono", monospace';
         ctx.fillStyle = 'rgba(13,13,20,0.40)';
         ctx.textBaseline = 'bottom'; ctx.textAlign = 'center';
-        ctx.fillText(h.raw, midX, HEADLINE_H - 14);
+        ctx.fillText(h.raw, midX, HERO_TOP + HERO_H - 22);
+        ctx.font = '400 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.28)';
+        ctx.fillText(h.ctx2, midX, HERO_TOP + HERO_H - 10);
       }
 
-      // ── 3×3 GRID (cream background) ──────────────────────────────────────
-      const gridTopY = HEADLINE_H;
-      const cellW    = RIGHT_W / 3;
-      const cellH    = GRID_H / 3;
-      const posPlural = D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
-      const pct = D.percentiles;
-      function v3(a, b) { return a != null ? a : (b != null ? b : null); }
-      const gridCells = [
-        { label: 'EV OFFENSE',   val: v3(D.hgb_rating_off_pct, pct.ev_offence) },
-        { label: 'EV DEFENSE',   val: v3(D.hgb_rating_def_pct, pct.ev_defence) },
-        { label: 'GOALS / 60',   val: v3(D.g_60_pct_3yr, pct.goals)            },
-        { label: 'A1 / 60',      val: v3(D.a1_60_pct_3yr, pct.a1)              },
-        { label: 'XG / 60',      val: v3(D.xg_60_pct_3yr, pct.ixg)             },
-        { label: 'FINISHING',    val: v3(D.finishing_pct_3yr, pct.finishing)    },
-        { label: 'PEN. DIFF',    val: v3(D.pen_diff_pct_3yr, pct.pen_diff)     },
-        { label: 'POWER PLAY',   val: pct.pp_off ?? null                        },
-        { label: 'PENALTY KILL', val: pct.pk_def ?? null                        },
+      // Annotation column — divider + context note
+      const annotX = W - ANNOT_W;
+      ctx.fillStyle = 'rgba(13,13,20,0.10)';
+      ctx.fillRect(annotX, HERO_TOP + HERO_H * 0.12, 1, HERO_H * 0.76);
+      const posLabelFull = D.posGroup === 'F' ? 'Forwards' : 'Defensemen';
+      const annotLines = [
+        '% Percentile vs',
+        'All ' + posLabelFull,
+        '·',
+        '3-Year Weighted',
+        'Data Blend',
       ];
-      function gPctColor(v) {
-        if (v == null) return '#888888';
-        if (v >= 85) return '#15803d';
-        if (v >= 70) return '#22a559';
-        if (v >= 40) return '#888888';
-        if (v >= 20) return '#e05c2d';
-        return '#E8002D';
-      }
+      ctx.font = '400 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.40)';
+      ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+      const annotMidX = annotX + ANNOT_W / 2;
+      annotLines.forEach((line, li) => {
+        ctx.fillText(line, annotMidX, HERO_TOP + 28 + li * 16);
+      });
+
+      // ── 3×3 METRIC GRID (cream) ──────────────────────────────────────────
+      const GRID_TOP = HDR_H + HERO_H;
+      const cellW    = W / 3;
+      const cellH    = GRID_H / 3;
+      const pct = D.percentiles;
+      function v3h(a, b) { return a != null ? a : (b != null ? b : null); }
+      const posPlural = D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
+      const gridCells = [
+        { label: 'EV OFFENSE',   val: v3h(D.hgb_rating_off_pct, pct.ev_offence) },
+        { label: 'EV DEFENSE',   val: v3h(D.hgb_rating_def_pct, pct.ev_defence) },
+        { label: 'GOALS / 60',   val: v3h(D.g_60_pct_3yr, pct.goals)            },
+        { label: 'A1 / 60',      val: v3h(D.a1_60_pct_3yr, pct.a1)              },
+        { label: 'XG / 60',      val: v3h(D.xg_60_pct_3yr, pct.ixg)             },
+        { label: 'FINISHING',    val: v3h(D.finishing_pct_3yr, pct.finishing)    },
+        { label: 'PEN. DIFF',    val: v3h(D.pen_diff_pct_3yr, pct.pen_diff)     },
+        { label: 'POWER PLAY',   val: pct.pp_off ?? null                         },
+        { label: 'PENALTY KILL', val: pct.pk_def ?? null                         },
+      ];
+
       for (let i = 0; i < 9; i++) {
         const col   = i % 3;
         const row   = Math.floor(i / 3);
-        const cellX = RIGHT_X + col * cellW;
-        const cellY = gridTopY + row * cellH;
+        const cellX = col * cellW;
+        const cellY = GRID_TOP + row * cellH;
         const cell  = gridCells[i];
-        const tc    = gPctColor(cell.val);
+        const tier  = pctTier(cell.val);
 
-        // Inner border lines (right / bottom)
+        // Cell inner borders
         if (col < 2) {
           ctx.fillStyle = 'rgba(13,13,20,0.10)';
-          ctx.fillRect(cellX + cellW - 1, cellY + 10, 1, cellH - 20);
+          ctx.fillRect(cellX + cellW - 1, cellY + 8, 1, cellH - 16);
         }
         if (row < 2) {
           ctx.fillStyle = 'rgba(13,13,20,0.10)';
-          ctx.fillRect(cellX + 10, cellY + cellH - 1, cellW - 20, 1);
+          ctx.fillRect(cellX + 8, cellY + cellH - 1, cellW - 16, 1);
         }
 
-        const cellPadX = cellX + 22;
-        // Vertical midpoint for label/number/bar stack
-        const labelY   = cellY + cellH * 0.22;
-        const numY     = cellY + cellH * 0.62;
-        const barY     = cellY + cellH * 0.82;
-        const barW     = cellW - 44;
+        const px   = cellX + PAD;
+        const midY = cellY + cellH / 2;
 
-        // Label
-        ctx.font = '700 9.5px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.40)';
-        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-        ctx.fillText(cell.label, cellPadX, labelY);
+        // Label (JetBrains Mono 10px)
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.45)';
+        ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+        ctx.fillText(cell.label, px, midY - 26);
 
-        // Big number (no ordinal suffix per spec)
+        // Big number — 52px Barlow 900 (spec), color-coded, no ordinal
         if (cell.val != null) {
-          ctx.font = '900 48px "Barlow Condensed", sans-serif';
-          ctx.fillStyle = tc;
-          ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-          ctx.fillText(String(Math.round(cell.val)), cellPadX, numY);
+          ctx.font = '900 52px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = tier.color;
+          ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+          ctx.fillText(String(Math.round(cell.val)), px, midY + 14);
         } else {
-          ctx.font = '700 26px "JetBrains Mono", monospace';
+          ctx.font = '700 28px "JetBrains Mono", monospace';
           ctx.fillStyle = INK32;
-          ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-          ctx.fillText('—', cellPadX, numY);
+          ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+          ctx.fillText('—', px, midY + 10);
         }
 
-        // 5px accent bar
+        // 5px accent bar below number
+        const barY  = midY + 22;
+        const barW  = cellW - PAD * 2;
         ctx.fillStyle = 'rgba(13,13,20,0.10)';
-        ctx.fillRect(cellPadX, barY, barW, 5);
+        ctx.fillRect(px, barY, barW, 5);
         if (cell.val != null) {
-          ctx.fillStyle = tc;
-          ctx.fillRect(cellPadX, barY, (cell.val / 100) * barW, 5);
+          ctx.fillStyle = tier.color;
+          ctx.fillRect(px, barY, (cell.val / 100) * barW, 5);
         }
       }
 
-      // ── FOOTNOTE STRIP ────────────────────────────────────────────────────
-      const fnY = H - FOOTNOTE_H;
-      ctx.fillStyle = 'rgba(13,13,20,0.08)';
-      ctx.fillRect(RIGHT_X, fnY, RIGHT_W, 1);
+      // ── FOOTNOTE ─────────────────────────────────────────────────────────
+      const fnY = H - FOOT_H;
+      ctx.fillStyle = 'rgba(13,13,20,0.10)';
+      ctx.fillRect(0, fnY, W, 1);
       ctx.font = '700 9px "JetBrains Mono", monospace';
       ctx.fillStyle = 'rgba(13,13,20,0.40)';
       ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
-      ctx.fillText(
-        'PERCENTILE VS ALL ' + posPlural + ' · 2025-26 REGULAR SEASON',
-        W - 18, fnY + FOOTNOTE_H / 2
-      );
+      ctx.fillText('PERCENTILE VS ALL ' + posPlural + ' · 2025-26 REGULAR SEASON · HOCKEYGAMEBOT.COM', W - PAD, fnY + FOOT_H / 2);
 
       return canvas;
     }
@@ -3588,6 +3582,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         try {
           if (document.fonts && document.fonts.ready) await document.fonts.ready;
           const canvas = await drawFn();
+          if (canvas == null) return; // draw fn handled its own modal (e.g. carousel)
           downloadCanvas(canvas, filename);
           status.textContent = 'Downloaded ✓';
           setTimeout(() => { status.textContent = sizeLabel; }, 3000);
@@ -3638,77 +3633,23 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     bindCardBtn('download-card-btn',     'Player Card →',      drawCard,              `hgb_${D.slug}_25-26.png`);
     bindCardBtn('download-expanded-btn', 'Expanded Card →',    drawLandscapeCard,     `hgb_${D.slug}_expanded_25-26.png`, '900px · 2× retina PNG');
     bindCardBtn('download-edge-btn',     'NHL EDGE Card →',    drawEdgeCard,          `hgb_${D.slug}_edge_25-26.png`);
-    // ── Rating card carousel ────────────────────────────────────────────────
-    (() => {
-      let _activeVariant  = 'portrait';
-      let _previewRendered = false;
-      const btn        = document.getElementById('download-rating-card-btn');
-      const preview    = document.getElementById('card-variant-preview');
-      const placeholder = document.getElementById('card-preview-placeholder');
-      const tabs       = document.querySelectorAll('.card-variant-tab');
-
-      const PORTRAIT_STYLE = `background:${D.teamColor};color:#fff;`;
-      const INACTIVE_STYLE = 'background:rgba(13,13,20,0.06);color:rgba(13,13,20,0.48);';
-
-      async function renderPreview(variant) {
-        if (placeholder) placeholder.style.display = 'none';
-        const existing = preview ? preview.querySelector('canvas') : null;
-        if (existing) existing.remove();
-        const c = variant === 'portrait' ? await drawRatingCard() : await drawCanvasHorizontal();
-        c.style.width = '100%';
-        c.style.height = 'auto';
-        c.style.display = 'block';
-        if (preview) preview.appendChild(c);
-      }
-
-      tabs.forEach(tab => {
-        tab.addEventListener('click', async () => {
-          const v = tab.dataset.variant;
-          if (v === _activeVariant) return;
-          _activeVariant = v;
-
-          tabs.forEach(t => {
-            t.style.cssText = t.dataset.variant === _activeVariant ? PORTRAIT_STYLE : INACTIVE_STYLE;
-          });
-          if (btn) btn.textContent = _activeVariant === 'portrait' ? 'Rating Card →' : 'Social Card →';
-          await renderPreview(_activeVariant);
-        });
-      });
-
-      // Preview on click of the preview area (initial load)
-      if (preview) {
-        preview.addEventListener('click', async () => {
-          if (!_previewRendered) {
-            _previewRendered = true;
-            preview.style.cursor = 'default';
-            await renderPreview(_activeVariant);
-          }
-        });
-      }
-
-      if (btn) {
-        btn.addEventListener('click', async () => {
-          const label = btn.textContent;
-          btn.textContent = 'Generating…'; btn.disabled = true;
-          if (status) { status.textContent = 'Drawing…'; status.style.display = 'block'; }
-          try {
-            if (document.fonts?.ready) await document.fonts.ready;
-            const drawFn = _activeVariant === 'portrait' ? drawRatingCard : drawCanvasHorizontal;
-            const fname  = _activeVariant === 'portrait'
-              ? `hgb_rating_${D.slug}_25-26.png`
-              : `hgb_social_${D.slug}_25-26.png`;
-            const c = await drawFn();
-            downloadCanvas(c, fname);
-            if (status) { status.textContent = 'Downloaded ✓'; setTimeout(() => { if (status) status.style.display = 'none'; }, 3000); }
-          } catch(e) {
-            console.error(e);
-            if (status) status.textContent = 'Error — try again';
-          } finally {
-            btn.textContent = label; btn.disabled = false;
-          }
-        });
-      }
-    })();
+    // ── Rating card — portrait + social carousel in the modal ──────────────
+    bindCardBtn(
+      'download-rating-card-btn',
+      'Rating Card →',
+      async function() {
+        // Draw both variants; modal gets arrow carousel automatically
+        const [portrait, social] = await Promise.all([drawRatingCard(), drawCanvasHorizontal()]);
+        window.HGB_Export.showCardModal([
+          { canvas: portrait, filename: `hgb_rating_${D.slug}_25-26.png`,  label: 'Portrait 520×720'  },
+          { canvas: social,   filename: `hgb_social_${D.slug}_25-26.png`,  label: 'Social 1200×628'   },
+        ]);
+        // Return null so bindCardBtn skips its own modal call
+        return null;
+      },
+      null,
+      '520×720 + 1200×628 · 2× retina PNG'
+    );
     bindCardBtn('download-rapm-card-btn',   'RAPM Card →',     drawRapmCard,          `hgb_rapm_${D.slug}_25-26.png`,   '760px · 2× retina PNG');
     bindCardBtn('download-history-card-btn','History Card →',  drawHistoryCard,       `hgb_history_${D.slug}.png`,      '560×auto · 2× retina PNG');
     bindCardBtn('download-expanded-card-btn','Expanded Card →', drawExpandedCard,     `hgb_expanded_${D.slug}.png`,     '1040×auto · 2× retina PNG');
