@@ -1013,9 +1013,26 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       <button id="download-season-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
         {currentSeasonNorm} Player Card →
       </button>
-      <button id="download-rating-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
-        Rating Card →
-      </button>
+      <!-- Rating card carousel: Portrait (520×720) ↔ Social (1200×628) -->
+      <div id="rating-card-carousel" style="margin-bottom:8px;">
+        <div style="display:flex;gap:0;margin-bottom:6px;overflow:hidden;border:1px solid rgba(13,13,20,0.20);">
+          <button class="card-variant-tab" data-variant="portrait"
+            style={`flex:1;padding:7px 10px;border:none;border-right:1px solid rgba(13,13,20,0.20);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.07em;text-transform:uppercase;font-weight:700;background:${teamColor};color:#fff;`}>
+            Portrait
+          </button>
+          <button class="card-variant-tab" data-variant="social"
+            style="flex:1;padding:7px 10px;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.07em;text-transform:uppercase;font-weight:700;background:rgba(13,13,20,0.06);color:rgba(13,13,20,0.48);">
+            Social
+          </button>
+        </div>
+        <div id="card-variant-preview"
+          style="background:#c8c5bc;overflow:hidden;line-height:0;margin-bottom:6px;min-height:72px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+          <span id="card-preview-placeholder" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:rgba(255,255,255,0.55);letter-spacing:0.08em;text-transform:uppercase;">Click to preview</span>
+        </div>
+        <button id="download-rating-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;background:${teamColor};color:#ffffff;font-weight:800;`}>
+          Rating Card →
+        </button>
+      </div>
       <button id="download-history-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:700;`}>
         History Card →
       </button>
@@ -3126,6 +3143,284 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       return canvas;
     }
 
+    // ── Social share card — 1200×628 horizontal (Twitter summary_large_image) ──
+    async function drawCanvasHorizontal() {
+      const BG      = '#EFEEE8';
+      const SURFACE = '#FFFFFF';
+      const SCALE   = 2;
+      const W       = 1200;
+      const H       = 628;
+
+      const SIDEBAR_W   = 260;
+      const SIDEBAR_PAD = 28;
+      const RIGHT_X     = SIDEBAR_W;
+      const RIGHT_W     = W - SIDEBAR_W;
+
+      const HEADLINE_H = 212;
+      const FOOTNOTE_H = 28;
+      const GRID_H     = H - HEADLINE_H - FOOTNOTE_H;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = W * SCALE;
+      canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      // Background
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, H);
+
+      // ── LEFT SIDEBAR (white) ──────────────────────────────────────────────
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, 0, SIDEBAR_W, H);
+
+      // Team-color left accent bar
+      ctx.fillStyle = TEAM_C;
+      ctx.fillRect(0, 0, 4, H);
+
+      // Right divider
+      ctx.fillStyle = 'rgba(13,13,20,0.10)';
+      ctx.fillRect(SIDEBAR_W - 1, 0, 1, H);
+
+      // Player name — auto-size to fit sidebar width
+      const nameX = SIDEBAR_PAD;
+      const nameAvailW = SIDEBAR_W - nameX - 10;
+      const firstName = D.firstName.toUpperCase();
+      const lastName  = D.lastName.toUpperCase();
+      let nameFontSize = 44;
+      ctx.font = `900 ${nameFontSize}px "Barlow Condensed", sans-serif`;
+      const longestWord = firstName.length > lastName.length ? firstName : lastName;
+      while (ctx.measureText(longestWord).width > nameAvailW && nameFontSize > 20) {
+        nameFontSize -= 2;
+        ctx.font = `900 ${nameFontSize}px "Barlow Condensed", sans-serif`;
+      }
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      let sideY = 30;
+      ctx.fillText(firstName, nameX, sideY);
+      sideY += nameFontSize * 0.96;
+      ctx.fillText(lastName, nameX, sideY);
+      sideY += nameFontSize * 0.96 + 14;
+
+      // Chips row
+      const chipH = 18;
+      const chipItems = [
+        { label: D.team,                   bg: TEAM_C },
+        { label: D.posLabel.toUpperCase(), bg: INK    },
+        { label: '2025-26',                bg: INK    },
+        { label: 'HGB',                    bg: RED    },
+      ];
+      let chipX = nameX;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      for (const chip of chipItems) {
+        const tw = ctx.measureText(chip.label).width;
+        const cw = tw + 14;
+        if (chipX + cw > SIDEBAR_W - 8) { chipX = nameX; sideY += chipH + 5; }
+        rrect(ctx, chipX, sideY, cw, chipH, 2);
+        ctx.fillStyle = chip.bg; ctx.fill();
+        ctx.fillStyle = BG;
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chip.label, chipX + 7, sideY + chipH / 2);
+        chipX += cw + 5;
+      }
+      sideY += chipH + 16;
+
+      // Headshot circle — centered in remaining sidebar space above brand line
+      const BRAND_H   = 26;
+      const hsAvailH  = H - sideY - BRAND_H - 20;
+      const R_HS      = Math.min(62, Math.floor(hsAvailH / 2) - 4);
+      const HS_CX     = SIDEBAR_W / 2;
+      const HS_CY     = sideY + hsAvailH / 2;
+      const hsImg     = await loadImg(D.headshotUrl);
+      ctx.save();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R_HS, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - R_HS, HS_CY - R_HS, R_HS * 2, R_HS * 2);
+      } else {
+        ctx.fillStyle = INK10; ctx.fill();
+        ctx.font = '800 28px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
+      }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R_HS, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 3; ctx.stroke();
+
+      // Brand line
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32;
+      ctx.textBaseline = 'bottom'; ctx.textAlign = 'center';
+      ctx.fillText('hockeygamebot.com', SIDEBAR_W / 2, H - 10);
+
+      // ── HEADLINE ROW (white, top-right) ──────────────────────────────────
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(RIGHT_X, 0, RIGHT_W, HEADLINE_H);
+      ctx.fillStyle = 'rgba(13,13,20,0.10)';
+      ctx.fillRect(RIGHT_X, HEADLINE_H - 1, RIGHT_W, 1);
+
+      const ratingPct = D.hgb_rating_percentile;
+      const warPctH   = D.warPct;
+      const impPctH   = D.impactPct != null ? Math.round(D.impactPct) : null;
+      const headlines = [
+        { label: 'HGB RATING',  pct: ratingPct, raw: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating' : '—' },
+        { label: 'HGB WAR',     pct: warPctH,   raw: D.war != null ? D.war.toFixed(2) + ' WAR · 2025-26' : '—' },
+        { label: 'GAME IMPACT', pct: impPctH,   raw: D.avgGsDisplay != null ? (D.avgGsDisplay >= 0 ? '+' : '') + D.avgGsDisplay.toFixed(2) + ' avg' : '—' },
+      ];
+      function hPctColor(v) {
+        if (v == null) return INK32;
+        if (v >= 85) return '#15803d';
+        if (v >= 70) return '#22a559';
+        if (v >= 40) return '#888888';
+        if (v >= 20) return '#e05c2d';
+        return '#E8002D';
+      }
+      const colW = RIGHT_W / 3;
+      for (let i = 0; i < 3; i++) {
+        const h    = headlines[i];
+        const colX = RIGHT_X + i * colW;
+        const midX = colX + colW / 2;
+        const pc   = hPctColor(h.pct);
+
+        // Vertical divider
+        if (i > 0) {
+          ctx.fillStyle = 'rgba(13,13,20,0.10)';
+          ctx.fillRect(colX, HEADLINE_H * 0.14, 1, HEADLINE_H * 0.72);
+        }
+
+        // Label
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.40)';
+        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(h.label, midX, 20);
+
+        if (h.pct != null) {
+          // Number + superscript %
+          const numStr    = String(h.pct);
+          const bigSize   = 96;
+          const supSize   = 42;
+          ctx.font        = `900 ${bigSize}px "Barlow Condensed", sans-serif`;
+          const numW      = ctx.measureText(numStr).width;
+          ctx.font        = `900 ${supSize}px "Barlow Condensed", sans-serif`;
+          const supW      = ctx.measureText('%').width;
+          const totalW    = numW + 3 + supW;
+          const startX    = midX - totalW / 2;
+
+          ctx.fillStyle   = pc;
+          ctx.font        = `900 ${bigSize}px "Barlow Condensed", sans-serif`;
+          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+          ctx.fillText(numStr, startX, 34);
+
+          ctx.font        = `900 ${supSize}px "Barlow Condensed", sans-serif`;
+          ctx.fillText('%', startX + numW + 3, 44);
+        } else {
+          ctx.font = '900 72px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = INK32;
+          ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText('—', midX, 44);
+        }
+
+        // Raw value
+        ctx.font = '700 11px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.40)';
+        ctx.textBaseline = 'bottom'; ctx.textAlign = 'center';
+        ctx.fillText(h.raw, midX, HEADLINE_H - 14);
+      }
+
+      // ── 3×3 GRID (cream background) ──────────────────────────────────────
+      const gridTopY = HEADLINE_H;
+      const cellW    = RIGHT_W / 3;
+      const cellH    = GRID_H / 3;
+      const posPlural = D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
+      const pct = D.percentiles;
+      function v3(a, b) { return a != null ? a : (b != null ? b : null); }
+      const gridCells = [
+        { label: 'EV OFFENSE',   val: v3(D.hgb_rating_off_pct, pct.ev_offence) },
+        { label: 'EV DEFENSE',   val: v3(D.hgb_rating_def_pct, pct.ev_defence) },
+        { label: 'GOALS / 60',   val: v3(D.g_60_pct_3yr, pct.goals)            },
+        { label: 'A1 / 60',      val: v3(D.a1_60_pct_3yr, pct.a1)              },
+        { label: 'XG / 60',      val: v3(D.xg_60_pct_3yr, pct.ixg)             },
+        { label: 'FINISHING',    val: v3(D.finishing_pct_3yr, pct.finishing)    },
+        { label: 'PEN. DIFF',    val: v3(D.pen_diff_pct_3yr, pct.pen_diff)     },
+        { label: 'POWER PLAY',   val: pct.pp_off ?? null                        },
+        { label: 'PENALTY KILL', val: pct.pk_def ?? null                        },
+      ];
+      function gPctColor(v) {
+        if (v == null) return '#888888';
+        if (v >= 85) return '#15803d';
+        if (v >= 70) return '#22a559';
+        if (v >= 40) return '#888888';
+        if (v >= 20) return '#e05c2d';
+        return '#E8002D';
+      }
+      for (let i = 0; i < 9; i++) {
+        const col   = i % 3;
+        const row   = Math.floor(i / 3);
+        const cellX = RIGHT_X + col * cellW;
+        const cellY = gridTopY + row * cellH;
+        const cell  = gridCells[i];
+        const tc    = gPctColor(cell.val);
+
+        // Inner border lines (right / bottom)
+        if (col < 2) {
+          ctx.fillStyle = 'rgba(13,13,20,0.10)';
+          ctx.fillRect(cellX + cellW - 1, cellY + 10, 1, cellH - 20);
+        }
+        if (row < 2) {
+          ctx.fillStyle = 'rgba(13,13,20,0.10)';
+          ctx.fillRect(cellX + 10, cellY + cellH - 1, cellW - 20, 1);
+        }
+
+        const cellPadX = cellX + 22;
+        // Vertical midpoint for label/number/bar stack
+        const labelY   = cellY + cellH * 0.22;
+        const numY     = cellY + cellH * 0.62;
+        const barY     = cellY + cellH * 0.82;
+        const barW     = cellW - 44;
+
+        // Label
+        ctx.font = '700 9.5px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.40)';
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(cell.label, cellPadX, labelY);
+
+        // Big number (no ordinal suffix per spec)
+        if (cell.val != null) {
+          ctx.font = '900 48px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = tc;
+          ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+          ctx.fillText(String(Math.round(cell.val)), cellPadX, numY);
+        } else {
+          ctx.font = '700 26px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32;
+          ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+          ctx.fillText('—', cellPadX, numY);
+        }
+
+        // 5px accent bar
+        ctx.fillStyle = 'rgba(13,13,20,0.10)';
+        ctx.fillRect(cellPadX, barY, barW, 5);
+        if (cell.val != null) {
+          ctx.fillStyle = tc;
+          ctx.fillRect(cellPadX, barY, (cell.val / 100) * barW, 5);
+        }
+      }
+
+      // ── FOOTNOTE STRIP ────────────────────────────────────────────────────
+      const fnY = H - FOOTNOTE_H;
+      ctx.fillStyle = 'rgba(13,13,20,0.08)';
+      ctx.fillRect(RIGHT_X, fnY, RIGHT_W, 1);
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.40)';
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
+      ctx.fillText(
+        'PERCENTILE VS ALL ' + posPlural + ' · 2025-26 REGULAR SEASON',
+        W - 18, fnY + FOOTNOTE_H / 2
+      );
+
+      return canvas;
+    }
+
     // ── canvas download — delegates to shared HGB_Export modal ──────────
     function showCardModal(canvas, filename) {
       window.HGB_Export.showCardModal(canvas, filename);
@@ -3343,7 +3638,77 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     bindCardBtn('download-card-btn',     'Player Card →',      drawCard,              `hgb_${D.slug}_25-26.png`);
     bindCardBtn('download-expanded-btn', 'Expanded Card →',    drawLandscapeCard,     `hgb_${D.slug}_expanded_25-26.png`, '900px · 2× retina PNG');
     bindCardBtn('download-edge-btn',     'NHL EDGE Card →',    drawEdgeCard,          `hgb_${D.slug}_edge_25-26.png`);
-    bindCardBtn('download-rating-card-btn', 'Rating Card →',   drawRatingCard,        `hgb_rating_${D.slug}_25-26.png`, '520×720px · 2× retina PNG');
+    // ── Rating card carousel ────────────────────────────────────────────────
+    (() => {
+      let _activeVariant  = 'portrait';
+      let _previewRendered = false;
+      const btn        = document.getElementById('download-rating-card-btn');
+      const preview    = document.getElementById('card-variant-preview');
+      const placeholder = document.getElementById('card-preview-placeholder');
+      const tabs       = document.querySelectorAll('.card-variant-tab');
+
+      const PORTRAIT_STYLE = `background:${D.teamColor};color:#fff;`;
+      const INACTIVE_STYLE = 'background:rgba(13,13,20,0.06);color:rgba(13,13,20,0.48);';
+
+      async function renderPreview(variant) {
+        if (placeholder) placeholder.style.display = 'none';
+        const existing = preview ? preview.querySelector('canvas') : null;
+        if (existing) existing.remove();
+        const c = variant === 'portrait' ? await drawRatingCard() : await drawCanvasHorizontal();
+        c.style.width = '100%';
+        c.style.height = 'auto';
+        c.style.display = 'block';
+        if (preview) preview.appendChild(c);
+      }
+
+      tabs.forEach(tab => {
+        tab.addEventListener('click', async () => {
+          const v = tab.dataset.variant;
+          if (v === _activeVariant) return;
+          _activeVariant = v;
+
+          tabs.forEach(t => {
+            t.style.cssText = t.dataset.variant === _activeVariant ? PORTRAIT_STYLE : INACTIVE_STYLE;
+          });
+          if (btn) btn.textContent = _activeVariant === 'portrait' ? 'Rating Card →' : 'Social Card →';
+          await renderPreview(_activeVariant);
+        });
+      });
+
+      // Preview on click of the preview area (initial load)
+      if (preview) {
+        preview.addEventListener('click', async () => {
+          if (!_previewRendered) {
+            _previewRendered = true;
+            preview.style.cursor = 'default';
+            await renderPreview(_activeVariant);
+          }
+        });
+      }
+
+      if (btn) {
+        btn.addEventListener('click', async () => {
+          const label = btn.textContent;
+          btn.textContent = 'Generating…'; btn.disabled = true;
+          if (status) { status.textContent = 'Drawing…'; status.style.display = 'block'; }
+          try {
+            if (document.fonts?.ready) await document.fonts.ready;
+            const drawFn = _activeVariant === 'portrait' ? drawRatingCard : drawCanvasHorizontal;
+            const fname  = _activeVariant === 'portrait'
+              ? `hgb_rating_${D.slug}_25-26.png`
+              : `hgb_social_${D.slug}_25-26.png`;
+            const c = await drawFn();
+            downloadCanvas(c, fname);
+            if (status) { status.textContent = 'Downloaded ✓'; setTimeout(() => { if (status) status.style.display = 'none'; }, 3000); }
+          } catch(e) {
+            console.error(e);
+            if (status) status.textContent = 'Error — try again';
+          } finally {
+            btn.textContent = label; btn.disabled = false;
+          }
+        });
+      }
+    })();
     bindCardBtn('download-rapm-card-btn',   'RAPM Card →',     drawRapmCard,          `hgb_rapm_${D.slug}_25-26.png`,   '760px · 2× retina PNG');
     bindCardBtn('download-history-card-btn','History Card →',  drawHistoryCard,       `hgb_history_${D.slug}.png`,      '560×auto · 2× retina PNG');
     bindCardBtn('download-expanded-card-btn','Expanded Card →', drawExpandedCard,     `hgb_expanded_${D.slug}.png`,     '1040×auto · 2× retina PNG');
