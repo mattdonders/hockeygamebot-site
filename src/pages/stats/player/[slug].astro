@@ -3127,20 +3127,18 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     }
 
     // ── Social share card — 1200×628 horizontal (Twitter summary_large_image) ──
-    // Layout: full-width header (headshot + name + chips) → hero stats row → 3×3 grid → footnote
+    // Layout: header (headshot+name+chips) → hero 3-tile row → 5×2 metric grid + context box → footnote
     async function drawCanvasHorizontal() {
       const BG      = '#EFEEE8';
       const SURFACE = '#FFFFFF';
       const SCALE   = 2;
       const W       = 1200;
-      const H       = 628;
-      const PAD     = 28;
+      const H       = 680;
 
-      // Row heights
-      const HDR_H  = 120;  // headshot + name + chips
-      const HERO_H = 192;  // 3 headline stat tiles
-      const FOOT_H = 28;
-      const GRID_H = H - HDR_H - HERO_H - FOOT_H; // ~288px → 96px per row
+      // Section heights
+      const HERO_H    = 310;   // white top: headshot + name + chips + headlines
+      const FOOTER_H  = 46;    // centered footer text
+      const METRICS_H = H - HERO_H - FOOTER_H;  // 318px → tiles become ~143px tall
 
       const canvas = document.createElement('canvas');
       canvas.width  = W * SCALE;
@@ -3149,197 +3147,159 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.scale(SCALE, SCALE);
 
       function pctTier(v) {
-        if (v == null) return { color: '#888888', label: '—'    };
-        if (v >= 85)   return { color: '#15803d', label: 'ELITE'  };
-        if (v >= 70)   return { color: '#22a559', label: 'GOOD'   };
-        if (v >= 40)   return { color: '#888888', label: 'AVG'    };
-        if (v >= 20)   return { color: '#e05c2d', label: 'BELOW'  };
-        return               { color: '#E8002D', label: 'POOR'   };
+        if (v == null) return { color: '#888888' };
+        if (v >= 85)   return { color: '#15803d' };
+        if (v >= 70)   return { color: '#22a559' };
+        if (v >= 40)   return { color: '#888888' };
+        if (v >= 20)   return { color: '#e05c2d' };
+        return               { color: '#E8002D'  };
       }
 
-      // Full background
+      // ── BACKGROUNDS ──────────────────────────────────────────────────────
       ctx.fillStyle = BG;
       ctx.fillRect(0, 0, W, H);
-
-      // ── HEADER (white, full width) ───────────────────────────────────────
       ctx.fillStyle = SURFACE;
-      ctx.fillRect(0, 0, W, HDR_H);
-      // 4px team-color left accent
+      ctx.fillRect(0, 0, W, HERO_H);
+      // 6px team-color left accent, full height
       ctx.fillStyle = TEAM_C;
-      ctx.fillRect(0, 0, 4, HDR_H);
-      // Bottom divider
-      ctx.fillStyle = 'rgba(13,13,20,0.10)';
-      ctx.fillRect(0, HDR_H - 1, W, 1);
+      ctx.fillRect(0, 0, 6, H);
+      // Hero bottom divider
+      ctx.fillStyle = 'rgba(13,13,20,0.12)';
+      ctx.fillRect(0, HERO_H - 1, W, 1);
 
-      // Headshot circle
-      const HS_R  = 44;
-      const HS_CX = PAD + 4 + HS_R + 4;
-      const HS_CY = HDR_H / 2;
+      // ── HERO SECTION ──────────────────────────────────────────────────────
+      // Columns: 6px accent | 38px left pad | 205px headshot | 34px gap | main | 34px gap | 142px brand | 32px right pad
+      const PAD_L      = 38;   // includes 6px accent
+      const PAD_R      = 32;
+      const PAD_V      = 26;
+      const HS_COL_W   = 205;
+      const COL_GAP    = 34;
+      const BRAND_W    = 142;
+      const MAIN_X     = PAD_L + HS_COL_W + COL_GAP;
+      const BRAND_X    = W - PAD_R - BRAND_W;
+      const MAIN_W     = BRAND_X - COL_GAP - MAIN_X;
+
+      // Headshot: 158px diameter (radius 79), vertically centered in full hero height
+      const HS_R  = 79;
+      const HS_CX = PAD_L + HS_COL_W / 2;
+      const HS_CY = HERO_H / 2;
       const hsImg = await loadImg(D.headshotUrl);
       ctx.save();
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2); ctx.clip();
       if (hsImg) {
         ctx.drawImage(hsImg, HS_CX - HS_R, HS_CY - HS_R, HS_R * 2, HS_R * 2);
       } else {
-        ctx.fillStyle = INK10; ctx.fill();
+        ctx.fillStyle = '#f7f7f4'; ctx.fill();
       }
       ctx.restore();
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2);
-      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 3; ctx.stroke();
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 5; ctx.stroke();
 
-      // Player name — auto-shrink to fit
-      const nameX = HS_CX + HS_R + 18;
-      const nameMaxW = W * 0.42;
-      let nfs = 56;
+      // Player name — 58px Barlow 900, shrink if too wide
+      let nfs = 58;
       const fullName = (D.firstName + ' ' + D.lastName).toUpperCase();
       ctx.font = `900 ${nfs}px "Barlow Condensed", sans-serif`;
-      while (ctx.measureText(fullName).width > nameMaxW && nfs > 28) {
+      while (ctx.measureText(fullName).width > MAIN_W && nfs > 28) {
         nfs -= 2;
         ctx.font = `900 ${nfs}px "Barlow Condensed", sans-serif`;
       }
+      const NAME_Y = PAD_V - 5;
       ctx.fillStyle = INK;
-      ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-      ctx.fillText(fullName, nameX, HDR_H / 2 - 4);
+      ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      ctx.fillText(fullName, MAIN_X, NAME_Y);
 
-      // Chips row (below name)
-      const chipH  = 19;
-      const chipY0 = HDR_H / 2 + 10;
+      // Chips row — 34px height, JetBrains Mono 800 16px
+      const CHIP_H  = 34;
+      const CHIP_Y  = NAME_Y + Math.round(nfs * 0.88) + 12;
       const chipDefs = [
         { label: D.team,                   bg: TEAM_C },
         { label: D.posLabel.toUpperCase(), bg: INK    },
         { label: '2025-26',                bg: INK    },
       ];
-      let chipX = nameX;
-      ctx.font = '700 10px "Barlow Condensed", sans-serif';
+      ctx.font = '800 16px "JetBrains Mono", monospace';
+      let cx = MAIN_X;
       for (const chip of chipDefs) {
-        const cw = ctx.measureText(chip.label).width + 18;
-        rrect(ctx, chipX, chipY0, cw, chipH, 2);
+        const cw = Math.max(80, ctx.measureText(chip.label).width + 32);
+        rrect(ctx, cx, CHIP_Y, cw, CHIP_H, 4);
         ctx.fillStyle = chip.bg; ctx.fill();
-        ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-        ctx.fillText(chip.label, chipX + 9, chipY0 + chipH / 2);
-        chipX += cw + 6;
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText(chip.label, cx + cw / 2, CHIP_Y + CHIP_H / 2);
+        cx += cw + 12;
       }
 
-      // HOCKEYGAMEBOT brand chip — top right
-      const brand = 'HOCKEYGAMEBOT';
-      ctx.font = '700 10px "Barlow Condensed", sans-serif';
-      const bcw = ctx.measureText(brand).width + 18;
-      rrect(ctx, W - PAD - bcw, (HDR_H - chipH) / 2, bcw, chipH, 2);
+      // Brand chip — top right column, HGB red
+      const BRAND_CHIP_H = 39;
+      const BRAND_CHIP_W = 148;
+      const bx0 = BRAND_X + (BRAND_W - BRAND_CHIP_W) / 2;
+      const by0 = PAD_V;
+      rrect(ctx, bx0, by0, BRAND_CHIP_W, BRAND_CHIP_H, 4);
       ctx.fillStyle = RED; ctx.fill();
-      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText(brand, W - PAD - bcw + 9, HDR_H / 2);
+      ctx.font = '900 14px "JetBrains Mono", monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText('HOCKEYGAMEBOT', bx0 + BRAND_CHIP_W / 2, by0 + BRAND_CHIP_H / 2);
 
-      // ── HERO STATS ROW (white) ───────────────────────────────────────────
-      ctx.fillStyle = SURFACE;
-      ctx.fillRect(0, HDR_H, W, HERO_H);
-      ctx.fillStyle = 'rgba(13,13,20,0.10)';
-      ctx.fillRect(0, HDR_H + HERO_H - 1, W, 1);
+      // Headline stats — 3 equal columns across full MAIN_W (note column removed)
+      const HL_Y   = CHIP_Y + CHIP_H + 28;
+      const STAT_W = MAIN_W / 3;
 
-      const ratingPct = D.hgb_rating_percentile;
-      const warPctH   = D.warPct;
-      const impPctH   = D.impactPct != null ? Math.round(D.impactPct) : null;
       const heroStats = [
-        { label: 'HGB RATING',  pct: ratingPct, raw: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating' : '—',       ctx2: '2025-26' },
-        { label: 'HGB WAR',     pct: warPctH,   raw: D.war != null ? D.war.toFixed(2) + ' WAR' : '—',                                                             ctx2: '2025-26' },
-        { label: 'GAME IMPACT', pct: impPctH,   raw: D.avgGsDisplay != null ? (D.avgGsDisplay >= 0 ? '+' : '') + D.avgGsDisplay.toFixed(2) + ' avg' : '—',       ctx2: '2025-26' },
+        { label: 'HGB RATING',  pct: D.hgb_rating_percentile,
+          raw: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' RATING' : '—' },
+        { label: 'HGB WAR',     pct: D.warPct,
+          raw: D.war != null ? D.war.toFixed(2) + ' WAR' : '—' },
+        { label: 'GAME IMPACT', pct: D.impactPct != null ? Math.round(D.impactPct) : null,
+          raw: D.avgGsDisplay != null ? (D.avgGsDisplay >= 0 ? '+' : '') + D.avgGsDisplay.toFixed(2) + ' AVG' : '—' },
       ];
-
-      // Annotation column on the right (~200px)
-      const ANNOT_W  = 190;
-      const HERO_COL_W = (W - ANNOT_W) / 3;
-      const HERO_TOP = HDR_H;
 
       for (let i = 0; i < 3; i++) {
-        const h    = heroStats[i];
-        const colX = i * HERO_COL_W;
-        const midX = colX + HERO_COL_W / 2;
+        const h   = heroStats[i];
+        const mid = MAIN_X + i * STAT_W + STAT_W / 2;
         const tier = pctTier(h.pct);
 
-        // Vertical dividers
-        if (i > 0) {
-          ctx.fillStyle = 'rgba(13,13,20,0.10)';
-          ctx.fillRect(colX, HERO_TOP + HERO_H * 0.12, 1, HERO_H * 0.76);
-        }
-
-        // Label
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.45)';
+        // Label — centered
+        ctx.font = '800 18px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.46)';
         ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText(h.label, midX, HERO_TOP + 18);
+        ctx.fillText(h.label, mid, HL_Y);
 
+        // Big number 82px, centered, color-coded
         if (h.pct != null) {
-          // Big number + superscript %
-          const numStr  = String(h.pct);
-          const bigSize = 88;
-          const supSize = 38;
-          ctx.font = `900 ${bigSize}px "Barlow Condensed", sans-serif`;
-          const numW = ctx.measureText(numStr).width;
-          ctx.font = `900 ${supSize}px "Barlow Condensed", sans-serif`;
-          const supW = ctx.measureText('%').width;
-          const blockW = numW + 4 + supW;
-          const startX = midX - blockW / 2;
-
+          ctx.font = '900 82px "Barlow Condensed", sans-serif';
           ctx.fillStyle = tier.color;
-          ctx.font = `900 ${bigSize}px "Barlow Condensed", sans-serif`;
-          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-          ctx.fillText(numStr, startX, HERO_TOP + 34);
-          ctx.font = `900 ${supSize}px "Barlow Condensed", sans-serif`;
-          ctx.fillText('%', startX + numW + 4, HERO_TOP + 42);
-
-          // Tier badge chip
-          const badgeLabel = tier.label;
-          ctx.font = '700 9px "JetBrains Mono", monospace';
-          const bw = ctx.measureText(badgeLabel).width + 14;
-          const bx = midX - bw / 2;
-          const by = HERO_TOP + 34 + bigSize + 6;
-          rrect(ctx, bx, by, bw, 16, 2);
-          ctx.fillStyle = tier.color; ctx.fill();
-          ctx.fillStyle = '#fff';
-          ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-          ctx.fillText(badgeLabel, midX, by + 8);
+          ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText(String(h.pct) + '%', mid, HL_Y + 24);
         } else {
-          ctx.font = '900 72px "Barlow Condensed", sans-serif';
-          ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-          ctx.fillText('—', midX, HERO_TOP + 38);
+          ctx.font = '900 70px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = 'rgba(13,13,20,0.30)';
+          ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText('—', mid, HL_Y + 24);
         }
 
-        // Raw value
-        ctx.font = '700 11px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.40)';
-        ctx.textBaseline = 'bottom'; ctx.textAlign = 'center';
-        ctx.fillText(h.raw, midX, HERO_TOP + HERO_H - 22);
-        ctx.font = '400 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.28)';
-        ctx.fillText(h.ctx2, midX, HERO_TOP + HERO_H - 10);
+        // Raw value — centered, below number
+        ctx.font = '800 24px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.52)';
+        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(h.raw, mid, HL_Y + 24 + 82 + 10);
       }
 
-      // Annotation column — divider + context note
-      const annotX = W - ANNOT_W;
-      ctx.fillStyle = 'rgba(13,13,20,0.10)';
-      ctx.fillRect(annotX, HERO_TOP + HERO_H * 0.12, 1, HERO_H * 0.76);
-      const posLabelFull = D.posGroup === 'F' ? 'Forwards' : 'Defensemen';
-      const annotLines = [
-        '% Percentile vs',
-        'All ' + posLabelFull,
-        '·',
-        '3-Year Weighted',
-        'Data Blend',
-      ];
-      ctx.font = '400 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = 'rgba(13,13,20,0.40)';
-      ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-      const annotMidX = annotX + ANNOT_W / 2;
-      annotLines.forEach((line, li) => {
-        ctx.fillText(line, annotMidX, HERO_TOP + 28 + li * 16);
-      });
+      // ── METRICS GRID (cream, 5×2, semi-transparent tiles) ────────────────
+      const MET_TOP  = HERO_H;
+      const MET_PAD  = 26;
+      const MET_PTOP = 20;
+      const TILE_GAP = 12;
+      const TILE_COLS = 5;
+      const TILE_ROWS = 2;
+      // Compute tile height from available space so it auto-adjusts with card height
+      const TILE_H = Math.floor((METRICS_H - MET_PTOP - TILE_GAP * (TILE_ROWS - 1)) / TILE_ROWS);
+      // tile width: (1200 - 26*2 - 12*4) / 5 = 220px
+      const TILE_W = (W - MET_PAD * 2 - TILE_GAP * (TILE_COLS - 1)) / TILE_COLS;
 
-      // ── 3×3 METRIC GRID (cream) ──────────────────────────────────────────
-      const GRID_TOP = HDR_H + HERO_H;
-      const cellW    = W / 3;
-      const cellH    = GRID_H / 3;
       const pct = D.percentiles;
       function v3h(a, b) { return a != null ? a : (b != null ? b : null); }
       const posPlural = D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
+
       const gridCells = [
         { label: 'EV OFFENSE',   val: v3h(D.hgb_rating_off_pct, pct.ev_offence) },
         { label: 'EV DEFENSE',   val: v3h(D.hgb_rating_def_pct, pct.ev_defence) },
@@ -3350,67 +3310,384 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         { label: 'PEN. DIFF',    val: v3h(D.pen_diff_pct_3yr, pct.pen_diff)     },
         { label: 'POWER PLAY',   val: pct.pp_off ?? null                         },
         { label: 'PENALTY KILL', val: pct.pk_def ?? null                         },
+        { isContext: true },
       ];
 
-      for (let i = 0; i < 9; i++) {
-        const col   = i % 3;
-        const row   = Math.floor(i / 3);
-        const cellX = col * cellW;
-        const cellY = GRID_TOP + row * cellH;
+      const TILE_PAD = 22;
+      for (let i = 0; i < 10; i++) {
+        const col   = i % TILE_COLS;
+        const row   = Math.floor(i / TILE_COLS);
+        const tx    = MET_PAD + col * (TILE_W + TILE_GAP);
+        const ty    = MET_TOP + MET_PTOP + row * (TILE_H + TILE_GAP);
         const cell  = gridCells[i];
         const tier  = pctTier(cell.val);
 
-        // Cell inner borders
-        if (col < 2) {
-          ctx.fillStyle = 'rgba(13,13,20,0.10)';
-          ctx.fillRect(cellX + cellW - 1, cellY + 8, 1, cellH - 16);
-        }
-        if (row < 2) {
-          ctx.fillStyle = 'rgba(13,13,20,0.10)';
-          ctx.fillRect(cellX + 8, cellY + cellH - 1, cellW - 16, 1);
-        }
+        // Tile: semi-transparent white on cream with subtle border
+        rrect(ctx, tx, ty, TILE_W, TILE_H, 3);
+        ctx.fillStyle = cell.isContext ? 'rgba(13,13,20,0.04)' : 'rgba(255,255,255,0.65)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(13,13,20,0.13)'; ctx.lineWidth = 1; ctx.stroke();
 
-        const px   = cellX + PAD;
-        const midY = cellY + cellH / 2;
+        if (cell.isContext) {
+          // Context tile
+          const posP = D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
+          ctx.font = '800 15px "JetBrains Mono", monospace';
+          ctx.fillStyle = 'rgba(13,13,20,0.65)';
+          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+          ctx.fillText('CONTEXT', tx + TILE_PAD, ty + 15);
 
-        // Label (JetBrains Mono 10px)
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.45)';
-        ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-        ctx.fillText(cell.label, px, midY - 26);
+          const ctxStats = [{ label: 'OPP. QUALITY', val: D.qoc }, { label: 'MATE QUALITY', val: D.qot }];
+          // Distribute the two rows evenly in remaining tile space
+          const ctxRowH = (TILE_H - 42) / 2;
+          ctxStats.forEach((s, si) => {
+            const ct  = pctTier(s.val);
+            const ry  = ty + 42 + si * ctxRowH;
+            const bw  = TILE_W - TILE_PAD * 2;
 
-        // Big number — 52px Barlow 900 (spec), color-coded, no ordinal
-        if (cell.val != null) {
-          ctx.font = '900 52px "Barlow Condensed", sans-serif';
-          ctx.fillStyle = tier.color;
-          ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-          ctx.fillText(String(Math.round(cell.val)), px, midY + 14);
+            // Label left, value right — on same baseline
+            ctx.font = '800 12px "JetBrains Mono", monospace';
+            ctx.fillStyle = 'rgba(13,13,20,0.55)';
+            ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+            ctx.fillText(s.label, tx + TILE_PAD, ry);
+
+            if (s.val != null) {
+              ctx.font = '900 26px "Barlow Condensed", sans-serif';
+              ctx.fillStyle = ct.color;
+              ctx.textBaseline = 'top'; ctx.textAlign = 'right';
+              ctx.fillText(Math.round(s.val) + '%', tx + TILE_W - TILE_PAD, ry - 3);
+            }
+
+            // Bar below label+value
+            ctx.fillStyle = 'rgba(13,13,20,0.12)';
+            ctx.fillRect(tx + TILE_PAD, ry + 20, bw, 8);
+            if (s.val != null) {
+              ctx.fillStyle = ct.color;
+              ctx.fillRect(tx + TILE_PAD, ry + 20, (s.val / 100) * bw, 8);
+            }
+          });
         } else {
-          ctx.font = '700 28px "JetBrains Mono", monospace';
-          ctx.fillStyle = INK32;
-          ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-          ctx.fillText('—', px, midY + 10);
-        }
+          // Metric tile: label / number / bar, space-between vertically
+          ctx.font = '800 17px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK;
+          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+          ctx.fillText(cell.label, tx + TILE_PAD, ty + 14);
 
-        // 5px accent bar below number
-        const barY  = midY + 22;
-        const barW  = cellW - PAD * 2;
-        ctx.fillStyle = 'rgba(13,13,20,0.10)';
-        ctx.fillRect(px, barY, barW, 5);
-        if (cell.val != null) {
-          ctx.fillStyle = tier.color;
-          ctx.fillRect(px, barY, (cell.val / 100) * barW, 5);
+          if (cell.val != null) {
+            ctx.font = '900 55px "Barlow Condensed", sans-serif';
+            ctx.fillStyle = tier.color;
+            ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+            ctx.fillText(String(Math.round(cell.val)) + '%', tx + TILE_PAD, ty + 44);
+          } else {
+            ctx.font = '900 42px "Barlow Condensed", sans-serif';
+            ctx.fillStyle = 'rgba(13,13,20,0.38)';
+            ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+            ctx.fillText('—', tx + TILE_PAD, ty + 48);
+          }
+
+          // Bar (12px height, near bottom of tile)
+          const barW = TILE_W - TILE_PAD * 2;
+          const barY = ty + TILE_H - 22;
+          ctx.fillStyle = 'rgba(13,13,20,0.12)';
+          ctx.fillRect(tx + TILE_PAD, barY, barW, 12);
+          if (cell.val != null) {
+            ctx.fillStyle = tier.color;
+            ctx.fillRect(tx + TILE_PAD, barY, (cell.val / 100) * barW, 12);
+          }
         }
       }
 
-      // ── FOOTNOTE ─────────────────────────────────────────────────────────
-      const fnY = H - FOOT_H;
+      // ── FOOTER ───────────────────────────────────────────────────────────
+      const footY = HERO_H + METRICS_H;
+      ctx.fillStyle = 'rgba(13,13,20,0.07)';
+      ctx.fillRect(0, footY, W, 1);
+      ctx.font = '800 15px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.34)';
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText(
+        'HOCKEYGAMEBOT  ·  PERCENTILE VS ALL ' + posPlural + '  ·  3-YEAR WEIGHTED  ·  2025-26',
+        W / 2, footY + FOOTER_H / 2
+      );
+
+      return canvas;
+    }
+
+    async function drawCanvasHorizontalV3() {
+      const BG      = '#EFEEE8';
+      const SURFACE = '#FFFFFF';
+      const SCALE   = 2;
+      const W       = 1200;
+      const H       = 680;
+
+      // Hero is split: white name+chips strip on top, cream headshot+stats below
+      const HDR_H     = 136;   // white strip: name + chips (taller for breathing room)
+      const HERO_STAT = 174;   // cream strip: headshot + 3 big stats (slightly shorter)
+      const HERO_H    = HDR_H + HERO_STAT;   // 310 total — same as V2
+      const FOOTER_H  = 46;
+      const METRICS_H = H - HERO_H - FOOTER_H;  // same as V2
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = W * SCALE;
+      canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      function pctTier(v) {
+        if (v == null) return { color: '#888888' };
+        if (v >= 85)   return { color: '#15803d' };
+        if (v >= 70)   return { color: '#22a559' };
+        if (v >= 40)   return { color: '#888888' };
+        if (v >= 20)   return { color: '#e05c2d' };
+        return               { color: '#E8002D'  };
+      }
+
+      // Full cream background
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W, H);
+
+      // ── WHITE STRIP: name + chips ─────────────────────────────────────────
+      const PAD = 32;
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(0, 0, W, HDR_H);
+      // 4px team-color left accent
+      ctx.fillStyle = TEAM_C;
+      ctx.fillRect(0, 0, 4, HDR_H);
+      // Bottom border
       ctx.fillStyle = 'rgba(13,13,20,0.10)';
-      ctx.fillRect(0, fnY, W, 1);
-      ctx.font = '700 9px "JetBrains Mono", monospace';
-      ctx.fillStyle = 'rgba(13,13,20,0.40)';
-      ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
-      ctx.fillText('PERCENTILE VS ALL ' + posPlural + ' · 2025-26 REGULAR SEASON · HOCKEYGAMEBOT.COM', W - PAD, fnY + FOOT_H / 2);
+      ctx.fillRect(0, HDR_H - 1, W, 1);
+
+      // Player name — large, left-aligned, vertically centered in top half
+      const fullName = (D.firstName + ' ' + D.lastName).toUpperCase();
+      let nfs = 64;
+      ctx.font = `900 ${nfs}px "Barlow Condensed", sans-serif`;
+      while (ctx.measureText(fullName).width > W * 0.65 && nfs > 32) {
+        nfs -= 2;
+        ctx.font = `900 ${nfs}px "Barlow Condensed", sans-serif`;
+      }
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(fullName, PAD, 46);
+
+      // Chips row — match vertical card style: full team name, pos, season + brand right
+      const TEAM_NAMES = {
+        ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
+        BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',
+        CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',
+        DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',
+        FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',
+        MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',
+        NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',
+        PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',
+        SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',
+        TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',
+        VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
+      };
+      const teamFull = TEAM_NAMES[D.team] || D.team;
+      const chipH  = 28;
+      const chipY0 = HDR_H - chipH - 14;
+      const chipDefs = [
+        { label: teamFull,                 bg: TEAM_C },
+        { label: D.posLabel.toUpperCase(), bg: INK    },
+        { label: '2025-26',                bg: INK    },
+      ];
+      ctx.font = '700 13px "Barlow Condensed", sans-serif';
+      let cx = PAD;
+      for (const chip of chipDefs) {
+        const cw = ctx.measureText(chip.label).width + 22;
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = chip.bg; ctx.fill();
+        ctx.fillStyle = BG;
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chip.label, cx + 11, chipY0 + chipH / 2);
+        cx += cw + 10;
+      }
+      // Brand chip right-aligned
+      const brand = 'HOCKEYGAMEBOT';
+      const bcw = ctx.measureText(brand).width + 22;
+      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(brand, W - PAD - bcw + 11, chipY0 + chipH / 2);
+
+      // ── CREAM STRIP: headshot + 3 headline stats ──────────────────────────
+      const STAT_TOP = HDR_H;
+      const HS_R  = 72;
+      const HS_CX = PAD + 4 + HS_R;  // flush with left accent
+      const HS_CY = STAT_TOP + HERO_STAT / 2;
+      const hsImg = await loadImg(D.headshotUrl);
+      ctx.save();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - HS_R, HS_CY - HS_R, HS_R * 2, HS_R * 2);
+      } else {
+        ctx.fillStyle = '#dde2ee'; ctx.fill();
+      }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 4; ctx.stroke();
+
+      // Three headline stats — fill remaining width, numbers in TEAM_C
+      const STAT_X = HS_CX + HS_R + 28;
+      const STAT_W = (W - STAT_X - PAD) / 3;
+      const heroStats = [
+        { label: 'HGB RATING',  pct: D.hgb_rating_percentile,
+          raw: D.hgb_rating != null ? (D.hgb_rating >= 0 ? '+' : '') + D.hgb_rating.toFixed(2) + ' Rating' : '—',
+          season: null },
+        { label: 'HGB WAR',     pct: D.warPct,
+          raw: D.war != null ? D.war.toFixed(2) + ' WAR' : '—',
+          season: '2025-26' },
+        { label: 'HGB IMPACT',  pct: D.impactPct != null ? Math.round(D.impactPct) : null,
+          raw: D.avgGsDisplay != null ? (D.avgGsDisplay >= 0 ? '+' : '') + D.avgGsDisplay.toFixed(2) + ' Avg' : '—',
+          season: '2025-26' },
+      ];
+
+      const NUM_SIZE = 72;
+      for (let i = 0; i < 3; i++) {
+        const h   = heroStats[i];
+        const mid = STAT_X + i * STAT_W + STAT_W / 2;
+
+        // Thin vertical dividers — match vertical card (INK10)
+        if (i > 0) {
+          ctx.fillStyle = INK10;
+          ctx.fillRect(STAT_X + i * STAT_W, STAT_TOP + 14, 1, HERO_STAT - 28);
+        }
+
+        // Label + number + season block — centered vertically in cream strip
+        // Reserve season row for all columns so numbers stay aligned
+        const LABEL_H = 24, GAP1 = 8, GAP2 = 16, SEASON_H = 16;
+        const BLOCK_H = LABEL_H + GAP1 + NUM_SIZE + GAP2 + SEASON_H;
+        const blockTop = STAT_TOP + (HERO_STAT - BLOCK_H) / 2;
+
+        ctx.font = '700 24px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32;
+        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(h.label, mid, blockTop);
+
+        ctx.font = `800 ${NUM_SIZE}px "Barlow Condensed", sans-serif`;
+        ctx.fillStyle = TEAM_C;
+        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(h.pct != null ? String(h.pct) + '%' : '—', mid, blockTop + LABEL_H + GAP1);
+
+        if (h.season) {
+          ctx.font = '700 14px "Barlow", sans-serif';
+          ctx.fillStyle = INK32;
+          ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText(h.season, mid, blockTop + LABEL_H + GAP1 + NUM_SIZE + GAP2);
+        }
+      }
+
+      // ── METRICS GRID (exact copy from V2) ────────────────────────────────
+      const MET_TOP  = HERO_H;
+      const MET_PAD  = 26;
+      const MET_PTOP = 20;
+      const MET_PBOT = 14;
+      const TILE_GAP = 12;
+      const TILE_COLS = 5;
+      const TILE_ROWS = 2;
+      const TILE_H = Math.floor((METRICS_H - MET_PTOP - MET_PBOT - TILE_GAP * (TILE_ROWS - 1)) / TILE_ROWS);
+      const TILE_W = (W - MET_PAD * 2 - TILE_GAP * (TILE_COLS - 1)) / TILE_COLS;
+
+      const pct = D.percentiles;
+      function v3h(a, b) { return a != null ? a : (b != null ? b : null); }
+      const posPlural = D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
+
+      const gridCells = [
+        { label: 'EV OFFENSE',   val: v3h(D.hgb_rating_off_pct, pct.ev_offence) },
+        { label: 'EV DEFENSE',   val: v3h(D.hgb_rating_def_pct, pct.ev_defence) },
+        { label: 'GOALS / 60',   val: v3h(D.g_60_pct_3yr, pct.goals)            },
+        { label: 'A1 / 60',      val: v3h(D.a1_60_pct_3yr, pct.a1)              },
+        { label: 'XG / 60',      val: v3h(D.xg_60_pct_3yr, pct.ixg)             },
+        { label: 'FINISHING',    val: v3h(D.finishing_pct_3yr, pct.finishing)    },
+        { label: 'PEN. DIFF',    val: v3h(D.pen_diff_pct_3yr, pct.pen_diff)     },
+        { label: 'POWER PLAY',   val: pct.pp_off ?? null                         },
+        { label: 'PENALTY KILL', val: pct.pk_def ?? null                         },
+        { isContext: true },
+      ];
+
+      const TILE_PAD = 22;
+      for (let i = 0; i < 10; i++) {
+        const col  = i % TILE_COLS;
+        const row  = Math.floor(i / TILE_COLS);
+        const tx   = MET_PAD + col * (TILE_W + TILE_GAP);
+        const ty   = MET_TOP + MET_PTOP + row * (TILE_H + TILE_GAP);
+        const cell = gridCells[i];
+        const tier = pctTier(cell.val);
+
+        rrect(ctx, tx, ty, TILE_W, TILE_H, 3);
+        ctx.fillStyle = cell.isContext ? 'rgba(13,13,20,0.04)' : 'rgba(255,255,255,0.65)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(13,13,20,0.13)'; ctx.lineWidth = 1; ctx.stroke();
+
+        if (cell.isContext) {
+          ctx.font = '700 17px "Barlow", sans-serif';
+          ctx.fillStyle = 'rgba(13,13,20,0.65)';
+          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+          ctx.fillText('CONTEXT', tx + TILE_PAD, ty + 14);
+          const ctxStats = [{ label: 'OPP. QUALITY', val: D.qoc }, { label: 'MATE QUALITY', val: D.qot }];
+          const TITLE_H = 40;
+          const ctxRowH = Math.floor((TILE_H - TITLE_H) / 2);
+          const bw = TILE_W - TILE_PAD * 2;
+          ctxStats.forEach((s, si) => {
+            const ct = pctTier(s.val);
+            const ry = ty + TITLE_H + si * ctxRowH;
+            // Text row: label + pct share middle baseline, centered in upper 60% of row
+            const textMid = ry + Math.round(ctxRowH * 0.38);
+            const barY    = ry + Math.round(ctxRowH * 0.62);
+            ctx.font = '700 12px "Barlow", sans-serif';
+            ctx.fillStyle = 'rgba(13,13,20,0.55)';
+            ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+            ctx.fillText(s.label, tx + TILE_PAD, textMid);
+            if (s.val != null) {
+              ctx.font = '900 24px "Barlow Condensed", sans-serif';
+              ctx.fillStyle = ct.color;
+              ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
+              ctx.fillText(Math.round(s.val) + '%', tx + TILE_W - TILE_PAD, textMid);
+            }
+            ctx.fillStyle = 'rgba(13,13,20,0.12)';
+            ctx.fillRect(tx + TILE_PAD, barY, bw, 7);
+            if (s.val != null) {
+              ctx.fillStyle = ct.color;
+              ctx.fillRect(tx + TILE_PAD, barY, (s.val / 100) * bw, 7);
+            }
+          });
+        } else {
+          ctx.font = '700 17px "Barlow", sans-serif';
+          ctx.fillStyle = INK;
+          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+          ctx.fillText(cell.label, tx + TILE_PAD, ty + 14);
+          if (cell.val != null) {
+            ctx.font = '900 55px "Barlow Condensed", sans-serif';
+            ctx.fillStyle = tier.color;
+            ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+            ctx.fillText(String(Math.round(cell.val)) + '%', tx + TILE_PAD, ty + 44);
+          } else {
+            ctx.font = '900 42px "Barlow Condensed", sans-serif';
+            ctx.fillStyle = 'rgba(13,13,20,0.38)';
+            ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+            ctx.fillText('—', tx + TILE_PAD, ty + 48);
+          }
+          const barW = TILE_W - TILE_PAD * 2;
+          const barY = ty + TILE_H - 22;
+          ctx.fillStyle = 'rgba(13,13,20,0.12)';
+          ctx.fillRect(tx + TILE_PAD, barY, barW, 12);
+          if (cell.val != null) {
+            ctx.fillStyle = tier.color;
+            ctx.fillRect(tx + TILE_PAD, barY, (cell.val / 100) * barW, 12);
+          }
+        }
+      }
+
+      // ── FOOTER ───────────────────────────────────────────────────────────
+      const footY = HERO_H + METRICS_H;
+      ctx.fillStyle = 'rgba(13,13,20,0.07)';
+      ctx.fillRect(0, footY, W, 1);
+      ctx.font = '800 15px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.34)';
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      const posLabel = D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
+      ctx.fillText(
+        'HGB RATING PROFILE  ·  VS ' + posLabel + '  ·  HOCKEYGAMEBOT.COM',
+        W / 2, footY + FOOTER_H / 2
+      );
 
       return canvas;
     }
@@ -3638,11 +3915,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       'download-rating-card-btn',
       'Rating Card →',
       async function() {
-        // Draw both variants; modal gets arrow carousel automatically
-        const [portrait, social] = await Promise.all([drawRatingCard(), drawCanvasHorizontal()]);
+        // Draw portrait + horizontal V3; modal gets arrow carousel automatically
+        const [portrait, socialV3] = await Promise.all([drawRatingCard(), drawCanvasHorizontalV3()]);
         window.HGB_Export.showCardModal([
-          { canvas: portrait, filename: `hgb_rating_${D.slug}_25-26.png`,  label: 'Portrait 520×720'  },
-          { canvas: social,   filename: `hgb_social_${D.slug}_25-26.png`,  label: 'Social 1200×628'   },
+          { canvas: portrait,  filename: `hgb_rating_${D.slug}_25-26.png`,    label: 'Portrait 520×720'    },
+          { canvas: socialV3,  filename: `hgb_social_${D.slug}_25-26.png`,    label: 'Social 1200×680'     },
         ]);
         // Return null so bindCardBtn skips its own modal call
         return null;
