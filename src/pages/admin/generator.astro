@@ -177,6 +177,13 @@ import Fonts from '../../components/Fonts.astro';
           <option value="D">Defense</option>
         </select>
       </div>
+      <div class="ctrl-group" id="ctrl-display-group">
+        <span class="ctrl-label">Display</span>
+        <select class="ctrl-select ctrl-select-sm" id="ctrl-display">
+          <option value="raw">Raw values</option>
+          <option value="pct">% rank</option>
+        </select>
+      </div>
       <div class="ctrl-group">
         <span class="ctrl-label" id="toi-label">Min TOI (min)</span>
         <div class="ctrl-stepper">
@@ -212,7 +219,7 @@ import Fonts from '../../components/Fonts.astro';
 
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" is:inline></script>
+<script src="/js/table-export.js" defer></script>
 <script is:inline>
 (function() {
   const API         = 'https://api.hockeygamebot.com';
@@ -304,6 +311,7 @@ import Fonts from '../../components/Fonts.astro';
       auxCol:  'GP', auxFmt: r => r.gp,
       filterField: 'gp', toiDefault: 20, toiStep: 5, toiLabel: 'Min GP',
       badgeFn: rankBadge,
+      pctSupported: true,
     },
     {
       slug: 'rapm_off', label: 'RAPM Offense', group: 'Skaters — Value',
@@ -314,6 +322,7 @@ import Fonts from '../../components/Fonts.astro';
       auxCol:  'GP', auxFmt: r => r.gp,
       filterField: 'ev_toi', toiDefault: 200, toiStep: 50, toiLabel: 'Min EV TOI (min)',
       badgeFn: rankBadge,
+      pctSupported: true,
     },
     {
       slug: 'rapm_def', label: 'RAPM Defense', group: 'Skaters — Value',
@@ -324,6 +333,7 @@ import Fonts from '../../components/Fonts.astro';
       auxCol:  'GP', auxFmt: r => r.gp,
       filterField: 'ev_toi', toiDefault: 200, toiStep: 50, toiLabel: 'Min EV TOI (min)',
       badgeFn: rankBadge,
+      pctSupported: true,
     },
   ];
 
@@ -373,8 +383,9 @@ import Fonts from '../../components/Fonts.astro';
   let _token = null;
   let _players = null;
   let _goalies = null;
-  let _calLog = {};  // { slug: ISO string }
-  let _nIdx = 1;     // index into N_VALUES (default 10)
+  let _calLog = {};       // { slug: ISO string }
+  let _nIdx = 1;          // index into N_VALUES (default 10)
+  let _lastCardData = null; // saved for native canvas download
 
   // ── DOM helpers ───────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
@@ -450,6 +461,12 @@ import Fonts from '../../components/Fonts.astro';
     // TOI label + default
     $('toi-label').textContent = cat.toiLabel;
     $('ctrl-toi').value = cat.toiDefault;
+    // Display select: only enabled for categories that support PCT mode
+    const displaySel = $('ctrl-display');
+    if (displaySel) {
+      displaySel.disabled = !cat.pctSupported;
+      if (!cat.pctSupported) displaySel.value = 'raw';
+    }
   }
 
   // ── Steppers ──────────────────────────────────────────────────────────────
@@ -538,114 +555,286 @@ import Fonts from '../../components/Fonts.astro';
     const topN    = rows.slice(0, n);
     const bottomN = rows.slice(-n).reverse();
 
-    renderCard(cat, topN, bottomN, view, n, pos, minToi, gameType, valueField, auxFmtFn, auxColLabel);
-
-    btn.disabled = false; btn.textContent = 'Generate Card';
-  };
-
-  // ── Render card HTML ──────────────────────────────────────────────────────
-  function renderCard(cat, topN, bottomN, view, n, pos, minToi, gameType, valueField, auxFmtFn, auxColLabel) {
-    const isPlayoff  = gameType === 'playoff';
-    const gameLabel  = isPlayoff ? 'PLAYOFFS' : SEASON;
-    const posLabel   = cat.dataType === 'goalies' ? 'Goalies' : pos === 'F' ? 'Forwards' : pos === 'D' ? 'Defense' : 'Skaters';
-    const toiNote    = isPlayoff ? `min ${Math.max(1, Math.round(minToi / 60))} GP` : `min ${minToi} ${cat.toiLabel.toLowerCase()}`;
-    const filterNote = `${cat.desc} · ${toiNote}`;
-
-    const isBoth   = view === 'both';
-    const showTop  = view === 'top' || isBoth;
-    const showBot  = view === 'bottom' || isBoth;
-    const colW     = isBoth ? '1fr 1fr' : '600px';
-
-    let colsHtml = '';
-    if (showTop) colsHtml += buildColumn(cat, topN, `TOP ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, true, valueField, auxFmtFn, auxColLabel);
-    if (showBot) colsHtml += buildColumn(cat, bottomN, `BOTTOM ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, false, valueField, auxFmtFn, auxColLabel);
-
-    const cardHtml = `
-<div style="width:1200px;background:#EFEEE8;padding:48px 52px 40px;font-family:'Barlow Condensed',sans-serif;-webkit-font-smoothing:antialiased;">
-  <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(13,13,20,0.45);margin-bottom:10px;font-family:'Barlow',sans-serif;font-weight:500;">HOCKEYGAMEBOT ANALYTICS</div>
-  <div style="font-size:54px;font-weight:800;text-transform:uppercase;line-height:1;margin-bottom:8px;color:#0d0d14;letter-spacing:-0.01em;">${esc(cat.label)} &mdash; ${esc(gameLabel)}</div>
-  <div style="font-size:14px;color:rgba(13,13,20,0.50);margin-bottom:22px;font-family:'Barlow',sans-serif;">${esc(filterNote)}</div>
-  <div style="height:2px;background:#E8002D;margin-bottom:28px;"></div>
-  <div style="display:grid;grid-template-columns:${colW};gap:48px;">
-    ${colsHtml}
-  </div>
-  <div style="margin-top:28px;font-size:10px;color:rgba(13,13,20,0.30);font-family:'Barlow',sans-serif;text-align:center;letter-spacing:0.06em;text-transform:uppercase;">HOCKEYGAMEBOT.COM &nbsp;·&nbsp; HGB STATS &nbsp;·&nbsp; ${SEASON}</div>
-</div>`;
-
-    $('card-inner').innerHTML = cardHtml;
-
-    // Scale preview to fit page width
-    const wrap = $('preview-scale-wrap');
-    const available = Math.min(document.body.clientWidth - 80, 1200);
-    const scale = available / 1200;
-    wrap.style.transform = `scale(${scale})`;
-    wrap.style.width = '1200px';
-    wrap.style.height = '';
-    // Reserve correct height in the scroll container
-    const cardEl = $('card-inner').firstElementChild;
-    if (cardEl) {
-      requestAnimationFrame(() => {
-        const h = cardEl.offsetHeight;
-        wrap.style.height = h + 'px';
-        $('preview-scroll').style.height = Math.round(h * scale) + 'px';
+    // Compute percentile ranks within filtered pool when PCT mode is on
+    const pctMode = !!(cat.pctSupported && $('ctrl-display') && $('ctrl-display').value === 'pct');
+    if (pctMode) {
+      const total = rows.length;
+      rows.forEach((r, i) => {
+        r._pct = total <= 1 ? 100 : Math.round((1 - i / (total - 1)) * 100);
       });
     }
 
-    $('preview-section').style.display = '';
-  }
+    _lastCardData = { cat, topN, bottomN, view, n, pos, minToi, gameType, valueField, auxFmtFn, auxColLabel, pctMode };
 
-  function buildColumn(cat, rows, title, isTop, valueField, auxFmtFn, auxColLabel) {
-    const rowsHtml = rows.map((r, i) => {
-      const val     = valueField(r);
-      const badge   = cat.badgeFn === gsaxBadge ? gsaxBadge(val) : rankBadge(val, i, isTop);
-      const altBg   = i % 2 === 0 ? '#EFEEE8' : 'rgba(13,13,20,0.04)';
-      const tc      = teamColor(r.team_abbrev || '');
-      const name    = r.display_name || (r.first_name + ' ' + r.last_name);
-      const abbrev  = r.team_abbrev || '???';
-      const aux     = auxFmtFn(r);
-
-      return `
-<div style="display:grid;grid-template-columns:24px 44px 1fr auto auto;align-items:center;gap:8px;padding:9px 10px;background:${altBg};">
-  <span style="font-size:12px;color:rgba(13,13,20,0.35);font-weight:700;font-family:'Barlow Condensed',sans-serif;">${i+1}</span>
-  <span style="font-size:13px;font-weight:800;color:${esc(tc)};font-family:'Barlow Condensed',sans-serif;letter-spacing:0.02em;">${esc(abbrev)}</span>
-  <span style="font-size:17px;font-weight:700;color:#0d0d14;font-family:'Barlow Condensed',sans-serif;">${esc(name)}</span>
-  <span style="font-size:12px;color:rgba(13,13,20,0.45);font-family:'Barlow',sans-serif;text-align:right;">${esc(String(aux))}</span>
-  <span style="font-size:14px;font-weight:700;padding:4px 10px;background:${badge.bg};color:${badge.text};font-family:'Barlow Condensed',sans-serif;min-width:64px;text-align:center;display:inline-block;">${esc(cat.fmtVal(val))}</span>
-</div>`;
-    }).join('');
-
-    return `
-<div>
-  <div style="font-size:12px;font-weight:800;color:#E8002D;letter-spacing:0.08em;text-transform:uppercase;font-family:'Barlow Condensed',sans-serif;margin-bottom:10px;">${esc(title)}</div>
-  <div style="display:grid;grid-template-columns:24px 44px 1fr auto auto;gap:8px;padding:6px 10px;margin-bottom:6px;border-bottom:1px solid rgba(13,13,20,0.14);">
-    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">#</span>
-    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">TEAM</span>
-    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">PLAYER</span>
-    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;text-align:right;">${esc(auxColLabel)}</span>
-    <span style="font-size:10px;color:#E8002D;font-family:'Barlow',sans-serif;font-weight:700;min-width:64px;text-align:center;">${esc(cat.label)} ↓</span>
-  </div>
-  ${rowsHtml}
-</div>`;
-  }
-
-  // ── Download ──────────────────────────────────────────────────────────────
-  window.downloadCard = function() {
-    const btn = $('download-btn');
-    btn.textContent = 'Generating…'; btn.disabled = true;
-    const el = $('card-inner');
+    // Render canvas preview async after fonts load
+    btn.disabled = false; btn.textContent = 'Generate Card';
     document.fonts.ready.then(() => {
-      html2canvas(el, { scale: 2, useCORS: true, backgroundColor: null, logging: false })
-        .then(canvas => {
-          const link = document.createElement('a');
-          const slug = ($('ctrl-category').value || 'card').replace(/_/g, '-');
-          link.download = `hgb-${slug}.png`;
-          link.href = canvas.toDataURL('image/png');
-          link.click();
-          btn.textContent = '↓ Download PNG'; btn.disabled = false;
-        })
-        .catch(() => { btn.textContent = '↓ Download PNG'; btn.disabled = false; });
+      Promise.all([
+        document.fonts.load('800 52px "Barlow Condensed"'),
+        document.fonts.load('700 16px "Barlow Condensed"'),
+        document.fonts.load('700 9px "Barlow Condensed"'),
+        document.fonts.load('400 11px "Barlow"'),
+      ]).then(() => {
+        try {
+          const canvas = drawLeaderboardCard(_lastCardData);
+          const img = document.createElement('img');
+          img.src = canvas.toDataURL('image/png');
+          img.style.cssText = 'width:100%;height:auto;display:block;';
+          const inner = $('card-inner');
+          inner.innerHTML = '';
+          inner.appendChild(img);
+          const wrap = $('preview-scale-wrap');
+          wrap.style.transform = '';
+          wrap.style.width = '';
+          wrap.style.height = '';
+          $('preview-scroll').style.height = '';
+          $('preview-section').style.display = '';
+        } catch(e) { console.error('[preview]', e); }
+      });
     });
   };
+
+  // ── Download (native Canvas 2D API — no html2canvas) ─────────────────────
+  window.downloadCard = function() {
+    if (!_lastCardData) { alert('Generate a card first.'); return; }
+    const btn = $('download-btn');
+    btn.textContent = 'Generating…'; btn.disabled = true;
+    document.fonts.ready.then(() => {
+      Promise.all([
+        document.fonts.load('800 52px "Barlow Condensed"'),
+        document.fonts.load('700 16px "Barlow Condensed"'),
+        document.fonts.load('700 9px "Barlow Condensed"'),
+        document.fonts.load('400 11px "Barlow"'),
+      ]).then(() => {
+        try {
+          const canvas = drawLeaderboardCard(_lastCardData);
+          const filename = 'hgb-' + (_lastCardData.cat.slug || 'card').replace(/_/g, '-') + '.png';
+          window.HGB_Export.showCardModal(canvas, filename);
+        } catch(e) { console.error('[card] draw failed:', e); }
+        btn.textContent = '↓ Download PNG'; btn.disabled = false;
+      });
+    });
+  };
+
+  function drawLeaderboardCard(d) {
+    const { cat, topN, bottomN, view, n, pos, minToi, gameType, valueField, auxFmtFn, auxColLabel, pctMode } = d;
+
+    // ── Dimensions & constants ─────────────────────────────────────────────
+    const W       = 1200, SCALE = 2, PAD_X = 48;
+    const HDR_H   = 76;    // white header: title
+    const CHIP_SH = 44;    // white header: chip row
+    const SEP_H   = 2;     // red separator
+    const PAD_Y   = 24;    // body top/bottom padding
+    const COL_TH  = 22;    // column title text height
+    const COL_HH  = 20;    // column header row height
+    const ROW_H   = 44;    // data row height
+    const BADGE_H = 26;    // badge rectangle height
+    const BADGE_W = 76;    // badge rectangle width
+    const FOOT_H  = 36;    // footer height
+    const COL_GAP = 48;    // gap between two columns (both mode)
+
+    const BG      = '#EFEEE8';
+    const SURFACE = '#FFFFFF';
+    const INK     = '#0D0D14';
+    const RED     = '#E8002D';
+    const INK45   = 'rgba(13,13,20,0.45)';
+    const INK32   = 'rgba(13,13,20,0.32)';
+    const INK14   = 'rgba(13,13,20,0.14)';
+    const INK10   = 'rgba(13,13,20,0.10)';
+
+    const isPlayoff = gameType === 'playoff';
+    const isBoth    = view === 'both';
+    const showTop   = view === 'top' || isBoth;
+
+    const colW  = isBoth ? Math.floor((W - 2 * PAD_X - COL_GAP) / 2) : W - 2 * PAD_X;
+    const bodyH = PAD_Y + COL_TH + 2 + COL_HH + 3 + 1 + 4 + n * ROW_H + PAD_Y;
+    const H     = HDR_H + CHIP_SH + SEP_H + bodyH + FOOT_H;
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = W * SCALE;
+    canvas.height = H * SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function rrect(x, y, w, h, r) {
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(x, y, w, h, r);
+      } else {
+        ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+        ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+        ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+        ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+      }
+    }
+    function clamp(text, maxW) {
+      if (ctx.measureText(text).width <= maxW) return text;
+      let t = text;
+      while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+      return t + '…';
+    }
+    function ordinal(n) {
+      n = Math.round(n);
+      const s = ['th','st','nd','rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+    function pctBadge(pct) {
+      if (pct >= 75) return { bg: '#4ade80', text: '#14532d' };
+      if (pct >= 50) return { bg: '#a3e635', text: '#365314' };
+      if (pct >= 25) return { bg: '#d1d5db', text: '#374151' };
+      return               { bg: '#fb923c', text: '#7c2d12' };
+    }
+    function chip(x, y, label, bg, fg) {
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      const chipH = 20;
+      const tw = ctx.measureText(label).width + 18;
+      rrect(x, y, tw, chipH, 2); ctx.fillStyle = bg; ctx.fill();
+      ctx.fillStyle = fg; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, x + 9, y + chipH / 2);
+      return tw;
+    }
+
+    // ── White header ────────────────────────────────────────────────────────
+    ctx.fillStyle = SURFACE;
+    ctx.fillRect(0, 0, W, HDR_H + CHIP_SH);
+
+    // Title
+    ctx.font = '800 52px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(cat.label.toUpperCase(), PAD_X, HDR_H / 2);
+
+    // Chip row
+    const chipY0 = HDR_H + (CHIP_SH - 20) / 2;
+    let cx = PAD_X;
+    cx += chip(cx, chipY0, isPlayoff ? 'PLAYOFFS' : 'REGULAR SEASON', isPlayoff ? RED : INK, isPlayoff ? '#fff' : BG) + 6;
+    if (cat.dataType !== 'goalies') {
+      const pl = pos === 'F' ? 'FORWARDS' : pos === 'D' ? 'DEFENSE' : 'ALL SKATERS';
+      cx += chip(cx, chipY0, pl, INK, BG) + 6;
+    }
+    if (minToi > 0) {
+      const minLabel = isPlayoff
+        ? 'MIN ' + Math.max(1, Math.round(minToi / 60)) + ' GP'
+        : 'MIN ' + minToi + ' ' + (cat.toiLabel.includes('GP') ? 'GP' : 'MIN');
+      chip(cx, chipY0, minLabel, INK, BG);
+    }
+    // HGB chip — right-aligned
+    ctx.font = '700 9px "Barlow Condensed", sans-serif';
+    const hgbW = ctx.measureText('HOCKEYGAMEBOT').width + 18;
+    chip(W - PAD_X - hgbW, chipY0, 'HOCKEYGAMEBOT', RED, '#fff');
+
+    // Hairline at bottom of white header
+    ctx.fillStyle = INK14; ctx.fillRect(0, HDR_H + CHIP_SH - 1, W, 1);
+
+    // ── Red separator ────────────────────────────────────────────────────────
+    ctx.fillStyle = RED;
+    ctx.fillRect(0, HDR_H + CHIP_SH, W, SEP_H);
+
+    // ── Cream body ───────────────────────────────────────────────────────────
+    const bodyY = HDR_H + CHIP_SH + SEP_H;
+    ctx.fillStyle = BG; ctx.fillRect(0, bodyY, W, bodyH);
+
+    // Column grid x offsets (relative to column left edge)
+    const RANK_R = 22;   // rank number, right-aligned
+    const TEAM_L = 30;   // team abbrev, left-aligned
+    const NAME_L = 90;   // player name, left-aligned  (= 22+8+52+8)
+    const AUX_R  = colW - BADGE_W - 8;  // aux text, right-aligned
+    const BDGE_L = colW - BADGE_W;       // badge rect
+
+    const posLabel = cat.dataType === 'goalies' ? 'GOALIES'
+                   : pos === 'F' ? 'FORWARDS'
+                   : pos === 'D' ? 'DEFENSE' : 'SKATERS';
+
+    function drawColumn(rows, title, isTop, colX) {
+      const y0 = bodyY + PAD_Y;
+
+      // Column title
+      ctx.font = '800 11px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = RED; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(title, colX, y0 + COL_TH / 2);
+
+      // Column header row
+      const hdrY = y0 + COL_TH + 2;
+      ctx.font = '600 9px "Barlow", sans-serif';
+      ctx.fillStyle = INK32;
+      ctx.textAlign = 'right';  ctx.fillText('#',           colX + RANK_R,               hdrY + COL_HH / 2);
+      ctx.textAlign = 'left';   ctx.fillText('TEAM',        colX + TEAM_L,               hdrY + COL_HH / 2);
+      ctx.fillText('PLAYER',    colX + NAME_L,               hdrY + COL_HH / 2);
+      ctx.textAlign = 'right';  ctx.fillText(auxColLabel,   colX + AUX_R,                hdrY + COL_HH / 2);
+      ctx.fillStyle = RED;
+      ctx.textAlign = 'center'; ctx.fillText(cat.label + ' ↓', colX + BDGE_L + BADGE_W / 2, hdrY + COL_HH / 2);
+
+      // Divider line
+      const divY = hdrY + COL_HH + 3;
+      ctx.fillStyle = INK14; ctx.fillRect(colX, divY, colW, 1);
+
+      // Data rows
+      let ry = divY + 4;
+      rows.forEach((r, i) => {
+        const val    = valueField(r);
+        const badge  = pctMode ? pctBadge(r._pct || 0) : (cat.badgeFn === gsaxBadge ? gsaxBadge(val) : rankBadge(val, i, isTop));
+        const name   = ((r.first_name && r.last_name) ? r.first_name + ' ' + r.last_name : (r.display_name || '')).toUpperCase();
+        const abbrev = r.team_abbrev || '???';
+        const aux    = String(auxFmtFn(r));
+        const tc     = teamColor(abbrev);
+        const nameMaxW = AUX_R - NAME_L - 8;
+        const midY   = ry + ROW_H / 2;
+
+        // Row background (zebra)
+        ctx.fillStyle = i % 2 === 0 ? BG : 'rgba(13,13,20,0.04)';
+        ctx.fillRect(colX, ry, colW, ROW_H);
+
+        // Rank
+        ctx.font = '700 11px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK32; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(i + 1), colX + RANK_R, midY);
+
+        // Team abbrev (colored)
+        ctx.font = '800 12px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = tc; ctx.textAlign = 'left';
+        ctx.fillText(abbrev, colX + TEAM_L, midY);
+
+        // Player name (truncate if needed)
+        ctx.font = '700 16px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = INK;
+        ctx.fillText(clamp(name, nameMaxW), colX + NAME_L, midY);
+
+        // Aux (GP / TOI)
+        ctx.font = '400 11px "Barlow", sans-serif';
+        ctx.fillStyle = INK45; ctx.textAlign = 'right';
+        ctx.fillText(aux, colX + AUX_R, midY);
+
+        // Badge
+        const badgeY = ry + (ROW_H - BADGE_H) / 2;
+        rrect(colX + BDGE_L, badgeY, BADGE_W, BADGE_H, 2);
+        ctx.fillStyle = badge.bg; ctx.fill();
+        ctx.font = '700 13px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = badge.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(pctMode ? ordinal(r._pct || 0) : cat.fmtVal(val), colX + BDGE_L + BADGE_W / 2, badgeY + BADGE_H / 2);
+
+        ry += ROW_H;
+      });
+    }
+
+    if (isBoth) {
+      drawColumn(topN,    'TOP '    + n + ' ' + posLabel + ' BY ' + cat.label.toUpperCase(), true,  PAD_X);
+      drawColumn(bottomN, 'BOTTOM ' + n + ' ' + posLabel + ' BY ' + cat.label.toUpperCase(), false, PAD_X + colW + COL_GAP);
+    } else if (showTop) {
+      drawColumn(topN,    'TOP '    + n + ' ' + posLabel + ' BY ' + cat.label.toUpperCase(), true,  PAD_X);
+    } else {
+      drawColumn(bottomN, 'BOTTOM ' + n + ' ' + posLabel + ' BY ' + cat.label.toUpperCase(), false, PAD_X);
+    }
+
+    // ── Footer ───────────────────────────────────────────────────────────────
+    const footY = H - FOOT_H;
+    ctx.fillStyle = INK10; ctx.fillRect(0, footY, W, FOOT_H);
+    ctx.font = '700 9px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('HOCKEYGAMEBOT.COM  ·  HGB STATS  ·  2025-26', W / 2, footY + FOOT_H / 2);
+
+    return canvas;
+  }
 
   // ── Calendar / Schedule ───────────────────────────────────────────────────
   let _schedule = []; // rows from content_calendar, ordered by tier + sort_order
