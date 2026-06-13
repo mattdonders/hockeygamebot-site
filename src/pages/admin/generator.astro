@@ -90,6 +90,12 @@ import Fonts from '../../components/Fonts.astro';
     .cal-btn { font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; }
     .cal-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
     .cal-btn.posted { background: #166534; color: #fff; border-color: transparent; }
+    .cal-load-btn { font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; margin-right: 4px; }
+    .cal-load-btn:hover { background: var(--ink-10); color: var(--ink); }
+    .cal-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+    .tier-header { font-family: var(--display); font-weight: 800; font-size: 16px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink); padding: 12px 0 8px; border-bottom: 1px solid var(--ink-14); margin-bottom: 10px; grid-column: 1 / -1; }
+    .tier-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; color: var(--red); margin-left: 8px; font-weight: 700; }
+    .cal-desc { font-family: var(--body); font-size: 11px; color: var(--ink-48); margin-bottom: 6px; line-height: 1.4; }
 
     @media (max-width: 640px) {
       .admin-mast-inner, .page-body { padding-left: 16px; padding-right: 16px; }
@@ -643,44 +649,87 @@ import Fonts from '../../components/Fonts.astro';
     });
   };
 
-  // ── Calendar ──────────────────────────────────────────────────────────────
+  // ── Calendar / Schedule ───────────────────────────────────────────────────
+  let _schedule = []; // rows from content_calendar, ordered by tier + sort_order
+
   async function loadCalendar() {
     try {
-      const r = await fetch(`${API}/v1/admin/generator/calendar`, {
+      const r = await fetch(`${API}/v1/admin/generator/schedule`, {
         headers: { Authorization: `Bearer ${_token}` }
       });
       if (!r.ok) return;
       const d = await r.json();
-      _calLog = {};
-      (d.log || []).forEach(row => { _calLog[row.category] = row.posted_at; });
+      _schedule = d.schedule || [];
     } catch(e) {}
     renderCalendar();
+  }
+
+  function ageText(isoStr) {
+    if (!isoStr) return null;
+    const days = Math.floor((Date.now() - new Date(isoStr).getTime()) / 86400000);
+    if (days === 0) return 'Posted today';
+    if (days === 1) return 'Posted yesterday';
+    return `Posted ${days}d ago`;
   }
 
   function renderCalendar() {
     const grid = $('calendar-grid');
     if (!grid) return;
-    grid.innerHTML = CATEGORIES.map(cat => {
-      const postedAt = _calLog[cat.slug];
-      let whenText = 'Never posted';
-      let freshClass = '';
-      if (postedAt) {
-        const days = Math.floor((Date.now() - new Date(postedAt).getTime()) / 86400000);
-        whenText = days === 0 ? 'Posted today' : days === 1 ? 'Posted yesterday' : `Posted ${days} days ago`;
-        if (days <= 7) freshClass = 'fresh';
+    if (!_schedule.length) {
+      grid.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--ink-32);padding:24px 0;">No schedule loaded.</div>';
+      return;
+    }
+
+    const TIER_LABELS = { 1: 'Tier 1 — Post First', 2: 'Tier 2 — Rotate In', 3: 'Tier 3 — August / Camp' };
+    let html = '';
+    let lastTier = null;
+
+    _schedule.forEach(item => {
+      if (item.tier !== lastTier) {
+        lastTier = item.tier;
+        html += `<div class="tier-header">${esc(TIER_LABELS[item.tier] || 'Tier ' + item.tier)}<span class="tier-label">T${item.tier}</span></div>`;
       }
-      return `
-<div class="cal-item">
-  <div class="cal-group">${esc(cat.group)}</div>
-  <div class="cal-name">${esc(cat.label)}</div>
-  <div class="cal-when ${freshClass}" id="calwhen-${esc(cat.slug)}">${esc(whenText)}</div>
-  <button class="cal-btn" onclick="markPosted('${esc(cat.slug)}')">Mark Posted</button>
+      const age       = ageText(item.last_posted_at);
+      const freshClass = age && item.last_posted_at && (Date.now() - new Date(item.last_posted_at).getTime()) < 7 * 86400000 ? 'fresh' : '';
+      const gameLabel = item.game_type === 'playoff' ? ' · Playoffs' : '';
+      const posLabel  = item.pos_filter === 'F' ? ' · Fwd' : item.pos_filter === 'D' ? ' · D' : '';
+      const viewLabel = item.view === 'top' ? ' · Top only' : item.view === 'bottom' ? ' · Bottom only' : '';
+      const settingsStr = JSON.stringify({ category: item.category, game_type: item.game_type, pos_filter: item.pos_filter, view: item.view, min_toi: item.min_toi }).replace(/"/g, '&quot;');
+
+      html += `
+<div class="cal-item" id="calitem-${esc(item.slug)}">
+  <div class="cal-group">${esc(item.series || '')}${esc(gameLabel)}${esc(posLabel)}${esc(viewLabel)}</div>
+  <div class="cal-name">${esc(item.category.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()))}</div>
+  <div class="cal-desc">${esc(item.description || '')}</div>
+  <div class="cal-when ${freshClass}" id="calwhen-${esc(item.slug)}">${esc(age || 'Never posted')}</div>
+  <div class="cal-actions">
+    <button class="cal-load-btn" onclick="loadSettings(${settingsStr})">Load Settings</button>
+    <button class="cal-btn" onclick="markPosted('${esc(item.slug)}', this)">Mark Posted</button>
+  </div>
 </div>`;
-    }).join('');
+    });
+
+    grid.innerHTML = html;
   }
 
-  window.markPosted = async function(slug) {
-    const btn = event.target;
+  window.loadSettings = function(settings) {
+    // Pre-fill controls from a schedule row
+    const catSel = $('ctrl-category');
+    if (settings.category) catSel.value = settings.category;
+    const gtSel = $('ctrl-gametype');
+    if (settings.game_type) gtSel.value = settings.game_type;
+    const posSel = $('ctrl-pos');
+    if (settings.pos_filter) posSel.value = settings.pos_filter;
+    const viewSel = $('ctrl-view');
+    if (settings.view) viewSel.value = settings.view;
+    const toiEl = $('ctrl-toi');
+    if (settings.min_toi != null) toiEl.value = settings.min_toi;
+    syncControls();
+    // Scroll to controls
+    document.querySelector('.controls').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  window.markPosted = async function(slug, btn) {
     btn.textContent = 'Saving…'; btn.disabled = true;
     try {
       const r = await fetch(`${API}/v1/admin/generator/calendar`, {
@@ -689,7 +738,6 @@ import Fonts from '../../components/Fonts.astro';
         body: JSON.stringify({ category: slug }),
       });
       if (r.ok) {
-        _calLog[slug] = new Date().toISOString();
         const el = $(`calwhen-${slug}`);
         if (el) { el.textContent = 'Posted today'; el.className = 'cal-when fresh'; }
         btn.textContent = 'Posted ✓'; btn.classList.add('posted');
