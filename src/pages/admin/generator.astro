@@ -157,6 +157,13 @@ import Fonts from '../../components/Fonts.astro';
         </div>
       </div>
       <div class="ctrl-group">
+        <span class="ctrl-label">Game Type</span>
+        <select class="ctrl-select ctrl-select-sm" id="ctrl-gametype">
+          <option value="regular">Regular Season</option>
+          <option value="playoff">Playoffs</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
         <span class="ctrl-label">Position</span>
         <select class="ctrl-select ctrl-select-sm" id="ctrl-pos">
           <option value="all">All</option>
@@ -430,6 +437,10 @@ import Fonts from '../../components/Fonts.astro';
     const posSel = $('ctrl-pos');
     posSel.disabled = cat.dataType === 'goalies';
     if (cat.dataType === 'goalies') posSel.value = 'all';
+    // Game type: only goalies have full playoff data; disable for skater rate/value categories
+    const gtSel = $('ctrl-gametype');
+    gtSel.disabled = cat.dataType === 'skaters';
+    if (cat.dataType === 'skaters') gtSel.value = 'regular';
     // TOI label + default
     $('toi-label').textContent = cat.toiLabel;
     $('ctrl-toi').value = cat.toiDefault;
@@ -456,11 +467,12 @@ import Fonts from '../../components/Fonts.astro';
   }
 
   // ── Prefetch data ─────────────────────────────────────────────────────────
+  // Stats endpoints are public — no Authorization header needed or wanted.
+  // Sending auth headers triggers a CORS preflight that these endpoints don't handle.
   async function prefetchData() {
-    const headers = { Authorization: `Bearer ${_token}` };
     const [pr, gr] = await Promise.all([
-      fetch(`${API}/v1/stats/players`, { headers }),
-      fetch(`${API}/v1/stats/goalies`,  { headers }),
+      fetch(`${API}/v1/stats/players`),
+      fetch(`${API}/v1/stats/goalies`),
     ]);
     if (pr.ok) { const d = await pr.json(); _players = d.players || d; }
     if (gr.ok) { const d = await gr.json(); _goalies = d.goalies || d; }
@@ -471,20 +483,20 @@ import Fonts from '../../components/Fonts.astro';
     const btn = $('generate-btn');
     btn.disabled = true; btn.textContent = 'Loading…';
 
-    const cat    = currentCat();
-    const view   = $('ctrl-view').value;
-    const n      = parseInt($('ctrl-n').value) || 10;
-    const pos    = $('ctrl-pos').value;
-    const minToi = parseInt($('ctrl-toi').value) || 0;
-    const headers = { Authorization: `Bearer ${_token}` };
+    const cat      = currentCat();
+    const view     = $('ctrl-view').value;
+    const n        = parseInt($('ctrl-n').value) || 10;
+    const pos      = $('ctrl-pos').value;
+    const minToi   = parseInt($('ctrl-toi').value) || 0;
+    const gameType = $('ctrl-gametype').value; // 'regular' | 'playoff'
 
-    // Ensure data loaded
+    // Ensure data loaded (public endpoints — no auth header)
     if (cat.dataType === 'goalies' && !_goalies) {
-      const r = await fetch(`${API}/v1/stats/goalies`, { headers });
+      const r = await fetch(`${API}/v1/stats/goalies`);
       if (r.ok) { const d = await r.json(); _goalies = d.goalies || d; }
     }
     if (cat.dataType === 'skaters' && !_players) {
-      const r = await fetch(`${API}/v1/stats/players`, { headers });
+      const r = await fetch(`${API}/v1/stats/players`);
       if (r.ok) { const d = await r.json(); _players = d.players || d; }
     }
 
@@ -494,12 +506,19 @@ import Fonts from '../../components/Fonts.astro';
       alert('Failed to load data. Check your session.'); return;
     }
 
+    // For goalies in playoff mode, read from playoff_* fields instead
+    const isPlayoff   = gameType === 'playoff' && cat.dataType === 'goalies';
+    const valueField  = isPlayoff ? (r => r.playoff_gsax) : cat.field;
+    const auxFmtFn    = isPlayoff ? (r => (r.playoff_games ?? 0) + ' GP') : cat.auxFmt;
+    const auxColLabel = isPlayoff ? 'GP' : cat.auxCol;
+
     // Filter
     let rows = pool.filter(r => {
-      const v = cat.field(r);
+      const v = valueField(r);
       if (v == null || isNaN(v)) return false;
       if (cat.dataType === 'skaters' && pos !== 'all' && r.pos_group !== pos) return false;
 
+      if (isPlayoff) return (r.playoff_games || 0) >= Math.max(1, Math.round(minToi / 60));
       if (cat.filterField === 'gp')      return (r.gp || 0) >= minToi;
       if (cat.filterField === 'toi_min') return ((r.toi_sec || 0) / 60) >= minToi;
       if (cat.filterField === 'ev_toi')  return ((r.toi_ev_sec_total || 0) / 60) >= minToi;
@@ -508,20 +527,23 @@ import Fonts from '../../components/Fonts.astro';
     });
 
     // Sort descending by value
-    rows.sort((a, b) => cat.field(b) - cat.field(a));
+    rows.sort((a, b) => valueField(b) - valueField(a));
 
     const topN    = rows.slice(0, n);
     const bottomN = rows.slice(-n).reverse();
 
-    renderCard(cat, topN, bottomN, view, n, pos, minToi);
+    renderCard(cat, topN, bottomN, view, n, pos, minToi, gameType, valueField, auxFmtFn, auxColLabel);
 
     btn.disabled = false; btn.textContent = 'Generate Card';
   };
 
   // ── Render card HTML ──────────────────────────────────────────────────────
-  function renderCard(cat, topN, bottomN, view, n, pos, minToi) {
-    const posLabel = cat.dataType === 'goalies' ? 'Goalies' : pos === 'F' ? 'Forwards' : pos === 'D' ? 'Defense' : 'Skaters';
-    const filterNote = `${cat.desc} · min ${minToi} ${cat.toiLabel.toLowerCase()}`;
+  function renderCard(cat, topN, bottomN, view, n, pos, minToi, gameType, valueField, auxFmtFn, auxColLabel) {
+    const isPlayoff  = gameType === 'playoff';
+    const gameLabel  = isPlayoff ? 'PLAYOFFS' : SEASON;
+    const posLabel   = cat.dataType === 'goalies' ? 'Goalies' : pos === 'F' ? 'Forwards' : pos === 'D' ? 'Defense' : 'Skaters';
+    const toiNote    = isPlayoff ? `min ${Math.max(1, Math.round(minToi / 60))} GP` : `min ${minToi} ${cat.toiLabel.toLowerCase()}`;
+    const filterNote = `${cat.desc} · ${toiNote}`;
 
     const isBoth   = view === 'both';
     const showTop  = view === 'top' || isBoth;
@@ -531,13 +553,13 @@ import Fonts from '../../components/Fonts.astro';
     const colW = isBoth ? '1fr 1fr' : '600px';
 
     let colsHtml = '';
-    if (showTop) colsHtml += buildColumn(cat, topN, `TOP ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, true);
-    if (showBot) colsHtml += buildColumn(cat, bottomN, `BOTTOM ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, false);
+    if (showTop) colsHtml += buildColumn(cat, topN, `TOP ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, true, valueField, auxFmtFn, auxColLabel);
+    if (showBot) colsHtml += buildColumn(cat, bottomN, `BOTTOM ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, false, valueField, auxFmtFn, auxColLabel);
 
     const cardHtml = `
 <div style="width:1200px;background:#EFEEE8;padding:48px 52px 40px;font-family:'Barlow Condensed',sans-serif;-webkit-font-smoothing:antialiased;">
   <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(13,13,20,0.45);margin-bottom:10px;font-family:'Barlow',sans-serif;font-weight:500;">HOCKEYGAMEBOT ANALYTICS</div>
-  <div style="font-size:54px;font-weight:800;text-transform:uppercase;line-height:1;margin-bottom:8px;color:#0d0d14;letter-spacing:-0.01em;">${esc(cat.label)} &mdash; ${SEASON}</div>
+  <div style="font-size:54px;font-weight:800;text-transform:uppercase;line-height:1;margin-bottom:8px;color:#0d0d14;letter-spacing:-0.01em;">${esc(cat.label)} &mdash; ${esc(gameLabel)}</div>
   <div style="font-size:14px;color:rgba(13,13,20,0.50);margin-bottom:22px;font-family:'Barlow',sans-serif;">${esc(filterNote)}</div>
   <div style="height:2px;background:#E8002D;margin-bottom:28px;"></div>
   <div style="display:grid;grid-template-columns:${colW};gap:48px;">
@@ -568,15 +590,15 @@ import Fonts from '../../components/Fonts.astro';
     $('preview-section').style.display = '';
   }
 
-  function buildColumn(cat, rows, title, isTop) {
+  function buildColumn(cat, rows, title, isTop, valueField, auxFmtFn, auxColLabel) {
     const rowsHtml = rows.map((r, i) => {
-      const val     = cat.field(r);
+      const val     = valueField(r);
       const badge   = cat.badgeFn === gsaxBadge ? gsaxBadge(val) : rankBadge(val, i, isTop);
       const altBg   = i % 2 === 0 ? '#EFEEE8' : 'rgba(13,13,20,0.04)';
       const tc      = teamColor(r.team_abbrev || '');
       const name    = r.display_name || (r.first_name + ' ' + r.last_name);
       const abbrev  = r.team_abbrev || '???';
-      const aux     = cat.auxFmt(r);
+      const aux     = auxFmtFn(r);
 
       return `
 <div style="display:grid;grid-template-columns:24px 44px 1fr auto auto;align-items:center;gap:8px;padding:9px 10px;background:${altBg};">
@@ -595,7 +617,7 @@ import Fonts from '../../components/Fonts.astro';
     <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">#</span>
     <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">TEAM</span>
     <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">PLAYER</span>
-    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;text-align:right;">${cat.auxCol}</span>
+    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;text-align:right;">${esc(auxColLabel)}</span>
     <span style="font-size:10px;color:#E8002D;font-family:'Barlow',sans-serif;font-weight:700;min-width:64px;text-align:center;">${esc(cat.label)} ↓</span>
   </div>
   ${rowsHtml}
