@@ -646,8 +646,11 @@ import Fonts from '../../components/Fonts.astro';
     const isBoth    = view === 'both';
     const showTop   = view === 'top' || isBoth;
 
-    const colW  = isBoth ? Math.floor((W - 2 * PAD_X - COL_GAP) / 2) : W - 2 * PAD_X;
-    const bodyH = PAD_Y + COL_TH + 2 + COL_HH + 3 + 1 + 4 + n * ROW_H + PAD_Y;
+    const splitSingle = !isBoth && n > 10;
+
+    const colW  = (isBoth || splitSingle) ? Math.floor((W - 2 * PAD_X - COL_GAP) / 2) : W - 2 * PAD_X;
+    const rowsForHeight = (isBoth || splitSingle) ? Math.ceil(n / 2) : n;
+    const bodyH = PAD_Y + COL_TH + 2 + COL_HH + 3 + 1 + 4 + rowsForHeight * ROW_H + PAD_Y;
     const H     = HDR_H + CHIP_SH + SEP_H + bodyH + FOOT_H;
 
     const canvas = document.createElement('canvas');
@@ -655,6 +658,10 @@ import Fonts from '../../components/Fonts.astro';
     canvas.height = H * SCALE;
     const ctx = canvas.getContext('2d');
     ctx.scale(SCALE, SCALE);
+
+    // Fill entire canvas with BG so footer area is visible (canvas default is transparent)
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W, H);
 
     // ── Helpers ────────────────────────────────────────────────────────────
     function rrect(x, y, w, h, r) {
@@ -736,17 +743,18 @@ import Fonts from '../../components/Fonts.astro';
     ctx.fillStyle = BG; ctx.fillRect(0, bodyY, W, bodyH);
 
     // Column grid x offsets (relative to column left edge)
-    const RANK_R = 22;   // rank number, right-aligned
-    const TEAM_L = 30;   // team abbrev, left-aligned
-    const NAME_L = 90;   // player name, left-aligned  (= 22+8+52+8)
-    const AUX_R  = colW - BADGE_W - 8;  // aux text, right-aligned
-    const BDGE_L = colW - BADGE_W;       // badge rect
+    const RANK_R    = 22;   // rank number, right-aligned
+    const TEAM_L    = 30;   // team abbrev, left-aligned
+    const NAME_L    = 90;   // player name, left-aligned  (= 22+8+52+8)
+    const ROW_PAD_R = 8;    // right padding inside each row
+    const BDGE_L    = colW - BADGE_W - ROW_PAD_R;  // badge rect (8px from right edge)
+    const AUX_R     = BDGE_L - 8;                   // aux text, right-aligned (8px gap to badge)
 
     const posLabel = cat.dataType === 'goalies' ? 'GOALIES'
                    : pos === 'F' ? 'FORWARDS'
                    : pos === 'D' ? 'DEFENSE' : 'SKATERS';
 
-    function drawColumn(rows, title, isTop, colX) {
+    function drawColumn(rows, title, isTop, colX, rankOffset = 0) {
       const y0 = bodyY + PAD_Y;
 
       // Column title
@@ -788,7 +796,7 @@ import Fonts from '../../components/Fonts.astro';
         // Rank
         ctx.font = '700 11px "Barlow Condensed", sans-serif';
         ctx.fillStyle = INK32; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        ctx.fillText(String(i + 1), colX + RANK_R, midY);
+        ctx.fillText(String(i + 1 + rankOffset), colX + RANK_R, midY);
 
         // Team abbrev (colored)
         ctx.font = '800 12px "Barlow Condensed", sans-serif';
@@ -820,6 +828,13 @@ import Fonts from '../../components/Fonts.astro';
     if (isBoth) {
       drawColumn(topN,    'TOP '    + n + ' ' + posLabel + ' BY ' + cat.label.toUpperCase(), true,  PAD_X);
       drawColumn(bottomN, 'BOTTOM ' + n + ' ' + posLabel + ' BY ' + cat.label.toUpperCase(), false, PAD_X + colW + COL_GAP);
+    } else if (splitSingle) {
+      const half       = Math.ceil(n / 2);
+      const sourceRows = showTop ? topN : bottomN;
+      const prefix     = showTop ? 'TOP ' : 'BOTTOM ';
+      const colTitle   = prefix + n + ' ' + posLabel + ' BY ' + cat.label.toUpperCase();
+      drawColumn(sourceRows.slice(0, half), colTitle, showTop, PAD_X, 0);
+      drawColumn(sourceRows.slice(half),    colTitle, showTop, PAD_X + colW + COL_GAP, half);
     } else if (showTop) {
       drawColumn(topN,    'TOP '    + n + ' ' + posLabel + ' BY ' + cat.label.toUpperCase(), true,  PAD_X);
     } else {
