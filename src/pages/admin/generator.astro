@@ -1,0 +1,692 @@
+---
+// /admin/generator — HGB Admin: Leaderboard Card Generator
+// Auth-gated client-side (same pattern as /admin/insights).
+// Fetches player/goalie data from existing API endpoints, renders
+// leaderboard cards as HTML, and downloads via html2canvas.
+// Content calendar log persisted to D1 via /v1/admin/generator/calendar.
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Card Generator · HGB Admin</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #EFEEE8; --surface: #FFFFFF; --ink: #0d0d14; --red: #E8002D;
+      --ink-06: rgba(13,13,20,0.06); --ink-10: rgba(13,13,20,0.10);
+      --ink-14: rgba(13,13,20,0.14); --ink-20: rgba(13,13,20,0.20);
+      --ink-32: rgba(13,13,20,0.32); --ink-48: rgba(13,13,20,0.48);
+      --ink-72: rgba(13,13,20,0.72);
+      --display: "Barlow Condensed", sans-serif;
+      --body: "Barlow", sans-serif;
+      --mono: "JetBrains Mono", monospace;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Mast ── */
+    .admin-mast { border-bottom: 2px solid var(--ink); background: var(--bg); }
+    .admin-mast-inner { max-width: 1400px; margin: 0 auto; padding: 20px 32px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .admin-eyebrow { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--red); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .admin-pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .admin-title { font-family: var(--display); font-weight: 800; font-size: clamp(24px, 3vw, 36px); text-transform: uppercase; letter-spacing: -0.005em; }
+    .admin-user { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+
+    /* ── Body ── */
+    .page-body { max-width: 1400px; margin: 0 auto; padding: 28px 32px 80px; }
+
+    /* ── Auth states ── */
+    .auth-state { text-align: center; padding: 80px 32px; }
+    .auth-state-label { font-family: var(--display); font-weight: 700; font-size: 20px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }
+    .auth-state-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; margin-bottom: 20px; }
+    .auth-btn { font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; padding: 10px 24px; background: var(--ink); color: var(--bg); border: none; cursor: pointer; text-decoration: none; display: inline-block; }
+
+    /* ── Controls ── */
+    .controls { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--ink-14); }
+    .ctrl-group { display: flex; flex-direction: column; gap: 5px; }
+    .ctrl-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-48); }
+    .ctrl-select { font-family: var(--body); font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--ink-20); padding: 7px 10px; min-width: 200px; cursor: pointer; appearance: auto; }
+    .ctrl-select:disabled { opacity: 0.4; cursor: not-allowed; }
+    .ctrl-select-sm { min-width: 110px; }
+    .ctrl-stepper { display: flex; align-items: center; gap: 0; border: 1px solid var(--ink-20); }
+    .ctrl-stepper-val { font-family: var(--mono); font-size: 13px; font-weight: 700; width: 52px; text-align: center; background: var(--bg); color: var(--ink); border: none; padding: 7px 4px; }
+    .ctrl-stepper-btn { font-family: var(--mono); font-size: 14px; width: 30px; height: 33px; background: transparent; border: none; border-left: 1px solid var(--ink-14); color: var(--ink-48); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .ctrl-stepper-btn:first-child { border-left: none; border-right: 1px solid var(--ink-14); }
+    .ctrl-stepper-btn:hover { background: var(--ink-06); color: var(--ink); }
+    .generate-btn { font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; padding: 9px 22px; background: var(--ink); color: var(--bg); border: none; cursor: pointer; align-self: flex-end; height: 33px; white-space: nowrap; }
+    .generate-btn:hover { background: var(--red); }
+    .generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Card preview area ── */
+    .preview-section { margin-bottom: 32px; }
+    .preview-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .preview-label { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.10em; text-transform: uppercase; }
+    .download-btn { font-family: var(--mono); font-size: 10px; letter-spacing: 0.10em; text-transform: uppercase; padding: 6px 14px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; }
+    .download-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .preview-scroll { overflow-x: auto; border: 1px solid var(--ink-14); }
+    .preview-scale-wrap { transform-origin: top left; }
+
+    /* ── Calendar ── */
+    .calendar-section { border-top: 2px solid var(--ink); padding-top: 24px; }
+    .calendar-title { font-family: var(--display); font-weight: 800; font-size: 20px; text-transform: uppercase; letter-spacing: 0.02em; margin-bottom: 4px; }
+    .calendar-sub { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; margin-bottom: 20px; }
+    .calendar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+    .cal-item { background: var(--surface); border: 1px solid var(--ink-14); padding: 12px 14px; }
+    .cal-group { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-32); margin-bottom: 3px; }
+    .cal-name { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--ink); margin-bottom: 6px; }
+    .cal-when { font-family: var(--mono); font-size: 9px; color: var(--ink-48); letter-spacing: 0.04em; margin-bottom: 8px; }
+    .cal-when.fresh { color: #166534; }
+    .cal-btn { font-family: var(--mono); font-size: 9px; letter-spacing: 0.10em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); background: transparent; color: var(--ink-48); cursor: pointer; }
+    .cal-btn:hover { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .cal-btn.posted { background: #166534; color: #fff; border-color: transparent; }
+
+    @media (max-width: 640px) {
+      .admin-mast-inner, .page-body { padding-left: 16px; padding-right: 16px; }
+      .controls { gap: 10px; }
+    }
+  </style>
+</head>
+<body>
+<Nav currentPath="/admin/generator" />
+
+<div class="admin-mast">
+  <div class="admin-mast-inner">
+    <div>
+      <div class="admin-eyebrow"><span class="admin-pip"></span>HGB Admin · Card Generator</div>
+      <h1 class="admin-title">Leaderboard Generator</h1>
+    </div>
+    <div class="admin-user" id="admin-user-display"></div>
+  </div>
+</div>
+
+<div class="page-body">
+
+  <!-- Auth states -->
+  <div id="state-loading" class="auth-state">
+    <div class="auth-state-label">Checking authorization…</div>
+    <div class="auth-state-sub">Verifying admin session</div>
+  </div>
+  <div id="state-unauthed" class="auth-state" style="display:none">
+    <div class="auth-state-label">Sign in required</div>
+    <div class="auth-state-sub">You need an active session to access admin tools.</div>
+    <a href="/account" class="auth-btn">Sign in →</a>
+  </div>
+  <div id="state-forbidden" class="auth-state" style="display:none">
+    <div class="auth-state-label">Admin access required</div>
+    <div class="auth-state-sub">Your account does not have admin privileges.</div>
+  </div>
+  <div id="state-error" class="auth-state" style="display:none">
+    <div class="auth-state-label">Something went wrong</div>
+    <div class="auth-state-sub" id="error-msg"></div>
+  </div>
+
+  <!-- Main UI -->
+  <div id="generator-ui" style="display:none">
+
+    <!-- Controls -->
+    <div class="controls">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Category</span>
+        <select class="ctrl-select" id="ctrl-category"></select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">View</span>
+        <select class="ctrl-select ctrl-select-sm" id="ctrl-view">
+          <option value="both">Both</option>
+          <option value="top">Top only</option>
+          <option value="bottom">Bottom only</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Top/Bottom N</span>
+        <div class="ctrl-stepper">
+          <button class="ctrl-stepper-btn" id="n-minus">−</button>
+          <input class="ctrl-stepper-val" id="ctrl-n" type="text" value="10" readonly />
+          <button class="ctrl-stepper-btn" id="n-plus">+</button>
+        </div>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Position</span>
+        <select class="ctrl-select ctrl-select-sm" id="ctrl-pos">
+          <option value="all">All</option>
+          <option value="F">Forwards</option>
+          <option value="D">Defense</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label" id="toi-label">Min TOI (min)</span>
+        <div class="ctrl-stepper">
+          <button class="ctrl-stepper-btn" id="toi-minus">−</button>
+          <input class="ctrl-stepper-val" id="ctrl-toi" type="text" value="200" readonly style="width:60px" />
+          <button class="ctrl-stepper-btn" id="toi-plus">+</button>
+        </div>
+      </div>
+      <button class="generate-btn" id="generate-btn" onclick="generateCard()">Generate Card</button>
+    </div>
+
+    <!-- Preview -->
+    <div class="preview-section" id="preview-section" style="display:none">
+      <div class="preview-toolbar">
+        <span class="preview-label">Preview</span>
+        <button class="download-btn" id="download-btn" onclick="downloadCard()">↓ Download PNG</button>
+      </div>
+      <div class="preview-scroll">
+        <div class="preview-scale-wrap" id="preview-scale-wrap">
+          <div id="card-inner"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Calendar -->
+    <div class="calendar-section">
+      <div class="calendar-title">Content Calendar</div>
+      <div class="calendar-sub">Track when each category was last posted · click "Mark Posted" after publishing</div>
+      <div class="calendar-grid" id="calendar-grid"></div>
+    </div>
+
+  </div><!-- /generator-ui -->
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" is:inline></script>
+<script is:inline>
+(function() {
+  const API         = 'https://api.hockeygamebot.com';
+  const SESSION_KEY = 'hgb_session';
+  const SEASON      = '2025-26';
+  const N_VALUES    = [5, 10, 15, 20];
+
+  // ── Category definitions ──────────────────────────────────────────────────
+  // field: function(row) → number | null
+  // filterField: which TOI/GP field to apply minToi against
+  // toiStep: increment for the TOI stepper
+  const CATEGORIES = [
+    {
+      slug: 'goalie_gsax', label: 'Goalie GSAx', group: 'Goalies',
+      desc: 'Goals Saved Above Expected · all-sit excl EN+SO',
+      dataType: 'goalies',
+      field:   r => r.gsax,
+      fmtVal:  v => (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+      auxCol:  'TOI', auxFmt: r => Math.round((r.toi_sec || 0) / 60) + 'm',
+      filterField: 'toi_min', toiDefault: 60, toiStep: 30, toiLabel: 'Min TOI (min)',
+      badgeFn: gsaxBadge,
+    },
+    {
+      slug: 'goals_60', label: 'Goals/60 (5v5)', group: 'Skaters — Offense',
+      desc: 'Individual goals per 60 min at even strength',
+      dataType: 'skaters',
+      field:   r => r.rates_per_60 && r.rates_per_60.goals,
+      fmtVal:  v => Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'ev_toi', toiDefault: 200, toiStep: 50, toiLabel: 'Min EV TOI (min)',
+      badgeFn: rankBadge,
+    },
+    {
+      slug: 'a1_60', label: 'A1/60 (5v5)', group: 'Skaters — Offense',
+      desc: 'Primary assists per 60 min at even strength',
+      dataType: 'skaters',
+      field:   r => r.rates_per_60 && r.rates_per_60.a1,
+      fmtVal:  v => Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'ev_toi', toiDefault: 200, toiStep: 50, toiLabel: 'Min EV TOI (min)',
+      badgeFn: rankBadge,
+    },
+    {
+      slug: 'ixg_60', label: 'xG/60 (5v5)', group: 'Skaters — Offense',
+      desc: 'Individual expected goals per 60 at even strength',
+      dataType: 'skaters',
+      field:   r => r.rates_per_60 && r.rates_per_60.ixg,
+      fmtVal:  v => Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'ev_toi', toiDefault: 200, toiStep: 50, toiLabel: 'Min EV TOI (min)',
+      badgeFn: rankBadge,
+    },
+    {
+      slug: 'finishing', label: 'Finishing', group: 'Skaters — Offense',
+      desc: 'Goal rate above xG expectation · shooting talent',
+      dataType: 'skaters',
+      field:   r => r.rates_per_60 && r.rates_per_60.finishing,
+      fmtVal:  v => (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'ev_toi', toiDefault: 200, toiStep: 50, toiLabel: 'Min EV TOI (min)',
+      badgeFn: rankBadge,
+    },
+    {
+      slug: 'game_score', label: 'Game Score avg', group: 'Skaters — Offense',
+      desc: 'Composite per-game value averaged across all games',
+      dataType: 'skaters',
+      field:   r => r.avg_gs_display,
+      fmtVal:  v => Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'gp', toiDefault: 20, toiStep: 5, toiLabel: 'Min GP',
+      badgeFn: rankBadge,
+    },
+    {
+      slug: 'pp_xg60', label: 'PP xG/60', group: 'Skaters — Offense',
+      desc: 'Individual expected goals per 60 on power play',
+      dataType: 'skaters',
+      field:   r => r.rates_per_60 && r.rates_per_60.xg_pp_per60,
+      fmtVal:  v => Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'pp_toi', toiDefault: 60, toiStep: 30, toiLabel: 'Min PP TOI (min)',
+      badgeFn: rankBadge,
+    },
+    {
+      slug: 'war', label: 'WAR', group: 'Skaters — Value',
+      desc: 'Wins Above Replacement · full season',
+      dataType: 'skaters',
+      field:   r => r.war,
+      fmtVal:  v => (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'gp', toiDefault: 20, toiStep: 5, toiLabel: 'Min GP',
+      badgeFn: rankBadge,
+    },
+    {
+      slug: 'rapm_off', label: 'RAPM Offense', group: 'Skaters — Value',
+      desc: 'On-ice offensive impact · isolated from teammates',
+      dataType: 'skaters',
+      field:   r => r.rapm_off,
+      fmtVal:  v => (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'ev_toi', toiDefault: 200, toiStep: 50, toiLabel: 'Min EV TOI (min)',
+      badgeFn: rankBadge,
+    },
+    {
+      slug: 'rapm_def', label: 'RAPM Defense', group: 'Skaters — Value',
+      desc: 'On-ice defensive impact · isolated from teammates',
+      dataType: 'skaters',
+      field:   r => r.rapm_def,
+      fmtVal:  v => (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+      auxCol:  'GP', auxFmt: r => r.gp,
+      filterField: 'ev_toi', toiDefault: 200, toiStep: 50, toiLabel: 'Min EV TOI (min)',
+      badgeFn: rankBadge,
+    },
+  ];
+
+  // ── Team colors (synced with team-colors.ts) ──────────────────────────────
+  const TC = {
+    ANA:['#F47A38','#B09862'], BOS:['#FFB81C','#000000'], BUF:['#002654','#FDBB30'],
+    CAR:['#CC0000','#000000'], CBJ:['#002654','#CE1126'], CGY:['#C8102E','#F1BE48'],
+    CHI:['#CF0A2C','#000000'], COL:['#6F263D','#236192'], DAL:['#006847','#8F8F8C'],
+    DET:['#CE1126','#FFFFFF'], EDM:['#FF4C00','#041E42'], FLA:['#041E42','#C8102E'],
+    LAK:['#111111','#A2AAAD'], MIN:['#154734','#A6192E'], MTL:['#AF1E2D','#00205B'],
+    NSH:['#FFB81C','#041E42'], NJD:['#CE1126','#000000'], NYI:['#00539B','#F47D30'],
+    NYR:['#0038A8','#CE1126'], OTT:['#DA1A32','#000000'], PHI:['#FA4616','#000000'],
+    PIT:['#000000','#FCB514'], SEA:['#001628','#99D9D9'], SJS:['#006D75','#EA7200'],
+    STL:['#002F87','#FDB827'], TBL:['#00205B','#FFFFFF'], TOR:['#00205B','#FFFFFF'],
+    UTA:['#71AFE5','#090909'], VAN:['#00205B','#00843D'], VGK:['#B4975A','#333F48'],
+    WSH:['#041E42','#C8102E'], WPG:['#041E42','#004C97'],
+  };
+  function teamColor(abbrev) {
+    const c = TC[abbrev] || ['#E8002D', '#555555'];
+    const hex = c[0]; const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+    const l = (Math.max(r,g,b) + Math.min(r,g,b)) / 2;
+    return l < 0.15 ? c[1] : c[0];
+  }
+
+  // ── Badge color functions ─────────────────────────────────────────────────
+  function gsaxBadge(value) {
+    if (value >= 5)  return { bg: '#4ade80', text: '#14532d' };
+    if (value >= 2)  return { bg: '#a3e635', text: '#365314' };
+    if (value >= -2) return { bg: '#d1d5db', text: '#374151' };
+    if (value >= -5) return { bg: '#fb923c', text: '#7c2d12' };
+    return               { bg: '#f87171', text: '#7f1d1d' };
+  }
+  // rank is 0-indexed within the list; isTop = true for top list
+  function rankBadge(value, rank, isTop) {
+    if (isTop) {
+      if (rank < 3)  return { bg: '#4ade80', text: '#14532d' };
+      if (rank < 6)  return { bg: '#a3e635', text: '#365314' };
+      return               { bg: '#d1d5db', text: '#374151' };
+    } else {
+      if (rank < 3)  return { bg: '#f87171', text: '#7f1d1d' };
+      if (rank < 6)  return { bg: '#fb923c', text: '#7c2d12' };
+      return               { bg: '#d1d5db', text: '#374151' };
+    }
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let _token = null;
+  let _players = null;
+  let _goalies = null;
+  let _calLog = {};  // { slug: ISO string }
+  let _nIdx = 1;     // index into N_VALUES (default 10)
+
+  // ── DOM helpers ───────────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+
+  function showState(id) {
+    ['state-loading','state-unauthed','state-forbidden','state-error','generator-ui']
+      .forEach(s => $(s).style.display = s === id ? '' : 'none');
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  async function init() {
+    try { _token = localStorage.getItem(SESSION_KEY); } catch(e) {}
+    if (!_token) { showState('state-unauthed'); return; }
+
+    let whoami;
+    try {
+      const r = await fetch(`${API}/v1/admin/whoami`, { headers: { Authorization: `Bearer ${_token}` } });
+      if (r.status === 401) { showState('state-unauthed'); return; }
+      if (!r.ok) throw new Error(`whoami ${r.status}`);
+      whoami = await r.json();
+    } catch(e) {
+      $('error-msg').textContent = `Auth check failed: ${e.message}`;
+      showState('state-error'); return;
+    }
+
+    if (!whoami.is_admin) { showState('state-forbidden'); return; }
+    const u = $('admin-user-display');
+    if (u && whoami.email) u.textContent = `// ${whoami.email}`;
+
+    buildCategorySelect();
+    syncControls();
+    wireSteppers();
+
+    showState('generator-ui');
+
+    // Load calendar + prefetch both data sets in parallel (background)
+    loadCalendar();
+    prefetchData();
+  }
+
+  // ── Category select ───────────────────────────────────────────────────────
+  function buildCategorySelect() {
+    const sel = $('ctrl-category');
+    const groups = {};
+    CATEGORIES.forEach(c => { (groups[c.group] = groups[c.group] || []).push(c); });
+    Object.entries(groups).forEach(([grp, cats]) => {
+      const og = document.createElement('optgroup');
+      og.label = grp;
+      cats.forEach(c => {
+        const o = document.createElement('option');
+        o.value = c.slug; o.textContent = c.label;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
+    });
+    sel.addEventListener('change', syncControls);
+  }
+
+  function currentCat() {
+    return CATEGORIES.find(c => c.slug === $('ctrl-category').value) || CATEGORIES[0];
+  }
+
+  function syncControls() {
+    const cat = currentCat();
+    // Position filter: disable for goalies
+    const posSel = $('ctrl-pos');
+    posSel.disabled = cat.dataType === 'goalies';
+    if (cat.dataType === 'goalies') posSel.value = 'all';
+    // TOI label + default
+    $('toi-label').textContent = cat.toiLabel;
+    $('ctrl-toi').value = cat.toiDefault;
+  }
+
+  // ── Steppers ──────────────────────────────────────────────────────────────
+  function wireSteppers() {
+    $('n-minus').addEventListener('click', () => {
+      if (_nIdx > 0) { _nIdx--; $('ctrl-n').value = N_VALUES[_nIdx]; }
+    });
+    $('n-plus').addEventListener('click', () => {
+      if (_nIdx < N_VALUES.length - 1) { _nIdx++; $('ctrl-n').value = N_VALUES[_nIdx]; }
+    });
+    $('toi-minus').addEventListener('click', () => {
+      const cat = currentCat();
+      const cur = parseInt($('ctrl-toi').value) || 0;
+      $('ctrl-toi').value = Math.max(0, cur - cat.toiStep);
+    });
+    $('toi-plus').addEventListener('click', () => {
+      const cat = currentCat();
+      const cur = parseInt($('ctrl-toi').value) || 0;
+      $('ctrl-toi').value = cur + cat.toiStep;
+    });
+  }
+
+  // ── Prefetch data ─────────────────────────────────────────────────────────
+  async function prefetchData() {
+    const headers = { Authorization: `Bearer ${_token}` };
+    const [pr, gr] = await Promise.all([
+      fetch(`${API}/v1/stats/players`, { headers }),
+      fetch(`${API}/v1/stats/goalies`,  { headers }),
+    ]);
+    if (pr.ok) { const d = await pr.json(); _players = d.players || d; }
+    if (gr.ok) { const d = await gr.json(); _goalies = d.goalies || d; }
+  }
+
+  // ── Generate ──────────────────────────────────────────────────────────────
+  window.generateCard = async function() {
+    const btn = $('generate-btn');
+    btn.disabled = true; btn.textContent = 'Loading…';
+
+    const cat    = currentCat();
+    const view   = $('ctrl-view').value;
+    const n      = parseInt($('ctrl-n').value) || 10;
+    const pos    = $('ctrl-pos').value;
+    const minToi = parseInt($('ctrl-toi').value) || 0;
+    const headers = { Authorization: `Bearer ${_token}` };
+
+    // Ensure data loaded
+    if (cat.dataType === 'goalies' && !_goalies) {
+      const r = await fetch(`${API}/v1/stats/goalies`, { headers });
+      if (r.ok) { const d = await r.json(); _goalies = d.goalies || d; }
+    }
+    if (cat.dataType === 'skaters' && !_players) {
+      const r = await fetch(`${API}/v1/stats/players`, { headers });
+      if (r.ok) { const d = await r.json(); _players = d.players || d; }
+    }
+
+    const pool = cat.dataType === 'goalies' ? _goalies : _players;
+    if (!pool) {
+      btn.disabled = false; btn.textContent = 'Generate Card';
+      alert('Failed to load data. Check your session.'); return;
+    }
+
+    // Filter
+    let rows = pool.filter(r => {
+      const v = cat.field(r);
+      if (v == null || isNaN(v)) return false;
+      if (cat.dataType === 'skaters' && pos !== 'all' && r.pos_group !== pos) return false;
+
+      if (cat.filterField === 'gp')      return (r.gp || 0) >= minToi;
+      if (cat.filterField === 'toi_min') return ((r.toi_sec || 0) / 60) >= minToi;
+      if (cat.filterField === 'ev_toi')  return ((r.toi_ev_sec_total || 0) / 60) >= minToi;
+      if (cat.filterField === 'pp_toi')  return ((r.toi_pp_sec_total || 0) / 60) >= minToi;
+      return true;
+    });
+
+    // Sort descending by value
+    rows.sort((a, b) => cat.field(b) - cat.field(a));
+
+    const topN    = rows.slice(0, n);
+    const bottomN = rows.slice(-n).reverse();
+
+    renderCard(cat, topN, bottomN, view, n, pos, minToi);
+
+    btn.disabled = false; btn.textContent = 'Generate Card';
+  };
+
+  // ── Render card HTML ──────────────────────────────────────────────────────
+  function renderCard(cat, topN, bottomN, view, n, pos, minToi) {
+    const posLabel = cat.dataType === 'goalies' ? 'Goalies' : pos === 'F' ? 'Forwards' : pos === 'D' ? 'Defense' : 'Skaters';
+    const filterNote = `${cat.desc} · min ${minToi} ${cat.toiLabel.toLowerCase()}`;
+
+    const isBoth   = view === 'both';
+    const showTop  = view === 'top' || isBoth;
+    const showBot  = view === 'bottom' || isBoth;
+
+    const cols = isBoth ? 2 : 1;
+    const colW = isBoth ? '1fr 1fr' : '600px';
+
+    let colsHtml = '';
+    if (showTop) colsHtml += buildColumn(cat, topN, `TOP ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, true);
+    if (showBot) colsHtml += buildColumn(cat, bottomN, `BOTTOM ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, false);
+
+    const cardHtml = `
+<div style="width:1200px;background:#EFEEE8;padding:48px 52px 40px;font-family:'Barlow Condensed',sans-serif;-webkit-font-smoothing:antialiased;">
+  <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(13,13,20,0.45);margin-bottom:10px;font-family:'Barlow',sans-serif;font-weight:500;">HOCKEYGAMEBOT ANALYTICS</div>
+  <div style="font-size:54px;font-weight:800;text-transform:uppercase;line-height:1;margin-bottom:8px;color:#0d0d14;letter-spacing:-0.01em;">${esc(cat.label)} &mdash; ${SEASON}</div>
+  <div style="font-size:14px;color:rgba(13,13,20,0.50);margin-bottom:22px;font-family:'Barlow',sans-serif;">${esc(filterNote)}</div>
+  <div style="height:2px;background:#E8002D;margin-bottom:28px;"></div>
+  <div style="display:grid;grid-template-columns:${colW};gap:48px;">
+    ${colsHtml}
+  </div>
+  <div style="margin-top:28px;font-size:10px;color:rgba(13,13,20,0.30);font-family:'Barlow',sans-serif;text-align:center;letter-spacing:0.06em;text-transform:uppercase;">HOCKEYGAMEBOT.COM &nbsp;·&nbsp; HGB STATS &nbsp;·&nbsp; ${SEASON}</div>
+</div>`;
+
+    $('card-inner').innerHTML = cardHtml;
+
+    // Scale preview to fit page width
+    const wrap = $('preview-scale-wrap');
+    const available = Math.min(document.body.clientWidth - 80, 1200);
+    const scale = available / 1200;
+    wrap.style.transform = `scale(${scale})`;
+    wrap.style.width = '1200px';
+    wrap.style.height = '';
+    // Reserve correct height in the scroll container
+    const cardEl = $('card-inner').firstElementChild;
+    if (cardEl) {
+      requestAnimationFrame(() => {
+        const h = cardEl.offsetHeight;
+        wrap.style.height = h + 'px';
+        $('preview-scroll').style.height = Math.round(h * scale) + 'px';
+      });
+    }
+
+    $('preview-section').style.display = '';
+  }
+
+  function buildColumn(cat, rows, title, isTop) {
+    const rowsHtml = rows.map((r, i) => {
+      const val     = cat.field(r);
+      const badge   = cat.badgeFn === gsaxBadge ? gsaxBadge(val) : rankBadge(val, i, isTop);
+      const altBg   = i % 2 === 0 ? '#EFEEE8' : 'rgba(13,13,20,0.04)';
+      const tc      = teamColor(r.team_abbrev || '');
+      const name    = r.display_name || (r.first_name + ' ' + r.last_name);
+      const abbrev  = r.team_abbrev || '???';
+      const aux     = cat.auxFmt(r);
+
+      return `
+<div style="display:grid;grid-template-columns:24px 44px 1fr auto auto;align-items:center;gap:8px;padding:9px 10px;background:${altBg};">
+  <span style="font-size:12px;color:rgba(13,13,20,0.35);font-weight:700;font-family:'Barlow Condensed',sans-serif;">${i+1}</span>
+  <span style="font-size:13px;font-weight:800;color:${esc(tc)};font-family:'Barlow Condensed',sans-serif;letter-spacing:0.02em;">${esc(abbrev)}</span>
+  <span style="font-size:17px;font-weight:700;color:#0d0d14;font-family:'Barlow Condensed',sans-serif;">${esc(name)}</span>
+  <span style="font-size:12px;color:rgba(13,13,20,0.45);font-family:'Barlow',sans-serif;text-align:right;">${esc(String(aux))}</span>
+  <span style="font-size:14px;font-weight:700;padding:4px 10px;background:${badge.bg};color:${badge.text};font-family:'Barlow Condensed',sans-serif;min-width:64px;text-align:center;display:inline-block;">${esc(cat.fmtVal(val))}</span>
+</div>`;
+    }).join('');
+
+    return `
+<div>
+  <div style="font-size:12px;font-weight:800;color:#E8002D;letter-spacing:0.08em;text-transform:uppercase;font-family:'Barlow Condensed',sans-serif;margin-bottom:10px;">${esc(title)}</div>
+  <div style="display:grid;grid-template-columns:24px 44px 1fr auto auto;gap:8px;padding:6px 10px;margin-bottom:6px;border-bottom:1px solid rgba(13,13,20,0.14);">
+    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">#</span>
+    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">TEAM</span>
+    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;">PLAYER</span>
+    <span style="font-size:10px;color:rgba(13,13,20,0.35);font-family:'Barlow',sans-serif;font-weight:600;text-align:right;">${cat.auxCol}</span>
+    <span style="font-size:10px;color:#E8002D;font-family:'Barlow',sans-serif;font-weight:700;min-width:64px;text-align:center;">${esc(cat.label)} ↓</span>
+  </div>
+  ${rowsHtml}
+</div>`;
+  }
+
+  // ── Download ──────────────────────────────────────────────────────────────
+  window.downloadCard = function() {
+    const btn = $('download-btn');
+    btn.textContent = 'Generating…'; btn.disabled = true;
+    const el = $('card-inner');
+    document.fonts.ready.then(() => {
+      html2canvas(el, { scale: 2, useCORS: true, backgroundColor: null, logging: false })
+        .then(canvas => {
+          const link = document.createElement('a');
+          const slug = ($('ctrl-category').value || 'card').replace(/_/g, '-');
+          link.download = `hgb-${slug}.png`;
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+          btn.textContent = '↓ Download PNG'; btn.disabled = false;
+        })
+        .catch(() => { btn.textContent = '↓ Download PNG'; btn.disabled = false; });
+    });
+  };
+
+  // ── Calendar ──────────────────────────────────────────────────────────────
+  async function loadCalendar() {
+    try {
+      const r = await fetch(`${API}/v1/admin/generator/calendar`, {
+        headers: { Authorization: `Bearer ${_token}` }
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      _calLog = {};
+      (d.log || []).forEach(row => { _calLog[row.category] = row.posted_at; });
+    } catch(e) {}
+    renderCalendar();
+  }
+
+  function renderCalendar() {
+    const grid = $('calendar-grid');
+    if (!grid) return;
+    grid.innerHTML = CATEGORIES.map(cat => {
+      const postedAt = _calLog[cat.slug];
+      let whenText = 'Never posted';
+      let freshClass = '';
+      if (postedAt) {
+        const days = Math.floor((Date.now() - new Date(postedAt).getTime()) / 86400000);
+        whenText = days === 0 ? 'Posted today' : days === 1 ? 'Posted yesterday' : `Posted ${days} days ago`;
+        if (days <= 7) freshClass = 'fresh';
+      }
+      return `
+<div class="cal-item">
+  <div class="cal-group">${esc(cat.group)}</div>
+  <div class="cal-name">${esc(cat.label)}</div>
+  <div class="cal-when ${freshClass}" id="calwhen-${esc(cat.slug)}">${esc(whenText)}</div>
+  <button class="cal-btn" onclick="markPosted('${esc(cat.slug)}')">Mark Posted</button>
+</div>`;
+    }).join('');
+  }
+
+  window.markPosted = async function(slug) {
+    const btn = event.target;
+    btn.textContent = 'Saving…'; btn.disabled = true;
+    try {
+      const r = await fetch(`${API}/v1/admin/generator/calendar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: slug }),
+      });
+      if (r.ok) {
+        _calLog[slug] = new Date().toISOString();
+        const el = $(`calwhen-${slug}`);
+        if (el) { el.textContent = 'Posted today'; el.className = 'cal-when fresh'; }
+        btn.textContent = 'Posted ✓'; btn.classList.add('posted');
+        setTimeout(() => { btn.textContent = 'Mark Posted'; btn.classList.remove('posted'); btn.disabled = false; }, 2000);
+      } else {
+        btn.textContent = 'Mark Posted'; btn.disabled = false;
+      }
+    } catch(e) { btn.textContent = 'Mark Posted'; btn.disabled = false; }
+  };
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  init();
+})();
+</script>
+
+</body>
+</html>
