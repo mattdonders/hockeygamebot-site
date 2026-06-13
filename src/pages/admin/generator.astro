@@ -544,12 +544,12 @@ import Fonts from '../../components/Fonts.astro';
   };
 
   // ── Render card HTML ──────────────────────────────────────────────────────
-  const CHIP_DARK = `display:inline-flex;align-items:center;font-family:'Barlow',sans-serif;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:4px 10px;background:#0d0d14;color:#EFEEE8`;
-  const CHIP_RED  = `display:inline-flex;align-items:center;font-family:'Barlow',sans-serif;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:4px 10px;background:#E8002D;color:#FFFFFF`;
-
   function renderCard(cat, topN, bottomN, view, n, pos, minToi, gameType, valueField, auxFmtFn, auxColLabel) {
     const isPlayoff  = gameType === 'playoff';
-    const posLabel   = cat.dataType === 'goalies' ? 'Goalies' : pos === 'F' ? 'Forwards' : pos === 'D' ? 'Defense' : 'All Skaters';
+    const gameLabel  = isPlayoff ? 'PLAYOFFS' : SEASON;
+    const posLabel   = cat.dataType === 'goalies' ? 'Goalies' : pos === 'F' ? 'Forwards' : pos === 'D' ? 'Defense' : 'Skaters';
+    const toiNote    = isPlayoff ? `min ${Math.max(1, Math.round(minToi / 60))} GP` : `min ${minToi} ${cat.toiLabel.toLowerCase()}`;
+    const filterNote = `${cat.desc} · ${toiNote}`;
 
     const isBoth   = view === 'both';
     const showTop  = view === 'top' || isBoth;
@@ -560,35 +560,16 @@ import Fonts from '../../components/Fonts.astro';
     if (showTop) colsHtml += buildColumn(cat, topN, `TOP ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, true, valueField, auxFmtFn, auxColLabel);
     if (showBot) colsHtml += buildColumn(cat, bottomN, `BOTTOM ${n} ${posLabel.toUpperCase()} BY ${cat.label.toUpperCase()}`, false, valueField, auxFmtFn, auxColLabel);
 
-    // Chips
-    const gameChip = isPlayoff
-      ? `<span style="${CHIP_RED}">PLAYOFFS</span>`
-      : `<span style="${CHIP_DARK}">REGULAR SEASON</span>`;
-    const posChip  = cat.dataType === 'goalies' ? '' : ` <span style="${CHIP_DARK}">${esc(posLabel.toUpperCase())}</span>`;
-    const minNote  = isPlayoff
-      ? `MIN ${Math.max(1, Math.round(minToi / 60))} GP`
-      : `MIN ${minToi} ${cat.toiLabel.includes('GP') ? 'GP' : 'MIN'}`;
-    const minChip  = minToi > 0 ? ` <span style="${CHIP_DARK}">${esc(minNote)}</span>` : '';
-
     const cardHtml = `
-<div style="width:1200px;font-family:'Barlow Condensed',sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden;">
-  <div style="background:#FFFFFF;padding:32px 48px 22px;">
-    <div style="font-size:52px;font-weight:800;text-transform:uppercase;line-height:1;color:#0d0d14;letter-spacing:-0.01em;margin-bottom:16px;">${esc(cat.label)}</div>
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-      ${gameChip}${posChip}${minChip}
-      <div style="flex:1;min-width:20px;"></div>
-      <span style="${CHIP_RED}">HOCKEYGAMEBOT</span>
-    </div>
+<div style="width:1200px;background:#EFEEE8;padding:48px 52px 40px;font-family:'Barlow Condensed',sans-serif;-webkit-font-smoothing:antialiased;">
+  <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;color:rgba(13,13,20,0.45);margin-bottom:10px;font-family:'Barlow',sans-serif;font-weight:500;">HOCKEYGAMEBOT ANALYTICS</div>
+  <div style="font-size:54px;font-weight:800;text-transform:uppercase;line-height:1;margin-bottom:8px;color:#0d0d14;letter-spacing:-0.01em;">${esc(cat.label)} &mdash; ${esc(gameLabel)}</div>
+  <div style="font-size:14px;color:rgba(13,13,20,0.50);margin-bottom:22px;font-family:'Barlow',sans-serif;">${esc(filterNote)}</div>
+  <div style="height:2px;background:#E8002D;margin-bottom:28px;"></div>
+  <div style="display:grid;grid-template-columns:${colW};gap:48px;">
+    ${colsHtml}
   </div>
-  <div style="height:2px;background:#E8002D;"></div>
-  <div style="background:#EFEEE8;padding:28px 48px 0;">
-    <div style="display:grid;grid-template-columns:${colW};gap:48px;">
-      ${colsHtml}
-    </div>
-  </div>
-  <div style="background:rgba(13,13,20,0.10);height:36px;display:flex;align-items:center;justify-content:center;margin-top:28px;">
-    <span style="font-size:10px;color:rgba(13,13,20,0.40);font-family:'Barlow',sans-serif;letter-spacing:0.06em;text-transform:uppercase;">HOCKEYGAMEBOT.COM &nbsp;·&nbsp; HGB STATS &nbsp;·&nbsp; ${SEASON}</span>
-  </div>
+  <div style="margin-top:28px;font-size:10px;color:rgba(13,13,20,0.30);font-family:'Barlow',sans-serif;text-align:center;letter-spacing:0.06em;text-transform:uppercase;">HOCKEYGAMEBOT.COM &nbsp;·&nbsp; HGB STATS &nbsp;·&nbsp; ${SEASON}</div>
 </div>`;
 
     $('card-inner').innerHTML = cardHtml;
@@ -671,9 +652,8 @@ import Fonts from '../../components/Fonts.astro';
 
   async function loadCalendar() {
     try {
-      const r = await fetch(`${API}/v1/admin/generator/schedule`, {
-        headers: { Authorization: `Bearer ${_token}` }
-      });
+      // Schedule endpoint is public — no Authorization header needed.
+      const r = await fetch(`${API}/v1/admin/generator/schedule`);
       if (!r.ok) return;
       const d = await r.json();
       _schedule = d.schedule || [];
