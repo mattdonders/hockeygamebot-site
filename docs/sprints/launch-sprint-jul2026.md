@@ -1,173 +1,257 @@
 # Launch Sprint — July 1, 2026
 
 **Audit date:** June 15, 2026  
-**Sources:** Claude Opus (UX/design/positioning), Claude Sonnet (breadth/data), + external models (pending)  
+**Sources:** Claude Opus (UX/design), Claude Sonnet (breadth/data), ChatGPT (full site + player pages), Gemini (full site + cards)  
 **Target:** Public launch July 1, 2026 (~2 weeks)
 
 ---
 
-## Sprint scope
+## Consensus findings (flagged by 3+ sources — highest confidence)
 
-Two-tier split:
+These came up independently across multiple audits. Fix first.
 
-- **Must-fix (Week 1 target):** Data bugs, broken routing, embarrassing inconsistencies that would damage credibility on first visit
-- **Polish (Week 2 target):** UX, navigation, design consistency, copy, SEO
+| # | Issue | Sources |
+|---|-------|---------|
+| 1 | Homepage doesn't communicate the analytics product | All 4 |
+| 2 | Sub-nav placement/UX is wrong | All 4 |
+| 3 | Games page empty state looks unfinished | ChatGPT, Gemini, Sonnet |
+| 4 | WOWY empty state needs examples/defaults | ChatGPT, Gemini, Opus |
+| 5 | Metric naming inconsistent (Impact vs HGBScore v2 vs Game Score) | Opus, Sonnet, ChatGPT |
+| 6 | Account page dead end — no value prop | ChatGPT, Gemini, Opus, Sonnet |
+| 7 | Mobile filter density too heavy on stats pages | ChatGPT, Gemini, Sonnet |
+| 8 | Small/light text contrast issues (metadata, legends, footnotes) | ChatGPT, Gemini |
+| 9 | Glossary/methodology path buried too deep | All 4 |
+| 10 | Filter/metadata mismatches (reg season label when playoffs active) | ChatGPT, Gemini |
 
 ---
 
 ## P0 — Must fix before launch
 
-These are the things that would embarrass the site or destroy data trust on day one.
+Data bugs and broken routing that destroy credibility or trust on first visit.
 
-### 1. Goalie GSAx — same label, two different scopes
-**What:** Hellebuyck hero tile shows `GSAx +7.15` (5v5, SA=1,546). Career table shows `GSAx +1.15` (all-situations, SA=2,374). Same column label, different values, different denominators. A visitor who notices will lose trust immediately.  
-**Fix:** Add scope labels. Hero: `GSAx (5v5)`. Career table header: `GSAx (all sit.)`. Or standardize both to one scope and clearly label it once.  
-**File:** `src/pages/stats/goalies/[slug].astro`
+### 1. MacKinnon 2013-14 shows Rating% = 7%
+WAR% and Impact% for the same season are 87%/86%. Parse bug — likely should be ~70th percentile.  
+**File:** `hgb-analytics/scripts/export_stats_data.py` or `compute_hgb_rating.py`  
+**Signal:** Claude Opus (flagged as P0)
 
-### 2. MacKinnon 2013-14 shows Rating% = 7%
-**What:** Career table for MacKinnon shows `RATING % = 7%` for 2013-14 while WAR% and Impact% are 87%/86%. Almost certainly a parse bug (should be ~70%). Flagship player page, glaring wrong number.  
-**Fix:** Investigate the rating percentile export for early seasons. Check `export_stats_data.py` and the career season percentile calculation.  
-**File:** `hgb-analytics/scripts/export_stats_data.py` or `compute_hgb_rating.py`
+### 2. Goalie GSAx — hero vs career table show different scopes, same label
+Hero: `GSAx +7.15` (5v5, SA=1,546). Career table: `GSAx +1.15` (all-situations, SA=2,374). Same label, different values. Trust-breaking.  
+**Fix:** Label hero as `GSAx (5v5)` and career table as `GSAx (all sit.)` — this is a labeling fix, not a data fix.  
+**File:** `src/pages/stats/goalies/[slug].astro`  
+**Signal:** Opus + Sonnet
 
-### 3. Playoffs page stale + broken math
-**What:** "Predictions updated Jun 1, 2026" on an active Stanley Cup Final (CAR leads 4-2 after game 6). Completed series show "Next Game TBD" instead of "Series Complete." Win% sidebar shows CAR 100%, MTL/COL 25% simultaneously (sums >100%).  
-**Fix:** Either update playoff probabilities and normalize percentages, or clearly archive/label the page as a historical snapshot. At minimum fix the completed-series "TBD" label and the probability normalization.  
-**File:** `src/pages/playoffs/2026.astro`
+### 3. Playoffs page — stale timestamp + completed series say "Next Game TBD"
+"Predictions updated Jun 1" on an active Stanley Cup Final. All finished series show "Next Game TBD" instead of "Series Complete." Probability math sums >100%.  
+**Fix:** Update probabilities + normalize math. Change "Next Game TBD" to "Series Complete" for finished series. Or clearly archive/label the page.  
+**File:** `src/pages/playoffs/2026.astro`  
+**Signal:** Opus + Sonnet + ChatGPT
 
-### 4. Teams page defaults to Playoffs (16 teams), header says "32 teams"
-**What:** Page masthead says "32 teams · 2025-26" but the default tab is Playoffs which shows 16 teams. First visible content contradicts the headline.  
-**Fix:** Default to Regular Season tab, or change the masthead to be dynamic based on selected tab.  
-**File:** `src/pages/stats/teams.astro` (or the Teams React component)
+### 4. Teams page defaults to Playoffs tab — header says "32 teams"
+First visible content contradicts the headline. Default should be Regular Season.  
+**File:** `src/pages/stats/teams.astro`  
+**Signal:** Sonnet
 
-### 5. Player/goalie clean slugs 404
-**What:** `/stats/player/nathan-mackinnon` → 404 (only `nathan-mackinnon-8477492` works). `/stats/goalies/connor-hellebuyck` → 404 (only `connor-hellebuyck-8476945` works). Any external link without the numeric suffix is broken.  
-**Fix:** Add a redirect: strip the trailing `-{id}` from incoming slugs, look up the canonical slug, and 307 to the full slug. Or add slug-without-id as an accepted `getStaticPaths` param that resolves to the right page.  
-**Note:** The `.bak.20260612` file next to `[slug].astro` suggests recent churn — confirm routing is stable.  
-**Files:** `src/pages/stats/player/[slug].astro`, `src/pages/stats/goalies/[slug].astro`
+### 5. Clean slugs 404
+`/stats/player/nathan-mackinnon` → 404. `/stats/goalies/connor-hellebuyck` → 404. Any external link without the numeric ID suffix is broken.  
+**Fix:** Add slug-without-ID redirect or accept both formats in `getStaticPaths`.  
+**Files:** `src/pages/stats/player/[slug].astro`, `src/pages/stats/goalies/[slug].astro`  
+**Signal:** Opus + Sonnet + ChatGPT (initially thought pages were broken entirely)
 
-### 6. "Phase 2" internal label visible on /games
-**What:** "On-ice xGF/xGA · Phase 2 HGB GIF" is visible to users on the game page. Internal dev terminology.  
-**Fix:** Change to "On-ice xGF/xGA" or the feature's actual user-facing name.  
-**File:** `src/pages/games/index.astro` (or game component)
+### 6. "Phase 2" internal label on /games
+"On-ice xGF/xGA · Phase 2 HGB GIF" is visible to users.  
+**Fix:** Remove "Phase 2".  
+**File:** Games page component
 
 ### 7. "V1" watermark on /stats/skaters footer
-**What:** `HOCKEYGAMEBOT.COM · HGB STATS · 2025–2026 · SKATERS V1` is visible as a page footer watermark. "V1" is internal versioning.  
-**Fix:** Remove "V1" from the watermark.  
+`SKATERS V1` is internal versioning, not user-facing copy.  
+**Fix:** Remove "V1".  
 **File:** `src/pages/stats/skaters.astro`
 
----
-
-## P1 — High impact polish (Week 1/2 overlap)
-
-### 8. Homepage doesn't mention the analytics product
-**What:** The homepage is entirely bot-centric (32 bots, card feed, game results). WAR, Rating, GSAx, WOWY, line combos — the site's real differentiator vs. NST/MoneyPuck — are completely invisible until you open the Stats dropdown. A stat-savvy fan referred from social has no idea deep analytics exist here.  
-**Fix:** Add one homepage section that surfaces the analytics ("Player ratings, WAR, GSAx, line combos — every team") with direct links to key leaderboards. Doesn't need to be large — even a 2-row "Explore the data" strip changes the story.  
-**File:** `src/pages/index.astro`
-
-### 9. Metric naming is inconsistent — pick one vocabulary
-**What:** The game-by-game performance metric is called three different things across pages:
-- `/stats/impact` and leaderboard: "HGB Impact" / "HGBScore v2"  
-- Player page footer note: "HGB Game Score"  
-- Methodology page: not defined at all  
-
-**Fix:** Pick one canonical name (recommend "HGB Game Impact" or just "Game Score") and use it everywhere. Add it to the methodology page.  
-**Files:** `src/pages/stats/impact.astro`, `src/pages/stats/player/[slug].astro`, `src/pages/methodology.astro`
-
-### 10. Lines + WOWY use old "HockeyGameBot Analytics" header
-**What:** Lines and WOWY still use an older wordmark/header design. Skaters, Impact, Player, and Goalie pages use the current "HGB Stats" header system. Makes the stats section look like two different products.  
-**Fix:** Migrate `lines.astro` and `wowy.astro` to the current header/masthead pattern from `skaters.astro`.  
-**Files:** `src/pages/stats/lines.astro`, `src/pages/stats/wowy.astro`
-
-### 11. Sub-nav "Series Records" links to wrong page
-**What:** The sub-nav "Series Records" link → `/stats/records` (10-year historical database). The 2026 playoff series index is at `/stats/series` and is NOT in the sub-nav. Users clicking "Series Records" during the playoffs land on historical franchise data, not the 2026 series they're looking for.  
-**Fix:** Either rename the sub-nav item to "Historical" and add a "2026 Series" item, or make it context-aware. Also: sub-nav disappears entirely once you're on a series detail page — add it back.  
-**File:** Wherever `StatsSubnav` is defined
-
-### 12. Sub-nav UX — order, grouping, redundancy
-**What (flagged independently by both agents and user):** The sub-nav has three issues:
-- Order isn't logical ("Impact" sits between Lines and Series Records, away from Skaters/Goalies it belongs with)
-- All items are at the same hierarchy level — "WOWY" and "Series Records" appear equal to "Skaters"
-- Duplicates the Stats dropdown in the main nav — two competing nav systems for the same pages
-
-**Fix:** Reorder to group naturally (Skaters / Goalies / Teams | Lines / Impact / WOWY | Series). Consider visually separating core leaderboards from tools. Or rethink the whole sub-nav — this is the UX issue the user flagged in screenshot.  
-**File:** `StatsSubnav` component
-
-### 13. Sitemap only has 3 URLs
-**What:** `sitemap.xml` contains only homepage, `/teams/`, `/project/`. 800+ player pages, all stats leaderboards, goalie pages, playoffs page — all missing. Zero organic search discovery for "Nathan MacKinnon WAR" type queries.  
-**Fix:** Generate sitemap dynamically from `getStaticPaths` in the Astro build. Include all player pages, goalie pages, series pages, and main stats routes.  
-**Files:** `src/pages/sitemap.xml.ts` (or equivalent sitemap generation file)
-
-### 14. Impact page — no minimum GP filter, single-game players inflate top 10
-**What:** Tristan Luneau (1 GP) appears in the top 10 with +2.13 Impact. No "min GP" filter is visible on the Impact page. The Skaters leaderboard has min 20 GP but Impact doesn't enforce it consistently.  
-**Fix:** Add a default minimum (suggest 5 GP) to the Impact leaderboard, or add a visible filter control matching the Skaters page pattern.  
-**File:** `src/pages/stats/impact.astro`
+### 8. Goalie card — blank headshot circle on image failure
+Empty gray circle is the fallback when goalie image doesn't load. Reads as a rendering bug on social.  
+**Fix:** Fallback to team logo, initials, or remove the circle entirely.  
+**Signal:** ChatGPT (flagged post player-page review)
 
 ---
 
-## P2 — Polish and nice-to-have (Week 2)
+## P1 — High impact (Week 1/2)
 
-### 15. Account page is a dead end after login
-After signing in, users see only "Signed in · Free account / Sign out" with no links, no tracked teams, no explanation of what an account gets you. The support page says "Perks and supporter features are coming" with no specifics.  
-**Fix:** Add a short "what you get / what's coming" section on the account page. Link to tracked-teams personalization if it exists.
+### 9. Homepage doesn't communicate the analytics product ⭐ CONSENSUS
+The homepage is entirely bot/game-centric. WAR, Rating, GSAx, WOWY, line combos — the real differentiator — are invisible until the Stats dropdown. On a July 1 launch with no games, the homepage reads as "No games today."  
+**Fix:** Add one homepage section that surfaces the analytics ("Player ratings, WAR, GSAx, line combos — every team") with direct links. Suggestions from audits: top 5 Impact skaters from last night, WAR leaders mini-strip, 4 entry points (Skater Ratings / Goalie GSAx / Playoff Series / Search Player).  
+**File:** `src/pages/index.astro`  
+**Signal:** All 4 audits
 
-### 16. Onboarding for metrics is buried
-The methodology page is good but lives at Analysis → Methodology (2 levels deep). The leaderboard glossaries at page bottom are good. What's missing: a "What is HGB Rating?" one-liner near the player page hero tile or the leaderboard title.  
-**Fix:** Add a tooltip or small glossary link near each metric header on the leaderboard and player page.
+### 10. Sub-nav UX redesign ⭐ CONSENSUS
+Issues flagged by every source:
+- Placement below the hero makes it feel disconnected and it disappears when scrolling
+- Order isn't logical (Impact between Lines and Series Records, away from Skaters/Goalies)
+- "Series Records" links to wrong page (`/stats/records` historical database, not `/stats/series` 2026 playoff index)
+- Disappears entirely on series detail pages
+- Duplicates the Stats dropdown
 
-### 17. "Series Records" and "WOWY" naming
-"WOWY" is an insider acronym. On the sub-nav it appears with no expansion. The series page uses "Series Records," "Series Records," and "2026 Playoff Series" in three different places.  
-**Fix:** Expand WOWY to "With/Without (WOWY)" on first use. Standardize "Playoff Series" naming.
+**Fix options:** Move sub-nav above the hero or make it sticky. Reorder: Core (Skaters / Goalies / Teams) → Tools (Lines / Impact / WOWY) → History (Series). Rename "Series Records" → "Playoff Series" or split. Add it back to series detail pages.  
+**Signal:** All 4 audits + user (flagged before audit)
 
-### 18. Skaters table renders "0 skaters" in SSR HTML
-Before React hydrates, the table shows "0 skaters match the current filters." Crawlers index this state.  
-**Fix:** Add a skeleton/loading state in the static HTML that's visually distinct from the real empty state.
+### 11. Metric naming — pick one vocabulary
+Same concept called 3 things across the site: "HGB Impact" / "HGBScore v2" / "HGB Game Score." Methodology page defines only WAR and Rating, not Impact/Game Score at all.  
+**Fix:** Pick one name (recommend "Game Score" or "HGB Impact"). Define it on the methodology page. Use it everywhere.  
+**Files:** `src/pages/stats/impact.astro`, `src/pages/stats/player/[slug].astro`, `src/pages/methodology.astro`  
+**Signal:** Opus + Sonnet + ChatGPT
 
-### 19. ARI still appears in team filters
-Arizona Coyotes are now Utah HC (UTA). Historical data legitimately has ARI, but showing it in current-season filters is confusing.  
-**Fix:** Filter ARI out of current-season team dropdowns (keep in historical ranges).
+### 12. Percentile columns using "%" creates confusion with actual percentages
+`RATING %` and `WAR %` columns sit next to `xGF%` (55.9%) — same `%` symbol, completely different meaning. A user reads "WAR % = 100%" and doesn't know if it's a percentile or a share metric.  
+**Fix:** Change column headers to `Rating Pct`, `WAR Pct`, `Impact Pct`. Show raw integers (99, 100) not 99%, 100%.  
+**Signal:** ChatGPT + Gemini  
+**Files:** `src/pages/stats/player/[slug].astro`, career table section
 
-### 20. `player_count: 0` in `_meta.json`
-The metadata field that should report 715 players shows 0. Pipeline health data isn't populating correctly even when the underlying data is fine.  
-**Fix:** Check the `export_stats_data.py` meta section — this field was likely not wired up after a schema change.
+### 13. "Similar Forwards" label is misleading
+Players listed are similar by WAR bucket, not stylistically. McDavid comps by WAR won't look like McDavid stylistically.  
+**Fix:** Rename to "Closest WAR Comps" or "Nearest by WAR."  
+**Signal:** ChatGPT
 
-### 21. Analysis section has only 2 articles
-Both are playoffs-only content from May-June 2026. A visitor to /analysis sees almost nothing.  
-**Post-launch:** Add 2-3 offseason methodology/explainer articles.
+### 14. Games page empty state
+"No game selected" with one button in a large blank canvas. Looks unfinished, not a feature.  
+**Fix:** Default to showing a recent results list or date picker. Add a one-liner: "Select a game to view win probability, xG flow, events, and on-ice data."  
+**Signal:** ChatGPT + Gemini + Sonnet
 
-### 22. Game page `<title>` never updates
-`Game · HockeyGameBot` for every game regardless of teams or state. Usability and SEO issue for the SPA.
+### 15. Lines + WOWY use old "HockeyGameBot Analytics" header
+Two pages still use an older header design generation. Looks like a different product from Skaters/Impact/Player pages.  
+**Files:** `src/pages/stats/lines.astro`, `src/pages/stats/wowy.astro`  
+**Signal:** Opus
 
-### 23. "Find your team bot →" CTA on /support doesn't link anywhere
-The CTA exists but the link destination is missing.
+### 16. WOWY empty state needs examples
+Just a search bar — no hints, no default pairings, no explanation of what WOWY shows.  
+**Fix:** Add 3-4 suggested pairings (McDavid + Draisaitl, MacKinnon + Rantanen, etc.). Add one-liner: "Compares how two players perform together, apart, and when neither is on ice."  
+**Signal:** ChatGPT + Gemini
+
+### 17. Sitemap has only 3 URLs
+Homepage, `/teams/`, `/project/`. 800+ player pages, all stats pages, goalie pages, playoffs — all missing. No organic search discovery.  
+**Fix:** Generate sitemap from `getStaticPaths` in the Astro build.  
+**Signal:** Opus + Sonnet
+
+### 18. Impact page — no minimum GP filter, single-game players inflate top 10
+Tristan Luneau (1 GP) in the top 10 with +2.13 Impact.  
+**Fix:** Default min 5 GP on Impact leaderboard, or add a visible filter control.  
+**File:** `src/pages/stats/impact.astro`  
+**Signal:** Sonnet
+
+### 19. Positive green text contrast in game log
+Negative impact numbers use dark red (pops). Positive impact values use bright green that bleeds into the cream background.  
+**Fix:** Darken the positive green to a forest/hunter shade for WCAG contrast compliance.  
+**Signal:** Gemini (post player-page review)
+
+### 20. "lg" abbreviation on goalie cards/pages
+"lg" as "league average" is not self-explanatory to non-regulars.  
+**Fix:** Spell out "league avg" in small type.  
+**Signal:** ChatGPT (post goalie-page review)
+
+---
+
+## P2 — Polish (Week 2)
+
+### 21. Account page — explain the value of signing in
+Currently just "Sign in · Free account · Sign out" after login. No tracked teams, no saved filters, no "here's what you get" panel.  
+**Fix:** Add a "What you get / What's coming" section: followed teams, saved filters, personalized dashboard.  
+**Signal:** All 4 audits
+
+### 22. Methodology/glossary path buried
+Good content (WAR, Rating, xG, RAPM definitions) but hidden under Analysis → Methodology. Leaderboard bottom glossaries are good — need surface-level links near metric headers.  
+**Fix:** Add "What is HGB Rating?" link near hero tile on player page. Add tooltip or glossary anchor near each metric header.  
+**Signal:** All 4 audits
+
+### 23. Mobile filter density
+On mobile stats pages, filters consume most of the screen before the user sees any data. Tab bar also wraps on narrow screens.  
+**Fix:** Collapse advanced filters by default on mobile. Show table immediately.  
+**Signal:** ChatGPT + Gemini + Sonnet
+
+### 24. Mobile table horizontal scroll affordance
+No visual hint that tables scroll horizontally on mobile. A right-side inner shadow or "← swipe →" label would help.  
+**Signal:** Gemini
+
+### 25. Teams page — add L10 sparklines or visual rank indicators
+Current state is a flat spreadsheet. Even simple sparklines would make it more scannable.  
+**Signal:** Gemini
+
+### 26. ARI still appears in team filters
+Arizona Coyotes relocated → Utah HC (UTA). Historical data legitimately has ARI but shouldn't appear in current-season dropdowns.  
+**Signal:** Sonnet
+
+### 27. `player_count: 0` in `_meta.json`
+Pipeline health metadata field broken.  
+**Signal:** Sonnet
+
+### 28. Min TOI slider styling on Lines page
+The red range slider feels disconnected from the flat, premium aesthetic of the rest of the UI.  
+**Signal:** Gemini
+
+### 29. Game page `<title>` never updates
+Always "Game · HockeyGameBot" regardless of teams or state. SEO + bookmarking issue.  
+**Signal:** Sonnet
+
+### 30. Analysis section has only 2 articles
+Both playoffs-only. Looks thin for a launch.  
+**Post-launch:** Add 2-3 offseason explainers (methodology, RAPM primer, season preview).
+
+### 31. "Find your team bot →" CTA on /support doesn't link anywhere
+CTA exists but the destination is missing.  
+**Signal:** Sonnet
 
 ---
 
 ## What's working — don't break it
 
-- **Player pages** — composite percentile hero tiles, shot map, season trend, game log, similar players panel. Genuinely better UX than NST spreadsheet aesthetic.
-- **Goalie pages** — GSAx breakdown by shot difficulty, bin analysis, career table.
-- **Sample-size guards** — min 20 GP, min 500 SA, <50 min → no data. Correctly surfaced everywhere.
-- **CSV/PNG export** on every leaderboard.
-- **Freshness timestamps** ("updated Jun 15, 2026") on all data pages.
-- **Methodology page** — honest, clear, doesn't overclaim. Keep.
+Consensus positives across all 4 audits:
+
+- **Player pages** — hero tiles, shot map, season trend, game log, similar players. ChatGPT: "These are not a launch-blocker — they're a major strength."
+- **Goalie pages** — GSAx by difficulty tier, zone breakdown, career table. Genuinely better than NST.
+- **Social card system** — multiple card types is an exceptional viral growth feature. Vertical bar card is the strongest format.
+- **Support/About page** — "One person. 32 bots." + exact cost breakdown builds trust. Gemini: "This is fantastic."
+- **Stats leaderboard tables** — design, sort, CSV/PNG export, filter depth.
+- **GSAx cumulative chart** on goalies page — immediate visual differentiator.
+- **Sparklines on Impact page** — "something competitors don't usually present this cleanly" (Gemini).
+- **Methodology page** — honest, clear, doesn't overclaim.
 - **Passwordless auth** — right pattern for this audience.
-- **Stats glossaries** at page bottom — well-written.
+- **Bottom glossaries** on leaderboards — well-written.
+- **Freshness timestamps** ("updated Jun 15, 2026") — present everywhere.
+- **Sample-size guards** — min 20 GP, min 500 SA. Flagged as trust-builders by 3 audits.
 
 ---
 
-## Sprint schedule (rough)
+## Card audit notes (Gemini + ChatGPT)
 
-| Week | Focus |
-|------|-------|
-| Jun 16–20 | P0 data bugs (#1-7), sub-nav routing fix (#11), sitemap (#13) |
-| Jun 21–25 | P1 UX (#8-12, #14), sub-nav redesign |
-| Jun 26–28 | P2 polish, final QA pass, external model feedback integration |
-| Jun 29–30 | Staging review, launch checklist, go/no-go |
+**Vertical vs horizontal card:**
+- Gemini: vertical clearly wins — natural reading pattern, bars scan in one direction
+- ChatGPT: keep both — vertical = "clean profile," horizontal = "readability-first for Discord/desktop social"
+- Recommendation: keep both, but optimize the vertical as the default/primary export
+
+**Single-season EDGE card:**
+- Both audits flagged the right panel as visually overloaded (bars + split bars + progress meters + text)
+- Fix: create a clear visual split — left = HGB Model Profile, right = NHL Edge Tracking — with unified grid alignment on the right
+
+**WAR/Impact blocks on vertical card** (ChatGPT):
+- Currently show only "2025-26" under the percentile in the top modules
+- Add raw values: `99% / +3.92 WAR`, `100% / +2.30 GS avg`
+
+---
+
+## Sprint schedule
+
+| Period | Focus |
+|--------|-------|
+| Jun 16–18 | P0 data bugs (#1-8): MacKinnon rating, goalie label, playoffs, teams default, clean slugs, internal labels, card fallback |
+| Jun 19–22 | P1 UX: Homepage analytics section (#9), sub-nav redesign (#10), metric naming (#11), percentile labels (#12), games page (#14) |
+| Jun 23–25 | P1 continued: Lines/WOWY header migration (#15), WOWY examples (#16), Impact min GP (#18), contrast fixes (#19) |
+| Jun 26–27 | P2 polish: Account value prop, mobile filters, sitemap, remaining label fixes |
+| Jun 28–29 | QA pass, cross-browser/mobile device check, external model follow-up (Grok pending) |
+| Jun 30 | Staging review, go/no-go decision |
 | Jul 1 | 🚀 |
 
 ---
 
 ## Pending
-- External model audit results (ChatGPT / Gemini / Grok) — user running manually from ZIP bundle
-- Methodology page — Impact/Game Score definition missing (P1 #9)
-- Cloudflare WAF — verify og: unfurlers (Twitter/Bluesky/Discord) aren't blocked (Opus finding #4)
+
+- Grok audit (service was down — retry)
+- External model follow-up: send corrected player/goalie screenshots to ChatGPT/Gemini ✅ (done — integrated above)
+- Cloudflare WAF check: verify og: unfurlers (Twitter/Bluesky/Discord/iMessage) are not blocked
+- MacKinnon 2013-14 rating bug: root cause investigation in pipeline scripts
