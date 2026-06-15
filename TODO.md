@@ -80,6 +80,9 @@ Full plan: `docs/plans/stats-redesign.md`
 - [ ] Expose Tier 1 cards: grid card, RAPM card, with/without card (start with 3, not all 26)
 - [ ] Rate limiting: 3/day IP-limited free, unlimited for paid
 - [ ] **Card audit: consolidate A-F variants → pick 2 "official" formats, deprecate rest**
+- [ ] **Card carousel ("scroll thingy")** — dot/pill indicator on Season Card to switch between WITH EDGE and WITHOUT EDGE variants; same mechanic on Rating Card to switch between portrait and new horizontal layout
+- [ ] **Horizontal Rating card** — landscape (Twitter-friendly) variant of Card 2; large hero numbers (Rating/WAR/Impact), cream/white editorial style with chips, no bar chart
+- [ ] **Player age display** — backfill `birth_date` from NHL API for all ~3,200 players (`backfill_player_birthdates.py`), add to `players.json` export, show age on player page and season card
 
 ### Phase 4 — Auth + monetization
 - [ ] Auth MVP: email magic link + D1 `users` table + Workers KV sessions (no passwords at v1)
