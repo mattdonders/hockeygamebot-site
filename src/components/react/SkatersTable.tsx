@@ -275,7 +275,7 @@ function buildAggColumns(
       sortType: 'string',
     },
     { id: 'season', header: 'Seasons', accessor: () => rangeLabel, width: 116, mobileHidden: true,
-      cell: () => <span style={{ ...MONO, fontSize: 11, whiteSpace: 'nowrap' }}>{rangeLabel}</span>, exportText: () => rangeLabel },
+      cell: () => <span style={{ ...MONO, fontSize: 13, whiteSpace: 'nowrap' }}>{rangeLabel}</span>, exportText: () => rangeLabel },
     { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp', header: 'GP', accessor: r => r.gp, width: 52 },
