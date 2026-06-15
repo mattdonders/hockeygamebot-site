@@ -29,19 +29,32 @@ export async function getStaticPaths() {
     return candidates.slice(0, 4).sort((a, b) => b.gsax - a.gsax);
   }
 
-  return goalies.map(g => {
+  const cleanSlugCount = new Map<string, number>();
+  goalies.forEach(g => {
+    if (g.slug && g.slug.length > 0) {
+      const clean = g.slug.replace(/-\d+$/, '');
+      cleanSlugCount.set(clean, (cleanSlugCount.get(clean) ?? 0) + 1);
+    }
+  });
+
+  return goalies.flatMap(g => {
     const slugParam = g.slug && g.slug.length > 0
       ? g.slug
       : `goalie-${g.goalie_id}`;
-    return {
-      params: { slug: slugParam },
-      props:  {
-        goalie:         g,
-        gsaxRank:       rankById.get(g.goalie_id) ?? null,
-        qualCount:      qualified.length,
-        similarGoalies: findSimilarGoalies(goalies, g),
-      },
+    const props = {
+      goalie:         g,
+      gsaxRank:       rankById.get(g.goalie_id) ?? null,
+      qualCount:      qualified.length,
+      similarGoalies: findSimilarGoalies(goalies, g),
     };
+    const paths = [{ params: { slug: slugParam }, props }];
+    if (g.slug && g.slug.length > 0) {
+      const cleanSlug = g.slug.replace(/-\d+$/, '');
+      if ((cleanSlugCount.get(cleanSlug) ?? 0) === 1) {
+        paths.push({ params: { slug: cleanSlug }, props });
+      }
+    }
+    return paths;
   });
 }
 
@@ -1012,7 +1025,8 @@ const cardData = {
       ctx.fillStyle = TEAM_C; ctx.fillRect(0, y, 6, HERO_H);
 
       const R = 68, HS_CX = PAD + R + 6, HS_CY = y + HERO_H / 2;
-      const hsImg = await loadImg(G.headshotUrl);
+      const hsImg = await loadImg(G.headshotUrl)
+        ?? await loadImg(`https://assets.nhle.com/logos/nhl/svg/${G.team}_light.svg`);
       ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI*2); ctx.clip();
       if (hsImg) ctx.drawImage(hsImg, HS_CX-R, HS_CY-R, R*2, R*2);
       else { ctx.fillStyle = INK10; ctx.fillRect(HS_CX-R, HS_CY-R, R*2, R*2); }

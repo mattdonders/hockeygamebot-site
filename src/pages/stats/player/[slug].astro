@@ -61,7 +61,15 @@ export async function getStaticPaths() {
     return candidates.slice(0, 4);
   }
 
-  return players.map(player => {
+  // Build clean-slug collision map so we only emit /stats/player/nathan-mackinnon
+  // for players whose name is unique. Collisions keep the full slug only.
+  const cleanSlugCount = new Map<string, number>();
+  players.forEach(p => {
+    const clean = p.slug.replace(/-\d+$/, '');
+    cleanSlugCount.set(clean, (cleanSlugCount.get(clean) ?? 0) + 1);
+  });
+
+  return players.flatMap(player => {
     const playerGames = loadPlayerGames(player.player_id);
     const rankInfo    = rankMap.get(player.player_id)    ?? { rank: 0, total: 0 };
     const rapmRank    = rapmRankMap.get(player.player_id) ?? null;
@@ -76,7 +84,13 @@ export async function getStaticPaths() {
     const peersRating  = findPeers(players, player, 'rating').map(mapPeer);
     const warPct = warPctMap.get(player.player_id) ?? null;
     const playerSeasonStats = loadPlayerSeasonStats(player.player_id);
-    return { params: { slug: player.slug }, props: { player, playerGames, rankInfo, rapmRank, peers, peersRating, warPct, playerSeasonStats } };
+    const props = { player, playerGames, rankInfo, rapmRank, peers, peersRating, warPct, playerSeasonStats };
+    const paths = [{ params: { slug: player.slug }, props }];
+    const cleanSlug = player.slug.replace(/-\d+$/, '');
+    if ((cleanSlugCount.get(cleanSlug) ?? 0) === 1) {
+      paths.push({ params: { slug: cleanSlug }, props });
+    }
+    return paths;
   });
 }
 
