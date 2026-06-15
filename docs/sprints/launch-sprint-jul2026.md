@@ -199,6 +199,29 @@ CTA exists but the destination is missing.
 
 ---
 
+## Post-launch — Table V2 redesign
+
+### 32. Full table architecture review
+
+**Current state:** All leaderboard tables use TanStack Table (React Table v8) + TanStack Virtual, wrapped in `HGBTable.tsx`. `SkatersTable.tsx` alone is 900 lines. The filter panel (strength, display, position, team, season) is dense and consumes significant vertical space before data appears — especially painful on mobile.
+
+**Reference:** `~/Development/wnba-site/src/routes/players/+page.svelte` — 477 lines, zero table library, hand-rolled sort, ships a fraction of the JS bundle. The visual difference comes from:
+- **Tab-based views** (Basic / Advanced / Impact) where each tab owns its own `cols: Col[]` array — users never see all columns at once
+- **Player headshots** in the name cell (requires backfilling headshot URLs to the skaters data export)
+- **Active sort column** highlighted in accent color
+- **No filter panel** — just search + season dropdown + tab switcher
+
+**Recommended approach (post-launch V2):**
+1. Drop TanStack Table — replace with hand-rolled sort (`useState` + `.sort()` on a derived array). For 700 rows this is instant; TanStack adds complexity for no perceivable gain here.
+2. Drop TanStack Virtual — same reason. Virtualization only matters above ~2k rows with complex cells.
+3. Introduce Views pattern: define `Basic / Advanced / HGB Model` column sets in a `views[]` config. Tab switcher replaces the strength × display × position filter matrix.
+4. Add player headshots to the skaters/goalies export (NHL CDN URL: `https://assets.nhle.com/mugs/nhl/60x60/{player_id}.png`). Handle fallback to team logo.
+5. Highlight active sort column header in `var(--red)`.
+
+**Effort:** Medium — 2-3 days per table (`SkatersTable`, `GoaliesTable`, `TeamsTable`). Do NOT start before launch; the current tables are working and audited as a strength.
+
+---
+
 ## What's working — don't break it
 
 Consensus positives across all 4 audits:
