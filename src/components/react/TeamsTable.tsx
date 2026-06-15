@@ -100,7 +100,7 @@ function computeRow(t: TeamRow, strength: Strength, display: Display) {
 export default function TeamsTable({ regularRows, playoffRows, statsDate, availableSeasons, isPlayoffSeason = false }: Props) {
   const sortedSeasons = [...availableSeasons].sort().reverse(); // latest first
   const latestSeason = sortedSeasons[0] ?? '';
-  const [gameType, setGameType] = useState<GameType>(isPlayoffSeason ? 'playoffs' : 'regular');
+  const [gameType, setGameType] = useState<GameType>('regular');
   const [strength, setStrength] = useState<Strength>('5v5');
   const [display,  setDisplay]  = useState<Display>('totals');
   const [season,   setSeason]   = useState<string>(latestSeason);
