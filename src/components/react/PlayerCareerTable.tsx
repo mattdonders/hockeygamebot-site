@@ -289,7 +289,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       },
       {
         id: 'hgb_rating_pct',
-        header: 'RATING %',
+        header: 'Rating Pct',
         size: 90,
         accessorFn: (r) => (r as any).hgb_rating_pct ?? -1,
         cell: (info) => {
@@ -297,14 +297,14 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           const color = rapmPctColor(v);
           return (
             <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
-              {v == null ? '—' : `${Math.round(Number(v))}%`}
+              {v == null ? '—' : `${Math.round(Number(v))}`}
             </span>
           );
         },
       },
       {
         id: 'war_pct',
-        header: 'WAR %',
+        header: 'WAR Pct',
         size: 90,
         accessorFn: (r) => r.war_pct ?? -1,
         cell: (info) => {
@@ -312,14 +312,14 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           const color = rapmPctColor(v);
           return (
             <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
-              {v == null ? '—' : `${Math.round(Number(v))}%`}
+              {v == null ? '—' : `${Math.round(Number(v))}`}
             </span>
           );
         },
       },
       {
         id: 'impact_pct',
-        header: 'IMPACT %',
+        header: 'Impact Pct',
         size: 90,
         accessorFn: (r) => (r as any).impact_pct ?? -1,
         cell: (info) => {
@@ -327,7 +327,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           const color = rapmPctColor(v);
           return (
             <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
-              {v == null ? '—' : `${Math.round(Number(v))}%`}
+              {v == null ? '—' : `${Math.round(Number(v))}`}
             </span>
           );
         },
@@ -661,7 +661,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       >
         {isPlayoffs
           ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP is 5v5 only</>
-          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />RATING % = Blended HGB Rating · WAR % = Single-Season WAR · IMPACT % = HGB Game Score</>}
+          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />RATING % = Blended HGB Rating · WAR % = Single-Season WAR · IMPACT % = Game Impact avg</>}}
       </p>
     </div>
   );
