@@ -1,5 +1,6 @@
 import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
+import sitemap from '@astrojs/sitemap';
 
 /**
  * Dev-only preview integration.
@@ -53,7 +54,7 @@ export default defineConfig({
     '/analytics/wowy':        '/stats/wowy',
     '/analytics/interactive': '/stats/interactive',
   },
-  integrations: [react(), devOnlyRoutes],
+  integrations: [react(), sitemap(), devOnlyRoutes],
   vite: {
     resolve: {
       dedupe: ['react', 'react-dom'],
