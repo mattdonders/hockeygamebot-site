@@ -75,6 +75,7 @@ export type HGBTableProps<T> = {
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const SEMI: React.CSSProperties = { fontFamily: "'Barlow Semi-Condensed', sans-serif" };
 export const TEAM_LOGO_SIZE = 32;
 /** Returns the local logo path for a team, respecting current color scheme. */
 export function teamLogoSrc(abbr: string, isDark = false): string {
@@ -86,7 +87,7 @@ export const TEAM_LOGO_STYLE: React.CSSProperties = {
   filter: 'drop-shadow(rgba(0,0,0,0.25) 0px 1px 2px)',
 };
 // Table typography — change here to update all tables at once
-export const CELL_FONT_SIZE     = 12;  // JetBrains Mono data cells
+export const CELL_FONT_SIZE     = 14;  // JetBrains Mono data cells
 export const NAME_FONT_SIZE     = 14;  // Barlow player/goalie names
 export const SUBLINE_FONT_SIZE  = 11;  // Mono sub-line (team abbrev etc)
 
@@ -694,7 +695,7 @@ export default function HGBTable<T extends object>({
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id} style={{ background: BG }}>
                 {showRank && (
-                  <th style={{ ...MONO, fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: MUTED, fontWeight: 500, padding: isMobile ? '8px 8px' : '8px 10px', textAlign: 'center', width: 36, position: 'sticky', top: 0, background: BG, zIndex: 2, boxShadow: 'inset 0 -1px 0 rgba(13,13,20,0.14)' }}>#</th>
+                  <th style={{ ...SEMI, fontSize: 12, letterSpacing: '0.10em', textTransform: 'uppercase', color: MUTED, fontWeight: 700, padding: isMobile ? '8px 8px' : '8px 10px', textAlign: 'center', width: 36, position: 'sticky', top: 0, background: BG, zIndex: 2, boxShadow: 'inset 0 -1px 0 rgba(13,13,20,0.14)' }}>#</th>
                 )}
                 {hg.headers.map(h => {
                   const colDef = columnDefs.find(c => c.id === h.id);
@@ -706,12 +707,12 @@ export default function HGBTable<T extends object>({
                       aria-sort={isSorted === 'asc' ? 'ascending' : isSorted === 'desc' ? 'descending' : 'none'}
                       onClick={h.column.getToggleSortingHandler()}
                       style={{
-                        ...MONO,
-                        fontSize: 11,
-                        letterSpacing: '0.12em',
+                        ...SEMI,
+                        fontSize: 12,
+                        letterSpacing: '0.10em',
                         textTransform: 'uppercase',
                         color: isSorted ? INK : MUTED,
-                        fontWeight: isSorted ? 700 : 500,
+                        fontWeight: 700,
                         padding: isMobile ? '8px 8px' : '8px 10px',
                         textAlign: align,
                         cursor: 'pointer',
