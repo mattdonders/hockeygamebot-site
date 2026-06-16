@@ -661,7 +661,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       >
         {isPlayoffs
           ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP is 5v5 only</>
-          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />RATING % = Blended HGB Rating · WAR % = Single-Season WAR · IMPACT % = Game Impact avg</>}}
+          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />RATING % = Blended HGB Rating · WAR % = Single-Season WAR · IMPACT % = HGB Impact avg</>}}
       </p>
     </div>
   );
