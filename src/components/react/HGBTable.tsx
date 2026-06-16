@@ -75,7 +75,7 @@ export type HGBTableProps<T> = {
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
-const SEMI: React.CSSProperties = { fontFamily: "'Barlow Semi-Condensed', sans-serif" };
+export const SEMI: React.CSSProperties = { fontFamily: "'Barlow Semi-Condensed', sans-serif" };
 export const TEAM_LOGO_SIZE = 32;
 /** Returns the local logo path for a team, respecting current color scheme. */
 export function teamLogoSrc(abbr: string, isDark = false): string {

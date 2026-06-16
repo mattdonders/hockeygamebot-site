@@ -16,7 +16,7 @@ import {
   type SortingState,
   type ColumnDef,
 } from '@tanstack/react-table';
-import { TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
+import { TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, SEMI } from './HGBTable';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -556,12 +556,12 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                     key={h.id}
                     onClick={canSort ? h.column.getToggleSortingHandler() : undefined}
                     style={{
-                      ...MONO,
-                      fontSize: 11,
-                      letterSpacing: '0.12em',
+                      ...SEMI,
+                      fontSize: 12,
+                      letterSpacing: '0.10em',
                       textTransform: 'uppercase',
                       color: isSorted ? INK : MUTED,
-                      fontWeight: isSorted ? 700 : 500,
+                      fontWeight: 700,
                       padding: '8px 10px',
                       textAlign: hi === 0 ? 'left' : 'center',
                       cursor: canSort ? 'pointer' : 'default',
