@@ -155,7 +155,7 @@ export default function TeamSkatersTable({ players, playerGameMap, initialOpp = 
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
           <div>
-            <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+            <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
               {row.name}
             </div>
             <div style={{ ...MONO, fontSize: 9, color: MUTED }}>

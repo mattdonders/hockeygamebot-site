@@ -136,7 +136,7 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
           <img src={teamLogoSrc(row.team_abbrev, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
             style={TEAM_LOGO_STYLE} alt={row.team_abbrev}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
             {row.team_name_city} {row.team_name_nickname}
           </div>
         </div>
