@@ -29,7 +29,7 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
       return (
         <a href={`/stats/lines/${slug}`}
            title={row.players}
-           style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: 13, color: 'inherit', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+           style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: 13, color: 'inherit', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
           {lastNames(row.players)}
         </a>
       );

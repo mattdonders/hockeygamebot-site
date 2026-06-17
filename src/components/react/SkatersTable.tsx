@@ -106,7 +106,7 @@ function buildColumns(
           <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
             {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
           </div>
         </div>
@@ -265,7 +265,7 @@ function buildAggColumns(
           <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
             style={TEAM_LOGO_STYLE} alt={row.team}
             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
             {row.name}
             {row.multiTeam && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)', marginLeft: 6 }}>multi</span>}
           </div>
@@ -734,11 +734,11 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                       {matches.map(r => (
                         <button key={r.slug} type="button"
                           onMouseDown={e => { e.preventDefault(); setPlayerFilter(f => [...f, r.slug]); setPlayerSearch(''); setPlayerDropOpen(false); }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', borderBottom: '1px solid rgba(13,13,20,0.06)', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontFamily: "'Barlow', sans-serif" }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', borderBottom: '1px solid rgba(13,13,20,0.06)', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--body)' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(13,13,20,0.04)'; }}
                           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
                         >
-                          <span style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: 13 }}>{r.first_name && r.last_name ? `${r.first_name} ${r.last_name}` : r.name}</span>
+                          <span style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: 13 }}>{r.first_name && r.last_name ? `${r.first_name} ${r.last_name}` : r.name}</span>
                           <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{r.team} · {r.pos}</span>
                         </button>
                       ))}
