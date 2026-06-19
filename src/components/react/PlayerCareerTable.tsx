@@ -289,7 +289,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       },
       {
         id: 'hgb_rating_pct',
-        header: 'Rating Pct',
+        header: 'Talent Pct',
         size: 90,
         accessorFn: (r) => (r as any).hgb_rating_pct ?? -1,
         cell: (info) => {
@@ -509,7 +509,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       { label: 'TOI/GP',  key: 'toi_gp',         width: 78,  align: 'center', ...mark('toi_gp') },
       { label: 'GF%',     key: 'gf_pct',         width: 74,  align: 'center', format: oneFmt, color: pctColor, ...mark('gf_pct') },
       { label: 'xGF%',    key: 'xgf_pct',        width: 74,  align: 'center', format: oneFmt, color: pctColor, ...mark('xgf_pct') },
-      { label: 'Rating%', key: 'hgb_rating_pct', width: 80,  align: 'center', format: pctFmt, color: rankColor, ...mark('hgb_rating_pct') },
+      { label: 'Talent%', key: 'hgb_rating_pct', width: 80,  align: 'center', format: pctFmt, color: rankColor, ...mark('hgb_rating_pct') },
       { label: 'WAR%',    key: 'war_pct',        width: 74,  align: 'center', format: pctFmt, color: rankColor, ...mark('war_pct') },
       { label: 'Impact%', key: 'impact_pct',     width: 80,  align: 'center', format: pctFmt, color: rankColor, ...mark('impact_pct') },
     ];
@@ -661,7 +661,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       >
         {isPlayoffs
           ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP is 5v5 only</>
-          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />RATING % = Blended HGB Rating · WAR % = Single-Season WAR · IMPACT % = HGB Impact avg</>}
+          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />TALENT % = Blended Multi-Year WAR · WAR % = Single-Season WAR · IMPACT % = HGB Impact avg</>}
       </p>
     </div>
   );
