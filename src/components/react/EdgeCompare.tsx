@@ -13,7 +13,17 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 import React, { useMemo, useRef, useState } from 'react';
-import { toPng } from 'html-to-image';
+import { toCanvas } from 'html-to-image';
+
+// Provided by /js/table-export.js (loaded via <script> on the page). Routes the
+// rendered canvas through the site's shared branded download modal.
+declare global {
+  interface Window {
+    HGB_Export?: {
+      showCardModal: (canvas: HTMLCanvasElement, filename: string) => void;
+    };
+  }
+}
 import PlayerSearch, { type PlayerSearchItem } from './PlayerSearch';
 import { pickTeamColor, pickTeamColorRgb } from '../../lib/team-colors';
 import { getTeamLogoSvg } from '../../lib/team-logos';
@@ -253,25 +263,32 @@ export default function EdgeCompare({ players, defaultLeft, defaultRight }: Prop
   );
 
   async function downloadPng() {
-    if (!captureRef.current) return;
+    const node = captureRef.current;
+    if (!node) return;
     setBusy(true);
+    // Force the horizontal side-by-side layout for the capture, even on a narrow
+    // viewport, so the downloaded card is always the 2-column desktop look.
+    node.classList.add('exporting');
     try {
-      const dataUrl = await toPng(captureRef.current, {
+      const canvas = await toCanvas(node, {
         pixelRatio: 2,
         backgroundColor: '#EFEEE8',
         cacheBust: true,
       });
-      const a = document.createElement('a');
       const slug = [left, right]
         .map(p => (p ? p.last_name.toLowerCase() : 'player'))
         .join('-vs-');
-      a.download = `edge-compare-${slug}.png`;
-      a.href = dataUrl;
-      a.click();
+      const filename = `edge-compare-${slug}.png`;
+      if (window.HGB_Export?.showCardModal) {
+        window.HGB_Export.showCardModal(canvas, filename);
+      } else {
+        // Shared export module not loaded — fail gracefully without crashing.
+        console.error('[EdgeCompare] window.HGB_Export.showCardModal unavailable; skipping download.');
+      }
     } catch (err) {
       console.error('[EdgeCompare] PNG export failed', err);
-      alert('Sorry — the image export failed. Please try again.');
     } finally {
+      node.classList.remove('exporting');
       setBusy(false);
     }
   }
