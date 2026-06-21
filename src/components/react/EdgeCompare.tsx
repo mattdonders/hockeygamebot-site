@@ -16,6 +16,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
 import PlayerSearch, { type PlayerSearchItem } from './PlayerSearch';
 import { pickTeamColor, pickTeamColorRgb } from '../../lib/team-colors';
+import { getTeamLogoSvg } from '../../lib/team-logos';
 import {
   edgeStatRows, edgeShotCols, edgeZones, edgeTierColor,
   ordinalSuffix, barWidth, isEdgeEmpty, type EdgeData,
@@ -71,6 +72,17 @@ function buildWinMap(left: EdgeData | null, right: EdgeData | null): WinMap {
 
 const WinMark = () => <span className="edge-win-mark" aria-label="leads">▲</span>;
 
+/* Inline-SVG team logo (vector, build-bundled). WHY: html-to-image's toPng()
+ * taints the canvas on cross-origin <img> (the NHL CDN logos), so the PNG export
+ * throws. Inlining the SVG markup keeps the capture subtree free of any remote
+ * resource. Mirrors TeamLogo.astro, including its placeholder fallback. */
+function teamLogoHtml(abbr: string): string {
+  return (
+    getTeamLogoSvg(abbr) ??
+    `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${abbr} logo"><rect width="32" height="32" rx="3" fill="#1a1a22"/><text x="16" y="20" text-anchor="middle" fill="#9aa0aa" font-family="-apple-system,Segoe UI,sans-serif" font-size="10" font-weight="700">${abbr}</text></svg>`
+  );
+}
+
 // ── One Edge panel — mirrors EdgePanel.astro markup exactly ──────────────────
 function EdgePanelView({
   player,
@@ -117,12 +129,11 @@ function EdgePanelView({
 
       {/* Player identity strip — themed to team color */}
       <div className="edge-cmp-id" style={{ borderLeft: `3px solid ${teamColor}` }}>
-        <img
-          src={`https://assets.nhle.com/logos/nhl/svg/${player.team_abbrev}_light.svg`}
-          alt={player.team_abbrev}
-          width={26}
-          height={26}
-          onError={e2 => { (e2.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+        <span
+          className="edge-cmp-logo"
+          role="img"
+          aria-label={`${player.team_abbrev} logo`}
+          dangerouslySetInnerHTML={{ __html: teamLogoHtml(player.team_abbrev) }}
         />
         <div>
           <div className="edge-cmp-name">{player.first_name} {player.last_name}</div>
