@@ -93,6 +93,77 @@ function teamLogoHtml(abbr: string): string {
   );
 }
 
+// Full team names for the hero chips (mirrors the Season Card canvas renderer).
+const TEAM_NAMES: Record<string, string> = {
+  ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',
+  CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',
+  CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',
+  FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',
+  NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',
+  OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',
+  SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',
+  UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',
+  WPG:'WINNIPEG JETS',
+};
+const teamName = (abbr: string) => TEAM_NAMES[abbr] ?? abbr;
+
+// ── Branded hero header — spans both panels, inside the capture area ──────────
+// Mirrors the single-season player card masthead: big Barlow Condensed matchup
+// (last names), a "EDGE COMPARE · 2025-26" eyebrow top-right, and a chip-pill
+// row (one team chip per player in that team's color, a season chip, and the
+// red HOCKEYGAMEBOT chip right-aligned).
+function CompareHero({ left, right }: { left: EdgePlayer | null; right: EdgePlayer | null }) {
+  const names = [left, right].filter(Boolean) as EdgePlayer[];
+  const heroText =
+    names.length === 2
+      ? { a: left!.last_name, b: right!.last_name }
+      : names.length === 1
+        ? { a: names[0].last_name, b: '' }
+        : { a: 'EDGE', b: 'COMPARE' };
+
+  // Width-aware shrink: scale the hero down as the combined name length grows so
+  // a long pair (e.g. BEDARD vs CELEBRINI) doesn't overflow the card.
+  const combinedLen = (heroText.a.length + heroText.b.length) || 12;
+  const heroSize =
+    combinedLen <= 12 ? 'clamp(34px,5vw,56px)'
+    : combinedLen <= 18 ? 'clamp(28px,4vw,46px)'
+    : 'clamp(22px,3.2vw,38px)';
+
+  return (
+    <div className="edge-cmp-hero">
+      <div className="edge-cmp-hero-top">
+        <span className="edge-cmp-hero-kicker">Head to head</span>
+        <span className="edge-cmp-hero-eyebrow">EDGE COMPARE · 2025–26</span>
+      </div>
+      <div className="edge-cmp-hero-name" style={{ fontSize: heroSize }}>
+        {names.length >= 2 ? (
+          <>
+            {heroText.a}<span className="edge-cmp-hero-vs">vs</span>{heroText.b}
+          </>
+        ) : (
+          <>{heroText.a}{heroText.b ? <> <span className="edge-cmp-hero-vs">vs</span> {heroText.b}</> : ''}</>
+        )}
+      </div>
+      <div className="edge-cmp-hero-chips">
+        {left && (
+          <span
+            className="edge-cmp-chip"
+            style={{ background: pickTeamColor(left.team_abbrev), color: '#EFEEE8' }}
+          >{teamName(left.team_abbrev)}</span>
+        )}
+        {right && (
+          <span
+            className="edge-cmp-chip"
+            style={{ background: pickTeamColor(right.team_abbrev), color: '#EFEEE8' }}
+          >{teamName(right.team_abbrev)}</span>
+        )}
+        <span className="edge-cmp-chip edge-cmp-chip-ink">2025–26</span>
+        <span className="edge-cmp-chip edge-cmp-chip-brand">HOCKEYGAMEBOT</span>
+      </div>
+    </div>
+  );
+}
+
 // ── One Edge panel — mirrors EdgePanel.astro markup exactly ──────────────────
 function EdgePanelView({
   player,
@@ -106,9 +177,6 @@ function EdgePanelView({
   if (!player) {
     return (
       <div className="card edge-panel">
-        <div className="card-head">
-          <span className="card-eyebrow">NHL EDGE &nbsp;<span className="accent">Athlete Tracking</span></span>
-        </div>
         <div className="edge-empty">Pick a player to compare.</div>
       </div>
     );
@@ -130,13 +198,6 @@ function EdgePanelView({
 
   return (
     <div className="card edge-panel" style={style}>
-      <div className="card-head">
-        <span className="card-eyebrow">
-          NHL EDGE &nbsp;<span className="accent">Athlete Tracking</span>
-        </span>
-        <span className="card-meta">2025–26 season</span>
-      </div>
-
       {/* Player identity strip — themed to team color */}
       <div className="edge-cmp-id" style={{ borderLeft: `3px solid ${teamColor}` }}>
         <span
@@ -332,8 +393,9 @@ export default function EdgeCompare({ players, defaultLeft, defaultRight }: Prop
         <span className="edge-cmp-hint" style={MONO}>▲ marks the leader in each metric</span>
       </div>
 
-      {/* Captured area */}
+      {/* Captured area — hero + footer live INSIDE so the downloaded PNG is branded */}
       <div className="edge-cmp-capture" ref={captureRef}>
+        <CompareHero left={left} right={right} />
         <div className="edge-cmp-grid">
           <EdgePanelView player={left}  side="L" wins={wins} />
           <EdgePanelView player={right} side="R" wins={wins} />
