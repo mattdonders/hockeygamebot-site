@@ -110,6 +110,8 @@ export const PlayerRecordSchema = z.object({
     delta:           z.number().nullable().optional(),
     label:           z.string().nullable().optional(),
   }).nullable().optional(),
+  // Player birth date for age chips on cards (YYYY-MM-DD string from players.json)
+  birth_date:       z.string().nullable().optional(),
   // RAPM z-score fields for the RAPM card (added 2026-06-02)
   rapm_ev_gf60_z:   z.number().nullable().optional(),
   rapm_ev_xgf60_z:  z.number().nullable().optional(),
