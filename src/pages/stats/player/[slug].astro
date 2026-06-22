@@ -178,6 +178,13 @@ const iArea = allGames.length >= 2
 const posLabel      = player.pos_group === 'F' ? 'Forward' : 'Defenseman';
 const posPlural     = player.pos_group === 'F' ? 'forwards' : 'defensemen';
 
+// Age at Oct 1 of the current season (2025-26 → Oct 1, 2025)
+const _birthDate    = player.birth_date ? new Date(player.birth_date) : null;
+const _seasonStart  = new Date(2025, 9, 1); // Oct 1, 2025
+const _ageAtSeason  = _birthDate
+  ? Math.floor((_seasonStart.getTime() - _birthDate.getTime()) / (365.25 * 24 * 3.6e6))
+  : null;
+
 // ── Card footer strings (single source of truth: src/lib/card-footer.ts) ──────
 // Built once here and injected into the inline card-drawing script via _card.footers,
 // since that script runs as a non-module define:vars block and can't import the helper.
@@ -1089,6 +1096,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     team:        player.team_abbrev,
     gp:          player.gp,
     toiAvgSec:   player.toi_avg_sec,
+    birthDate:   player.birth_date ?? null,
+    ageAtSeason: _ageAtSeason,
     currentSeason:          currentSeasonNorm,
     war:                    player.war,
     warPct:                 warPct,
@@ -1613,7 +1622,12 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // Chips
       const TEAM_NAMES_S = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
       const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
-      const chips = [(TEAM_NAMES_S[seasonTeam] || seasonTeam), D.posLabel.toUpperCase(), heroSeason];
+      // Age at Oct 1 of the displayed season (heroSeason = "2022-23" → yr 2022)
+      const _sznYr = heroSeason ? parseInt(heroSeason.slice(0, 4)) : null;
+      const _sznAge = (D.birthDate && _sznYr)
+        ? Math.floor((new Date(_sznYr, 9, 1) - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6))
+        : null;
+      const chips = [(TEAM_NAMES_S[seasonTeam] || seasonTeam), D.posLabel.toUpperCase(), heroSeason, ...(_sznAge != null ? [`AGE: ${_sznAge}`] : [])];
       let cx = PAD;
       ctx.font = '700 9px "Barlow Condensed", sans-serif';
       for (let ci = 0; ci < chips.length; ci++) {
@@ -1929,10 +1943,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
       y += HDR_H;
 
-      // Chips row — team | position | season  +  HOCKEYGAMEBOT (right)
+      // Chips row — team | position | season | age  +  HOCKEYGAMEBOT (right)
       // Still inside the white band (white fill covers HDR_H + CHIP_H)
       const chipH = 18, chipY0 = y + (CHIP_H - chipH) / 2;
-      const chips = [teamFullName, D.posLabel.toUpperCase(), '2025-26'];
+      const ageChip = D.ageAtSeason != null ? `AGE: ${D.ageAtSeason}` : null;
+      const chips = [teamFullName, D.posLabel.toUpperCase(), '2025-26', ...(ageChip ? [ageChip] : [])];
       let cx = PAD;
       ctx.font = '700 9px "Barlow Condensed", sans-serif';
       for (let ci = 0; ci < chips.length; ci++) {
