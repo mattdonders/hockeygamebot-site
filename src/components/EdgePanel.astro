@@ -1,0 +1,133 @@
+---
+/* ─────────────────────────────────────────────────────────────────────────
+   EdgePanel.astro — shared NHL Edge "Athlete Tracking" panel
+   ---------------------------------------------------------------------------
+   WHY: Extracted verbatim from src/pages/stats/player/[slug].astro so the
+   single-player page and the Edge Compare tool render the exact same panel.
+   Visual rules live in src/styles/edge-panel.css; value/label/color logic in
+   src/lib/edge-panel.ts. The React compare island (EdgeCompare.tsx) mirrors
+   this markup 1:1 — keep them in lockstep.
+
+   Renders inside a .card (same chrome as the player page). When `edge` is null
+   or fully empty, shows a clean empty state instead of crashing.
+   ───────────────────────────────────────────────────────────────────────── */
+import {
+  edgeStatRows, edgeShotCols, edgeZones, edgeTierColor,
+  ordinalSuffix, barWidth, isEdgeEmpty, type EdgeData,
+} from '../lib/edge-panel';
+
+interface Props {
+  edge: EdgeData | null | undefined;
+  teamColor: string;
+  teamColorRgb: string;          // "0,32,91"
+  season?: string;               // eyebrow meta, e.g. "2025–26 season"
+  id?: string;
+}
+const { edge, teamColor, teamColorRgb, season = '2025–26 season', id = 'edge-section' } = Astro.props;
+
+const empty = isEdgeEmpty(edge);
+const e = (edge ?? {}) as EdgeData;
+const rows  = edgeStatRows(e);
+const shots = edgeShotCols(e);
+const { oz, nz, dz, total } = edgeZones(e);
+---
+
+<div class="card edge-panel" id={id} style={`--team-color:${teamColor};--team-color-rgb:${teamColorRgb}`}>
+  <div class="card-head">
+    <span class="card-eyebrow">NHL EDGE &nbsp;<span class="accent">Athlete Tracking</span></span>
+    <span class="card-meta">{season}</span>
+  </div>
+
+  {empty ? (
+    <div class="edge-empty">No NHL Edge tracking data available.</div>
+  ) : (
+    <>
+      <!-- Speed + Distance 2×2 grid -->
+      <div class="edge-stat-grid">
+        {rows.map(stat => {
+          const tierC = edgeTierColor(stat.pct);
+          return (
+            <div class="edge-stat-cell">
+              <div class="edge-stat-lbl">{stat.lbl}</div>
+              {stat.val != null
+                ? <div class="edge-stat-val">{stat.val}<span class="edge-stat-unit">{stat.unit ? ` ${stat.unit}` : ''}</span></div>
+                : <div class="edge-stat-val">—</div>}
+              <div class="edge-bar-track">
+                <div class="edge-bar-fill" style={`width:${barWidth(stat.pct)}%;background:${tierC}`}></div>
+              </div>
+              <div class="edge-stat-pct" style={`color:${tierC}`}>
+                {stat.pct != null ? `${ordinalSuffix(stat.pct)} percentile` : '—'}
+              </div>
+              {stat.avg != null && <div class="edge-stat-avg">avg {stat.avg}{stat.avgUnit ? ` ${stat.avgUnit}` : ''}</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      <!-- Zone time -->
+      <div class="edge-zone">
+        <div class="edge-zone-lbl">Zone Time — Even Strength
+          {e.oz_ev_pct_pct != null && <span class="edge-zone-note"> · OZ {ordinalSuffix(e.oz_ev_pct_pct)} percentile</span>}
+        </div>
+        <div class="edge-zone-bar">
+          <div class="edge-zone-oz" style={`width:${(oz/total*100).toFixed(1)}%`}></div>
+          <div class="edge-zone-nz" style={`width:${(nz/total*100).toFixed(1)}%`}></div>
+          <div class="edge-zone-dz" style={`width:${(dz/total*100).toFixed(1)}%`}></div>
+        </div>
+        <div class="edge-zone-labels">
+          <div class="edge-zone-seg" style={`width:${(oz/total*100).toFixed(1)}%`}>
+            <span class="edge-zone-pct">{oz.toFixed(0)}%</span>
+            <span class="edge-zone-name">Offensive</span>
+          </div>
+          <div class="edge-zone-seg" style={`width:${(nz/total*100).toFixed(1)}%`}>
+            <span class="edge-zone-pct">{nz.toFixed(0)}%</span>
+            <span class="edge-zone-name">Neutral</span>
+          </div>
+          <div class="edge-zone-seg" style={`width:${(dz/total*100).toFixed(1)}%`}>
+            <span class="edge-zone-pct">{dz.toFixed(0)}%</span>
+            <span class="edge-zone-name">Defensive</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shot location by danger zone -->
+      <div class="edge-shot-header">Shot Location by Danger Zone</div>
+      <div class="edge-shot-grid">
+        {shots.map(z => {
+          const npC  = edgeTierColor(z.np);
+          const shpC = edgeTierColor(z.shp);
+          return (
+            <div class="edge-shot-col">
+              <div class={`edge-shot-chip ${z.accent ? 'accent-chip' : ''}`}>{z.lbl}</div>
+              <div class="edge-shot-row">
+                <div>
+                  <div class="edge-shot-sublbl">Attempts</div>
+                  <div class="edge-shot-n">{z.n ?? '—'}</div>
+                  <div class="edge-shot-pct" style={`color:${npC}`}>{z.np != null ? ordinalSuffix(z.np) : ''}</div>
+                  <div class="edge-mini-bar"><div class="edge-mini-fill" style={`width:${barWidth(z.np)}%;background:${npC}`}></div></div>
+                </div>
+                <div>
+                  <div class="edge-shot-sublbl">Sh%</div>
+                  <div class="edge-shot-n">{z.sh != null ? `${z.sh}%` : '—'}</div>
+                  <div class="edge-shot-pct" style={`color:${shpC}`}>{z.shp != null ? ordinalSuffix(z.shp) : ''}</div>
+                  <div class="edge-mini-bar"><div class="edge-mini-fill" style={`width:${barWidth(z.shp)}%;background:${shpC}`}></div></div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  )}
+</div>
+
+<style>
+@import '../styles/edge-panel.css';
+.edge-empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-48);
+  padding: 28px 18px;
+  text-align: center;
+}
+</style>

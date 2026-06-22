@@ -25,3 +25,13 @@ export function pickTeamColor(abbrev: string): string {
   const l = (Math.max(r, g, b) + Math.min(r, g, b)) / 2;
   return l < 0.15 ? colors[1] : primary;
 }
+
+/** "R,G,B" string for the chosen team color, for use in rgba(var(--team-color-rgb), a).
+ *  Mirrors pickTeamColor()'s primary/secondary selection. */
+export function pickTeamColorRgb(abbrev: string): string {
+  const hex = pickTeamColor(abbrev).replace('#', '');
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return `${r},${g},${b}`;
+}

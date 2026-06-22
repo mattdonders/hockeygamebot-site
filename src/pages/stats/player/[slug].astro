@@ -8,7 +8,9 @@ import PlayerGameLogTable from '../../../components/react/PlayerGameLogTable';
 import { EntitySignals } from '../../../components/react/DashboardPersonalized';
 import { loadPlayers, loadPlayerGames, loadPlayerShots, loadMeta, loadPlayerSeasonStats, type GameLogEntry, type PlayerSummary, type PlayerShot, type PlayerSeasonStats } from '../../../lib/stats-loader';
 import { buildPlayerShotMapSVG } from '../../../lib/rink-svg';
-import { pickTeamColor } from '../../../lib/team-colors';
+import { pickTeamColor, pickTeamColorRgb } from '../../../lib/team-colors';
+import EdgePanel from '../../../components/EdgePanel.astro';
+import { cardFooterText, SITE_DISCLAIMER } from '../../../lib/card-footer';
 
 export async function getStaticPaths() {
   const players = loadPlayers();
@@ -175,6 +177,31 @@ const iArea = allGames.length >= 2
   : '';
 const posLabel      = player.pos_group === 'F' ? 'Forward' : 'Defenseman';
 const posPlural     = player.pos_group === 'F' ? 'forwards' : 'defensemen';
+
+// ── Card footer strings (single source of truth: src/lib/card-footer.ts) ──────
+// Built once here and injected into the inline card-drawing script via _card.footers,
+// since that script runs as a non-module define:vars block and can't import the helper.
+// The colored Season/Talent footers keep a red "vs {Pos}" middle segment, so those
+// are supplied as { pre, vs, post } splits; centered footers are plain strings.
+const _vsPos = player.pos_group === 'F' ? 'Forwards' : 'Defensemen';
+const _cardFooters = {
+  // EDGE card — renders NHL Edge tracking → carries NHL attribution.
+  edge: cardFooterText({ edgeData: true }),
+  // History (Talent/WAR/Impact percentile-vs-position table) — PBP-derived, no Edge.
+  history: cardFooterText({ def: 'Talent / WAR / Impact', vsPosition: _vsPos }),
+  // Season card — has the Edge panel → NHL attribution. Red "vs {Pos}" middle segment.
+  season: {
+    pre: 'WAR = single-season, percentile ',
+    vs:  `vs ${_vsPos}`,
+    post: ` · ${cardFooterText({ hgbStats: false, season: false, edgeData: true })}`,
+  },
+  // Talent card — PBP/multi-season blend, NO Edge. Red "vs {Pos}" middle segment.
+  talent: {
+    pre: 'Talent = current + 3 prior seasons, percentile ',
+    vs:  `vs ${_vsPos}`,
+    post: ` · ${cardFooterText({ hgbStats: false, season: false })}`,
+  },
+};
 
 // ── Build-time freshness ───────────────────────────────────────────────────
 const _meta      = loadMeta();
@@ -517,7 +544,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     .method-link { display: inline-block; margin-top: 10px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--red); text-decoration: none; }
 
     /* Footer */
-    footer { background: var(--ink); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.24); letter-spacing: 0.06em; text-align: center; }
+    footer { background: var(--ink); padding: 32px 0; font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 0.06em; text-align: center; }
+    footer .footer-disclaimer { display: block; margin-top: 8px; font-size: 9px; line-height: 1.5; color: rgba(255,255,255,0.5); letter-spacing: 0.04em; }
 
     /* ── RESPONSIVE ── */
     @media (max-width: 768px) {
@@ -900,106 +928,15 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         )}
       </div>
 
-      <!-- NHL EDGE DATA (hidden for soft launch) -->
-      {false && player.edge != null && (() => {
-        const e = player.edge!;
-        const oz = e.oz_pct ?? 0, nz = e.nz_pct ?? 0, dz = e.dz_pct ?? 0;
-        const total = oz + nz + dz || 1;
-        return (
-          <div class="card" id="edge-section" style={`--team-color:${teamColor}`}>
-            <div class="card-head">
-              <span class="card-eyebrow">NHL EDGE &nbsp;<span class="accent">Athlete Tracking</span></span>
-              <span class="card-meta">2025–26 season</span>
-            </div>
-            <!-- Speed + Distance 2×2 grid -->
-            <div class="edge-stat-grid">
-              {[
-                { lbl: 'Top Speed',        val: e.speed_max_mph,        unit: 'mph', pct: e.speed_max_pct,         avg: e.speed_max_league_avg_mph,        avgUnit: 'mph' },
-                { lbl: 'Miles Skated',     val: e.distance_mi,          unit: 'mi',  pct: e.distance_pct,           avg: e.distance_league_avg_mi,          avgUnit: 'mi'  },
-                { lbl: 'Bursts > 20 mph',  val: e.bursts_over_20,       unit: '',    pct: e.bursts_over_20_pct,     avg: e.bursts_over_20_league_avg,       avgUnit: ''    },
-                { lbl: 'Hardest Shot',     val: e.shot_speed_max_mph,   unit: 'mph', pct: e.shot_speed_max_pct,     avg: e.shot_speed_max_league_avg_mph,   avgUnit: 'mph' },
-              ].map(stat => {
-                const pct = stat.pct ?? 0;
-                const tierC = pct >= 75 ? '#137333' : pct >= 50 ? '#34a853' : pct >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
-                return (
-                  <div class="edge-stat-cell">
-                    <div class="edge-stat-lbl">{stat.lbl}</div>
-                    {stat.val != null
-                      ? <div class="edge-stat-val">{stat.val}<span class="edge-stat-unit">{stat.unit ? ` ${stat.unit}` : ''}</span></div>
-                      : <div class="edge-stat-val">—</div>}
-                    <div class="edge-bar-track">
-                      <div class="edge-bar-fill" style={`width:${pct}%;background:${tierC}`}></div>
-                    </div>
-                    <div class="edge-stat-pct" style={`color:${tierC}`}>
-                      {stat.pct != null ? `${ordinalSuffix(stat.pct)} percentile` : '—'}
-                    </div>
-                    {stat.avg != null && <div class="edge-stat-avg">avg {stat.avg}{stat.avgUnit ? ` ${stat.avgUnit}` : ''}</div>}
-                  </div>
-                );
-              })}
-            </div>
-
-            <!-- Zone time -->
-            <div class="edge-zone">
-              <div class="edge-zone-lbl">Zone Time — Even Strength
-                {e.oz_ev_pct_pct != null && <span class="edge-zone-note"> · OZ {ordinalSuffix(e.oz_ev_pct_pct)} percentile</span>}
-              </div>
-              <div class="edge-zone-bar">
-                <div class="edge-zone-oz" style={`width:${(oz/total*100).toFixed(1)}%`}></div>
-                <div class="edge-zone-nz" style={`width:${(nz/total*100).toFixed(1)}%`}></div>
-                <div class="edge-zone-dz" style={`width:${(dz/total*100).toFixed(1)}%`}></div>
-              </div>
-              <div class="edge-zone-labels">
-                <div class="edge-zone-seg" style={`width:${(oz/total*100).toFixed(1)}%`}>
-                  <span class="edge-zone-pct">{oz.toFixed(0)}%</span>
-                  <span class="edge-zone-name">Offensive</span>
-                </div>
-                <div class="edge-zone-seg" style={`width:${(nz/total*100).toFixed(1)}%`}>
-                  <span class="edge-zone-pct">{nz.toFixed(0)}%</span>
-                  <span class="edge-zone-name">Neutral</span>
-                </div>
-                <div class="edge-zone-seg" style={`width:${(dz/total*100).toFixed(1)}%`}>
-                  <span class="edge-zone-pct">{dz.toFixed(0)}%</span>
-                  <span class="edge-zone-name">Defensive</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Shot location by danger zone -->
-            <div class="edge-shot-header">Shot Location by Danger Zone</div>
-            <div class="edge-shot-grid">
-              {[
-                { lbl: 'High Danger', n: e.shots_high, np: e.shots_high_pct, sh: e.shooting_pct_high, shp: e.shooting_pct_high_pct, accent: true },
-                { lbl: 'Mid Range',   n: e.shots_mid,  np: e.shots_mid_pct,  sh: e.shooting_pct_mid,  shp: e.shooting_pct_mid_pct,  accent: false },
-                { lbl: 'Long Range',  n: e.shots_long, np: e.shots_long_pct, sh: e.shooting_pct_long, shp: e.shooting_pct_long_pct, accent: false },
-              ].map(z => {
-                const np = z.np ?? 0, shp = z.shp ?? 0;
-                const npC  = np  >= 75 ? '#137333' : np  >= 50 ? '#34a853' : np  >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
-                const shpC = shp >= 75 ? '#137333' : shp >= 50 ? '#34a853' : shp >= 25 ? 'rgba(13,13,20,0.32)' : '#E8002D';
-                return (
-                  <div class="edge-shot-col">
-                    <div class={`edge-shot-chip ${z.accent ? 'accent-chip' : ''}`}>{z.lbl}</div>
-                    <div class="edge-shot-row">
-                      <div>
-                        <div class="edge-shot-sublbl">Attempts</div>
-                        <div class="edge-shot-n">{z.n ?? '—'}</div>
-                        <div class="edge-shot-pct" style={`color:${npC}`}>{z.np != null ? ordinalSuffix(z.np) : ''}</div>
-                        <div class="edge-mini-bar"><div class="edge-mini-fill" style={`width:${np}%;background:${npC}`}></div></div>
-                      </div>
-                      <div>
-                        <div class="edge-shot-sublbl">Sh%</div>
-                        <div class="edge-shot-n">{z.sh != null ? `${z.sh}%` : '—'}</div>
-                        <div class="edge-shot-pct" style={`color:${shpC}`}>{z.shp != null ? ordinalSuffix(z.shp) : ''}</div>
-                        <div class="edge-mini-bar"><div class="edge-mini-fill" style={`width:${shp}%;background:${shpC}`}></div></div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
+      <!-- NHL EDGE DATA (hidden for soft launch). Now uses the shared EdgePanel
+           component so this page and /stats/edge-compare never drift. -->
+      {false && player.edge != null && (
+        <EdgePanel
+          edge={player.edge}
+          teamColor={teamColor}
+          teamColorRgb={pickTeamColorRgb(player.team_abbrev)}
+        />
+      )}
 
       <!-- GAME LOG -->
       <div class="card">
@@ -1105,7 +1042,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
   </div>
 </div>
 
-<footer>hockeygamebot.com · HGB Stats · 2025–26 · <a href="/methodology" style="color:inherit;text-decoration:none;opacity:0.6;transition:opacity .15s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">Methodology →</a></footer>
+<footer>hockeygamebot.com · HGB Stats · 2025-26 · <a href="/methodology" style="color:inherit;text-decoration:none;opacity:0.6;transition:opacity .15s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">Methodology →</a><span class="footer-disclaimer">{SITE_DISCLAIMER}</span></footer>
 
 <script define:vars={{
   // Season-by-season RAPM percentile data for the EV bar season selector
@@ -1157,6 +1094,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     hgb_rating:             player.hgb_rating ?? null,
     hgb_rating_percentile:  player.hgb_rating_percentile ?? null,
     hgb_rating_confidence:  player.hgb_rating_confidence ?? 'full',
+    // Talent-vs-current-WAR context for the Talent card hero right-panel.
+    // Null/absent for low-GP players or before the backend ships it → hero
+    // renders with NO right panel (graceful fallback in the card draw code).
+    talentContext: (player as any).talent_context ?? null,
     impact:        player.avg_gs_centered,
     impactPct:     player.percentiles_vs_pos.game_score,
     avgGsDisplay:  player.avg_gs_display,
@@ -1219,6 +1160,18 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ev_toi:      (player as any).rapm_ev_toi       ?? null,
       pp_toi:      (player as any).rapm_pp_toi       ?? null,
     },
+    footers: _cardFooters,
+    // 3 prior seasons of Historical Talent for the right-half timeline.
+    // seasonStatsSorted is newest-first; skip index 0 (current season).
+    priorTalent: (() => {
+      const out: {season: string, pct: number}[] = [];
+      for (let i = 1; i < seasonStatsSorted.length && out.length < 3; i++) {
+        const s = seasonStatsSorted[i] as any;
+        const pct = s.hgb_rating_pct ?? null;
+        if (pct != null) out.push({ season: s.season, pct });
+      }
+      return out;
+    })(),
   }
 }}>
   // ── Player card download ────────────────────────────────────────────────
@@ -1236,6 +1189,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     const INK14  = 'rgba(13,13,20,0.14)';
     const INK10  = 'rgba(13,13,20,0.10)';
     const INK06  = 'rgba(13,13,20,0.06)';
+    // Shared readable-but-subtle footer ink (mirrors FOOTER_STYLE.inkOnLight in
+    // src/lib/card-footer.ts). Replaces the faint INK32 footer ink on cards.
+    const FOOT_INK = 'rgba(13,13,20,0.55)';
     const TEAM_C = D.teamColor || INK;
 
     // ── helpers ──────────────────────────────────────────────────────────
@@ -1260,6 +1216,34 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
         ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
       }
+    }
+    // Tint for the Talent card "MODEL VIEW" label by direction. Subtle: greenish
+    // when talent leads current production, reddish when current leads, neutral
+    // when in line. Unknown labels fall back to ink.
+    function talentModelTint(label) {
+      if (!label) return INK;
+      const l = String(label).toLowerCase();
+      if (l.includes('talent above')) return '#15803d';
+      if (l.includes('current above')) return '#c0392b';
+      return 'rgba(13,13,20,0.62)'; // "In Line" / neutral
+    }
+    // Split a short label into at most 2 word-wrapped lines within maxW.
+    function wrapLabelLines(ctx, text, maxW) {
+      const words = String(text).split(' ');
+      const lines = [];
+      let cur = '';
+      for (const w of words) {
+        const trial = cur ? cur + ' ' + w : w;
+        if (ctx.measureText(trial).width > maxW && cur) { lines.push(cur); cur = w; }
+        else cur = trial;
+      }
+      if (cur) lines.push(cur);
+      return lines.slice(0, 2);
+    }
+    // Draw a wrapped label centered on cx (caller sets textAlign='center').
+    function drawWrappedLabelCentered(ctx, text, cx, yTop, maxW, lineH) {
+      const lines = wrapLabelLines(ctx, text, maxW);
+      for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], cx, yTop + i * lineH);
     }
     function loadImg(src) {
       return new Promise(res => {
@@ -1544,8 +1528,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // ── Footer ───────────────────────────────────────────────────────────
       ctx.fillStyle = INK10; ctx.fillRect(0, y, W, FOOT_H);
       ctx.font = '700 8px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · 2025-26 · EDGE DATA: NHL, INC.', W / 2, y + FOOT_H / 2);
+      ctx.fillStyle = FOOT_INK; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(D.footers.edge, W / 2, y + FOOT_H / 2);
       return canvas;
     }
 
@@ -1868,19 +1852,18 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillStyle = INK10; ctx.fillRect(0, H - FOOT_H, W, FOOT_H);
       ctx.font = '700 11px "Barlow Condensed", sans-serif';
       ctx.textBaseline = 'middle';
-      const SEAS_FOOT_INK = 'rgba(13,13,20,0.50)';
-      const seasVs = (D.posGroup === 'F') ? 'vs Forwards' : 'vs Defensemen';
-      const sSeg1 = 'WAR = single-season, percentile ';
-      const sSeg3 = ' · HOCKEYGAMEBOT.COM · EDGE DATA: NHL, INC.';
+      const sSeg1 = D.footers.season.pre;
+      const seasVs = D.footers.season.vs;
+      const sSeg3 = D.footers.season.post;
       const sW1 = ctx.measureText(sSeg1).width;
       const sW2 = ctx.measureText(seasVs).width;
       const sW3 = ctx.measureText(sSeg3).width;
       let sfx = (W - (sW1 + sW2 + sW3)) / 2;
       const sfy = H - FOOT_H / 2;
       ctx.textAlign = 'left';
-      ctx.fillStyle = SEAS_FOOT_INK; ctx.fillText(sSeg1, sfx, sfy); sfx += sW1;
-      ctx.fillStyle = RED;           ctx.fillText(seasVs, sfx, sfy); sfx += sW2;
-      ctx.fillStyle = SEAS_FOOT_INK; ctx.fillText(sSeg3, sfx, sfy);
+      ctx.fillStyle = FOOT_INK; ctx.fillText(sSeg1, sfx, sfy); sfx += sW1;
+      ctx.fillStyle = RED;      ctx.fillText(seasVs, sfx, sfy); sfx += sW2;
+      ctx.fillStyle = FOOT_INK; ctx.fillText(sSeg3, sfx, sfy);
 
       return canvas;
     }
@@ -1994,28 +1977,79 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
 
-      // Single Talent hero tile to the right of headshot (percentile-only).
+      // Talent hero to the right of headshot — mirrors the SEASON card's hero:
+      // two BARE stat halves split by a thin vertical divider, numbers sitting
+      // directly on the cream (no surface boxes/borders). LEFT = Talent,
+      // RIGHT = Current WAR + Model View. Without talent_context the Talent half
+      // centers across the full hero with no divider (graceful fallback).
       const heroX  = HS_CX + R + 18;
       const heroW  = (W - heroX - PAD);
 
       const ratingPctVal = D.hgb_rating_percentile;
+      const priorTalentP = D.priorTalent ?? [];
+      const hasContextPanel = priorTalentP.length > 0;
 
-      // Reflow hero — big Talent number, no mini-boxes; units in subtitle
-      // ("vs Forwards" lives only in the footer, in red).
+      // Two balanced halves when prior talent exists; otherwise one full-width half.
+      const halfW = hasContextPanel ? heroW / 2 : heroW;
+
+      // Formats season string to short display label. Handles "20222023" and "2022-23".
+      function fmtSzn(s) {
+        if (!s) return '';
+        if (s.includes('-')) return s.slice(2,4) + '-' + s.slice(5,7);
+        return s.slice(2,4) + '-' + s.slice(6,8);
+      }
+
+      // LEFT half — Talent (bare): HGB TALENT eyebrow / big % / subtitle.
       {
-        const tcx = heroX + heroW / 2;
-        // label (darker gray for legibility, still secondary to black tile labels)
-        ctx.font = '800 13px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('HGB TALENT', tcx, y + 12);
-        // big percentile
-        ctx.font = '900 64px "Barlow Condensed", sans-serif';
+        const tcx = heroX + halfW / 2;
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('HGB TALENT', tcx, y + 14);
+        ctx.font = '900 60px "Barlow Condensed", sans-serif';
         ctx.fillStyle = ratingPctVal != null ? TEAM_C : INK32;
-        ctx.fillText(ratingPctVal != null ? ratingPctVal + '%' : '—', tcx, y + 26);
-        // subtitle: units
-        ctx.font = '700 12px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.62)'; ctx.textBaseline = 'top';
-        ctx.fillText('Multi-Year Blended WAR', tcx, y + 88);
+        ctx.fillText(ratingPctVal != null ? ratingPctVal + '%' : '—', tcx, y + 28);
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
+        ctx.fillText('MULTI-YEAR BLENDED WAR', tcx, y + 90);
+      }
+
+      // RIGHT half — 3 prior seasons of Historical Talent, horizontal timeline.
+      // Eyebrow "TALENT HISTORY" + 3 columns (oldest→newest) with arrows between.
+      if (hasContextPanel) {
+        const L_RIGHT = heroX + halfW;
+        const rcx = L_RIGHT + halfW / 2;
+        ctx.fillStyle = INK10; ctx.fillRect(L_RIGHT, y + 18, 1, ID_H - 36);
+
+        // Eyebrow
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('TALENT HISTORY', rcx, y + 8);
+
+        // 3 evenly-spaced column centers across the right half
+        const PAD_INNER = 14;
+        const usable = halfW - PAD_INNER * 2;
+        const cols = priorTalentP.slice().reverse(); // oldest→newest left→right
+        const colCenters = cols.map((_, i) => L_RIGHT + PAD_INNER + usable * (i + 0.5) / cols.length);
+        const SZN_Y = y + 24, NUM_Y = y + 36, NUM_SZ = 34;
+
+        cols.forEach((entry, i) => {
+          const cx = colCenters[i];
+          // Season label
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText(fmtSzn(entry.season), cx, SZN_Y);
+          // Number
+          ctx.font = `800 ${NUM_SZ}px "Barlow Condensed", sans-serif`;
+          ctx.fillStyle = INK;
+          ctx.fillText(String(entry.pct) + '%', cx, NUM_Y);
+          // Arrow between columns
+          if (i < cols.length - 1) {
+            const ax = (colCenters[i] + colCenters[i + 1]) / 2;
+            ctx.font = '400 13px "Barlow", sans-serif';
+            ctx.fillStyle = INK32;
+            ctx.fillText('→', ax, NUM_Y + NUM_SZ / 2 - 6);
+          }
+        });
       }
       y += ID_H;
 
@@ -2137,13 +2171,12 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // ("Multi-Year Blended WAR" lives once, in the hero subtitle; position phrase red.)
       const FOOT_H = 36;
       const footY = y;
-      const FOOT_INK = 'rgba(13,13,20,0.50)';
       ctx.fillStyle = INK06; ctx.fillRect(0, footY, W, FOOT_H);
       ctx.font = '700 9px "Barlow Condensed", sans-serif';
       ctx.textBaseline = 'middle';
-      const vsPhrase = D.posGroup === 'F' ? 'vs Forwards' : 'vs Defensemen';
-      const fSeg1 = 'Talent = current + 3 prior seasons · percentile ';
-      const fSeg3 = ' · hockeygamebot.com';
+      const vsPhrase = D.footers.talent.vs;
+      const fSeg1 = D.footers.talent.pre;
+      const fSeg3 = D.footers.talent.post;
       const fW1 = ctx.measureText(fSeg1).width;
       const fW2 = ctx.measureText(vsPhrase).width;
       const fW3 = ctx.measureText(fSeg3).width;
@@ -2269,36 +2302,93 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 4; ctx.stroke();
 
-      // Reflow hero — single big Talent percentile (no mini-boxes); subtitle is
-      // units only ("vs Forwards" lives in the footer, in red).
+      // Hero — mirrors the SEASON card: two BARE stat halves split by a thin
+      // vertical divider, numbers directly on the cream (no surface boxes).
+      // LEFT = Talent, RIGHT = Current WAR + Model View. Without talent_context
+      // the Talent half centers across the full hero, no divider (fallback).
       const STAT_X = HS_CX + HS_R + 28;
-      const STAT_W = (W - STAT_X - PAD);
       const heroTalentPct = D.hgb_rating_percentile;
+      const priorTalentH = D.priorTalent ?? [];
+      const hasCtxPanelH = priorTalentH.length > 0;
 
+      const HERO_SPAN = (W - STAT_X - PAD);
+      const halfWH = hasCtxPanelH ? HERO_SPAN / 2 : HERO_SPAN;
+
+      // Formats season string to short display label, e.g. "22-23".
+      // Handles both "20222023" (8-digit) and "2022-23" (already normalized).
+      function fmtSznH(s) {
+        if (!s) return '';
+        if (s.includes('-')) return s.slice(2,4) + '-' + s.slice(5,7);
+        return s.slice(2,4) + '-' + s.slice(6,8);
+      }
+
+      // LEFT half — Talent (bare): big percentile, eyebrow above, subtitle below.
+      // blockTop pinned to STAT_TOP + 14 — same anchor used by the right half.
       {
-        const mid = STAT_X + STAT_W / 2;
+        const mid = STAT_X + halfWH / 2;
         const NUM_SIZE = 108;
-        const LABEL_H = 30, GAP1 = 4, GAP2 = 16, SUB_H = 18;
-        const BLOCK_H = LABEL_H + GAP1 + NUM_SIZE + GAP2 + SUB_H;
-        // Keep the block clear of the white header strip: never let it ride above
-        // STAT_TOP + a top pad (the reflow had pushed "HGB TALENT" into the header).
-        const TOP_PAD = 14;
-        const blockTop = STAT_TOP + Math.max(TOP_PAD, (HERO_STAT - BLOCK_H) / 2);
+        const LABEL_H = 20, GAP1 = 4, GAP2 = 14;
+        const blockTop = STAT_TOP + 14;
 
-        ctx.font = '800 30px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)';
+        ctx.font = '700 15px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)';
         ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         ctx.fillText('HGB TALENT', mid, blockTop);
 
         ctx.font = `800 ${NUM_SIZE}px "Barlow Condensed", sans-serif`;
-        ctx.fillStyle = TEAM_C;
-        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillStyle = heroTalentPct != null ? TEAM_C : INK32;
         ctx.fillText(heroTalentPct != null ? String(heroTalentPct) + '%' : '—', mid, blockTop + LABEL_H + GAP1);
 
-        ctx.font = '700 16px "Barlow", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.62)';
-        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.font = '600 13px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)';
         ctx.fillText('Multi-Year Blended WAR', mid, blockTop + LABEL_H + GAP1 + NUM_SIZE + GAP2);
+      }
+
+      // RIGHT half — 3 prior seasons of Historical Talent, horizontal timeline.
+      // oldest → newest left to right, arrows between, "TALENT HISTORY" eyebrow.
+      if (hasCtxPanelH) {
+        const L_RIGHT = STAT_X + halfWH;
+        const rcx = L_RIGHT + halfWH / 2;
+        ctx.fillStyle = INK10; ctx.fillRect(L_RIGHT, STAT_TOP + 26, 1, HERO_STAT - 52);
+
+        // "TALENT HISTORY" pinned to same top anchor as left "HGB TALENT".
+        // The season+number columns are then centered in the remaining space below.
+        const EYEBROW_SZ = 15, eyebrowTop = STAT_TOP + 14;
+        const SZN_SZ = 13, SZN_GAP = 8, NUM_SZ = 42;
+        const colBlockH = SZN_SZ + SZN_GAP + NUM_SZ;
+        const eyebrowBottom = eyebrowTop + EYEBROW_SZ;
+        const stripBottom = STAT_TOP + HERO_STAT;
+        const szn_y = eyebrowBottom + Math.max(8, (stripBottom - eyebrowBottom - colBlockH) / 2);
+        const num_y = szn_y + SZN_SZ + SZN_GAP;
+
+        ctx.font = '700 15px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('TALENT HISTORY', rcx, eyebrowTop);
+
+        // 3 columns oldest→newest across the right half (padded 36px each side)
+        const PAD_INNER = 36;
+        const usable = halfWH - PAD_INNER * 2;
+        const cols = priorTalentH.slice().reverse(); // oldest first = left
+        const colCenters = cols.map((_, i) => L_RIGHT + PAD_INNER + usable * (i + 0.5) / cols.length);
+
+        cols.forEach((entry, i) => {
+          const cx = colCenters[i];
+          // Season label
+          ctx.font = '700 12px "Barlow", sans-serif';
+          ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText(fmtSznH(entry.season), cx, szn_y);
+          // Percentile number
+          ctx.font = `800 ${NUM_SZ}px "Barlow Condensed", sans-serif`;
+          ctx.fillStyle = INK;
+          ctx.fillText(String(entry.pct) + '%', cx, num_y);
+          // Arrow between columns (vertically centered to numbers)
+          if (i < cols.length - 1) {
+            const ax = (colCenters[i] + colCenters[i + 1]) / 2;
+            ctx.font = '400 18px "Barlow", sans-serif';
+            ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+            ctx.fillText('→', ax, num_y + NUM_SZ / 2 - 9);
+          }
+        });
       }
 
       // ── METRICS GRID (exact copy from V2) ────────────────────────────────
@@ -2415,18 +2505,17 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillRect(0, footY, W, 1);
       ctx.font = '700 15px "Barlow Condensed", sans-serif';
       ctx.textBaseline = 'middle';
-      const H_FOOT_INK = 'rgba(13,13,20,0.50)';
-      const vsPhrase = D.posGroup === 'F' ? 'vs Forwards' : 'vs Defensemen';
-      const fSeg1 = 'Talent = current + 3 prior seasons · percentile ';
-      const fSeg3 = ' · hockeygamebot.com';
+      const vsPhrase = D.footers.talent.vs;
+      const fSeg1 = D.footers.talent.pre;
+      const fSeg3 = D.footers.talent.post;
       const fW1 = ctx.measureText(fSeg1).width;
       const fW2 = ctx.measureText(vsPhrase).width;
       const fW3 = ctx.measureText(fSeg3).width;
       let fx = (W - (fW1 + fW2 + fW3)) / 2;
       ctx.textAlign = 'left';
-      ctx.fillStyle = H_FOOT_INK; ctx.fillText(fSeg1, fx, footY + FOOTER_H / 2); fx += fW1;
-      ctx.fillStyle = RED;        ctx.fillText(vsPhrase, fx, footY + FOOTER_H / 2); fx += fW2;
-      ctx.fillStyle = H_FOOT_INK; ctx.fillText(fSeg3, fx, footY + FOOTER_H / 2);
+      ctx.fillStyle = FOOT_INK; ctx.fillText(fSeg1, fx, footY + FOOTER_H / 2); fx += fW1;
+      ctx.fillStyle = RED;      ctx.fillText(vsPhrase, fx, footY + FOOTER_H / 2); fx += fW2;
+      ctx.fillStyle = FOOT_INK; ctx.fillText(fSeg3, fx, footY + FOOTER_H / 2);
 
       return canvas;
     }
@@ -2903,9 +2992,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     ctx.fillStyle = INK06;
     ctx.fillRect(0, y, W, FOOT_H);
     ctx.font = '700 8px "Barlow Condensed", sans-serif';
-    ctx.fillStyle = INK32;
+    ctx.fillStyle = FOOT_INK;
     ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-    ctx.fillText('HOCKEYGAMEBOT.COM · HGB STATS · TALENT/WAR/IMPACT PERCENTILE VS. POSITION', W / 2, y + FOOT_H / 2);
+    ctx.fillText(D.footers.history, W / 2, y + FOOT_H / 2);
 
     return canvas;
   }
