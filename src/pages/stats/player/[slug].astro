@@ -1161,6 +1161,17 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       pp_toi:      (player as any).rapm_pp_toi       ?? null,
     },
     footers: _cardFooters,
+    // 3 prior seasons of Historical Talent for the right-half timeline.
+    // seasonStatsSorted is newest-first; skip index 0 (current season).
+    priorTalent: (() => {
+      const out: {season: string, pct: number}[] = [];
+      for (let i = 1; i < seasonStatsSorted.length && out.length < 3; i++) {
+        const s = seasonStatsSorted[i] as any;
+        const pct = s.hgb_rating_pct ?? null;
+        if (pct != null) out.push({ season: s.season, pct });
+      }
+      return out;
+    })(),
   }
 }}>
   // ── Player card download ────────────────────────────────────────────────
@@ -1975,17 +1986,24 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const heroW  = (W - heroX - PAD);
 
       const ratingPctVal = D.hgb_rating_percentile;
-      const tctx = D.talentContext;
-      const hasContextPanel = tctx != null && tctx.current_war_pct != null && tctx.label != null;
+      const priorTalentP = D.priorTalent ?? [];
+      const hasContextPanel = priorTalentP.length > 0;
 
-      // Two balanced halves when context exists; otherwise one full-width half.
+      // Two balanced halves when prior talent exists; otherwise one full-width half.
       const halfW = hasContextPanel ? heroW / 2 : heroW;
+
+      // Formats season string to short display label. Handles "20222023" and "2022-23".
+      function fmtSzn(s) {
+        if (!s) return '';
+        if (s.includes('-')) return s.slice(2,4) + '-' + s.slice(5,7);
+        return s.slice(2,4) + '-' + s.slice(6,8);
+      }
 
       // LEFT half — Talent (bare): HGB TALENT eyebrow / big % / subtitle.
       {
         const tcx = heroX + halfW / 2;
         ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         ctx.fillText('HGB TALENT', tcx, y + 14);
         ctx.font = '900 60px "Barlow Condensed", sans-serif';
         ctx.fillStyle = ratingPctVal != null ? TEAM_C : INK32;
@@ -1995,26 +2013,43 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillText('MULTI-YEAR BLENDED WAR', tcx, y + 90);
       }
 
-      // RIGHT half — Current WAR + Model View, BARE (no boxes), divider on left.
+      // RIGHT half — 3 prior seasons of Historical Talent, horizontal timeline.
+      // Eyebrow "TALENT HISTORY" + 3 columns (oldest→newest) with arrows between.
       if (hasContextPanel) {
-        const rcx = heroX + halfW + halfW / 2;
-        // thin vertical divider, matching the Season card's WAR|Impact split
-        ctx.fillStyle = INK10; ctx.fillRect(heroX + halfW, y + 18, 1, ID_H - 36);
-        const modelTint = talentModelTint(tctx.label);
-        // CURRENT WAR — bare, same number treatment as the left Talent stat
+        const L_RIGHT = heroX + halfW;
+        const rcx = L_RIGHT + halfW / 2;
+        ctx.fillStyle = INK10; ctx.fillRect(L_RIGHT, y + 18, 1, ID_H - 36);
+
+        // Eyebrow
         ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('CURRENT WAR', rcx, y + 8);
-        ctx.font = '900 42px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = tctx.current_war_pct != null ? INK : INK32;
-        ctx.fillText(tctx.current_war_pct != null ? tctx.current_war_pct + '%' : '—', rcx, y + 20);
-        // MODEL VIEW — eyebrow + tinted label below (wraps to 2 lines if needed)
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top';
-        ctx.fillText('MODEL VIEW', rcx, y + 66);
-        ctx.font = '800 18px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = modelTint; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        drawWrappedLabelCentered(ctx, tctx.label, rcx, y + 80, halfW - 16, 18);
+        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('TALENT HISTORY', rcx, y + 8);
+
+        // 3 evenly-spaced column centers across the right half
+        const PAD_INNER = 14;
+        const usable = halfW - PAD_INNER * 2;
+        const cols = priorTalentP.slice().reverse(); // oldest→newest left→right
+        const colCenters = cols.map((_, i) => L_RIGHT + PAD_INNER + usable * (i + 0.5) / cols.length);
+        const SZN_Y = y + 24, NUM_Y = y + 36, NUM_SZ = 34;
+
+        cols.forEach((entry, i) => {
+          const cx = colCenters[i];
+          // Season label
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText(fmtSzn(entry.season), cx, SZN_Y);
+          // Number
+          ctx.font = `800 ${NUM_SZ}px "Barlow Condensed", sans-serif`;
+          ctx.fillStyle = INK;
+          ctx.fillText(String(entry.pct) + '%', cx, NUM_Y);
+          // Arrow between columns
+          if (i < cols.length - 1) {
+            const ax = (colCenters[i] + colCenters[i + 1]) / 2;
+            ctx.font = '400 13px "Barlow", sans-serif';
+            ctx.fillStyle = INK32;
+            ctx.fillText('→', ax, NUM_Y + NUM_SZ / 2 - 6);
+          }
+        });
       }
       y += ID_H;
 
@@ -2273,24 +2308,30 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // the Talent half centers across the full hero, no divider (fallback).
       const STAT_X = HS_CX + HS_R + 28;
       const heroTalentPct = D.hgb_rating_percentile;
-      const tctxH = D.talentContext;
-      const hasCtxPanelH = tctxH != null && tctxH.current_war_pct != null && tctxH.label != null;
+      const priorTalentH = D.priorTalent ?? [];
+      const hasCtxPanelH = priorTalentH.length > 0;
 
       const HERO_SPAN = (W - STAT_X - PAD);
       const halfWH = hasCtxPanelH ? HERO_SPAN / 2 : HERO_SPAN;
 
-      // LEFT half — Talent (bare): big percentile, eyebrow above, subtitle below,
-      // vertically centered in the cream strip.
+      // Formats season string to short display label, e.g. "22-23".
+      // Handles both "20222023" (8-digit) and "2022-23" (already normalized).
+      function fmtSznH(s) {
+        if (!s) return '';
+        if (s.includes('-')) return s.slice(2,4) + '-' + s.slice(5,7);
+        return s.slice(2,4) + '-' + s.slice(6,8);
+      }
+
+      // LEFT half — Talent (bare): big percentile, eyebrow above, subtitle below.
+      // blockTop pinned to STAT_TOP + 14 — same anchor used by the right half.
       {
         const mid = STAT_X + halfWH / 2;
         const NUM_SIZE = 108;
-        const LABEL_H = 30, GAP1 = 4, GAP2 = 16, SUB_H = 18;
-        const BLOCK_H = LABEL_H + GAP1 + NUM_SIZE + GAP2 + SUB_H;
-        const TOP_PAD = 14;
-        const blockTop = STAT_TOP + Math.max(TOP_PAD, (HERO_STAT - BLOCK_H) / 2);
+        const LABEL_H = 20, GAP1 = 4, GAP2 = 14;
+        const blockTop = STAT_TOP + 14;
 
-        ctx.font = '800 30px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)';
+        ctx.font = '700 15px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)';
         ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         ctx.fillText('HGB TALENT', mid, blockTop);
 
@@ -2298,37 +2339,56 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillStyle = heroTalentPct != null ? TEAM_C : INK32;
         ctx.fillText(heroTalentPct != null ? String(heroTalentPct) + '%' : '—', mid, blockTop + LABEL_H + GAP1);
 
-        ctx.font = '700 16px "Barlow", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.62)';
+        ctx.font = '600 13px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)';
         ctx.fillText('Multi-Year Blended WAR', mid, blockTop + LABEL_H + GAP1 + NUM_SIZE + GAP2);
       }
 
-      // RIGHT half — Current WAR + Model View, BARE (no boxes), divider on left.
+      // RIGHT half — 3 prior seasons of Historical Talent, horizontal timeline.
+      // oldest → newest left to right, arrows between, "TALENT HISTORY" eyebrow.
       if (hasCtxPanelH) {
-        const rmid = STAT_X + halfWH + halfWH / 2;
-        // thin vertical divider matching the Season card's WAR|Impact split
-        ctx.fillStyle = INK10; ctx.fillRect(STAT_X + halfWH, STAT_TOP + 26, 1, HERO_STAT - 52);
-        const modelTint = talentModelTint(tctxH.label);
-        // stack: CURRENT WAR eyebrow + big number, then MODEL VIEW eyebrow + label
-        const WAR_NUM = 76;
-        const E1 = 28, G1 = 4, G2 = 22, E2 = 22, LBL = 28;
-        const STACK_H = E1 + G1 + WAR_NUM + G2 + E2 + G1 + LBL;
-        const stackTop = STAT_TOP + Math.max(14, (HERO_STAT - STACK_H) / 2);
-        let ry = stackTop;
+        const L_RIGHT = STAT_X + halfWH;
+        const rcx = L_RIGHT + halfWH / 2;
+        ctx.fillStyle = INK10; ctx.fillRect(L_RIGHT, STAT_TOP + 26, 1, HERO_STAT - 52);
 
-        ctx.font = '800 30px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('CURRENT WAR', rmid, ry); ry += E1 + G1;
-        ctx.font = `800 ${WAR_NUM}px "Barlow Condensed", sans-serif`;
-        ctx.fillStyle = tctxH.current_war_pct != null ? INK : INK32;
-        ctx.fillText(tctxH.current_war_pct != null ? String(tctxH.current_war_pct) + '%' : '—', rmid, ry);
-        ry += WAR_NUM + G2;
-        ctx.font = '800 22px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top';
-        ctx.fillText('MODEL VIEW', rmid, ry); ry += E2 + G1;
-        ctx.font = '800 26px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = modelTint; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        drawWrappedLabelCentered(ctx, tctxH.label, rmid, ry, halfWH - 24, 26);
+        // "TALENT HISTORY" pinned to same top anchor as left "HGB TALENT".
+        // The season+number columns are then centered in the remaining space below.
+        const EYEBROW_SZ = 15, eyebrowTop = STAT_TOP + 14;
+        const SZN_SZ = 13, SZN_GAP = 8, NUM_SZ = 42;
+        const colBlockH = SZN_SZ + SZN_GAP + NUM_SZ;
+        const eyebrowBottom = eyebrowTop + EYEBROW_SZ;
+        const stripBottom = STAT_TOP + HERO_STAT;
+        const szn_y = eyebrowBottom + Math.max(8, (stripBottom - eyebrowBottom - colBlockH) / 2);
+        const num_y = szn_y + SZN_SZ + SZN_GAP;
+
+        ctx.font = '700 15px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('TALENT HISTORY', rcx, eyebrowTop);
+
+        // 3 columns oldest→newest across the right half (padded 36px each side)
+        const PAD_INNER = 36;
+        const usable = halfWH - PAD_INNER * 2;
+        const cols = priorTalentH.slice().reverse(); // oldest first = left
+        const colCenters = cols.map((_, i) => L_RIGHT + PAD_INNER + usable * (i + 0.5) / cols.length);
+
+        cols.forEach((entry, i) => {
+          const cx = colCenters[i];
+          // Season label
+          ctx.font = '700 12px "Barlow", sans-serif';
+          ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText(fmtSznH(entry.season), cx, szn_y);
+          // Percentile number
+          ctx.font = `800 ${NUM_SZ}px "Barlow Condensed", sans-serif`;
+          ctx.fillStyle = INK;
+          ctx.fillText(String(entry.pct) + '%', cx, num_y);
+          // Arrow between columns (vertically centered to numbers)
+          if (i < cols.length - 1) {
+            const ax = (colCenters[i] + colCenters[i + 1]) / 2;
+            ctx.font = '400 18px "Barlow", sans-serif';
+            ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+            ctx.fillText('→', ax, num_y + NUM_SZ / 2 - 9);
+          }
+        });
       }
 
       // ── METRICS GRID (exact copy from V2) ────────────────────────────────
