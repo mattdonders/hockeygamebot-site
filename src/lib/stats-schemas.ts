@@ -102,6 +102,14 @@ export const PlayerRecordSchema = z.object({
   hgb_rating_confidence:  z.enum(['full', 'limited', 'limited_sample']).optional(),
   hgb_rating_off_pct:     z.number().nullable().optional(),
   hgb_rating_def_pct:     z.number().nullable().optional(),
+  // Talent-vs-current-WAR context for the Talent card hero (added 2026-06-21).
+  // Backend writes this to players.json; all fields nullable for low-GP players.
+  talent_context: z.object({
+    current_war_pct: z.number().nullable().optional(),
+    talent_pct:      z.number().nullable().optional(),
+    delta:           z.number().nullable().optional(),
+    label:           z.string().nullable().optional(),
+  }).nullable().optional(),
   // RAPM z-score fields for the RAPM card (added 2026-06-02)
   rapm_ev_gf60_z:   z.number().nullable().optional(),
   rapm_ev_xgf60_z:  z.number().nullable().optional(),
