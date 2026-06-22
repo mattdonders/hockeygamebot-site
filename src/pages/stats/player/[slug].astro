@@ -1216,9 +1216,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       if (l.includes('current above')) return '#c0392b';
       return 'rgba(13,13,20,0.62)'; // "In Line" / neutral
     }
-    // Draw a short label, wrapping to at most 2 lines within maxW (word-based).
-    // Used for the MODEL VIEW tile value ("Talent Above Current" etc).
-    function drawWrappedLabel(ctx, text, x, yTop, maxW, lineH) {
+    // Split a short label into at most 2 word-wrapped lines within maxW.
+    function wrapLabelLines(ctx, text, maxW) {
       const words = String(text).split(' ');
       const lines = [];
       let cur = '';
@@ -1228,8 +1227,12 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         else cur = trial;
       }
       if (cur) lines.push(cur);
-      const draw = lines.slice(0, 2);
-      for (let i = 0; i < draw.length; i++) ctx.fillText(draw[i], x, yTop + i * lineH);
+      return lines.slice(0, 2);
+    }
+    // Draw a wrapped label centered on cx (caller sets textAlign='center').
+    function drawWrappedLabelCentered(ctx, text, cx, yTop, maxW, lineH) {
+      const lines = wrapLabelLines(ctx, text, maxW);
+      for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], cx, yTop + i * lineH);
     }
     function loadImg(src) {
       return new Promise(res => {
@@ -1963,9 +1966,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
 
-      // Talent hero to the right of headshot. When talent_context is present we
-      // split the hero: Talent block on the left, a 2-tile context panel on the
-      // right. Without it, the Talent block centers across the full hero (old look).
+      // Talent hero to the right of headshot — mirrors the SEASON card's hero:
+      // two BARE stat halves split by a thin vertical divider, numbers sitting
+      // directly on the cream (no surface boxes/borders). LEFT = Talent,
+      // RIGHT = Current WAR + Model View. Without talent_context the Talent half
+      // centers across the full hero with no divider (graceful fallback).
       const heroX  = HS_CX + R + 18;
       const heroW  = (W - heroX - PAD);
 
@@ -1973,55 +1978,43 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const tctx = D.talentContext;
       const hasContextPanel = tctx != null && tctx.current_war_pct != null && tctx.label != null;
 
-      // Right context panel geometry (only when shown).
-      const ctxPanelW = hasContextPanel ? 132 : 0;
-      const ctxGap    = hasContextPanel ? 16 : 0;
-      const talentBlockW = heroW - ctxPanelW - ctxGap;
+      // Two balanced halves when context exists; otherwise one full-width half.
+      const halfW = hasContextPanel ? heroW / 2 : heroW;
 
-      // Reflow hero — big Talent number, no mini-boxes; units in subtitle
-      // ("vs Forwards" lives only in the footer, in red).
+      // LEFT half — Talent (bare): HGB TALENT eyebrow / big % / subtitle.
       {
-        const tcx = heroX + talentBlockW / 2;
-        // label (darker gray for legibility, still secondary to black tile labels)
-        ctx.font = '800 13px "Barlow Condensed", sans-serif';
+        const tcx = heroX + halfW / 2;
+        ctx.font = '700 10px "JetBrains Mono", monospace';
         ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('HGB TALENT', tcx, y + 12);
-        // big percentile
-        ctx.font = '900 64px "Barlow Condensed", sans-serif';
+        ctx.fillText('HGB TALENT', tcx, y + 14);
+        ctx.font = '900 60px "Barlow Condensed", sans-serif';
         ctx.fillStyle = ratingPctVal != null ? TEAM_C : INK32;
-        ctx.fillText(ratingPctVal != null ? ratingPctVal + '%' : '—', tcx, y + 26);
-        // subtitle: units (parallels "CURRENT WAR" in the right panel)
-        ctx.font = '700 12px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.62)'; ctx.textBaseline = 'top';
-        ctx.fillText('Multi-Year Blended WAR', tcx, y + 88);
+        ctx.fillText(ratingPctVal != null ? ratingPctVal + '%' : '—', tcx, y + 28);
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
+        ctx.fillText('MULTI-YEAR BLENDED WAR', tcx, y + 90);
       }
 
-      // Right-side context panel — two stacked tiles in the masthead tile style.
+      // RIGHT half — Current WAR + Model View, BARE (no boxes), divider on left.
       if (hasContextPanel) {
-        const px = heroX + talentBlockW + ctxGap;
-        const pw = ctxPanelW;
-        const tileGap = 10;
-        const tileH = (ID_H - tileGap) / 2;
+        const rcx = heroX + halfW + halfW / 2;
+        // thin vertical divider, matching the Season card's WAR|Impact split
+        ctx.fillStyle = INK10; ctx.fillRect(heroX + halfW, y + 18, 1, ID_H - 36);
         const modelTint = talentModelTint(tctx.label);
-        const tiles = [
-          { label: 'CURRENT WAR', value: tctx.current_war_pct != null ? tctx.current_war_pct + '%' : '—', valColor: INK, valSize: 30 },
-          { label: 'MODEL VIEW',  value: tctx.label,                                                       valColor: modelTint, valSize: 17 },
-        ];
-        for (let ti = 0; ti < tiles.length; ti++) {
-          const t = tiles[ti];
-          const ty = y + ti * (tileH + tileGap);
-          // tile surface + subtle border
-          ctx.fillStyle = SURFACE; rrect(ctx, px, ty, pw, tileH, 4); ctx.fill();
-          ctx.strokeStyle = INK10; ctx.lineWidth = 1; rrect(ctx, px, ty, pw, tileH, 4); ctx.stroke();
-          // label
-          ctx.font = '700 9px "JetBrains Mono", monospace';
-          ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-          ctx.fillText(t.label, px + 12, ty + 11);
-          // value (wraps to 2 lines for the MODEL VIEW label if needed)
-          ctx.font = `800 ${t.valSize}px "Barlow Condensed", sans-serif`;
-          ctx.fillStyle = t.valColor; ctx.textBaseline = 'top';
-          drawWrappedLabel(ctx, t.value, px + 12, ty + 26, pw - 24, t.valSize + 2);
-        }
+        // CURRENT WAR — bare, same number treatment as the left Talent stat
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('CURRENT WAR', rcx, y + 8);
+        ctx.font = '900 42px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = tctx.current_war_pct != null ? INK : INK32;
+        ctx.fillText(tctx.current_war_pct != null ? tctx.current_war_pct + '%' : '—', rcx, y + 20);
+        // MODEL VIEW — eyebrow + tinted label below (wraps to 2 lines if needed)
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top';
+        ctx.fillText('MODEL VIEW', rcx, y + 66);
+        ctx.font = '800 18px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = modelTint; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        drawWrappedLabelCentered(ctx, tctx.label, rcx, y + 80, halfW - 16, 18);
       }
       y += ID_H;
 
@@ -2274,25 +2267,25 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 4; ctx.stroke();
 
-      // Reflow hero — big Talent percentile, with an optional right-side context
-      // panel (Talent vs Current WAR). subtitle parallels the panel's "CURRENT WAR".
+      // Hero — mirrors the SEASON card: two BARE stat halves split by a thin
+      // vertical divider, numbers directly on the cream (no surface boxes).
+      // LEFT = Talent, RIGHT = Current WAR + Model View. Without talent_context
+      // the Talent half centers across the full hero, no divider (fallback).
       const STAT_X = HS_CX + HS_R + 28;
       const heroTalentPct = D.hgb_rating_percentile;
       const tctxH = D.talentContext;
       const hasCtxPanelH = tctxH != null && tctxH.current_war_pct != null && tctxH.label != null;
 
-      // Right context panel geometry (only when shown).
-      const ctxPanelWH = hasCtxPanelH ? 240 : 0;
-      const ctxGapH    = hasCtxPanelH ? 28 : 0;
-      const STAT_W = (W - STAT_X - PAD - ctxPanelWH - ctxGapH);
+      const HERO_SPAN = (W - STAT_X - PAD);
+      const halfWH = hasCtxPanelH ? HERO_SPAN / 2 : HERO_SPAN;
 
+      // LEFT half — Talent (bare): big percentile, eyebrow above, subtitle below,
+      // vertically centered in the cream strip.
       {
-        const mid = STAT_X + STAT_W / 2;
+        const mid = STAT_X + halfWH / 2;
         const NUM_SIZE = 108;
         const LABEL_H = 30, GAP1 = 4, GAP2 = 16, SUB_H = 18;
         const BLOCK_H = LABEL_H + GAP1 + NUM_SIZE + GAP2 + SUB_H;
-        // Keep the block clear of the white header strip: never let it ride above
-        // STAT_TOP + a top pad (the reflow had pushed "HGB TALENT" into the header).
         const TOP_PAD = 14;
         const blockTop = STAT_TOP + Math.max(TOP_PAD, (HERO_STAT - BLOCK_H) / 2);
 
@@ -2302,41 +2295,40 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillText('HGB TALENT', mid, blockTop);
 
         ctx.font = `800 ${NUM_SIZE}px "Barlow Condensed", sans-serif`;
-        ctx.fillStyle = TEAM_C;
-        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillStyle = heroTalentPct != null ? TEAM_C : INK32;
         ctx.fillText(heroTalentPct != null ? String(heroTalentPct) + '%' : '—', mid, blockTop + LABEL_H + GAP1);
 
         ctx.font = '700 16px "Barlow", sans-serif';
         ctx.fillStyle = 'rgba(13,13,20,0.62)';
-        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         ctx.fillText('Multi-Year Blended WAR', mid, blockTop + LABEL_H + GAP1 + NUM_SIZE + GAP2);
       }
 
-      // Right-side context panel — two stacked tiles in the masthead tile style.
+      // RIGHT half — Current WAR + Model View, BARE (no boxes), divider on left.
       if (hasCtxPanelH) {
-        const px = W - PAD - ctxPanelWH;
-        const pw = ctxPanelWH;
-        const tileGap = 14;
-        const panelPad = 22;
-        const tileH = (HERO_STAT - panelPad * 2 - tileGap) / 2;
-        const tileTop = STAT_TOP + panelPad;
+        const rmid = STAT_X + halfWH + halfWH / 2;
+        // thin vertical divider matching the Season card's WAR|Impact split
+        ctx.fillStyle = INK10; ctx.fillRect(STAT_X + halfWH, STAT_TOP + 26, 1, HERO_STAT - 52);
         const modelTint = talentModelTint(tctxH.label);
-        const tilesH = [
-          { label: 'CURRENT WAR', value: tctxH.current_war_pct != null ? tctxH.current_war_pct + '%' : '—', valColor: INK, valSize: 52 },
-          { label: 'MODEL VIEW',  value: tctxH.label,                                                        valColor: modelTint, valSize: 26 },
-        ];
-        for (let ti = 0; ti < tilesH.length; ti++) {
-          const t = tilesH[ti];
-          const ty = tileTop + ti * (tileH + tileGap);
-          ctx.fillStyle = SURFACE; rrect(ctx, px, ty, pw, tileH, 6); ctx.fill();
-          ctx.strokeStyle = INK10; ctx.lineWidth = 1; rrect(ctx, px, ty, pw, tileH, 6); ctx.stroke();
-          ctx.font = '700 11px "JetBrains Mono", monospace';
-          ctx.fillStyle = INK48; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-          ctx.fillText(t.label, px + 18, ty + 16);
-          ctx.font = `800 ${t.valSize}px "Barlow Condensed", sans-serif`;
-          ctx.fillStyle = t.valColor; ctx.textBaseline = 'top';
-          drawWrappedLabel(ctx, t.value, px + 18, ty + 36, pw - 36, t.valSize + 4);
-        }
+        // stack: CURRENT WAR eyebrow + big number, then MODEL VIEW eyebrow + label
+        const WAR_NUM = 76;
+        const E1 = 28, G1 = 4, G2 = 22, E2 = 22, LBL = 28;
+        const STACK_H = E1 + G1 + WAR_NUM + G2 + E2 + G1 + LBL;
+        const stackTop = STAT_TOP + Math.max(14, (HERO_STAT - STACK_H) / 2);
+        let ry = stackTop;
+
+        ctx.font = '800 30px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('CURRENT WAR', rmid, ry); ry += E1 + G1;
+        ctx.font = `800 ${WAR_NUM}px "Barlow Condensed", sans-serif`;
+        ctx.fillStyle = tctxH.current_war_pct != null ? INK : INK32;
+        ctx.fillText(tctxH.current_war_pct != null ? String(tctxH.current_war_pct) + '%' : '—', rmid, ry);
+        ry += WAR_NUM + G2;
+        ctx.font = '800 22px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top';
+        ctx.fillText('MODEL VIEW', rmid, ry); ry += E2 + G1;
+        ctx.font = '800 26px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = modelTint; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        drawWrappedLabelCentered(ctx, tctxH.label, rmid, ry, halfWH - 24, 26);
       }
 
       // ── METRICS GRID (exact copy from V2) ────────────────────────────────
