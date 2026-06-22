@@ -27,6 +27,7 @@ declare global {
 import PlayerSearch, { type PlayerSearchItem } from './PlayerSearch';
 import { pickTeamColor, pickTeamColorRgb } from '../../lib/team-colors';
 import { getTeamLogoSvg } from '../../lib/team-logos';
+import { cardFooterText } from '../../lib/card-footer';
 import {
   edgeStatRows, edgeShotCols, edgeZones, edgeTierColor,
   ordinalSuffix, barWidth, isEdgeEmpty, type EdgeData,
@@ -323,6 +324,9 @@ export default function EdgeCompare({ players, defaultLeft, defaultRight }: Prop
     [left, right],
   );
 
+  // Shareable card → uppercase domain + NHL Edge attribution (renders Edge data).
+  const watermark = cardFooterText({ edgeData: true });
+
   async function downloadPng() {
     const node = captureRef.current;
     if (!node) return;
@@ -400,7 +404,7 @@ export default function EdgeCompare({ players, defaultLeft, defaultRight }: Prop
           <EdgePanelView player={left}  side="L" wins={wins} />
           <EdgePanelView player={right} side="R" wins={wins} />
         </div>
-        <div className="edge-cmp-watermark" style={MONO}>hockeygamebot.com · NHL Edge · 2025–26</div>
+        <div className="edge-cmp-watermark" style={MONO}>{watermark}</div>
       </div>
     </div>
   );
