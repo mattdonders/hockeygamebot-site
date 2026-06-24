@@ -34,11 +34,12 @@ export type GoalieRow = {
 };
 
 type Props = {
-  regularRows: GoalieRow[];
-  playoffRows: GoalieRow[];
-  statsDate:   string | null;
-  teams:       string[];
-  compact?:    boolean;
+  regularRows:      GoalieRow[];
+  playoffRows:      GoalieRow[];
+  statsDate:        string | null;
+  teams:            string[];
+  seasons?:         string[];
+  compact?:         boolean;
   defaultGameType?: 'regular' | 'playoffs';
 };
 
@@ -61,16 +62,18 @@ const signed = (v: number | null) =>
 const gsaxColor = (v: number | null) =>
   v == null ? undefined : v >= 0 ? '#166534' : '#991b1b';
 
-export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams, compact = false, defaultGameType = 'regular' }: Props) {
-  const [gameType,       setGameType]       = useState<'regular' | 'playoffs'>(defaultGameType);
-  const [display,        setDisplay]        = useState<Display>('totals');
-  const [strength,       setStrength]       = useState<Strength>('all');
-  const [minGP,          setMinGP]          = useState(defaultGameType === 'playoffs' ? 1 : 10);
-  const [topN,           setTopN]           = useState<number | null>(null);
-  const [teamFilter,     setTeamFilter]     = useState<string[]>([]);
-  const [findInput,      setFindInput]      = useState('');
-  const [findKey,        setFindKey]        = useState(0);
-  const [filtersOpen,    setFiltersOpen]    = useState(true);
+export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams, seasons = ['2025-26'], compact = false, defaultGameType = 'regular' }: Props) {
+  const [gameType,        setGameType]        = useState<'regular' | 'playoffs'>(defaultGameType);
+  const [display,         setDisplay]         = useState<Display>('totals');
+  const [strength,        setStrength]        = useState<Strength>('all');
+  const [fromSeason,      setFromSeason]      = useState(seasons[seasons.length - 1]);
+  const [toSeason,        setToSeason]        = useState(seasons[0]);
+  const [minGP,           setMinGP]           = useState(defaultGameType === 'playoffs' ? 1 : 10);
+  const [topN,            setTopN]            = useState<number | null>(null);
+  const [teamFilter,      setTeamFilter]      = useState<string[]>([]);
+  const [findInput,       setFindInput]       = useState('');
+  const [findKey,         setFindKey]         = useState(0);
+  const [filtersOpen,     setFiltersOpen]     = useState(true);
   const [visibleOptional, setVisibleOptional] = useState<Set<OptionalColId>>(new Set());
   const isDark = useIsDark();
 
@@ -240,90 +243,102 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         })}
       </div>
 
-      {/* Zone 2 — collapsible filter panel */}
+      {/* Zone 2 — collapsible filter panel, two explicit rows */}
       {filtersOpen && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 12 }}>
+        <div style={{ marginBottom: 12 }}>
 
-          {/* — Display row — */}
-          <div>
-            <FilterLabel text="Game Type" />
-            <FilterChipGroup>
-              <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => switchGameType('regular')} />
-              <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => switchGameType('playoffs')} />
-            </FilterChipGroup>
-          </div>
-
-          <div>
-            <FilterLabel text="Season Range" />
-            <span style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.14)', display: 'inline-block' }}>
-              25-26
-            </span>
-          </div>
-
-          <div>
-            <FilterLabel text="Strength" />
-            <FilterChipGroup>
-              <FilterChip active={strength === 'all'} label="All"  onClick={() => { setStrength('all'); }} />
-              <FilterChip active={strength === '5v5'} label="5v5"  onClick={() => { setStrength('5v5'); setDisplay('totals'); }} />
-            </FilterChipGroup>
-          </div>
-
-          <div>
-            <FilterLabel text="Display" />
-            <FilterChipGroup>
-              <FilterChip active={display === 'totals'} label="Totals" onClick={() => setDisplay('totals')} />
-              <FilterChip active={display === 'per60'}  label="Per 60" onClick={() => setDisplay('per60')} disabled={per60Disabled} />
-            </FilterChipGroup>
-          </div>
-
-          {/* — Scope row — */}
-          <div>
-            <FilterLabel text="Scope" />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <label style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                Min GP
-                <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-                  style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
-              </label>
+          {/* Row 1 — Game Type | Season Range | Strength | Display */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 14 }}>
+            <div>
+              <FilterLabel text="Game Type" />
               <FilterChipGroup>
-                {([null, 10, 20, 50] as (number | null)[]).map(n =>
-                  <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
-                )}
+                <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => switchGameType('regular')} />
+                <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => switchGameType('playoffs')} />
+              </FilterChipGroup>
+            </div>
+
+            <div>
+              <FilterLabel text="Season Range" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <select value={fromSeason} onChange={e => setFromSeason(e.target.value)}
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                  {seasons.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.32)' }}>to</span>
+                <select value={toSeason} onChange={e => setToSeason(e.target.value)}
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                  {seasons.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <FilterLabel text="Strength" />
+              <FilterChipGroup>
+                <FilterChip active={strength === 'all'} label="All" onClick={() => setStrength('all')} />
+                <FilterChip active={strength === '5v5'} label="5v5" onClick={() => { setStrength('5v5'); setDisplay('totals'); }} />
+              </FilterChipGroup>
+            </div>
+
+            <div>
+              <FilterLabel text="Display" />
+              <FilterChipGroup>
+                <FilterChip active={display === 'totals'} label="Totals" onClick={() => setDisplay('totals')} />
+                <FilterChip active={display === 'per60'}  label="Per 60" onClick={() => setDisplay('per60')} disabled={per60Disabled} />
               </FilterChipGroup>
             </div>
           </div>
 
-          <div>
-            <FilterLabel text="Find Goalie" />
-            <input
-              type="search"
-              placeholder="Name → Enter"
-              value={findInput}
-              onChange={e => setFindInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') setFindKey(k => k + 1); }}
-              style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', outline: 'none', width: 140, color: '#0d0d14' }}
-            />
-          </div>
+          {/* Row 2 — Scope | Find Goalie | Team */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start' }}>
+            <div>
+              <FilterLabel text="Scope" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <label style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  Min GP
+                  <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
+                    style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+                </label>
+                <FilterChipGroup>
+                  {([null, 10, 20, 50] as (number | null)[]).map(n =>
+                    <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
+                  )}
+                </FilterChipGroup>
+              </div>
+            </div>
 
-          <div>
-            <FilterLabel text="Team" />
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-              {teamFilter.map(t => (
-                <button key={t} onClick={() => setTeamFilter(f => f.filter(x => x !== t))}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
-                  {t} ×
-                </button>
-              ))}
-              <select value="" onChange={e => { const v = e.target.value; if (v && !teamFilter.includes(v)) setTeamFilter(f => [...f, v]); e.target.value = ''; }}
-                style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
-                <option value="">Add team…</option>
-                {availableTeams.filter(t => !teamFilter.includes(t)).map(t => (
-                  <option key={t} value={t}>{t}</option>
+            <div>
+              <FilterLabel text="Find Goalie" />
+              <input
+                type="search"
+                placeholder="Name → Enter"
+                value={findInput}
+                onChange={e => setFindInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') setFindKey(k => k + 1); }}
+                style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', outline: 'none', width: 140, color: '#0d0d14' }}
+              />
+            </div>
+
+            <div>
+              <FilterLabel text="Team" />
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                {teamFilter.map(t => (
+                  <button key={t} onClick={() => setTeamFilter(f => f.filter(x => x !== t))}
+                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                    {t} ×
+                  </button>
                 ))}
-              </select>
-              {teamFilter.length > 0 && (
-                <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Clear</button>
-              )}
+                <select value="" onChange={e => { const v = e.target.value; if (v && !teamFilter.includes(v)) setTeamFilter(f => [...f, v]); e.target.value = ''; }}
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                  <option value="">Add team…</option>
+                  {availableTeams.filter(t => !teamFilter.includes(t)).map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                {teamFilter.length > 0 && (
+                  <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Clear</button>
+                )}
+              </div>
             </div>
           </div>
 
