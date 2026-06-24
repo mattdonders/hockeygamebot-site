@@ -54,8 +54,8 @@ const BORDER_IDLE  = '1.5px solid rgba(13,13,20,0.20)';
 const BORDER_FOCUS = '1.5px solid #0d0d14';
 const MUTED        = 'rgba(13,13,20,0.48)';
 const SELECTED_BG  = 'rgba(13,13,20,0.06)';
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
-const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
+const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 
 // ── Matching logic ────────────────────────────────────────────────────────────
 
