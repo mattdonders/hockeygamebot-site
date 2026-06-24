@@ -20,6 +20,12 @@ export type SlimRow = {
   xgf: number | null; xga: number | null;   // raw on-ice xGF/xGA at 5v5
   gf:  number | null; ga:  number | null;   // raw on-ice GF/GA at 5v5
   cf: number | null; lim: number;
+  // Strength-state splits (compact keys to keep slim JSON small)
+  gev: number; gpp: number; gsh: number;
+  aev: number; app: number; apk: number;
+  sev: number; spp: number; spk: number;
+  iev: number; ipp: number; ipk: number;
+  tpp: number; tpk: number;
 };
 export type SlimPlayer = { n: string | null; s: string | null; pos: string; r: SlimRow[]; p: SlimRow[] };
 export type SlimData = Record<string, SlimPlayer>;
@@ -34,6 +40,7 @@ export type AggRow = {
   seasonsCount: number;
   gp: number; goals: number; assists: number; points: number; sog: number; ixg: number;
   toi_pg: number;           // 5v5 minutes per game
+  toi_ev_sec: number;       // 5v5 TOI in seconds (for strength-filter rate calcs)
   g60: number; a60: number; p60: number; x60: number; sog60: number;  // per-60 of 5v5 TOI
   // On-ice 5v5 (summed raw counts → rates)
   xgf_pct: number | null;
@@ -42,6 +49,12 @@ export type AggRow = {
   gf_diff:    number | null;
   gf_diff_60: number | null;
   limited: boolean;
+  // Strength-state splits
+  goals_ev: number; goals_pp: number; goals_sh: number;
+  a_ev: number; a_pp: number; a_pk: number;
+  sog_ev: number; sog_pp: number; sog_pk: number;
+  ixg_ev: number; ixg_pp: number; ixg_pk: number;
+  toi_pp_sec: number; toi_pk_sec: number;
 };
 
 /** All seasons present in the data for a game type, sorted descending (newest first). */
@@ -75,6 +88,9 @@ export function aggregateSeasons(
     let hasOnice = false, lim = false;
     let latestSeason = '', latestTeam = '';
     const teams = new Set<string>();
+    let gev = 0, gpp = 0, gsh = 0, aev = 0, app = 0, apk = 0;
+    let sev = 0, spp = 0, spk = 0, iev = 0, ipp = 0, ipk = 0;
+    let tpp = 0, tpk = 0;
 
     for (const r of rows) {
       gp += r.gp; g += r.g; a += r.a; pts += r.pts; sog += r.sog; ixg += r.ixg; toi += r.toi;
@@ -83,6 +99,11 @@ export function aggregateSeasons(
       if (r.lim) lim = true;
       if (r.team) teams.add(r.team);
       if (r.season > latestSeason) { latestSeason = r.season; latestTeam = r.team; }
+      gev += r.gev ?? 0; gpp += r.gpp ?? 0; gsh += r.gsh ?? 0;
+      aev += r.aev ?? 0; app += r.app ?? 0; apk += r.apk ?? 0;
+      sev += r.sev ?? 0; spp += r.spp ?? 0; spk += r.spk ?? 0;
+      iev += r.iev ?? 0; ipp += r.ipp ?? 0; ipk += r.ipk ?? 0;
+      tpp += r.tpp ?? 0; tpk += r.tpk ?? 0;
     }
 
     // Noise floor for multi-season: skip sub-5-GP aggregates (emergency callups, etc.)
@@ -110,6 +131,7 @@ export function aggregateSeasons(
       gp, goals: g, assists: a, points: pts, sog,
       ixg: +ixg.toFixed(2),
       toi_pg: +(toi / Math.max(gp, 1) / 60).toFixed(1),
+      toi_ev_sec: toi,
       g60: +(g / hr).toFixed(2),
       a60: +(a / hr).toFixed(2),
       p60: +((g + a) / hr).toFixed(2),
@@ -121,6 +143,11 @@ export function aggregateSeasons(
       gf_diff:    hasOnice ? gfSum - gaSum : null,
       gf_diff_60: hasOnice ? +((gfSum - gaSum) / hr).toFixed(2) : null,
       limited: lim,
+      goals_ev: gev, goals_pp: gpp, goals_sh: gsh,
+      a_ev: aev, a_pp: app, a_pk: apk,
+      sog_ev: sev, sog_pp: spp, sog_pk: spk,
+      ixg_ev: +iev.toFixed(2), ixg_pp: +ipp.toFixed(2), ixg_pk: +ipk.toFixed(2),
+      toi_pp_sec: tpp, toi_pk_sec: tpk,
     });
   }
   return out;

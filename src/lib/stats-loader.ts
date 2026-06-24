@@ -285,6 +285,12 @@ export type PlayerSeasonEntry = {
   war_pct?: number | null;
   impact_pct?: number | null;
   limited?: boolean;
+  // Strength-state splits
+  goals_ev?: number; goals_pp?: number; goals_sh?: number;
+  a_ev?: number; a_pp?: number; a_pk?: number;
+  shots_ev?: number; shots_pp?: number; shots_pk?: number;
+  ixg_ev?: number; ixg_pp?: number; ixg_pk?: number;
+  toi_pp_sec?: number; toi_pk_sec?: number;
 };
 
 export type PlayerSeasonStats = {

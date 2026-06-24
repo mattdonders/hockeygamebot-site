@@ -39,6 +39,21 @@ function slim(r: PlayerSeasonEntry) {
     ga:  r.ga_5v5  ?? null,
     cf: r.cf_pct_5v5 ?? null,
     lim: r.limited ? 1 : 0,
+    // Strength-state splits (compact keys)
+    gev: r.goals_ev ?? 0,
+    gpp: r.goals_pp ?? 0,
+    gsh: r.goals_sh ?? 0,
+    aev: r.a_ev ?? 0,
+    app: r.a_pp ?? 0,
+    apk: r.a_pk ?? 0,
+    sev: r.shots_ev ?? 0,
+    spp: r.shots_pp ?? 0,
+    spk: r.shots_pk ?? 0,
+    iev: r.ixg_ev ?? 0,
+    ipp: r.ixg_pp ?? 0,
+    ipk: r.ixg_pk ?? 0,
+    tpp: r.toi_pp_sec ?? 0,
+    tpk: r.toi_pk_sec ?? 0,
   };
 }
 

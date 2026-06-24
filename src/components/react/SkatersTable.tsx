@@ -254,8 +254,15 @@ function buildColumns(
 // ── Aggregated (multi-season / playoff) columns ───────────────────────────────
 // Counting, Rates, and On-Ice 5v5 are supported. Advanced (RAPM/WAR) is disabled
 // because per-season percentiles are not meaningful when summed across seasons.
+function getAggStrengthStats(r: AggRow, mode: Strength) {
+  if (mode === 'all') return { g: r.goals, a: r.assists, sog: r.sog, ixg: r.ixg, toi_sec: r.toi_ev_sec };
+  if (mode === '5v5') return { g: r.goals_ev, a: r.a_ev, sog: r.sog_ev, ixg: r.ixg_ev, toi_sec: r.toi_ev_sec };
+  if (mode === 'pp')  return { g: r.goals_pp, a: r.a_pp, sog: r.sog_pp, ixg: r.ixg_pp, toi_sec: r.toi_pp_sec };
+  return                     { g: r.goals_sh, a: r.a_pk, sog: r.sog_pk, ixg: r.ixg_pk, toi_sec: r.toi_pk_sec };
+}
+
 function buildAggColumns(
-  tab: Tab, display: Display, isDark: boolean, rangeLabel: string, multi: boolean,
+  tab: Tab, display: Display, strength: Strength, isDark: boolean, rangeLabel: string, multi: boolean,
 ): HGBColumnDef<AggRow>[] {
   const fixed: HGBColumnDef<AggRow>[] = [
     {
@@ -282,25 +289,26 @@ function buildAggColumns(
   ];
 
   const isPer60 = display === 'per60';
+  const prefix = strength === '5v5' ? 'EV ' : strength === 'pp' ? 'PP ' : strength === 'pk' ? 'SH ' : '';
   let tabCols: HGBColumnDef<AggRow>[] = [];
 
   if (tab === 'rates' || (tab === 'counting' && isPer60)) {
     tabCols = [
-      { id: 'g60',  header: 'G/60',   accessor: r => r.g60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      { id: 'a60',  header: 'A/60',   accessor: r => r.a60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      { id: 'p60',  header: 'P/60',   accessor: r => r.p60,  width: 64, cell: v => <strong>{f2(v as any)}</strong>, exportText: v => f2(v as any) },
-      { id: 'x60',  header: 'ixG/60', accessor: r => r.x60,  width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      { id: 'sog60',header: 'SOG/60', accessor: r => r.sog60,width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
-      { id: 'toi_pg', header: 'TOI/G', accessor: r => r.toi_pg, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
+      { id: 'g60',  header: prefix + 'G/60',   accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +(st.g / hr).toFixed(2); }, width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'a60',  header: prefix + 'A/60',   accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +(st.a / hr).toFixed(2); }, width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'p60',  header: prefix + 'P/60',   accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +((st.g + st.a) / hr).toFixed(2); }, width: 64, cell: v => <strong>{f2(v as any)}</strong>, exportText: v => f2(v as any) },
+      { id: 'x60',  header: prefix + 'ixG/60', accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +(st.ixg / hr).toFixed(2); }, width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'sog60',header: prefix + 'SOG/60', accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +(st.sog / hr).toFixed(2); }, width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
+      { id: 'toi_pg', header: 'TOI/G', accessor: r => { const st = getAggStrengthStats(r, strength); return +(st.toi_sec / Math.max(r.gp, 1) / 60).toFixed(1); }, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
     ];
   } else {
     tabCols = [
-      { id: 'goals',   header: 'G',   accessor: r => r.goals,   width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-      { id: 'assists', header: 'A',   accessor: r => r.assists, width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-      { id: 'points',  header: 'P',   accessor: r => r.points,  width: 56, cell: v => <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{String(v ?? '—')}</strong>, exportText: v => String(v ?? '—') },
-      { id: 'sog',     header: 'SOG', accessor: r => r.sog,     width: 60, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-      { id: 'ixg',     header: 'ixG', accessor: r => r.ixg,     width: 60, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      { id: 'toi_pg',  header: 'TOI/G', accessor: r => r.toi_pg, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
+      { id: 'goals',   header: prefix + 'G',   accessor: r => getAggStrengthStats(r, strength).g,   width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'assists', header: prefix + 'A',   accessor: r => getAggStrengthStats(r, strength).a,   width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'points',  header: prefix + 'P',   accessor: r => { const st = getAggStrengthStats(r, strength); return st.g + st.a; }, width: 56, cell: v => <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{String(v ?? '—')}</strong>, exportText: v => String(v ?? '—') },
+      { id: 'sog',     header: prefix + 'SOG', accessor: r => getAggStrengthStats(r, strength).sog, width: 60, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'ixg',     header: prefix + 'ixG', accessor: r => getAggStrengthStats(r, strength).ixg, width: 60, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'toi_pg',  header: 'TOI/G', accessor: r => { const st = getAggStrengthStats(r, strength); return +(st.toi_sec / Math.max(r.gp, 1) / 60).toFixed(1); }, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
     ];
   }
 
@@ -501,8 +509,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, minToi, playerFilter, teamFilter, pos, topN, aggTab, display]);
 
   const aggColumns = useMemo(
-    () => buildAggColumns(aggTab, display, isDark, rangeLabel, multi),
-    [aggTab, display, isDark, rangeLabel, multi],
+    () => buildAggColumns(aggTab, display, strength, isDark, rangeLabel, multi),
+    [aggTab, display, strength, isDark, rangeLabel, multi],
   );
 
   const aggDefaultSort = useMemo(() => {
@@ -511,7 +519,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   }, [aggTab, display]);
 
   const tabDisabled = (t: Tab) => useAgg && t === 'advanced';
-  const strDisabled = (_s: Strength) => useAgg || tab === 'advanced' || tab === 'onice';
+  const strDisabled = (_s: Strength) => tab === 'advanced' || tab === 'onice';
 
   const [filtersOpen,  setFiltersOpen]  = useState(true);
   const [findInput, setFindInput] = useState('');
@@ -672,7 +680,6 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 <span key={s}>{chip(strength === s, { all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s], () => setStrength(s), strDisabled(s))}</span>
               )}
             </>)}
-            {useAgg && <div style={{ ...MONO, fontSize: 8, color: 'rgba(13,13,20,0.32)', marginTop: 4, letterSpacing: '0.08em' }}>not available in this view</div>}
           </div>
           {tab !== 'rates' && (
           <div>
