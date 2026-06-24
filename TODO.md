@@ -149,6 +149,7 @@ Currently a beta page with a leaderboard table + EV Off vs EV Def scatter plot. 
 - [ ] **Export script**: Add `player_of_the_week` to `_meta.json` in `hgb-bot scripts/export_stats_data.py` (7-day rolling, min 3 GP/40min TOI) — site already reads it, fallback to season avg until then
 - [ ] **Goalie metrics**: Add GSAx to leaderboards when export pipeline has it — xG section in `/stats` has a comment marking the swap point
 - [ ] **Table strength/mode toggle — don't rename column headers**: When switching to 5v5 (or per60), keep column headers as "SA", "GA", "GSAx", "SV%", "TOI" — the export chip already labels the mode (e.g. "5V5"). Renaming to "5V5 SA", "5V5 GSAX" etc. adds noise with no benefit. Applies to GoaliesTable and SkatersTable.
+- [ ] **Goalie/player card age may be wrong**: Age is computed as floor((Oct 1 season start − birth_date) / 365.25). Some cards reportedly show incorrect ages — audit whether the bug is (a) wrong birth_date in the export pipeline, (b) off-by-one in the birthday-crossing logic, or (c) the wrong season year being used. Compare against NHL.com profile ages for a sample of affected players.
 
 ## Completed
 

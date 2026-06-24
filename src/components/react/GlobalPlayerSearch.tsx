@@ -12,10 +12,13 @@ export default function GlobalPlayerSearch({ players }: { players: PlayerSearchI
   return (
     <PlayerSearch
       players={players}
-      placeholder="Search players — McDavid, Celebrini, Hughes…"
+      placeholder="Search players & goalies — McDavid, Shesterkin, Hughes…"
       navigateTo={false}
       maxResults={8}
-      onSelect={p => { window.location.href = `/stats/player/${p.slug}`; }}
+      onSelect={p => {
+        const path = p.type === 'goalie' ? `/stats/goalies/${p.slug}` : `/stats/player/${p.slug}`;
+        window.location.href = path;
+      }}
     />
   );
 }

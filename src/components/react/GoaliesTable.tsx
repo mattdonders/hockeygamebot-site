@@ -258,16 +258,8 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       {filtersOpen && (
         <div style={{ marginBottom: 12 }}>
 
-          {/* Row 1 — Game Type | Season Range | Strength | Display */}
+          {/* Row 1 — Season Range | Strength | Display */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 14 }}>
-            <div>
-              <FilterLabel text="Game Type" />
-              <FilterChipGroup>
-                <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => switchGameType('regular')} />
-                <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => switchGameType('playoffs')} />
-              </FilterChipGroup>
-            </div>
-
             <div>
               <FilterLabel text="Season Range" />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

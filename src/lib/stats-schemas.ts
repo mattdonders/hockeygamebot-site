@@ -415,6 +415,9 @@ export const GoalieRecordSchema = z.object({
     sv_pct:        z.number().nullable(),
     league_sv_pct: z.number().nullable(),
   })).optional().default([]),
+  birth_date:       z.string().nullable().optional(),
+  shoots_catches:   z.string().nullable().optional(),
+  sweater_number:   z.number().nullable().optional(),
   edge:  z.object({
     gaa:             z.object({ value: z.number().nullable(), pct: z.number().nullable(), league_avg: z.number().nullable() }).nullable().optional(),
     games_above_900: z.object({ value: z.number().nullable(), pct: z.number().nullable(), league_avg: z.number().nullable() }).nullable().optional(),

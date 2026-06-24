@@ -32,6 +32,7 @@ export type PlayerSearchItem = {
   gp: number;
   slug: string;
   search_text: string; // pre-computed: "connor mcdavid c. mcdavid edm"
+  type?: 'skater' | 'goalie';
 };
 
 export type PlayerSearchProps = {
