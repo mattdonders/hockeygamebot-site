@@ -36,6 +36,11 @@ export type SkaterRow = {
   shots_ev: number; shots_pp: number; shots_pk: number;
   ixg_ev: number; ixg_pp: number; ixg_pk: number;
   toi_ev_sec: number; toi_pp_sec: number; toi_pk_sec: number;
+  // EDGE skating (null when not available — agg/playoff path)
+  edge_speed_mph: number | null; edge_speed_pct: number | null;
+  edge_dist_mi: number | null;   edge_dist_pct: number | null;
+  edge_bursts: number | null;    edge_bursts_pct: number | null;
+  edge_shot_mph: number | null;  edge_shot_pct: number | null;
   // Physical / faceoff
   hits: number; hits_taken: number; blocks: number;
   fo_wins: number; fo_losses: number;
@@ -52,7 +57,7 @@ type Display  = 'totals'   | 'per60';
 
 type Props = { rows: SkaterRow[]; statsDate: string | null; currentSeason: string; isPlayoffSeason?: boolean };
 
-// Physical / faceoff columns — managed by SkatersTable (not HGBTable defaultHidden)
+// Physical / faceoff + EDGE columns — managed by SkatersTable (not HGBTable defaultHidden)
 // because both HGBTable instances use hideToolbar, so HGBTable's own toggle UI never renders.
 const PHYSICAL_COL_DEFS = [
   { id: 'hits',      label: 'Hits' },
@@ -62,6 +67,15 @@ const PHYSICAL_COL_DEFS = [
   { id: 'fo_pct',    label: 'FO%'  },
 ] as const;
 type PhysicalColId = typeof PHYSICAL_COL_DEFS[number]['id'];
+
+// EDGE columns — current-season regular path only (null in agg/playoff)
+const EDGE_COL_DEFS = [
+  { id: 'edge_speed_mph', label: 'Spd'  },
+  { id: 'edge_dist_mi',   label: 'Dist' },
+  { id: 'edge_bursts',    label: 'Bsts' },
+  { id: 'edge_shot_mph',  label: 'Shot' },
+] as const;
+type EdgeColId = typeof EDGE_COL_DEFS[number]['id'];
 
 // localStorage key for logged-out preset persistence (logged-in users use cloud
 // prefs via auth-client). auth-client owns the same key for migration.
@@ -262,7 +276,7 @@ function buildColumns(
     ];
   }
 
-  // Physical / faceoff cols appended always; SkatersTable filters by visiblePhysical
+  // Physical / faceoff cols — regular season only; SkatersTable filters by visiblePhysical
   const physicalCols: HGBColumnDef<SkaterRow>[] = !isPlayoff ? [
     { id: 'hits',      header: 'Hits',   accessor: r => r.hits,      width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
     { id: 'blocks',    header: 'BLK',    accessor: r => r.blocks,    width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
@@ -274,7 +288,55 @@ function buildColumns(
       exportText: v => v != null ? `${(v as number).toFixed(1)}%` : '—' },
   ] : [];
 
-  return [...fixed, ...tabCols, ...physicalCols];
+  // EDGE cols — current-season regular season only
+  const edgeCols: HGBColumnDef<SkaterRow>[] = !isPlayoff ? [
+    {
+      id: 'edge_speed_mph', header: 'Top Spd', width: 76,
+      accessor: r => r.edge_speed_mph,
+      cell: (v, r) => v != null
+        ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+            <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(1)}</strong>
+            {r.edge_speed_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_speed_pct)}</span>}
+          </div>
+        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+      exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_speed_pct ?? '?'}th)` : '—',
+    },
+    {
+      id: 'edge_dist_mi', header: 'Dist (mi)', width: 80,
+      accessor: r => r.edge_dist_mi,
+      cell: (v, r) => v != null
+        ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+            <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(0)}</strong>
+            {r.edge_dist_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_dist_pct)}</span>}
+          </div>
+        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+      exportText: (v, r) => v != null ? `${(v as number).toFixed(0)} mi (${r.edge_dist_pct ?? '?'}th)` : '—',
+    },
+    {
+      id: 'edge_bursts', header: 'Bursts', width: 68,
+      accessor: r => r.edge_bursts,
+      cell: (v, r) => v != null
+        ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+            <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{v as number}</strong>
+            {r.edge_bursts_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_bursts_pct)}</span>}
+          </div>
+        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+      exportText: (v, r) => v != null ? `${v} (${r.edge_bursts_pct ?? '?'}th)` : '—',
+    },
+    {
+      id: 'edge_shot_mph', header: 'Shot Spd', width: 76,
+      accessor: r => r.edge_shot_mph,
+      cell: (v, r) => v != null
+        ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
+            <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(1)}</strong>
+            {r.edge_shot_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_shot_pct)}</span>}
+          </div>
+        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+      exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_shot_pct ?? '?'}th)` : '—',
+    },
+  ] : [];
+
+  return [...fixed, ...tabCols, ...physicalCols, ...edgeCols];
 }
 
 // ── Aggregated (multi-season / playoff) columns ───────────────────────────────
@@ -511,15 +573,23 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     return r;
   }, [rows, minGP, minToi, playerFilter, teamFilter, pos, gameType, topN, defaultSort.id]);
 
-  // Physical / faceoff column visibility — all hidden by default
+  // Physical / faceoff + EDGE column visibility — all hidden by default
   const [visiblePhysical, setVisiblePhysical] = useState<Set<PhysicalColId>>(new Set());
   const togglePhysical = (id: PhysicalColId) =>
     setVisiblePhysical(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const [visibleEdge, setVisibleEdge] = useState<Set<EdgeColId>>(new Set());
+  const toggleEdge = (id: EdgeColId) =>
+    setVisibleEdge(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  const isAllColHidden = (id: string) =>
+    PHYSICAL_COL_DEFS.some(p => p.id === id) ? !visiblePhysical.has(id as PhysicalColId) :
+    EDGE_COL_DEFS.some(e => e.id === id)     ? !visibleEdge.has(id as EdgeColId) :
+    false;
 
   const columns = useMemo(
     () => buildColumns(tab, gameType, strength, display, isDark, currentSeason)
-      .filter(c => !PHYSICAL_COL_DEFS.some(p => p.id === c.id) || visiblePhysical.has(c.id as PhysicalColId)),
-    [tab, gameType, strength, display, isDark, currentSeason, visiblePhysical],
+      .filter(c => !isAllColHidden(c.id)),
+    [tab, gameType, strength, display, isDark, currentSeason, visiblePhysical, visibleEdge],
   );
 
   // ── Aggregated (multi-season / playoff) path ──────────────────────────────
@@ -571,8 +641,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
 
   const aggColumns = useMemo(
     () => buildAggColumns(aggTab, display, strength, isDark, rangeLabel, multi)
-      .filter(c => !PHYSICAL_COL_DEFS.some(p => p.id === c.id) || visiblePhysical.has(c.id as PhysicalColId)),
-    [aggTab, display, strength, isDark, rangeLabel, multi, visiblePhysical],
+      .filter(c => !isAllColHidden(c.id)),
+    [aggTab, display, strength, isDark, rangeLabel, multi, visiblePhysical, visibleEdge],
   );
 
   const aggDefaultSort = useMemo(() => {
@@ -697,9 +767,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         </button>
       </div>
 
-      {/* Column toggles — physical/faceoff columns hidden by default */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
-        <span style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.35)', marginRight: 4 }}>Cols</span>
+      {/* Column toggles — physical/faceoff + EDGE columns, hidden by default */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.35)', marginRight: 2 }}>Cols</span>
         {PHYSICAL_COL_DEFS.map(col => {
           const active = visiblePhysical.has(col.id);
           return (
@@ -712,6 +782,24 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             </button>
           );
         })}
+        {!useAgg && (
+          <>
+            <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.2)', margin: '0 2px' }}>·</span>
+            <span style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.35)', marginRight: 2 }}>Edge</span>
+            {EDGE_COL_DEFS.map(col => {
+              const active = visibleEdge.has(col.id);
+              return (
+                <button key={col.id} onClick={() => toggleEdge(col.id)}
+                  style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 8px',
+                    border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer',
+                    background: active ? 'rgba(13,13,20,0.08)' : 'transparent',
+                    color: active ? '#0d0d14' : 'rgba(13,13,20,0.35)' }}>
+                  {col.label}
+                </button>
+              );
+            })}
+          </>
+        )}
       </div>
 
       {/* Zone 2 — collapsible filter panel */}
