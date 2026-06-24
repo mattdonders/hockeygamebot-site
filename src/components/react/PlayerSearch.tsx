@@ -91,8 +91,8 @@ function TeamLogo({ abbrev }: { abbrev: string }) {
     <img
       src={src}
       alt={abbrev}
-      width={28}
-      height={28}
+      width={32}
+      height={32}
       style={{ display: 'block', flexShrink: 0, objectFit: 'contain' }}
       onError={(e) => {
         (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
