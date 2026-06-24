@@ -334,6 +334,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         data={filteredRows}
         columns={COLUMNS}
         defaultSort={defaultSort}
+        showRank
         hideToolbar
         jumpToRow={jumpToRow}
         rowHref={r => `/stats/goalies/${r.slug || `goalie-${r.goalie_id}`}`}
