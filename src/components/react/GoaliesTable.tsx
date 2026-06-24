@@ -346,6 +346,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       )}
 
       <HGBTable
+        key={strength}
         data={filteredRows}
         columns={COLUMNS}
         defaultSort={defaultSort}
