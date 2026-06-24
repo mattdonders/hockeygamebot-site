@@ -12,12 +12,14 @@ Three canonical CSS custom properties, defined in `src/components/Nav.astro` (`:
 
 | Token | Font | Loaded via |
 |-------|------|-----------|
-| `--display` | `'Barlow Condensed', sans-serif` | `@fontsource/barlow-condensed` 700, 800 |
-| `--body` | `'Barlow', sans-serif` | `@fontsource/barlow` 400, 500, 600, 700 |
+| `--display` | `'Barlow Condensed', sans-serif` | `@fontsource/barlow-condensed` 700, 800, 900 |
+| `--body` | `'Geist', system-ui, sans-serif` | `@fontsource/geist` 400, 500, 600, 700 |
 | `--semi` | `'Barlow Semi-Condensed', sans-serif` | `@fontsource/barlow-semi-condensed` 700 |
 | `--mono` | `'JetBrains Mono', monospace` | `@fontsource/jetbrains-mono` 400, 500 |
 
-All four are loaded in `src/components/Fonts.astro`, which is imported by every production page.
+All are loaded in `src/components/Fonts.astro`, which is imported by every production page. Barlow plain (400–700) is also loaded there — used by the canvas card pipeline (`ctx.font` hardcoded strings) and the player page's local `--body` override.
+
+> **Why `--body` is Geist, not Barlow:** The site shell (nav, home, scoreboard, support pages) was designed and weight-tuned with Geist. Barlow reads noticeably thinner at small sizes (11–13px) even at the same weight number. The canvas card pipeline hardcodes Barlow directly and is unaffected by this token. The player page sets its own local `--body: 'Barlow'` override for its UI context.
 
 > `--semi` is a site-only extension of the brand spec (not in `BRAND.md`). Use it only for table column headers (small-caps, 12px, uppercase) where a middle-density between `--body` and `--display` improves readability in dense data tables.
 
