@@ -30,10 +30,14 @@ type Props = {
   regularRows: GoalieRow[];
   playoffRows: GoalieRow[];
   statsDate: string | null;
-  teams: string[]; // sorted distinct team abbreviations
-  compact?: boolean; // disables virtualization for small embedded contexts (e.g. team page)
+  teams: string[];
+  compact?: boolean;
   defaultGameType?: 'regular' | 'playoffs';
 };
+
+type Display = 'totals' | 'per60';
+
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 const signed = (v: number | null) =>
   v != null ? (v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2)) : '—';
@@ -41,12 +45,28 @@ const signed = (v: number | null) =>
 const gsaxColor = (v: number | null) =>
   v == null ? undefined : v >= 0 ? '#166534' : '#991b1b';
 
-
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const chip = (active: boolean, lbl: string, onClick: () => void, disabled = false) => (
+  <button onClick={disabled ? undefined : onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: disabled ? 'not-allowed' : 'pointer', background: active ? '#0d0d14' : '#fff', color: active ? '#EFEEE8' : disabled ? 'rgba(13,13,20,0.2)' : 'rgba(13,13,20,0.48)', opacity: disabled ? 0.5 : 1 }}>
+    {lbl}
+  </button>
+);
+const chipGroup = (children: React.ReactNode) => (
+  <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>{children}</div>
+);
+const filterLabel = (text: string) => (
+  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
+    {text}
+  </div>
+);
 
 export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams, compact = false, defaultGameType = 'regular' }: Props) {
   const [gameType, setGameType] = useState<'regular' | 'playoffs'>(defaultGameType);
+  const [display,  setDisplay]  = useState<Display>('totals');
+  const [minGP,    setMinGP]    = useState(defaultGameType === 'playoffs' ? 1 : 10);
+  const [topN,     setTopN]     = useState<number | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(true);
   const [isDark, setIsDark] = useState(false);
+
   useEffect(() => {
     const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
     check();
@@ -54,95 +74,155 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     return () => obs.disconnect();
   }, []);
-  const activeRows = gameType === 'regular' ? regularRows : playoffRows;
 
-  const COLUMNS = useMemo<HGBColumnDef<GoalieRow>[]>(() => [
-    {
-      id: 'name', header: 'Goalie', accessor: r => r.name, align: 'left', width: 180,
-      cell: (_v, row) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
-            style={TEAM_LOGO_STYLE} alt={row.team}
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
-          </div>
-        </div>
-      ),
-      exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
-      sortType: 'string',
-    },
-    {
-      id: 'season', header: 'Season', accessor: r => r.season, align: 'center', width: 72, mobileHidden: true,
-      cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')),
-    },
-    { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
-    { id: 'gp',  header: 'GP',  accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },
-    {
-      id: 'toi', header: 'TOI', accessor: r => r.toi_sec, align: 'center', width: 72, mobileHidden: true,
-      cell: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
-      exportText: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
-    },
-    { id: 'sa', header: 'SA', accessor: r => r.sa, align: 'center', width: 60, cell: v => v != null ? Number(v).toLocaleString() : '—' },
-    { id: 'ga', header: 'GA', accessor: r => r.ga, align: 'center', width: 52 },
-    { id: 'gaa', header: 'GAA', accessor: r => r.gaa, align: 'center', width: 60, cell: v => v != null ? Number(v).toFixed(2) : '—', mobileHidden: true },
-    { id: 'xga', header: 'xGA', accessor: r => r.xga, align: 'center', width: 64, cell: v => v != null ? Number(v).toFixed(2) : '—', mobileHidden: true },
-    {
-      id: 'gsax', header: 'GSAx', accessor: r => r.gsax, align: 'center', width: 72,
-      cell: v => <strong style={{ color: gsaxColor(v as number | null), fontVariantNumeric: 'tabular-nums' }}>{signed(v as number | null)}</strong>,
-    },
-    { id: 'gsax_per60', header: 'GSAx/60', accessor: r => r.gsax_per60, align: 'center', width: 80, mobileHidden: true,
-      cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{signed(n)}</span> : '—'; },
-    },
-    { id: 'sv_pct', header: 'SV%', accessor: r => r.sv_pct, align: 'center', width: 64, cell: v => v != null ? Number(v).toFixed(3) : '—' },
-    { id: 'xsv_pct', header: 'xSV%', accessor: r => r.xsv_pct, align: 'center', width: 64, cell: v => v != null ? Number(v).toFixed(3) : '—', mobileHidden: true },
-    {
-      id: 'dsv_pct', header: 'dSV%', accessor: r => r.dsv_pct, align: 'center', width: 68, mobileHidden: true,
-      cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{n >= 0 ? '+' : ''}{Number(n).toFixed(3)}</span> : '—'; },
-    },
-  ], [isDark]);
+  // Reset minGP when switching game types
+  useEffect(() => {
+    setMinGP(gameType === 'playoffs' ? 1 : 10);
+    if (gameType === 'playoffs') setDisplay('totals');
+  }, [gameType]);
 
-  // Notify vanilla chart section when game type changes
   const switchGameType = (t: 'regular' | 'playoffs') => {
     setGameType(t);
     document.dispatchEvent(new CustomEvent('hgb:goalie-game-type', { detail: t }));
   };
 
+  const isPer60 = display === 'per60' && gameType === 'regular';
+  const baseRows = gameType === 'regular' ? regularRows : playoffRows;
+
+  const filteredRows = useMemo(() => {
+    let r = baseRows.filter(g => (g.gp ?? 0) >= minGP);
+    if (topN) r = r.slice(0, topN);
+    return r;
+  }, [baseRows, minGP, topN]);
+
+  const COLUMNS = useMemo<HGBColumnDef<GoalieRow>[]>(() => {
+    const saLabel   = isPer60 ? 'SA/60'    : 'SA';
+    const gaLabel   = isPer60 ? 'GA/60'    : 'GA';
+    const gsaxLabel = isPer60 ? 'GSAx/60'  : 'GSAx';
+
+    const saVal   = (r: GoalieRow) => {
+      if (!isPer60) return r.sa;
+      const hr = r.toi_sec != null ? r.toi_sec / 3600 : null;
+      return hr && hr > 0 ? +(r.sa / hr).toFixed(2) : null;
+    };
+    const gaVal   = (r: GoalieRow) => {
+      if (!isPer60) return r.ga;
+      const hr = r.toi_sec != null ? r.toi_sec / 3600 : null;
+      return hr && hr > 0 ? +(r.ga / hr).toFixed(2) : null;
+    };
+    const gsaxVal = (r: GoalieRow) => isPer60 ? r.gsax_per60 : r.gsax;
+
+    return [
+      {
+        id: 'name', header: 'Goalie', accessor: r => r.name, align: 'left', width: 180,
+        cell: (_v, row) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
+              style={TEAM_LOGO_STYLE} alt={row.team}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+              {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
+            </div>
+          </div>
+        ),
+        exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
+        sortType: 'string',
+      },
+      {
+        id: 'season', header: 'Season', accessor: r => r.season, align: 'center', width: 72, mobileHidden: true,
+        cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')),
+      },
+      { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
+      { id: 'gp',  header: 'GP',   accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },
+      {
+        id: 'toi', header: 'TOI', accessor: r => r.toi_sec, align: 'center', width: 72, mobileHidden: true,
+        cell: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
+        exportText: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
+      },
+      { id: 'sa',  header: saLabel, accessor: saVal,  align: 'center', width: 64,  cell: v => v != null ? (isPer60 ? Number(v).toFixed(1) : Number(v).toLocaleString()) : '—' },
+      { id: 'ga',  header: gaLabel, accessor: gaVal,  align: 'center', width: 52,  cell: v => v != null ? (isPer60 ? Number(v).toFixed(2) : String(v)) : '—' },
+      { id: 'gaa', header: 'GAA',   accessor: r => r.gaa, align: 'center', width: 60, cell: v => v != null ? Number(v).toFixed(2) : '—', mobileHidden: true },
+      { id: 'xga', header: 'xGA',   accessor: r => r.xga, align: 'center', width: 64, cell: v => v != null ? Number(v).toFixed(2) : '—', mobileHidden: true },
+      {
+        id: 'gsax', header: gsaxLabel, accessor: gsaxVal, align: 'center', width: isPer60 ? 88 : 72,
+        cell: v => <strong style={{ color: gsaxColor(v as number | null), fontVariantNumeric: 'tabular-nums' }}>{signed(v as number | null)}</strong>,
+      },
+      { id: 'sv_pct',  header: 'SV%',  accessor: r => r.sv_pct,  align: 'center', width: 64, cell: v => v != null ? Number(v).toFixed(3) : '—' },
+      { id: 'xsv_pct', header: 'xSV%', accessor: r => r.xsv_pct, align: 'center', width: 64, cell: v => v != null ? Number(v).toFixed(3) : '—', mobileHidden: true },
+      {
+        id: 'dsv_pct', header: 'dSV%', accessor: r => r.dsv_pct, align: 'center', width: 68, mobileHidden: true,
+        cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{n >= 0 ? '+' : ''}{Number(n).toFixed(3)}</span> : '—'; },
+      },
+    ];
+  }, [isDark, isPer60]);
+
+  const defaultSort = useMemo(() => ({ id: isPer60 ? 'gsax' : 'gsax', desc: true }), [isPer60]);
+
   return (
     <div>
-      {/* Toolbar: season type toggle + count */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
-        <div style={{ display: 'flex', gap: 0 }}>
-          {(['regular', 'playoffs'] as const).map(t => (
-            <button key={t} onClick={() => switchGameType(t)}
-              style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '6px 14px', border: '1px solid rgba(13,13,20,0.2)', borderRight: t === 'regular' ? 'none' : undefined, background: gameType === t ? '#0d0d14' : 'transparent', color: gameType === t ? '#EFEEE8' : 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
-              {t === 'regular' ? 'Regular Season' : 'Playoffs'}
-            </button>
-          ))}
-        </div>
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', letterSpacing: '0.10em', textTransform: 'uppercase' }}>
-          {activeRows.length} goalies{statsDate ? ` · updated ${statsDate}` : ''}
+      {/* Zone 1 — game type + count + filter toggle */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
+        {chipGroup(<>
+          {chip(gameType === 'regular',  'Reg Season', () => switchGameType('regular'))}
+          {chip(gameType === 'playoffs', 'Playoffs',   () => switchGameType('playoffs'))}
+        </>)}
+        <div style={{ flex: 1 }} />
+        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
+          {filteredRows.length} goalies{statsDate ? ` · updated ${statsDate}` : ''}
         </span>
+        <button onClick={() => setFiltersOpen(o => !o)} style={{ ...MONO, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
+          Filters <span style={{ fontSize: 8 }}>{filtersOpen ? '▲' : '▼'}</span>
+        </button>
       </div>
 
+      {/* Zone 2 — collapsible filter panel */}
+      {filtersOpen && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 12 }}>
+          {gameType === 'regular' && (
+          <div>
+            {filterLabel('Display')}
+            {chipGroup(<>
+              {chip(display === 'totals', 'Totals', () => setDisplay('totals'))}
+              {chip(display === 'per60',  'Per 60', () => setDisplay('per60'))}
+            </>)}
+          </div>
+          )}
+          <div>
+            {filterLabel('Scope')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                Min GP
+                <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
+                  style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+              </label>
+              {chipGroup(<>
+                {([null, 10, 20] as (number | null)[]).map(n =>
+                  <span key={String(n)}>{chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))}</span>
+                )}
+              </>)}
+            </div>
+          </div>
+        </div>
+      )}
+
       <HGBTable
-        data={activeRows}
+        data={filteredRows}
         columns={COLUMNS}
-        defaultSort={{ id: 'gsax', desc: true }}
+        defaultSort={defaultSort}
         globalSearchField={r => `${r.name} ${r.team}`.toLowerCase()}
-      searchPlaceholder="Search by name or team…"
-      filters={[
-        {
-          type: 'select',
-          label: 'Team',
-          field: r => r.team,
-          options: teams.map(t => ({ label: t, value: t })),
-        },
-      ]}
+        searchPlaceholder="Search by name or team…"
+        filters={[
+          {
+            type: 'select',
+            label: 'Team',
+            field: r => r.team,
+            options: teams.map(t => ({ label: t, value: t })),
+          },
+        ]}
         rowHref={r => `/stats/goalies/${r.slug || `goalie-${r.goalie_id}`}`}
         exportFilename="hgb-goalies"
         exportTitle="Goalies"
-        exportChips={[gameType === 'regular' ? 'Reg Season' : 'Playoffs']}
+        exportChips={[gameType === 'regular' ? 'Reg Season' : 'Playoffs', isPer60 ? 'Per 60' : 'Totals']}
         emptyMessage="No goalie data for this selection."
         {...(!compact && { virtualize: true })}
       />
