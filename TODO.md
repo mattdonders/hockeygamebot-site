@@ -148,6 +148,7 @@ Currently a beta page with a leaderboard table + EV Off vs EV Def scatter plot. 
 - [x] **SS-8**: Merge stats into main site nav (Home · Scoreboard · Playoffs · Stats · Teams · Support across all editorial pages)
 - [ ] **Export script**: Add `player_of_the_week` to `_meta.json` in `hgb-bot scripts/export_stats_data.py` (7-day rolling, min 3 GP/40min TOI) — site already reads it, fallback to season avg until then
 - [ ] **Goalie metrics**: Add GSAx to leaderboards when export pipeline has it — xG section in `/stats` has a comment marking the swap point
+- [ ] **Table strength/mode toggle — don't rename column headers**: When switching to 5v5 (or per60), keep column headers as "SA", "GA", "GSAx", "SV%", "TOI" — the export chip already labels the mode (e.g. "5V5"). Renaming to "5V5 SA", "5V5 GSAX" etc. adds noise with no benefit. Applies to GoaliesTable and SkatersTable.
 
 ## Completed
 

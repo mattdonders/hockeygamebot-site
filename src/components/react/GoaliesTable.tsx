@@ -169,7 +169,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
       { id: 'gp',   header: 'GP',   accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },
       {
-        id: 'toi', header: 'TOI', accessor: r => r.toi_sec, align: 'center', width: 72, mobileHidden: true,
+        id: 'toi', header: 'TOI', accessor: r => is5v5 ? r.toi_5v5_sec : r.toi_sec, align: 'center', width: 72, mobileHidden: true,
         cell: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
         exportText: v => { if (v == null) return '—'; const t = Math.round(Number(v)); return `${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`; },
       },
@@ -181,8 +181,8 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         id: 'ga', header: gaLabel, accessor: gaVal, align: 'center', width: 52,
         cell: v => v != null ? (isPer60 ? Number(v).toFixed(2) : String(v)) : '—',
       },
-      { id: 'gaa', header: 'GAA', accessor: r => r.gaa, align: 'center', width: 60, mobileHidden: true,
-        cell: v => v != null ? Number(v).toFixed(2) : '—' },
+      ...(!is5v5 ? [{ id: 'gaa', header: 'GAA', accessor: (r: GoalieRow) => r.gaa, align: 'center' as const, width: 60, mobileHidden: true,
+        cell: (v: string | number | null) => v != null ? Number(v).toFixed(2) : '—' }] : []),
       // Optional columns — toggled via Cols row
       { id: 'xga', header: is5v5 ? '5v5 xGA' : 'xGA', accessor: r => is5v5 ? r.xga_5v5 : r.xga, align: 'center', width: 64, mobileHidden: true,
         cell: v => v != null ? Number(v).toFixed(2) : '—' },
