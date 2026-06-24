@@ -299,7 +299,7 @@ function buildColumns(
             {r.edge_speed_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_speed_pct)}</span>}
           </div>
         : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
-      exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_speed_pct ?? '?'}th)` : '—',
+      exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_speed_pct != null ? ordinal(r.edge_speed_pct) : '?'})` : '—',
     },
     {
       id: 'edge_dist_mi', header: 'Dist (mi)', width: 80,
@@ -310,7 +310,7 @@ function buildColumns(
             {r.edge_dist_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_dist_pct)}</span>}
           </div>
         : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
-      exportText: (v, r) => v != null ? `${(v as number).toFixed(0)} mi (${r.edge_dist_pct ?? '?'}th)` : '—',
+      exportText: (v, r) => v != null ? `${(v as number).toFixed(0)} mi (${r.edge_dist_pct != null ? ordinal(r.edge_dist_pct) : '?'})` : '—',
     },
     {
       id: 'edge_bursts', header: 'Bursts', width: 68,
@@ -321,7 +321,7 @@ function buildColumns(
             {r.edge_bursts_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_bursts_pct)}</span>}
           </div>
         : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
-      exportText: (v, r) => v != null ? `${v} (${r.edge_bursts_pct ?? '?'}th)` : '—',
+      exportText: (v, r) => v != null ? `${v} (${r.edge_bursts_pct != null ? ordinal(r.edge_bursts_pct) : '?'})` : '—',
     },
     {
       id: 'edge_shot_mph', header: 'Shot Spd', width: 76,
@@ -332,7 +332,7 @@ function buildColumns(
             {r.edge_shot_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_shot_pct)}</span>}
           </div>
         : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
-      exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_shot_pct ?? '?'}th)` : '—',
+      exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_shot_pct != null ? ordinal(r.edge_shot_pct) : '?'})` : '—',
     },
   ] : [];
 

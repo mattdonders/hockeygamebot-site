@@ -499,6 +499,11 @@ export default function HGBTable<T extends object>({
       )
     );
     const currentSort = sorting[0];
+    // EDGE skating columns include "22.8 mph (77th)" — wider than the display column.
+    // Give them 120px in the export so the text is never ellipsized.
+    const EDGE_EXPORT_WIDTH: Record<string, number> = {
+      edge_speed_mph: 120, edge_dist_mi: 110, edge_bursts: 100, edge_shot_mph: 120,
+    };
     const columns = visibleCols.map(col => {
       const def = columnDefs.find(c => c.id === col.id);
       if (!def) return null;
@@ -507,18 +512,13 @@ export default function HGBTable<T extends object>({
       return {
         label: def.header,
         key: def.id,
-        width: def.width ?? 80,
+        width: EDGE_EXPORT_WIDTH[def.id] ?? def.width ?? 80,
         align: def.align ?? (isFirst ? 'left' : 'center'),
         fontFamily: isFirst ? 'body' : 'mono',
         sorted: isSorted,
         sortDir: isSorted ? (currentSort.desc ? 'desc' : 'asc') : null,
       };
     }).filter(Boolean);
-
-    // TODO: when EDGE skating columns are visible (edge_speed_mph, edge_dist_mi, edge_bursts,
-    // edge_shot_mph), their two-line cell values get truncated at the default column width (80px).
-    // Pass a wider canvas width to downloadTablePng, or override those column widths here, when
-    // any EDGE col is present in `columns`.
     HGB.downloadTablePng({
       title: exportTitle,
       filterChips: exportChips,
