@@ -52,6 +52,17 @@ type Display  = 'totals'   | 'per60';
 
 type Props = { rows: SkaterRow[]; statsDate: string | null; currentSeason: string; isPlayoffSeason?: boolean };
 
+// Physical / faceoff columns — managed by SkatersTable (not HGBTable defaultHidden)
+// because both HGBTable instances use hideToolbar, so HGBTable's own toggle UI never renders.
+const PHYSICAL_COL_DEFS = [
+  { id: 'hits',      label: 'Hits' },
+  { id: 'blocks',    label: 'BLK'  },
+  { id: 'fo_wins',   label: 'FOW'  },
+  { id: 'fo_losses', label: 'FOL'  },
+  { id: 'fo_pct',    label: 'FO%'  },
+] as const;
+type PhysicalColId = typeof PHYSICAL_COL_DEFS[number]['id'];
+
 // localStorage key for logged-out preset persistence (logged-in users use cloud
 // prefs via auth-client). auth-client owns the same key for migration.
 const LOCAL_PRESETS_KEY = 'hgb_filter_presets';
@@ -251,14 +262,14 @@ function buildColumns(
     ];
   }
 
-  // Hidden-by-default physical / faceoff columns (all tabs, non-playoff)
+  // Physical / faceoff cols appended always; SkatersTable filters by visiblePhysical
   const physicalCols: HGBColumnDef<SkaterRow>[] = !isPlayoff ? [
-    { id: 'hits',      header: 'Hits',   accessor: r => r.hits,      width: 56, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-    { id: 'blocks',    header: 'BLK',    accessor: r => r.blocks,    width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-    { id: 'fo_wins',   header: 'FOW',    accessor: r => r.fo_wins,   width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-    { id: 'fo_losses', header: 'FOL',    accessor: r => r.fo_losses, width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'hits',      header: 'Hits',   accessor: r => r.hits,      width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'blocks',    header: 'BLK',    accessor: r => r.blocks,    width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_wins',   header: 'FOW',    accessor: r => r.fo_wins,   width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_losses', header: 'FOL',    accessor: r => r.fo_losses, width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
     { id: 'fo_pct',    header: 'FO%',    accessor: r => (r.fo_wins + r.fo_losses) > 0 ? +(r.fo_wins / (r.fo_wins + r.fo_losses) * 100).toFixed(1) : null,
-      width: 56, defaultHidden: true,
+      width: 56,
       cell: v => v != null ? `${(v as number).toFixed(1)}%` : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
       exportText: v => v != null ? `${(v as number).toFixed(1)}%` : '—' },
   ] : [];
@@ -378,13 +389,13 @@ function buildAggColumns(
     ];
   }
 
-  // Hidden-by-default physical / faceoff columns
+  // Physical / faceoff cols appended always; SkatersTable filters by visiblePhysical
   const physicalCols: HGBColumnDef<AggRow>[] = [
-    { id: 'hits',      header: 'Hits',   accessor: r => r.hits,      width: 56, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-    { id: 'blocks',    header: 'BLK',    accessor: r => r.blocks,    width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-    { id: 'fo_wins',   header: 'FOW',    accessor: r => r.fo_wins,   width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-    { id: 'fo_losses', header: 'FOL',    accessor: r => r.fo_losses, width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-    { id: 'fo_pct',    header: 'FO%',    accessor: r => r.fo_pct,    width: 56, defaultHidden: true,
+    { id: 'hits',      header: 'Hits',   accessor: r => r.hits,      width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'blocks',    header: 'BLK',    accessor: r => r.blocks,    width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_wins',   header: 'FOW',    accessor: r => r.fo_wins,   width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_losses', header: 'FOL',    accessor: r => r.fo_losses, width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_pct',    header: 'FO%',    accessor: r => r.fo_pct,    width: 56,
       cell: v => v != null ? `${(v as number).toFixed(1)}%` : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
       exportText: v => v != null ? `${(v as number).toFixed(1)}%` : '—' },
   ];
@@ -500,9 +511,15 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     return r;
   }, [rows, minGP, minToi, playerFilter, teamFilter, pos, gameType, topN, defaultSort.id]);
 
+  // Physical / faceoff column visibility — all hidden by default
+  const [visiblePhysical, setVisiblePhysical] = useState<Set<PhysicalColId>>(new Set());
+  const togglePhysical = (id: PhysicalColId) =>
+    setVisiblePhysical(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
   const columns = useMemo(
-    () => buildColumns(tab, gameType, strength, display, isDark, currentSeason),
-    [tab, gameType, strength, display, isDark, currentSeason],
+    () => buildColumns(tab, gameType, strength, display, isDark, currentSeason)
+      .filter(c => !PHYSICAL_COL_DEFS.some(p => p.id === c.id) || visiblePhysical.has(c.id as PhysicalColId)),
+    [tab, gameType, strength, display, isDark, currentSeason, visiblePhysical],
   );
 
   // ── Aggregated (multi-season / playoff) path ──────────────────────────────
@@ -553,8 +570,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, minToi, playerFilter, teamFilter, pos, topN, aggTab, display, strength]);
 
   const aggColumns = useMemo(
-    () => buildAggColumns(aggTab, display, strength, isDark, rangeLabel, multi),
-    [aggTab, display, strength, isDark, rangeLabel, multi],  // strength needed for column header prefix
+    () => buildAggColumns(aggTab, display, strength, isDark, rangeLabel, multi)
+      .filter(c => !PHYSICAL_COL_DEFS.some(p => p.id === c.id) || visiblePhysical.has(c.id as PhysicalColId)),
+    [aggTab, display, strength, isDark, rangeLabel, multi, visiblePhysical],
   );
 
   const aggDefaultSort = useMemo(() => {
@@ -677,6 +695,23 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         <button onClick={() => setFiltersOpen(o => !o)} style={{ ...MONO, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
           Filters <span style={{ fontSize: 8 }}>{filtersOpen ? '▲' : '▼'}</span>
         </button>
+      </div>
+
+      {/* Column toggles — physical/faceoff columns hidden by default */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+        <span style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.35)', marginRight: 4 }}>Cols</span>
+        {PHYSICAL_COL_DEFS.map(col => {
+          const active = visiblePhysical.has(col.id);
+          return (
+            <button key={col.id} onClick={() => togglePhysical(col.id)}
+              style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 8px',
+                border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer',
+                background: active ? 'rgba(13,13,20,0.08)' : 'transparent',
+                color: active ? '#0d0d14' : 'rgba(13,13,20,0.35)' }}>
+              {col.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Zone 2 — collapsible filter panel */}
