@@ -91,11 +91,10 @@ function TeamLogo({ abbrev }: { abbrev: string }) {
     <img
       src={src}
       alt={abbrev}
-      width={20}
-      height={20}
+      width={28}
+      height={28}
       style={{ display: 'block', flexShrink: 0, objectFit: 'contain' }}
       onError={(e) => {
-        // Hide broken logo without layout shift
         (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
       }}
     />
@@ -363,59 +362,25 @@ export default function PlayerSearch({
                   {/* Team logo */}
                   <TeamLogo abbrev={player.team_abbrev} />
 
-                  {/* Player info */}
+                  {/* Player info — single line: name · position */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Primary line: display_name + team abbrev */}
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'baseline',
-                        gap: 8,
-                      }}
-                    >
-                      <span
-                        style={{
-                          ...BODY,
-                          fontWeight: 600,
-                          fontSize: 13,
-                          color: INK,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {player.first_name && player.last_name
-                          ? `${player.first_name} ${player.last_name}`
-                          : player.display_name}
-                      </span>
-                      <span
-                        style={{
-                          ...MONO,
-                          fontSize: 10,
-                          color: MUTED,
-                          flexShrink: 0,
-                          letterSpacing: '0.06em',
-                        }}
-                      >
-                        {player.team_abbrev}
-                      </span>
-                    </div>
-
-                    {/* Secondary line: full name · pos · gp GP */}
-                    <div
+                    <span
                       style={{
                         ...BODY,
-                        fontSize: 10,
-                        color: MUTED,
-                        marginTop: 2,
+                        fontWeight: 600,
+                        fontSize: 13,
+                        color: INK,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
+                        display: 'block',
                       }}
                     >
-                      {player.first_name} {player.last_name} &middot; {player.pos} &middot; {player.gp} GP
-                    </div>
+                      {player.first_name && player.last_name
+                        ? `${player.first_name} ${player.last_name}`
+                        : player.display_name}
+                      <span style={{ fontWeight: 400, color: MUTED }}> &middot; {player.pos}</span>
+                    </span>
                   </div>
                 </li>
               );
