@@ -117,7 +117,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
 
     const saLabel   = is5v5 ? '5v5 SA' : (isPer60 ? 'SA/60'   : 'SA');
     const gaLabel   = is5v5 ? '5v5 GA' : (isPer60 ? 'GA/60'   : 'GA');
-    const gsaxLabel = isPer60 ? 'GSAx/60' : 'GSAx';
+    const gsaxLabel = is5v5 ? '5v5 GSAx' : (isPer60 ? 'GSAx/60' : 'GSAx');
 
     const saVal = (r: GoalieRow) => {
       if (is5v5) return r.sa_5v5;
@@ -141,7 +141,10 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       }
       return r.sv_pct;
     };
-    const gsaxVal = (r: GoalieRow) => isPer60 ? r.gsax_per60 : r.gsax;
+    const gsaxVal = (r: GoalieRow) => {
+      if (is5v5) return r.gsax_5v5;
+      return isPer60 ? r.gsax_per60 : r.gsax;
+    };
 
     const all: HGBColumnDef<GoalieRow>[] = [
       {
@@ -181,7 +184,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       { id: 'gaa', header: 'GAA', accessor: r => r.gaa, align: 'center', width: 60, mobileHidden: true,
         cell: v => v != null ? Number(v).toFixed(2) : '—' },
       // Optional columns — toggled via Cols row
-      { id: 'xga', header: 'xGA', accessor: r => r.xga, align: 'center', width: 64, mobileHidden: true,
+      { id: 'xga', header: is5v5 ? '5v5 xGA' : 'xGA', accessor: r => is5v5 ? r.xga_5v5 : r.xga, align: 'center', width: 64, mobileHidden: true,
         cell: v => v != null ? Number(v).toFixed(2) : '—' },
       {
         id: 'gsax', header: gsaxLabel, accessor: gsaxVal, align: 'center', width: isPer60 ? 88 : 72,
