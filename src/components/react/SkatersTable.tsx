@@ -3,6 +3,7 @@ import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoS
 import { fmtSeasonShort } from '../../lib/format-season';
 import { aggregateSeasons, availableSeasons, type SlimData, type AggRow } from '../../lib/aggregate-seasons';
 import { getSessionToken, getPrefs, putPrefs, mergeLocalPresets } from '../../lib/auth-client';
+import { MONO, useIsDark, FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
 
 // "20252026" → "2025-26"; passes through if already dashed
 function normSeason(s: string): string {
@@ -87,7 +88,6 @@ type FilterSnapshot = {
 };
 type FilterPreset = { name: string; filters: FilterSnapshot };
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const POS  = '#166534'; const NEG = '#991b1b';
 const sgn = (v: number) => v >= 0 ? '+' : '';
 const f2  = (v: number | null) => v != null ? Number(v).toFixed(2) : '—';
@@ -523,15 +523,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   useEffect(() => {
     if (useAgg && tab === 'advanced') setTab('counting');
   }, [useAgg, tab]);
-  const [isDark,   setIsDark]   = useState(false);
-
-  useEffect(() => {
-    const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
-    check();
-    const obs = new MutationObserver(check);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => obs.disconnect();
-  }, []);
+  const isDark = useIsDark();
 
   // Derived data
   const defaultSort = useMemo(() => {
@@ -729,29 +721,16 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     ? { predicate: (r: SkaterRow | AggRow) => r.name.toLowerCase().includes(findInput.trim().toLowerCase()), key: findKey }
     : undefined;
 
-  const chip = (active: boolean, label: string, onClick: () => void, disabled = false) => (
-    <button onClick={disabled ? undefined : onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: disabled ? 'not-allowed' : 'pointer', background: active ? '#0d0d14' : '#fff', color: active ? '#EFEEE8' : disabled ? 'rgba(13,13,20,0.2)' : 'rgba(13,13,20,0.48)', opacity: disabled ? 0.5 : 1 }}>
-      {label}
-    </button>
-  );
-  const group = (children: React.ReactNode) => (
-    <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>{children}</div>
-  );
-  const label = (text: string) => (
-    <div style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
-      {text}
-    </div>
-  );
 
   return (
     <div>
       {/* Zone 1 — always visible: stat tabs + meta + filter toggle */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
-        {group(<>
+        <FilterChipGroup>
           {(['counting','rates','advanced','onice'] as Tab[]).map(t =>
-            <span key={t}>{chip(tab === t, { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t], () => { setTab(t); if (t === 'rates') setDisplay('totals'); }, tabDisabled(t))}</span>
+            <FilterChip key={t} active={tab === t} label={{ counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t]} onClick={() => { setTab(t); if (t === 'rates') setDisplay('totals'); }} disabled={tabDisabled(t)} />
           )}
-        </>)}
+        </FilterChipGroup>
         <div style={{ flex: 1 }} />
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
           {useAgg ? (slimLoading ? 'loading…' : `${aggFiltered.length} skaters`) : `${filtered.length} skaters`}
@@ -806,14 +785,14 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
       {filtersOpen && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 12 }}>
           <div>
-            {label('Game Type')}
-            {group(<>
-              {chip(gameType === 'regular',  'Reg Season', () => setGameType('regular'))}
-              {chip(gameType === 'playoffs', 'Playoffs',   () => { setGameType('playoffs'); setDisplay('totals'); if (tab !== 'counting') setTab('counting'); })}
-            </>)}
+            <FilterLabel text="Game Type" />
+            <FilterChipGroup>
+              <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => setGameType('regular')} />
+              <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => { setGameType('playoffs'); setDisplay('totals'); if (tab !== 'counting') setTab('counting'); }} />
+            </FilterChipGroup>
           </div>
           <div>
-            {label('Season Range')}
+            <FilterLabel text="Season Range" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <select value={fromSeason} onChange={e => setFromSeason(e.target.value)}
                 style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
@@ -833,32 +812,32 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             </div>
           </div>
           <div>
-            {label('Position')}
-            {group(<>
-              {chip(pos === 'all', 'All',  () => setPos('all'))}
-              {chip(pos === 'F',   'Fwds', () => setPos('F'))}
-              {chip(pos === 'D',   'Def',  () => setPos('D'))}
-            </>)}
+            <FilterLabel text="Position" />
+            <FilterChipGroup>
+              <FilterChip active={pos === 'all'} label="All"  onClick={() => setPos('all')} />
+              <FilterChip active={pos === 'F'}   label="Fwds" onClick={() => setPos('F')} />
+              <FilterChip active={pos === 'D'}   label="Def"  onClick={() => setPos('D')} />
+            </FilterChipGroup>
           </div>
           <div>
-            {label('Strength')}
-            {group(<>
+            <FilterLabel text="Strength" />
+            <FilterChipGroup>
               {(['all','5v5','pp','pk'] as Strength[]).map(s =>
-                <span key={s}>{chip(strength === s, { all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s], () => setStrength(s), strDisabled(s))}</span>
+                <FilterChip key={s} active={strength === s} label={{ all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s]} onClick={() => setStrength(s)} disabled={strDisabled(s)} />
               )}
-            </>)}
+            </FilterChipGroup>
           </div>
           {tab !== 'rates' && (
           <div>
-            {label('Display')}
-            {group(<>
-              {chip(display === 'totals', 'Totals', () => setDisplay('totals'))}
-              {chip(display === 'per60',  'Per 60', () => setDisplay('per60'), gameType === 'playoffs')}
-            </>)}
+            <FilterLabel text="Display" />
+            <FilterChipGroup>
+              <FilterChip active={display === 'totals'} label="Totals" onClick={() => setDisplay('totals')} />
+              <FilterChip active={display === 'per60'}  label="Per 60" onClick={() => setDisplay('per60')} disabled={gameType === 'playoffs'} />
+            </FilterChipGroup>
           </div>
           )}
           <div>
-            {label('Scope')}
+            <FilterLabel text="Scope" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
                 Min GP
@@ -871,17 +850,17 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                   style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
                 <span style={{ color: 'rgba(13,13,20,0.32)' }}>min</span>
               </label>
-              {group(<>
+              <FilterChipGroup>
                 {([null,10,20,50] as (number|null)[]).map(n =>
-                  <span key={String(n)}>{chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))}</span>
+                  <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
                 )}
-              </>)}
+              </FilterChipGroup>
             </div>
           </div>
 
           {/* PLAYERS — search-to-add multi-select */}
           <div style={{ position: 'relative' }}>
-            {label('Players')}
+            <FilterLabel text="Players" />
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
               {playerFilter.map(slug => {
                 const p = rows.find(r => r.slug === slug);
@@ -933,7 +912,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
 
           {/* FIND PLAYER — jump-to-row */}
           <div>
-            {label('Find Player')}
+            <FilterLabel text="Find Player" />
             <input
               type="search"
               placeholder="Name → Enter"
@@ -946,7 +925,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
 
           {/* TEAM — multi-chip */}
           <div>
-            {label('Team')}
+            <FilterLabel text="Team" />
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
               {teamFilter.map(t => (
                 <button key={t} onClick={() => setTeamFilter(f => f.filter(x => x !== t))}

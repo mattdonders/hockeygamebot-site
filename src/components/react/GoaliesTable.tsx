@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, teamLogoSrc } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
+import { MONO, useIsDark, FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
 
 export type GoalieRow = {
   goalie_id:   number;
@@ -43,27 +44,11 @@ type Props = {
 
 type Display = 'totals' | 'per60';
 
-const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
-
 const signed = (v: number | null) =>
   v != null ? (v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2)) : '—';
 
 const gsaxColor = (v: number | null) =>
   v == null ? undefined : v >= 0 ? '#166534' : '#991b1b';
-
-const chip = (active: boolean, lbl: string, onClick: () => void, disabled = false) => (
-  <button onClick={disabled ? undefined : onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: disabled ? 'not-allowed' : 'pointer', background: active ? '#0d0d14' : '#fff', color: active ? '#EFEEE8' : disabled ? 'rgba(13,13,20,0.2)' : 'rgba(13,13,20,0.48)', opacity: disabled ? 0.5 : 1 }}>
-    {lbl}
-  </button>
-);
-const chipGroup = (children: React.ReactNode) => (
-  <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>{children}</div>
-);
-const filterLabel = (text: string) => (
-  <div style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
-    {text}
-  </div>
-);
 
 export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams, compact = false, defaultGameType = 'regular' }: Props) {
   const [gameType, setGameType] = useState<'regular' | 'playoffs'>(defaultGameType);
@@ -71,15 +56,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
   const [minGP,    setMinGP]    = useState(defaultGameType === 'playoffs' ? 1 : 10);
   const [topN,     setTopN]     = useState<number | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(true);
-  const [isDark, setIsDark] = useState(false);
-
-  useEffect(() => {
-    const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
-    check();
-    const obs = new MutationObserver(check);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => obs.disconnect();
-  }, []);
+  const isDark = useIsDark();
 
   // Reset minGP when switching game types
   useEffect(() => {
@@ -179,10 +156,10 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     <div>
       {/* Zone 1 — game type + count + filter toggle */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
-        {chipGroup(<>
-          {chip(gameType === 'regular',  'Reg Season', () => switchGameType('regular'))}
-          {chip(gameType === 'playoffs', 'Playoffs',   () => switchGameType('playoffs'))}
-        </>)}
+        <FilterChipGroup>
+          <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => switchGameType('regular')} />
+          <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => switchGameType('playoffs')} />
+        </FilterChipGroup>
         <div style={{ flex: 1 }} />
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
           {filteredRows.length} goalies{statsDate ? ` · updated ${statsDate}` : ''}
@@ -197,26 +174,26 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 12 }}>
           {gameType === 'regular' && (
           <div>
-            {filterLabel('Display')}
-            {chipGroup(<>
-              {chip(display === 'totals', 'Totals', () => setDisplay('totals'))}
-              {chip(display === 'per60',  'Per 60', () => setDisplay('per60'))}
-            </>)}
+            <FilterLabel text="Display" />
+            <FilterChipGroup>
+              <FilterChip active={display === 'totals'} label="Totals" onClick={() => setDisplay('totals')} />
+              <FilterChip active={display === 'per60'}  label="Per 60" onClick={() => setDisplay('per60')} />
+            </FilterChipGroup>
           </div>
           )}
           <div>
-            {filterLabel('Scope')}
+            <FilterLabel text="Scope" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
                 Min GP
                 <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
                   style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
               </label>
-              {chipGroup(<>
+              <FilterChipGroup>
                 {([null, 10, 20] as (number | null)[]).map(n =>
-                  <span key={String(n)}>{chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))}</span>
+                  <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
                 )}
-              </>)}
+              </FilterChipGroup>
             </div>
           </div>
         </div>
