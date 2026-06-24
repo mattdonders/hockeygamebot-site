@@ -160,6 +160,15 @@ const areaPath = cumPoints.length >= 2
   ? `${path} L${cpx(xMax).toFixed(1)},${cpy0.toFixed(1)} L${cpx(1).toFixed(1)},${cpy0.toFixed(1)} Z`
   : '';
 
+// Per-game data for chart tooltip
+const chartGameData = games.map((g, i) => ({
+  game:      i + 1,
+  date:      g.game_date,
+  opp:       g.opp_abbrev ?? '?',
+  gsax_game: +g.gsax.toFixed(2),
+  gsax_cum:  cumPoints[i]?.gsax ?? 0,
+}));
+
 // ── xG-tier bar chart data ─────────────────────────────────────────────────
 const binAbsMax = Math.max(...goalie.bins.map(b => Math.abs(b.gsax)), 1);
 // bar width = percentage of max, full bar = 120px
@@ -234,6 +243,51 @@ const gameLogColumns = [
   { key: 'xga',     label: 'xGA',   type: 'number' as const,
     format: (v: any) => v == null ? '—' : Number(v).toFixed(2) },
   { key: 'gsax',    label: 'GSAx',  type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+    color: signedColor },
+];
+
+// ── Season overview stats table ────────────────────────────────────────────
+const xsvPct = goalie.sa > 0 ? +(1 - goalie.xga / goalie.sa).toFixed(4) : null;
+const statsRow = {
+  season:      '2025-26',
+  gp:          goalie.gp ?? goalie.games.filter(g => (g as any).game_type !== 3).length,
+  toi:         secToTOI((goalie as any).toi_sec),
+  sa:          goalie.sa,
+  ga:          goalie.ga,
+  gaa:         (goalie as any).gaa != null ? +Number((goalie as any).gaa).toFixed(2) : null,
+  sv_pct:      goalie.sv_pct,
+  x_sv_pct:    xsvPct,
+  d_sv_pct:    vsExp,
+  gsax:        goalie.gsax,
+  xga:         +goalie.xga.toFixed(2),
+  gsax_per60:  (goalie as any).gsax_per60 != null ? +Number((goalie as any).gsax_per60).toFixed(3) : null,
+  gsax_5v5:    (goalie as any).gsax_5v5   != null ? +Number((goalie as any).gsax_5v5).toFixed(2)   : null,
+};
+const statsColumns = [
+  { key: 'season',     label: 'Season',    type: 'label' as const },
+  { key: 'gp',         label: 'GP',        type: 'number' as const },
+  { key: 'toi',        label: 'TOI',       type: 'number' as const },
+  { key: 'sa',         label: 'SA',        type: 'number' as const },
+  { key: 'ga',         label: 'GA',        type: 'number' as const },
+  { key: 'gaa',        label: 'GAA',       type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(2) },
+  { key: 'sv_pct',     label: 'SV%',       type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(3) },
+  { key: 'x_sv_pct',   label: 'xSV%',      type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(3) },
+  { key: 'd_sv_pct',   label: 'ΔSV%',      type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%',
+    color: signedColor },
+  { key: 'gsax',       label: 'GSAx',      type: 'number' as const, bold: true,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
+    color: signedColor },
+  { key: 'xga',        label: 'xGA',       type: 'number' as const,
+    format: (v: any) => v == null ? '—' : Number(v).toFixed(2) },
+  { key: 'gsax_per60', label: 'GSAx/60',   type: 'number' as const,
+    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(3),
+    color: signedColor },
+  { key: 'gsax_5v5',   label: 'GSAx 5v5',  type: 'number' as const, bold: true,
     format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
     color: signedColor },
 ];
@@ -343,7 +397,7 @@ const cardData = {
   <Fonts />
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{goalie.name} · Goalie GSAx · HGB Stats</title>
+  <title>{firstName} {displayLast} — HGB Stats</title>
   <meta name="description" content={`${goalie.name} (${goalie.team_abbrev}) — GSAx ${gsaxSign}${goalie.gsax.toFixed(2)}, SV% ${goalie.sv_pct != null ? (goalie.sv_pct * 100).toFixed(2) : '—'}%. HGB xG-model goalie analysis, 2025–26.`} />
   <style is:global>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -625,7 +679,24 @@ const cardData = {
 <div class="content">
 <div class="content-main">
 
-  <!-- ── Cumulative GSAx chart (first) ── -->
+  <!-- ── Season stats table ── -->
+  <div class="sec-card">
+    <div class="sec-head">
+      <div class="sec-title">2025–26 <span style={`color:${teamColor}`}>Season Stats</span></div>
+      <div class="sec-sub">All situations · min 500 SA for percentile ranking</div>
+    </div>
+    <div class="sec-body" style="padding:0">
+      <Table
+        columns={statsColumns}
+        rows={[statsRow]}
+        sticky={false}
+        scrollable={true}
+        ariaLabel="Season stats"
+      />
+    </div>
+  </div>
+
+  <!-- ── Cumulative GSAx chart ── -->
   {cumPoints.length > 1 && (
     <div class="chart-full">
       <div class="sec-card">
@@ -633,8 +704,8 @@ const cardData = {
           <div class="sec-title">Cumulative GSAx — Season</div>
           <div class="sec-sub">{cumPoints.length} games · final: {gsaxSign}{goalie.gsax.toFixed(2)}</div>
         </div>
-        <div style="padding:16px 16px 8px">
-          <svg class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet">
+        <div style="padding:16px 16px 8px;position:relative">
+          <svg id="cum-chart" class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet" style="cursor:crosshair">
             {[...Array(5)].map((_, i) => {
               const gv = yMin + (i / 4) * (yMax - yMin);
               const gy = cpy(gv).toFixed(1);
@@ -658,6 +729,24 @@ const cardData = {
                 cy={cpy(cumPoints[cumPoints.length-1].gsax).toFixed(1)}
                 r="3.5" fill={teamColor} />
             )}
+            {/* Vertical hover marker (hidden by default) */}
+            <line id="cum-marker" x1="0" y1={PAD.t} x2="0" y2={PAD.t + cH}
+              stroke="rgba(13,13,20,0.20)" stroke-width="1" stroke-dasharray="3 2" display="none" />
+            {/* Hit circles — one per game */}
+            {chartGameData.map(gd => (
+              <circle
+                class="cum-hit"
+                cx={cpx(gd.game).toFixed(1)}
+                cy={cpy(gd.gsax_cum).toFixed(1)}
+                r="10"
+                fill="transparent"
+                data-game={gd.game}
+                data-date={gd.date}
+                data-opp={gd.opp}
+                data-gsax-game={gd.gsax_game}
+                data-gsax-cum={gd.gsax_cum}
+              />
+            ))}
             <text x={(PAD.l + cW / 2).toFixed(1)} y={(SVG_H - 4).toFixed(1)}
               text-anchor="middle" font-family="JetBrains Mono, monospace"
               font-size="9" fill="rgba(13,13,20,0.28)" letter-spacing="0.08em">GAME #</text>
@@ -666,6 +755,13 @@ const cardData = {
       </div>
     </div>
   )}
+
+  <!-- ── Divider: new components above / legacy below ── -->
+  <div style="display:flex;align-items:center;gap:12px;margin:8px 0 4px">
+    <div style="flex:1;border-top:1px dashed rgba(13,13,20,0.14)"></div>
+    <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:rgba(13,13,20,0.30);text-transform:uppercase;flex-shrink:0">legacy below</span>
+    <div style="flex:1;border-top:1px dashed rgba(13,13,20,0.14)"></div>
+  </div>
 
   <!-- ── Two-column: xG bins + shot types ── -->
   <div class="two-col">
@@ -887,11 +983,53 @@ const cardData = {
 </main>
 
 <footer style="max-width:1100px;margin:0 auto;padding:20px 32px;font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:rgba(13,13,20,0.55)">
-  <div>{cardFooterText({ domain: 'lower', extra: 'GSAx XGBoost AUC 0.77' })}</div>
+  <div>{cardFooterText({ domain: 'lower' })}</div>
   <div style="margin-top:8px;letter-spacing:0.04em;line-height:1.5">{SITE_DISCLAIMER}</div>
 </footer>
 
 <script is:inline src="/js/table-export.js"></script>
+
+<!-- Floating tooltip for cumulative chart -->
+<div id="cum-tip" style="position:fixed;display:none;pointer-events:none;background:#0d0d14;color:#EFEEE8;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;border-radius:2px;z-index:200;white-space:nowrap">
+  <div id="cum-tip-head" style="font-weight:700;font-size:12px;margin-bottom:2px"></div>
+  <div id="cum-tip-val" style="color:rgba(239,238,232,0.65);font-size:10px;letter-spacing:0.04em"></div>
+</div>
+
+<script is:inline>
+(function () {
+  const tip     = document.getElementById('cum-tip');
+  const tipHead = document.getElementById('cum-tip-head');
+  const tipVal  = document.getElementById('cum-tip-val');
+  const marker  = document.getElementById('cum-marker');
+  if (!tip || !tipHead || !tipVal) return;
+
+  function sign(v) { return v >= 0 ? '+' : ''; }
+  function moveTip(e) {
+    const x = e.clientX + 14, y = e.clientY - 36;
+    tip.style.left = (x + tip.offsetWidth > window.innerWidth - 8 ? e.clientX - tip.offsetWidth - 8 : x) + 'px';
+    tip.style.top  = Math.max(4, y) + 'px';
+  }
+
+  document.querySelectorAll('.cum-hit').forEach(function (c) {
+    c.addEventListener('mouseenter', function (e) {
+      const d   = c.dataset;
+      const dt  = d.date ? d.date.slice(5).replace('-', '/') : '—';
+      const cum = parseFloat(d.gsaxCum);
+      const gm  = parseFloat(d.gsaxGame);
+      tipHead.textContent = 'Game ' + d.game + ' · vs ' + d.opp + ' · ' + dt;
+      tipVal.textContent  = 'game: ' + sign(gm) + gm.toFixed(2) + ' GSAx  ·  cum: ' + sign(cum) + cum.toFixed(2);
+      tip.style.display = 'block';
+      if (marker) { marker.setAttribute('x1', c.getAttribute('cx')); marker.setAttribute('x2', c.getAttribute('cx')); marker.removeAttribute('display'); }
+      moveTip(e);
+    });
+    c.addEventListener('mousemove', moveTip);
+    c.addEventListener('mouseleave', function () {
+      tip.style.display = 'none';
+      if (marker) marker.setAttribute('display', 'none');
+    });
+  });
+})();
+</script>
 
 <script is:inline>
 (function () {
