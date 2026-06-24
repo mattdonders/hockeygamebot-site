@@ -211,6 +211,12 @@ export const PlayerRecordSchema = z.object({
   // On-ice 5v5 goal differential (G±) — added Jun 2026
   gf_diff:    z.number().int().optional(),
   gf_diff_60: z.number().optional(),
+  // Physical / faceoff counts — added Jun 2026
+  hits:       z.number().int().optional(),
+  hits_taken: z.number().int().optional(),
+  blocks:     z.number().int().optional(),
+  fo_wins:    z.number().int().optional(),
+  fo_losses:  z.number().int().optional(),
   // Penalty differential — draw/take counts for WAR breakdown display
   penalties_drawn: z.number().int().optional(),
   penalties_taken: z.number().int().optional(),

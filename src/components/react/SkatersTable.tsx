@@ -36,6 +36,9 @@ export type SkaterRow = {
   shots_ev: number; shots_pp: number; shots_pk: number;
   ixg_ev: number; ixg_pp: number; ixg_pk: number;
   toi_ev_sec: number; toi_pp_sec: number; toi_pk_sec: number;
+  // Physical / faceoff
+  hits: number; hits_taken: number; blocks: number;
+  fo_wins: number; fo_losses: number;
   // Playoff
   po_gp: number | null; po_goals: number | null; po_assists: number | null;
   po_points: number | null; po_sog: number | null; po_ixg: number | null; po_toi_pg: number | null;
@@ -248,7 +251,19 @@ function buildColumns(
     ];
   }
 
-  return [...fixed, ...tabCols];
+  // Hidden-by-default physical / faceoff columns (all tabs, non-playoff)
+  const physicalCols: HGBColumnDef<SkaterRow>[] = !isPlayoff ? [
+    { id: 'hits',      header: 'Hits',   accessor: r => r.hits,      width: 56, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'blocks',    header: 'BLK',    accessor: r => r.blocks,    width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_wins',   header: 'FOW',    accessor: r => r.fo_wins,   width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_losses', header: 'FOL',    accessor: r => r.fo_losses, width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_pct',    header: 'FO%',    accessor: r => (r.fo_wins + r.fo_losses) > 0 ? +(r.fo_wins / (r.fo_wins + r.fo_losses) * 100).toFixed(1) : null,
+      width: 56, defaultHidden: true,
+      cell: v => v != null ? `${(v as number).toFixed(1)}%` : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+      exportText: v => v != null ? `${(v as number).toFixed(1)}%` : '—' },
+  ] : [];
+
+  return [...fixed, ...tabCols, ...physicalCols];
 }
 
 // ── Aggregated (multi-season / playoff) columns ───────────────────────────────
@@ -363,7 +378,18 @@ function buildAggColumns(
     ];
   }
 
-  return [...fixed, ...tabCols];
+  // Hidden-by-default physical / faceoff columns
+  const physicalCols: HGBColumnDef<AggRow>[] = [
+    { id: 'hits',      header: 'Hits',   accessor: r => r.hits,      width: 56, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'blocks',    header: 'BLK',    accessor: r => r.blocks,    width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_wins',   header: 'FOW',    accessor: r => r.fo_wins,   width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_losses', header: 'FOL',    accessor: r => r.fo_losses, width: 52, defaultHidden: true, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+    { id: 'fo_pct',    header: 'FO%',    accessor: r => r.fo_pct,    width: 56, defaultHidden: true,
+      cell: v => v != null ? `${(v as number).toFixed(1)}%` : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+      exportText: v => v != null ? `${(v as number).toFixed(1)}%` : '—' },
+  ];
+
+  return [...fixed, ...tabCols, ...physicalCols];
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

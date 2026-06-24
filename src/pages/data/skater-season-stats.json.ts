@@ -54,6 +54,12 @@ function slim(r: PlayerSeasonEntry) {
     ipk: r.ixg_pk ?? 0,
     tpp: r.toi_pp_sec ?? 0,
     tpk: r.toi_pk_sec ?? 0,
+    // Physical / faceoff (compact keys)
+    hit: r.hits ?? 0,
+    htk: r.hits_taken ?? 0,
+    blk: r.blocks ?? 0,
+    fow: r.fo_wins ?? 0,
+    fol: r.fo_losses ?? 0,
   };
 }
 

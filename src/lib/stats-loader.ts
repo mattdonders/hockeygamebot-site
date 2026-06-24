@@ -291,6 +291,9 @@ export type PlayerSeasonEntry = {
   shots_ev?: number; shots_pp?: number; shots_pk?: number;
   ixg_ev?: number; ixg_pp?: number; ixg_pk?: number;
   toi_pp_sec?: number; toi_pk_sec?: number;
+  // Physical / faceoff
+  hits?: number; hits_taken?: number; blocks?: number;
+  fo_wins?: number; fo_losses?: number;
 };
 
 export type PlayerSeasonStats = {

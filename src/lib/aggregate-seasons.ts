@@ -26,6 +26,8 @@ export type SlimRow = {
   sev: number; spp: number; spk: number;
   iev: number; ipp: number; ipk: number;
   tpp: number; tpk: number;
+  // Physical / faceoff
+  hit: number; htk: number; blk: number; fow: number; fol: number;
 };
 export type SlimPlayer = { n: string | null; s: string | null; pos: string; r: SlimRow[]; p: SlimRow[] };
 export type SlimData = Record<string, SlimPlayer>;
@@ -55,6 +57,9 @@ export type AggRow = {
   sog_ev: number; sog_pp: number; sog_pk: number;
   ixg_ev: number; ixg_pp: number; ixg_pk: number;
   toi_pp_sec: number; toi_pk_sec: number;
+  // Physical / faceoff
+  hits: number; hits_taken: number; blocks: number;
+  fo_wins: number; fo_losses: number; fo_pct: number | null;
 };
 
 /** All seasons present in the data for a game type, sorted descending (newest first). */
@@ -91,6 +96,7 @@ export function aggregateSeasons(
     let gev = 0, gpp = 0, gsh = 0, aev = 0, app = 0, apk = 0;
     let sev = 0, spp = 0, spk = 0, iev = 0, ipp = 0, ipk = 0;
     let tpp = 0, tpk = 0;
+    let hits = 0, htk = 0, blk = 0, fow = 0, fol = 0;
 
     for (const r of rows) {
       gp += r.gp; g += r.g; a += r.a; pts += r.pts; sog += r.sog; ixg += r.ixg; toi += r.toi;
@@ -104,6 +110,8 @@ export function aggregateSeasons(
       sev += r.sev ?? 0; spp += r.spp ?? 0; spk += r.spk ?? 0;
       iev += r.iev ?? 0; ipp += r.ipp ?? 0; ipk += r.ipk ?? 0;
       tpp += r.tpp ?? 0; tpk += r.tpk ?? 0;
+      hits += r.hit ?? 0; htk += r.htk ?? 0; blk += r.blk ?? 0;
+      fow += r.fow ?? 0; fol += r.fol ?? 0;
     }
 
     // Noise floor for multi-season: skip sub-5-GP aggregates (emergency callups, etc.)
@@ -148,6 +156,9 @@ export function aggregateSeasons(
       sog_ev: sev, sog_pp: spp, sog_pk: spk,
       ixg_ev: +iev.toFixed(2), ixg_pp: +ipp.toFixed(2), ixg_pk: +ipk.toFixed(2),
       toi_pp_sec: tpp, toi_pk_sec: tpk,
+      hits, hits_taken: htk, blocks: blk,
+      fo_wins: fow, fo_losses: fol,
+      fo_pct: (fow + fol) > 0 ? +(fow / (fow + fol) * 100).toFixed(1) : null,
     });
   }
   return out;
