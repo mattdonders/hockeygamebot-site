@@ -22,6 +22,12 @@ export type GoalieRow = {
   xsv_pct:     number | null;
   dsv_pct:     number | null;
   gaa:         number | null;
+  sa_5v5:      number | null;
+  ga_5v5:      number | null;
+  sc_against:  number | null;
+  hdc_against: number | null;
+  hdg_allowed: number | null;
+  hd_sv_pct:   number | null;
   vs_exp:      number | null;
   games:       number | null;
 };
@@ -153,6 +159,17 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         id: 'dsv_pct', header: 'dSV%', accessor: r => r.dsv_pct, align: 'center', width: 68, mobileHidden: true,
         cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{n >= 0 ? '+' : ''}{Number(n).toFixed(3)}</span> : '—'; },
       },
+      // Hidden-by-default columns — exposed via "Columns" toggle
+      { id: 'sa_5v5', header: '5v5 SA', accessor: r => r.sa_5v5, align: 'center', width: 64, defaultHidden: true,
+        cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
+      { id: 'ga_5v5', header: '5v5 GA', accessor: r => r.ga_5v5, align: 'center', width: 64, defaultHidden: true,
+        cell: v => v != null ? String(v) : '—', mobileHidden: true },
+      { id: 'hd_sv_pct', header: 'HD SV%', accessor: r => r.hd_sv_pct, align: 'center', width: 72, defaultHidden: true,
+        cell: v => v != null ? Number(v).toFixed(3) : '—', mobileHidden: true },
+      { id: 'hdc_against', header: 'HDC-A', accessor: r => r.hdc_against, align: 'center', width: 64, defaultHidden: true,
+        cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
+      { id: 'sc_against', header: 'SC-A', accessor: r => r.sc_against, align: 'center', width: 60, defaultHidden: true,
+        cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
     ];
   }, [isDark, isPer60]);
 
