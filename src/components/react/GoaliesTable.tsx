@@ -51,14 +51,16 @@ const gsaxColor = (v: number | null) =>
   v == null ? undefined : v >= 0 ? '#166534' : '#991b1b';
 
 export default function GoaliesTable({ regularRows, playoffRows, statsDate, teams, compact = false, defaultGameType = 'regular' }: Props) {
-  const [gameType, setGameType] = useState<'regular' | 'playoffs'>(defaultGameType);
-  const [display,  setDisplay]  = useState<Display>('totals');
-  const [minGP,    setMinGP]    = useState(defaultGameType === 'playoffs' ? 1 : 10);
-  const [topN,     setTopN]     = useState<number | null>(null);
+  const [gameType,    setGameType]    = useState<'regular' | 'playoffs'>(defaultGameType);
+  const [display,     setDisplay]     = useState<Display>('totals');
+  const [minGP,       setMinGP]       = useState(defaultGameType === 'playoffs' ? 1 : 10);
+  const [topN,        setTopN]        = useState<number | null>(null);
+  const [teamFilter,  setTeamFilter]  = useState<string[]>([]);
+  const [findInput,   setFindInput]   = useState('');
+  const [findKey,     setFindKey]     = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(true);
   const isDark = useIsDark();
 
-  // Reset minGP when switching game types
   useEffect(() => {
     setMinGP(gameType === 'playoffs' ? 1 : 10);
     if (gameType === 'playoffs') setDisplay('totals');
@@ -74,14 +76,19 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
 
   const filteredRows = useMemo(() => {
     let r = baseRows.filter(g => (g.gp ?? 0) >= minGP);
+    if (teamFilter.length > 0) r = r.filter(g => teamFilter.includes(g.team));
     if (topN) r = r.slice(0, topN);
     return r;
-  }, [baseRows, minGP, topN]);
+  }, [baseRows, minGP, teamFilter, topN]);
+
+  const jumpToRow = findInput.trim()
+    ? { predicate: (r: GoalieRow) => r.name.toLowerCase().includes(findInput.trim().toLowerCase()), key: findKey }
+    : undefined;
 
   const COLUMNS = useMemo<HGBColumnDef<GoalieRow>[]>(() => {
-    const saLabel   = isPer60 ? 'SA/60'    : 'SA';
-    const gaLabel   = isPer60 ? 'GA/60'    : 'GA';
-    const gsaxLabel = isPer60 ? 'GSAx/60'  : 'GSAx';
+    const saLabel   = isPer60 ? 'SA/60'   : 'SA';
+    const gaLabel   = isPer60 ? 'GA/60'   : 'GA';
+    const gsaxLabel = isPer60 ? 'GSAx/60' : 'GSAx';
 
     const saVal   = (r: GoalieRow) => {
       if (!isPer60) return r.sa;
@@ -136,25 +143,21 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         id: 'dsv_pct', header: 'dSV%', accessor: r => r.dsv_pct, align: 'center', width: 68, mobileHidden: true,
         cell: v => { const n = v as number | null; return n != null ? <span style={{ color: gsaxColor(n), fontVariantNumeric: 'tabular-nums' }}>{n >= 0 ? '+' : ''}{Number(n).toFixed(3)}</span> : '—'; },
       },
-      // Hidden-by-default columns — exposed via "Columns" toggle
-      { id: 'sa_5v5', header: '5v5 SA', accessor: r => r.sa_5v5, align: 'center', width: 64, defaultHidden: true,
-        cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
-      { id: 'ga_5v5', header: '5v5 GA', accessor: r => r.ga_5v5, align: 'center', width: 64, defaultHidden: true,
-        cell: v => v != null ? String(v) : '—', mobileHidden: true },
-      { id: 'hd_sv_pct', header: 'HD SV%', accessor: r => r.hd_sv_pct, align: 'center', width: 72, defaultHidden: true,
-        cell: v => v != null ? Number(v).toFixed(3) : '—', mobileHidden: true },
-      { id: 'hdc_against', header: 'HDC-A', accessor: r => r.hdc_against, align: 'center', width: 64, defaultHidden: true,
-        cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
-      { id: 'sc_against', header: 'SC-A', accessor: r => r.sc_against, align: 'center', width: 60, defaultHidden: true,
-        cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
+      { id: 'sa_5v5',     header: '5v5 SA', accessor: r => r.sa_5v5,     align: 'center', width: 64, cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
+      { id: 'ga_5v5',     header: '5v5 GA', accessor: r => r.ga_5v5,     align: 'center', width: 64, cell: v => v != null ? String(v) : '—', mobileHidden: true },
+      { id: 'hd_sv_pct',  header: 'HD SV%', accessor: r => r.hd_sv_pct,  align: 'center', width: 72, cell: v => v != null ? Number(v).toFixed(3) : '—', mobileHidden: true },
+      { id: 'hdc_against', header: 'HDC-A', accessor: r => r.hdc_against, align: 'center', width: 64, cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
+      { id: 'sc_against',  header: 'SC-A',  accessor: r => r.sc_against,  align: 'center', width: 60, cell: v => v != null ? Number(v).toLocaleString() : '—', mobileHidden: true },
     ];
   }, [isDark, isPer60]);
 
-  const defaultSort = useMemo(() => ({ id: isPer60 ? 'gsax' : 'gsax', desc: true }), [isPer60]);
+  const defaultSort = useMemo(() => ({ id: 'gsax', desc: true }), []);
+
+  const availableTeams = [...new Set(baseRows.map(r => r.team))].sort();
 
   return (
     <div>
-      {/* Zone 1 — game type + count + filter toggle */}
+      {/* Zone 1 — game type + count + exports + filter toggle */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
         <FilterChipGroup>
           <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => switchGameType('regular')} />
@@ -162,8 +165,14 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         </FilterChipGroup>
         <div style={{ flex: 1 }} />
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
-          {filteredRows.length} goalies{statsDate ? ` · updated ${statsDate}` : ''}
+          {filteredRows.length} goalies
         </span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button onClick={() => (document.getElementById('__hgb-csv-hgb-goalies') as HTMLElement)?.click()}
+            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ CSV</button>
+          <button onClick={() => (document.getElementById('__hgb-png-hgb-goalies') as HTMLElement)?.click()}
+            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ PNG</button>
+        </div>
         <button onClick={() => setFiltersOpen(o => !o)} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
           Filters <span style={{ fontSize: 8 }}>{filtersOpen ? '▲' : '▼'}</span>
         </button>
@@ -190,10 +199,46 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
                   style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
               </label>
               <FilterChipGroup>
-                {([null, 10, 20] as (number | null)[]).map(n =>
+                {([null, 10, 20, 50] as (number | null)[]).map(n =>
                   <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
                 )}
               </FilterChipGroup>
+            </div>
+          </div>
+
+          {/* FIND GOALIE — jump-to-row */}
+          <div>
+            <FilterLabel text="Find Goalie" />
+            <input
+              type="search"
+              placeholder="Name → Enter"
+              value={findInput}
+              onChange={e => setFindInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') setFindKey(k => k + 1); }}
+              style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', outline: 'none', width: 140, color: '#0d0d14' }}
+            />
+          </div>
+
+          {/* TEAM — multi-chip */}
+          <div>
+            <FilterLabel text="Team" />
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+              {teamFilter.map(t => (
+                <button key={t} onClick={() => setTeamFilter(f => f.filter(x => x !== t))}
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                  {t} ×
+                </button>
+              ))}
+              <select value="" onChange={e => { const v = e.target.value; if (v && !teamFilter.includes(v)) setTeamFilter(f => [...f, v]); e.target.value = ''; }}
+                style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                <option value="">Add team…</option>
+                {availableTeams.filter(t => !teamFilter.includes(t)).map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+              {teamFilter.length > 0 && (
+                <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Clear</button>
+              )}
             </div>
           </div>
         </div>
@@ -203,16 +248,8 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         data={filteredRows}
         columns={COLUMNS}
         defaultSort={defaultSort}
-        globalSearchField={r => `${r.name} ${r.team}`.toLowerCase()}
-        searchPlaceholder="Search by name or team…"
-        filters={[
-          {
-            type: 'select',
-            label: 'Team',
-            field: r => r.team,
-            options: teams.map(t => ({ label: t, value: t })),
-          },
-        ]}
+        hideToolbar
+        jumpToRow={jumpToRow}
         rowHref={r => `/stats/goalies/${r.slug || `goalie-${r.goalie_id}`}`}
         exportFilename="hgb-goalies"
         exportTitle="Goalies"
