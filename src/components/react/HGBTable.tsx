@@ -515,6 +515,10 @@ export default function HGBTable<T extends object>({
       };
     }).filter(Boolean);
 
+    // TODO: when EDGE skating columns are visible (edge_speed_mph, edge_dist_mi, edge_bursts,
+    // edge_shot_mph), their two-line cell values get truncated at the default column width (80px).
+    // Pass a wider canvas width to downloadTablePng, or override those column widths here, when
+    // any EDGE col is present in `columns`.
     HGB.downloadTablePng({
       title: exportTitle,
       filterChips: exportChips,
