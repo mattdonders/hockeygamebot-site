@@ -25,6 +25,11 @@ export type GoalieRow = {
   gaa:         number | null;
   sa_5v5:      number | null;
   ga_5v5:      number | null;
+  sog_5v5:     number | null;
+  xga_5v5:     number | null;
+  gsax_5v5:    number | null;
+  sv_pct_5v5:  number | null;
+  toi_5v5_sec: number | null;
   sc_against:  number | null;
   hdc_against: number | null;
   hdg_allowed: number | null;
@@ -128,8 +133,11 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     };
     const svPctVal = (r: GoalieRow) => {
       if (is5v5) {
-        const sa = r.sa_5v5, ga = r.ga_5v5;
-        return sa != null && ga != null && sa > 0 ? +((sa - ga) / sa).toFixed(4) : null;
+        // Use pre-computed sv_pct_5v5 (SOG-denominator) when available;
+        // fall back to computing from sog_5v5/ga_5v5 for legacy records.
+        if (r.sv_pct_5v5 != null) return r.sv_pct_5v5;
+        const sog = r.sog_5v5, ga = r.ga_5v5;
+        return sog != null && ga != null && sog > 0 ? +((sog - ga) / sog).toFixed(4) : null;
       }
       return r.sv_pct;
     };
