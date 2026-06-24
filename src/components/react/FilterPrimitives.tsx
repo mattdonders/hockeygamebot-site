@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
 export const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
+export const SEMI: React.CSSProperties = { fontFamily: 'var(--semi)' };
 
 export function useIsDark(): boolean {
   const [isDark, setIsDark] = useState(false);
@@ -26,9 +27,10 @@ export function FilterChip({ active, label, onClick, disabled = false }: FilterC
     <button
       onClick={disabled ? undefined : onClick}
       style={{
-        ...MONO,
-        fontSize: 10,
-        letterSpacing: '0.14em',
+        ...SEMI,
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '0.10em',
         textTransform: 'uppercase',
         padding: '5px 12px',
         border: '1px solid rgba(13,13,20,0.2)',
@@ -54,7 +56,7 @@ export function FilterChipGroup({ children }: { children: React.ReactNode }) {
 
 export function FilterLabel({ text }: { text: string }) {
   return (
-    <div style={{ ...MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
+    <div style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
       {text}
     </div>
   );
