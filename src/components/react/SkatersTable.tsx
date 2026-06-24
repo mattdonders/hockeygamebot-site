@@ -294,21 +294,21 @@ function buildAggColumns(
 
   if (tab === 'rates' || (tab === 'counting' && isPer60)) {
     tabCols = [
-      { id: 'g60',  header: prefix + 'G/60',   accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +(st.g / hr).toFixed(2); }, width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      { id: 'a60',  header: prefix + 'A/60',   accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +(st.a / hr).toFixed(2); }, width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      { id: 'p60',  header: prefix + 'P/60',   accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +((st.g + st.a) / hr).toFixed(2); }, width: 64, cell: v => <strong>{f2(v as any)}</strong>, exportText: v => f2(v as any) },
-      { id: 'x60',  header: prefix + 'ixG/60', accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +(st.ixg / hr).toFixed(2); }, width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      { id: 'sog60',header: prefix + 'SOG/60', accessor: r => { const st = getAggStrengthStats(r, strength); const hr = st.toi_sec / 3600 || 1; return +(st.sog / hr).toFixed(2); }, width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
-      { id: 'toi_pg', header: 'TOI/G', accessor: r => { const st = getAggStrengthStats(r, strength); return +(st.toi_sec / Math.max(r.gp, 1) / 60).toFixed(1); }, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
+      { id: 'g60',   header: prefix + 'G/60',   accessor: r => r.g60,   width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'a60',   header: prefix + 'A/60',   accessor: r => r.a60,   width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'p60',   header: prefix + 'P/60',   accessor: r => r.p60,   width: 64, cell: v => <strong>{f2(v as any)}</strong>, exportText: v => f2(v as any) },
+      { id: 'x60',   header: prefix + 'ixG/60', accessor: r => r.x60,   width: 64, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'sog60', header: prefix + 'SOG/60', accessor: r => r.sog60, width: 68, cell: v => f2(v as any), exportText: v => f2(v as any), mobileHidden: true },
+      { id: 'toi_pg', header: 'TOI/G', accessor: r => r.toi_pg, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
     ];
   } else {
     tabCols = [
-      { id: 'goals',   header: prefix + 'G',   accessor: r => getAggStrengthStats(r, strength).g,   width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-      { id: 'assists', header: prefix + 'A',   accessor: r => getAggStrengthStats(r, strength).a,   width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-      { id: 'points',  header: prefix + 'P',   accessor: r => { const st = getAggStrengthStats(r, strength); return st.g + st.a; }, width: 56, cell: v => <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{String(v ?? '—')}</strong>, exportText: v => String(v ?? '—') },
-      { id: 'sog',     header: prefix + 'SOG', accessor: r => getAggStrengthStats(r, strength).sog, width: 60, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
-      { id: 'ixg',     header: prefix + 'ixG', accessor: r => getAggStrengthStats(r, strength).ixg, width: 60, cell: v => f2(v as any), exportText: v => f2(v as any) },
-      { id: 'toi_pg',  header: 'TOI/G', accessor: r => { const st = getAggStrengthStats(r, strength); return +(st.toi_sec / Math.max(r.gp, 1) / 60).toFixed(1); }, width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
+      { id: 'goals',   header: prefix + 'G',   accessor: r => r.goals,   width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'assists', header: prefix + 'A',   accessor: r => r.assists, width: 56, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'points',  header: prefix + 'P',   accessor: r => r.points,  width: 56, cell: v => <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{String(v ?? '—')}</strong>, exportText: v => String(v ?? '—') },
+      { id: 'sog',     header: prefix + 'SOG', accessor: r => r.sog,     width: 60, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
+      { id: 'ixg',     header: prefix + 'ixG', accessor: r => r.ixg,     width: 60, cell: v => f2(v as any), exportText: v => f2(v as any) },
+      { id: 'toi_pg',  header: 'TOI/G',        accessor: r => r.toi_pg,  width: 64, cell: v => v != null ? Number(v).toFixed(1) : '—', exportText: v => v != null ? Number(v).toFixed(1) : '—' },
     ];
   }
 
@@ -501,16 +501,34 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     if (playerFilter.length > 0) r = r.filter(x => x.slug != null && playerFilter.includes(x.slug));
     if (teamFilter.length > 0) r = r.filter(x => teamFilter.includes(x.team));
     if (pos !== 'all') r = r.filter(x => x.group === pos);
+    // Bake strength-specific display values into each row so TanStack sees new
+    // data when strength changes (column accessor caching won't stale the values).
+    r = r.map(row => {
+      const st = getAggStrengthStats(row, strength);
+      const gp = row.gp || 1;
+      const hr = st.toi_sec / 3600 || 1;
+      return {
+        ...row,
+        goals:  st.g,   assists: st.a,   points: st.g + st.a,
+        sog:    st.sog, ixg:     +st.ixg.toFixed(2),
+        toi_pg: +(st.toi_sec / gp / 60).toFixed(1),
+        g60:    +(st.g / hr).toFixed(2),
+        a60:    +(st.a / hr).toFixed(2),
+        p60:    +((st.g + st.a) / hr).toFixed(2),
+        x60:    +(st.ixg / hr).toFixed(2),
+        sog60:  +(st.sog / hr).toFixed(2),
+      };
+    });
     if (topN) {
       const sortField = aggTab === 'onice' ? 'gf_diff_60' : aggTab === 'rates' || display === 'per60' ? 'p60' : 'points';
       r = [...r].sort((a, b) => ((b as any)[sortField] ?? -Infinity) - ((a as any)[sortField] ?? -Infinity)).slice(0, topN);
     }
     return r;
-  }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, minToi, playerFilter, teamFilter, pos, topN, aggTab, display]);
+  }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, minToi, playerFilter, teamFilter, pos, topN, aggTab, display, strength]);
 
   const aggColumns = useMemo(
     () => buildAggColumns(aggTab, display, strength, isDark, rangeLabel, multi),
-    [aggTab, display, strength, isDark, rangeLabel, multi],
+    [aggTab, display, strength, isDark, rangeLabel, multi],  // strength needed for column header prefix
   );
 
   const aggDefaultSort = useMemo(() => {
