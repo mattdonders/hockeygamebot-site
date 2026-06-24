@@ -176,7 +176,7 @@ export default function PlayerSearch({
 
   const handleSelect = useCallback(
     (player: PlayerSearchItem) => {
-      setQuery(player.display_name); // show selected name in input
+      setQuery(player.first_name && player.last_name ? `${player.first_name} ${player.last_name}` : player.display_name);
       setOpen(false);
       setActiveIdx(-1);
       inputRef.current?.blur();
@@ -324,7 +324,7 @@ export default function PlayerSearch({
           {results.length === 0 ? (
             <li
               style={{
-                ...MONO,
+                ...BODY,
                 fontSize: 11,
                 color: MUTED,
                 padding: '12px 14px',
@@ -405,7 +405,7 @@ export default function PlayerSearch({
                     {/* Secondary line: full name · pos · gp GP */}
                     <div
                       style={{
-                        ...MONO,
+                        ...BODY,
                         fontSize: 10,
                         color: MUTED,
                         marginTop: 2,
