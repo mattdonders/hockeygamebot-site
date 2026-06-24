@@ -609,7 +609,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
         {group(<>
           {(['counting','rates','advanced','onice'] as Tab[]).map(t =>
-            <span key={t}>{chip(tab === t, { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t], () => { setTab(t); }, tabDisabled(t))}</span>
+            <span key={t}>{chip(tab === t, { counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t], () => { setTab(t); if (t === 'rates') setDisplay('totals'); }, tabDisabled(t))}</span>
           )}
         </>)}
         <div style={{ flex: 1 }} />
@@ -672,7 +672,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 <span key={s}>{chip(strength === s, { all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s], () => setStrength(s), strDisabled(s))}</span>
               )}
             </>)}
+            {useAgg && <div style={{ ...MONO, fontSize: 8, color: 'rgba(13,13,20,0.32)', marginTop: 4, letterSpacing: '0.08em' }}>not available in this view</div>}
           </div>
+          {tab !== 'rates' && (
           <div>
             {label('Display')}
             {group(<>
@@ -680,6 +682,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
               {chip(display === 'per60',  'Per 60', () => setDisplay('per60'), gameType === 'playoffs')}
             </>)}
           </div>
+          )}
           <div>
             {label('Scope')}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
