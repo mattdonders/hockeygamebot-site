@@ -3,6 +3,7 @@ import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
 import Table from '../../../components/Table.astro';
+import GoalieShotMap from '../../../components/react/GoalieShotMap';
 import { loadGoalies } from '../../../lib/stats-loader';
 import { pickTeamColor } from '../../../lib/team-colors';
 import type { GoalieRecord } from '../../../lib/stats-schemas';
@@ -169,6 +170,16 @@ const chartGameData = games.map((g, i) => ({
   gsax_cum:  cumPoints[i]?.gsax ?? 0,
 }));
 
+// ── Per-game bar chart data (for line/bar toggle) ─────────────────────────
+const barVals   = chartGameData.map(g => g.gsax_game);
+let barYMin = Math.min(0, ...barVals);
+let barYMax = Math.max(0, ...barVals);
+const barYPad = Math.max((barYMax - barYMin) * 0.18, 0.3);
+barYMin -= barYPad; barYMax += barYPad;
+const bpy  = (v: number) => PAD.t + cH - ((v - barYMin) / (barYMax - barYMin)) * cH;
+const bpy0 = bpy(0);
+const barW = Math.max(2, (cW / xMax) * 0.72);
+
 // ── xG-tier bar chart data ─────────────────────────────────────────────────
 const binAbsMax = Math.max(...goalie.bins.map(b => Math.abs(b.gsax)), 1);
 // bar width = percentage of max, full bar = 120px
@@ -254,6 +265,9 @@ const statsRow = {
   d_sv_pct: vsExp,
   gsax_5v5: (goalie as any).gsax_5v5 != null ? +Number((goalie as any).gsax_5v5).toFixed(2) : null,
 };
+
+// ── Shot map bins ─────────────────────────────────────────────────────────
+const shotBins = goalie.shot_bins ?? [];
 
 // ── EDGE zone stats (3-zone summary) ────────────────────────────────────────
 const edgeZones = goalie.edge?.zones ?? [];
@@ -696,39 +710,97 @@ const cardData = {
   {cumPoints.length > 1 && (
     <div class="chart-full">
       <div class="sec-card">
-        <div class="sec-head">
-          <div class="sec-title">Cumulative GSAx — Season</div>
-          <div class="sec-sub">{cumPoints.length} games · final: {gsaxSign}{goalie.gsax.toFixed(2)}</div>
+        <div class="sec-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+          <div>
+            <div class="sec-title">GSAx — Season</div>
+            <div class="sec-sub">{cumPoints.length} games · final: {gsaxSign}{goalie.gsax.toFixed(2)}</div>
+          </div>
+          <!-- Line/Bar toggle chips -->
+          <div style="display:flex;gap:6px;flex-shrink:0;margin-top:2px">
+            <button id="chart-mode-line"
+              style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:4px 10px;border:1px solid rgba(13,13,20,0.20);cursor:pointer;background:#0d0d14;color:#EFEEE8">
+              LINE
+            </button>
+            <button id="chart-mode-bar"
+              style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:4px 10px;border:1px solid rgba(13,13,20,0.20);cursor:pointer;background:transparent;color:rgba(13,13,20,0.45)">
+              BARS
+            </button>
+          </div>
         </div>
         <div style="padding:16px 16px 8px;position:relative">
           <svg id="cum-chart" class="chart-svg" viewBox={`0 0 ${SVG_W} ${SVG_H}`} preserveAspectRatio="xMidYMid meet" style="cursor:crosshair">
-            {[...Array(5)].map((_, i) => {
-              const gv = yMin + (i / 4) * (yMax - yMin);
-              const gy = cpy(gv).toFixed(1);
-              return (
-                <g>
-                  <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy} stroke="rgba(13,13,20,0.06)" stroke-width="1" />
-                  <text x={(PAD.l - 6).toFixed(1)} y={gy} text-anchor="end" dominant-baseline="middle"
-                    font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
-                    {gv >= 0 ? '+' : ''}{gv.toFixed(0)}
-                  </text>
-                </g>
-              );
-            })}
-            <line x1={PAD.l} y1={cpy0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={cpy0.toFixed(1)}
-              stroke="rgba(13,13,20,0.28)" stroke-width="1.5" stroke-dasharray="4 3" />
-            {areaPath && <path d={areaPath} fill={teamColor} fill-opacity="0.07" />}
-            <path d={path} fill="none" stroke={teamColor} stroke-width="2"
-              stroke-linejoin="round" stroke-linecap="round" />
-            {cumPoints.length > 0 && (
-              <circle cx={cpx(cumPoints[cumPoints.length-1].game).toFixed(1)}
-                cy={cpy(cumPoints[cumPoints.length-1].gsax).toFixed(1)}
-                r="3.5" fill={teamColor} />
-            )}
-            {/* Vertical hover marker (hidden by default) */}
+
+            <!-- ── LINE MODE elements ── -->
+            <g id="line-els">
+              {/* Gridlines + y-axis labels (cumulative scale) */}
+              {[...Array(5)].map((_, i) => {
+                const gv = yMin + (i / 4) * (yMax - yMin);
+                const gy = cpy(gv).toFixed(1);
+                return (
+                  <g>
+                    <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy} stroke="rgba(13,13,20,0.06)" stroke-width="1" />
+                    <text x={(PAD.l - 6).toFixed(1)} y={gy} text-anchor="end" dominant-baseline="middle"
+                      font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
+                      {gv >= 0 ? '+' : ''}{gv.toFixed(0)}
+                    </text>
+                  </g>
+                );
+              })}
+              <line x1={PAD.l} y1={cpy0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={cpy0.toFixed(1)}
+                stroke="rgba(13,13,20,0.28)" stroke-width="1.5" stroke-dasharray="4 3" />
+              {areaPath && <path d={areaPath} fill={teamColor} fill-opacity="0.07" />}
+              <path d={path} fill="none" stroke={teamColor} stroke-width="2"
+                stroke-linejoin="round" stroke-linecap="round" />
+              {cumPoints.length > 0 && (
+                <circle cx={cpx(cumPoints[cumPoints.length-1].game).toFixed(1)}
+                  cy={cpy(cumPoints[cumPoints.length-1].gsax).toFixed(1)}
+                  r="3.5" fill={teamColor} />
+              )}
+            </g>
+
+            <!-- ── BAR MODE elements (hidden by default) ── -->
+            <g id="bar-els" display="none">
+              {/* Gridlines + y-axis labels (per-game scale) */}
+              {[...Array(5)].map((_, i) => {
+                const gv = barYMin + (i / 4) * (barYMax - barYMin);
+                const gy = bpy(gv).toFixed(1);
+                return (
+                  <g>
+                    <line x1={PAD.l} y1={gy} x2={PAD.l + cW} y2={gy} stroke="rgba(13,13,20,0.06)" stroke-width="1" />
+                    <text x={(PAD.l - 6).toFixed(1)} y={gy} text-anchor="end" dominant-baseline="middle"
+                      font-family="JetBrains Mono, monospace" font-size="9" fill="rgba(13,13,20,0.32)">
+                      {gv >= 0 ? '+' : ''}{gv.toFixed(1)}
+                    </text>
+                  </g>
+                );
+              })}
+              <line x1={PAD.l} y1={bpy0.toFixed(1)} x2={(PAD.l + cW).toFixed(1)} y2={bpy0.toFixed(1)}
+                stroke="rgba(13,13,20,0.28)" stroke-width="1.5" stroke-dasharray="4 3" />
+              {/* Per-game bars */}
+              {chartGameData.map(gd => {
+                const bx  = (cpx(gd.game) - barW / 2).toFixed(1);
+                const by  = (gd.gsax_game >= 0 ? bpy(gd.gsax_game) : bpy0).toFixed(1);
+                const bh  = Math.abs(bpy(gd.gsax_game) - bpy0).toFixed(1);
+                const bc  = gd.gsax_game >= 0 ? teamColor : '#E8002D';
+                return (
+                  <rect
+                    class="bar-hit"
+                    x={bx} y={by} width={barW.toFixed(1)} height={bh}
+                    fill={bc} fill-opacity="0.75"
+                    data-game={gd.game}
+                    data-date={gd.date}
+                    data-opp={gd.opp}
+                    data-gsax-game={gd.gsax_game}
+                    data-gsax-cum={gd.gsax_cum}
+                    style="cursor:crosshair"
+                  />
+                );
+              })}
+            </g>
+
+            <!-- Shared: vertical hover marker, hit circles, x-axis label -->
             <line id="cum-marker" x1="0" y1={PAD.t} x2="0" y2={PAD.t + cH}
               stroke="rgba(13,13,20,0.20)" stroke-width="1" stroke-dasharray="3 2" display="none" />
-            {/* Hit circles — one per game */}
             {chartGameData.map(gd => (
               <circle
                 class="cum-hit"
@@ -748,6 +820,19 @@ const cardData = {
               font-size="9" fill="rgba(13,13,20,0.28)" letter-spacing="0.08em">GAME #</text>
           </svg>
         </div>
+      </div>
+    </div>
+  )}
+
+  <!-- ── Shot location map ── -->
+  {shotBins.length > 0 && (
+    <div class="sec-card">
+      <div class="sec-head">
+        <div class="sec-title">Shot Location Map</div>
+        <div class="sec-sub">Save % vs league average by zone · circle size = shot volume</div>
+      </div>
+      <div class="sec-body" style="padding:16px 20px">
+        <GoalieShotMap shot_bins={shotBins} client:load />
       </div>
     </div>
   )}
@@ -1023,6 +1108,68 @@ const cardData = {
       tip.style.display = 'none';
       if (marker) marker.setAttribute('display', 'none');
     });
+  });
+})();
+</script>
+
+<script is:inline>
+(function () {
+  // Chart mode toggle: LINE vs BARS
+  var btnLine  = document.getElementById('chart-mode-line');
+  var btnBar   = document.getElementById('chart-mode-bar');
+  var lineEls  = document.getElementById('line-els');
+  var barEls   = document.getElementById('bar-els');
+  var hitCircs = document.querySelectorAll('.cum-hit');
+  if (!btnLine || !btnBar || !lineEls || !barEls) return;
+
+  var activeStyle   = { background: '#0d0d14', color: '#EFEEE8' };
+  var inactiveStyle = { background: 'transparent', color: 'rgba(13,13,20,0.45)' };
+
+  function setMode(mode) {
+    if (mode === 'line') {
+      lineEls.removeAttribute('display');
+      barEls.setAttribute('display', 'none');
+      Object.assign(btnLine.style, activeStyle);
+      Object.assign(btnBar.style, inactiveStyle);
+      // hit circles use cumulative y → already positioned correctly
+      hitCircs.forEach(function(c) { c.style.display = ''; });
+    } else {
+      lineEls.setAttribute('display', 'none');
+      barEls.removeAttribute('display');
+      Object.assign(btnLine.style, inactiveStyle);
+      Object.assign(btnBar.style, activeStyle);
+      // hide line hit circles in bar mode (bars are directly hoverable)
+      hitCircs.forEach(function(c) { c.style.display = 'none'; });
+    }
+  }
+
+  btnLine.addEventListener('click', function() { setMode('line'); });
+  btnBar.addEventListener('click', function() { setMode('bar'); });
+
+  // Bar hover tooltip (reuse #cum-tip)
+  var tip     = document.getElementById('cum-tip');
+  var tipHead = document.getElementById('cum-tip-head');
+  var tipVal  = document.getElementById('cum-tip-val');
+  var marker  = document.getElementById('cum-marker');
+  function sign(v) { return v >= 0 ? '+' : ''; }
+  function moveTip(e) {
+    var x = e.clientX + 14, y = e.clientY - 36;
+    tip.style.left = (x + tip.offsetWidth > window.innerWidth - 8 ? e.clientX - tip.offsetWidth - 8 : x) + 'px';
+    tip.style.top  = Math.max(4, y) + 'px';
+  }
+  document.querySelectorAll('.bar-hit').forEach(function(b) {
+    b.addEventListener('mouseenter', function(e) {
+      var d = b.dataset;
+      var dt  = d.date ? d.date.slice(5).replace('-', '/') : '—';
+      var gm  = parseFloat(d.gsaxGame);
+      var cum = parseFloat(d.gsaxCum);
+      tipHead.textContent = 'Game ' + d.game + ' · vs ' + d.opp + ' · ' + dt;
+      tipVal.textContent  = 'game: ' + sign(gm) + gm.toFixed(2) + ' GSAx  ·  cum: ' + sign(cum) + cum.toFixed(2);
+      tip.style.display = 'block';
+      moveTip(e);
+    });
+    b.addEventListener('mousemove', moveTip);
+    b.addEventListener('mouseleave', function() { tip.style.display = 'none'; });
   });
 })();
 </script>
