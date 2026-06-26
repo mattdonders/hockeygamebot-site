@@ -970,6 +970,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       <button id="download-season-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
         {currentSeasonNorm} Player Card →
       </button>
+      <button id="download-shotmap-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
+        {currentSeasonNorm} Shotmap Card →
+      </button>
       <button id="download-rating-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
         Talent Card →
       </button>
@@ -1892,6 +1895,227 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
       return canvas;
     }
+
+    // ── Shotmap Card: same left panel as Season Card + shot map PNG right ─────
+    async function drawShotmapCard() {
+      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const SCALE = 2;
+      const L_W = 520, R_W = 520;
+      const W = L_W + R_W;
+      const PAD = 24, R_PAD = 20;
+
+      // Use current-season data only
+      var allSeasons = typeof _seasonStats !== 'undefined' ? _seasonStats : (window._seasonStats || []);
+      var currentSeasonEntry = allSeasons.find(function(s) { return s.season === D.currentSeason; }) || null;
+      const TEAM_C = D.teamColor || INK;
+
+      function sp(currentVal, histKey) {
+        if (currentSeasonEntry && currentSeasonEntry[histKey] != null) return currentSeasonEntry[histKey];
+        return currentVal;
+      }
+
+      const HDR_H = 52, CHIP_H = 34;
+      const ID_H = 122, BAR_ROW_H = 29, BAR_ROWS = 11;
+      const COUNTS_H_S = 68;
+      const L_CONTENT_H = 6 + ID_H + COUNTS_H_S + 1 + 20 + 12 + BAR_ROWS * BAR_ROW_H + 12;
+      const R_CONTENT_H = 473;
+      const CONTENT_H = Math.max(L_CONTENT_H, R_CONTENT_H);
+      const FOOT_H = 36;
+      const H = HDR_H + CHIP_H + CONTENT_H + FOOT_H;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, 4, H);
+
+      // Header
+      ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, HDR_H + CHIP_H);
+      ctx.fillStyle = INK14; ctx.fillRect(0, HDR_H + CHIP_H - 1, W, 1);
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, HDR_H / 2);
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
+      ctx.fillText('SHOTMAP CARD · ' + (D.currentSeason || '2025-26'), W - PAD, HDR_H / 2);
+
+      // Chips
+      const TEAM_NAMES_SM = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
+      const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
+      const heroSeason = D.currentSeason || '2025-26';
+      const _sznYr = heroSeason ? parseInt(heroSeason.slice(0, 4)) : null;
+      const _sznAge = (D.birthDate && _sznYr) ? Math.floor((new Date(_sznYr, 9, 1) - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6)) : null;
+      const _numSzn  = D.sweaterNumber != null ? [`#${D.sweaterNumber}`] : [];
+      const _scSzn   = D.shootsCatches ? [`SHOOTS: ${D.shootsCatches}`] : [];
+      const chips = [..._numSzn, (TEAM_NAMES_SM[D.team] || D.team), D.posLabel.toUpperCase(), heroSeason, ...(_sznAge != null ? [`AGE: ${_sznAge}`] : []), ..._scSzn];
+      const _tcSzn = 1 + _numSzn.length;
+      let cx = PAD;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      for (let ci = 0; ci < chips.length; ci++) {
+        const cw = ctx.measureText(chips[ci]).width + 18;
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci < _tcSzn ? TEAM_C : INK; ctx.fill();
+        ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+        cx += cw + 8;
+      }
+      const brand = 'HOCKEYGAMEBOT';
+      const bcw = ctx.measureText(brand).width + 18;
+      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
+
+      // Panel divider
+      ctx.fillStyle = INK14; ctx.fillRect(L_W, HDR_H + CHIP_H, 1, CONTENT_H);
+
+      // ── LEFT PANEL — identity + single-season bars (same as drawSeasonCard) ──
+      let y = HDR_H + CHIP_H + 6;
+      const R = 36, HS_CX = PAD + R, HS_CY = y + ID_H / 2;
+      const hsImg = await loadImg(D.headshotUrl);
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+      if (hsImg) { ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2); }
+      else { ctx.fillStyle = INK10; ctx.fill(); }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+      // Identity text — reuse drawSeasonCard's pattern via shared helper call
+      // (inline here so we don't need to refactor the function signature)
+      const TX = PAD + R * 2 + 12, TY = y + 14;
+      ctx.font = '800 20px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+      ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), TX, TY);
+      ctx.font = '600 10px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+      ctx.fillText([D.team, D.posLabel, heroSeason].filter(Boolean).join(' · ').toUpperCase(), TX, TY + 26);
+      if (D.sweaterNumber != null) {
+        ctx.font = '900 36px "Barlow Condensed", sans-serif'; ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
+        ctx.fillText('#' + D.sweaterNumber, L_W - PAD, TY + 4);
+      }
+      y += ID_H;
+
+      // pctColorS — scoped locally since drawSeasonCard's version isn't accessible here
+      function pctColorS(v, kind) {
+        if (kind === 'context') return '#4285f4';
+        if (v == null) return 'rgba(13,13,20,0.35)';
+        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+        if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
+        return '#E8002D';
+      }
+      const fmtToiS = (sec) => sec != null ? `${Math.floor(sec/60)}:${String(Math.round(sec%60)).padStart(2,'0')}` : '—';
+
+      // Count row (G / A / P / GP / TOI) — raw current-season values
+      const counts = [
+        { label: 'G',      val: D.totalG != null ? String(D.totalG) : '—' },
+        { label: 'A',      val: D.totalA != null ? String(D.totalA) : '—' },
+        { label: 'P',      val: (D.totalG != null && D.totalA != null) ? String(D.totalG + D.totalA) : '—' },
+        { label: 'GP',     val: D.gp != null ? String(D.gp) : '—' },
+        { label: 'TOI/GP', val: fmtToiS(D.toiAvgSec) },
+      ];
+      const cw2 = (L_W - PAD * 2) / counts.length;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let ci2 = 0; ci2 < counts.length; ci2++) {
+        const cx2 = PAD + ci2 * cw2 + cw2 / 2;
+        ctx.font = '800 20px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
+        ctx.fillText(String(counts[ci2].val), cx2, y + 24);
+        ctx.font = '600 8px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+        ctx.fillText(counts[ci2].label, cx2, y + 48);
+      }
+      y += COUNTS_H_S;
+
+      ctx.fillStyle = INK10; ctx.fillRect(PAD, y, L_W - PAD * 2, 1); y += 1;
+      y += 20;
+      y += 12;
+
+      // Percentile bars — same 11 bars as Season Card
+      const bars = [
+        { label: 'WAR',           val: sp(p.war_pct,          'war_pct'),          kind: 'pct' },
+        { label: 'xGF%',          val: sp(p.xgf_pct_pct,      'xgf_pct_pct'),      kind: 'pct' },
+        { label: 'EV OFF RAPM',   val: sp(p.rapm_off_pct,     'rapm_off_pct'),     kind: 'pct' },
+        { label: 'EV DEF RAPM',   val: sp(p.rapm_def_pct,     'rapm_def_pct'),     kind: 'pct' },
+        { label: 'xG/60',         val: sp(p.xgf60_pct,        'xgf60_pct'),        kind: 'pct' },
+        { label: 'iSCF/60',       val: sp(p.iscf60_pct,       'iscf60_pct'),       kind: 'pct' },
+        { label: 'ixG/60',        val: sp(p.ixg60_pct,        'ixg60_pct'),        kind: 'pct' },
+        { label: 'G-xG',          val: sp(p.g_minus_xg_pct,   'g_minus_xg_pct'),   kind: 'pct' },
+        { label: 'HIT/60',        val: sp(p.hits60_pct,       'hits60_pct'),       kind: 'pct' },
+        { label: 'BLK/60',        val: sp(p.blocks60_pct,     'blocks60_pct'),     kind: 'pct' },
+        { label: 'PIM/60',        val: sp(p.pim60_pct,        'pim60_pct'),        kind: 'pct' },
+      ];
+      const BAR_X = PAD, BAR_W = L_W - PAD * 2 - 48 - 8;
+      for (let bi = 0; bi < bars.length; bi++) {
+        const b = bars[bi]; const rowY = y + bi * BAR_ROW_H;
+        ctx.font = '700 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(b.label, BAR_X, rowY + BAR_ROW_H / 2);
+        const bx = BAR_X + 80, bw = BAR_W - 80;
+        if (b.val != null) {
+          ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(bx, rowY + 10, bw, 9, 2); ctx.fill();
+          ctx.fillStyle = pctColorS(b.val, b.kind); ctx.beginPath(); ctx.roundRect(bx, rowY + 10, bw * b.val / 100, 9, 2); ctx.fill();
+        }
+        ctx.font = '700 10px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorS(b.val, b.kind);
+        ctx.fillText(b.val == null ? '—' : Math.round(b.val) + '%', L_W - PAD, rowY + BAR_ROW_H / 2);
+      }
+
+      // ── RIGHT PANEL — Shot Map PNG ─────────────────────────────────────────
+      const RX = L_W + 1;
+      let ry = HDR_H + CHIP_H;
+      const shotmapUrl = `https://media.hockeygamebot.com/stats/skater-shot-maps/skater_shot_map_${D.playerId}_20252026_5v5.png`;
+      const shotmapImg = await loadImg(shotmapUrl);
+
+      const MAP_HDR_H = 36;
+      ctx.fillStyle = INK14; ctx.fillRect(RX, ry + MAP_HDR_H - 1, R_W, 1);
+      ctx.font = '800 13px "Barlow Condensed", sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = INK; ctx.fillText('SHOT LOCATION ', RX + R_PAD, ry + MAP_HDR_H / 2);
+      const slw = ctx.measureText('SHOT LOCATION ').width;
+      ctx.fillStyle = RED; ctx.fillText('MAP', RX + R_PAD + slw, ry + MAP_HDR_H / 2);
+      ctx.font = '600 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32; ctx.textAlign = 'right';
+      ctx.fillText('5V5 · VS LEAGUE AVG', RX + R_W - R_PAD, ry + MAP_HDR_H / 2);
+      ry += MAP_HDR_H + 8;
+
+      if (shotmapImg) {
+        const MAP_BOT = H - FOOT_H - 28;
+        const availH = MAP_BOT - ry;
+        const availW = R_W - R_PAD * 2;
+        const imgAspect = shotmapImg.naturalWidth / shotmapImg.naturalHeight;
+        let drawW = availW, drawH = availW / imgAspect;
+        if (drawH > availH) { drawH = availH; drawW = availH * imgAspect; }
+        const drawX = RX + R_PAD + (availW - drawW) / 2;
+        const drawY = ry + (availH - drawH) / 2;
+        ctx.drawImage(shotmapImg, drawX, drawY, drawW, drawH);
+
+        // Legend
+        const LX = RX + R_PAD, LY = H - FOOT_H - 18;
+        const gradW = 90, gradH = 5;
+        const grad = ctx.createLinearGradient(LX, 0, LX + gradW, 0);
+        grad.addColorStop(0, '#1a56c4'); grad.addColorStop(0.5, '#f5f4f0'); grad.addColorStop(1, '#b51a1a');
+        ctx.fillStyle = grad; ctx.fillRect(LX, LY, gradW, gradH);
+        ctx.font = '700 8px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('FEWER', LX, LY - 6);
+        ctx.textAlign = 'right';
+        ctx.fillText('MORE', LX + gradW, LY - 6);
+      } else {
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('SHOT MAP UNAVAILABLE', RX + R_W / 2, HDR_H + CHIP_H + CONTENT_H / 2);
+        ctx.font = '600 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK14;
+        ctx.fillText('(map generates nightly)', RX + R_W / 2, HDR_H + CHIP_H + CONTENT_H / 2 + 20);
+      }
+
+      // Footer
+      ctx.fillStyle = INK10; ctx.fillRect(0, H - FOOT_H, W, FOOT_H);
+      ctx.font = '700 11px "Barlow Condensed", sans-serif'; ctx.fillStyle = FOOT_INK;
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText('HOCKEYGAMEBOT.COM · 5V5 SHOT LOCATION vs LEAGUE AVERAGE · KDE · hockeygamebot.com', W / 2, H - FOOT_H / 2);
+
+      return canvas;
+    }
+
     // ── HGB Talent Card (JFresh-style blended component card) ────────────
     // ── Rating Card — portrait 520×720, 3-year talent profile ──────────────
     async function drawRatingCardPortrait() {
@@ -2771,6 +2995,30 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
           downloadCanvas(canvas, `hgb_season_${D.slug}_${_selectedSeason}.png`);
           if (status) { status.textContent = 'Downloaded ✓'; setTimeout(function() { if (status) status.style.display = 'none'; }, 3000); }
         } catch(err) { console.error(err); if (status) status.textContent = 'Error — try again'; }
+        finally { btn.textContent = label; btn.disabled = false; }
+      });
+    })();
+
+    // ── Shotmap card button ────────────────────────────────────────────────
+    (function() {
+      const btn = document.getElementById('download-shotmap-card-btn');
+      const status = document.getElementById('card-status');
+      if (btn) btn.addEventListener('click', async function() {
+        const label = btn.textContent ?? '';
+        btn.textContent = 'Generating…'; btn.disabled = true;
+        if (status) { status.textContent = ''; status.style.display = 'block'; }
+        try {
+          if (document.fonts) {
+            await document.fonts.ready;
+            await Promise.all([
+              document.fonts.load('900 1px "Barlow Condensed"'),
+              document.fonts.load('700 1px "JetBrains Mono"'),
+            ]);
+          }
+          const canvas = await drawShotmapCard();
+          downloadCanvas(canvas, `hgb_shotmap_${D.slug}_${D.currentSeason || '2025-26'}.png`);
+          if (status) { status.textContent = 'Downloaded ✓'; setTimeout(function() { if (status) status.style.display = 'none'; }, 3000); }
+        } catch(err) { console.error(err); if (status) { status.textContent = 'Error — try again'; status.style.display = 'block'; } }
         finally { btn.textContent = label; btn.disabled = false; }
       });
     })();
