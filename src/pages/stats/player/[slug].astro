@@ -973,6 +973,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       <button id="download-shotmap-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
         {currentSeasonNorm} Shotmap Card →
       </button>
+      <div id="shotmap-availability-note" style="display:none;font-size:10px;line-height:1.4;opacity:0.6;margin-top:-4px;margin-bottom:8px;padding:0 2px;">Shotmap not available for this season</div>
       <button id="download-rating-card-btn" class="cta-btn" style={`width:100%;cursor:pointer;border:none;margin-bottom:8px;background:${teamColor};color:#ffffff;font-weight:800;`}>
         Talent Card →
       </button>
@@ -1896,18 +1897,18 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       return canvas;
     }
 
-    // ── Shotmap Card: same left panel as Season Card + shot map PNG right ─────
+    // ── Shotmap Card: identical left panel to Season Card + shot map PNG right ──
     async function drawShotmapCard() {
       const BG = '#EFEEE8', SURFACE = '#FFFFFF';
       const SCALE = 2;
       const L_W = 520, R_W = 520;
-      const W = L_W + R_W;
       const PAD = 24, R_PAD = 20;
 
-      // Use current-season data only
+      // Always current season, never historical
       var allSeasons = typeof _seasonStats !== 'undefined' ? _seasonStats : (window._seasonStats || []);
       var currentSeasonEntry = allSeasons.find(function(s) { return s.season === D.currentSeason; }) || null;
-      const TEAM_C = D.teamColor || INK;
+      var seasonTeam = D.team;
+      const TEAM_C = (D.teamColors && D.teamColors[seasonTeam]) ? D.teamColors[seasonTeam] : (D.teamColor || INK);
 
       function sp(currentVal, histKey) {
         if (currentSeasonEntry && currentSeasonEntry[histKey] != null) return currentSeasonEntry[histKey];
@@ -1921,6 +1922,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const R_CONTENT_H = 473;
       const CONTENT_H = Math.max(L_CONTENT_H, R_CONTENT_H);
       const FOOT_H = 36;
+      const W = L_W + R_W;
       const H = HDR_H + CHIP_H + CONTENT_H + FOOT_H;
 
       const canvas = document.createElement('canvas');
@@ -1931,7 +1933,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, 4, H);
 
-      // Header
+      // ── SHARED HEADER (white band) ─────────────────────────────────────────
       ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, HDR_H + CHIP_H);
       ctx.fillStyle = INK14; ctx.fillRect(0, HDR_H + CHIP_H - 1, W, 1);
       ctx.font = '800 24px "Barlow Condensed", sans-serif';
@@ -1939,17 +1941,17 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, HDR_H / 2);
       ctx.font = '700 10px "JetBrains Mono", monospace';
       ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
-      ctx.fillText('SHOTMAP CARD · ' + (D.currentSeason || '2025-26'), W - PAD, HDR_H / 2);
+      const heroSeason = D.currentSeason || '2025-26';
+      ctx.fillText('SHOTMAP CARD · ' + heroSeason, W - PAD, HDR_H / 2);
 
       // Chips
       const TEAM_NAMES_SM = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
       const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
-      const heroSeason = D.currentSeason || '2025-26';
       const _sznYr = heroSeason ? parseInt(heroSeason.slice(0, 4)) : null;
       const _sznAge = (D.birthDate && _sznYr) ? Math.floor((new Date(_sznYr, 9, 1) - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6)) : null;
       const _numSzn  = D.sweaterNumber != null ? [`#${D.sweaterNumber}`] : [];
       const _scSzn   = D.shootsCatches ? [`SHOOTS: ${D.shootsCatches}`] : [];
-      const chips = [..._numSzn, (TEAM_NAMES_SM[D.team] || D.team), D.posLabel.toUpperCase(), heroSeason, ...(_sznAge != null ? [`AGE: ${_sznAge}`] : []), ..._scSzn];
+      const chips = [..._numSzn, (TEAM_NAMES_SM[seasonTeam] || seasonTeam), D.posLabel.toUpperCase(), heroSeason, ...(_sznAge != null ? [`AGE: ${_sznAge}`] : []), ..._scSzn];
       const _tcSzn = 1 + _numSzn.length;
       let cx = PAD;
       ctx.font = '700 9px "Barlow Condensed", sans-serif';
@@ -1971,8 +1973,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // Panel divider
       ctx.fillStyle = INK14; ctx.fillRect(L_W, HDR_H + CHIP_H, 1, CONTENT_H);
 
-      // ── LEFT PANEL — identity + single-season bars (same as drawSeasonCard) ──
+      // ── LEFT PANEL — exact copy of drawSeasonCard left panel ──────────────
       let y = HDR_H + CHIP_H + 6;
+
       const R = 36, HS_CX = PAD + R, HS_CY = y + ID_H / 2;
       const hsImg = await loadImg(D.headshotUrl);
       ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
@@ -1982,81 +1985,127 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
 
-      // Identity text — reuse drawSeasonCard's pattern via shared helper call
-      // (inline here so we don't need to refactor the function signature)
-      const TX = PAD + R * 2 + 12, TY = y + 14;
-      ctx.font = '800 20px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
-      ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), TX, TY);
-      ctx.font = '600 10px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
-      ctx.fillText([D.team, D.posLabel, heroSeason].filter(Boolean).join(' · ').toUpperCase(), TX, TY + 26);
-      if (D.sweaterNumber != null) {
-        ctx.font = '900 36px "Barlow Condensed", sans-serif'; ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
-        ctx.fillText('#' + D.sweaterNumber, L_W - PAD, TY + 4);
+      const heroX = HS_CX + R + 18;
+      const heroW = (L_W - heroX - PAD) / 2;
+      var _rnd = function(v) { return v != null ? Math.round(v) : null; };
+      var heroWarPct = _rnd(D.warPct);
+      var heroImpPct = _rnd(D.impactPct);
+      const heroTiles = [
+        { label: 'HGB WAR · ' + heroSeason,    pct: heroWarPct,  sub: '' },
+        { label: 'HGB IMPACT · ' + heroSeason, pct: heroImpPct,  sub: '' },
+      ];
+      for (let i = 0; i < heroTiles.length; i++) {
+        const t = heroTiles[i];
+        const tcx = heroX + i * heroW + heroW / 2;
+        if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(heroX + i * heroW, y + 18, 1, ID_H - 36); }
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(t.label, tcx, y + 18);
+        ctx.font = '900 58px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = t.pct != null ? TEAM_C : INK32;
+        ctx.fillText(t.pct != null ? t.pct + '%' : '—', tcx, y + 34);
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
+        ctx.fillText(t.sub, tcx, y + 98);
       }
       y += ID_H;
 
-      // pctColorS — scoped locally since drawSeasonCard's version isn't accessible here
-      function pctColorS(v, kind) {
+      // Counting stats strip
+      ctx.fillStyle = SURFACE; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
+      const cG   = D.totalG;
+      const cA   = D.totalA;
+      const cP   = (D.totalG != null && D.totalA != null) ? D.totalG + D.totalA : null;
+      const cToi = D.toiAvgSec;
+      const fmtToiStr = (sec) => sec != null ? `${Math.floor(sec/60)}:${String(Math.round(sec%60)).padStart(2,'0')}` : '—';
+      const countCols = [
+        { label: 'GOALS',   val: cG != null ? String(cG) : '—', color: cG != null ? INK : INK32 },
+        { label: 'ASSISTS', val: cA != null ? String(cA) : '—', color: cA != null ? INK : INK32 },
+        { label: 'POINTS',  val: cP != null ? String(cP) : '—', color: cP != null ? TEAM_C : INK32 },
+        { label: 'GP',      val: D.gp != null ? String(D.gp) : '—', color: INK },
+        { label: 'TOI/GP',  val: fmtToiStr(cToi), color: cToi != null ? INK : INK32 },
+      ];
+      const cColW = (L_W - PAD * 2) / countCols.length;
+      for (let ci2 = 0; ci2 < countCols.length; ci2++) {
+        const cc = countCols[ci2];
+        const ccx = PAD + ci2 * cColW + cColW / 2;
+        if (ci2 > 0) { ctx.fillStyle = INK06; ctx.fillRect(PAD + ci2 * cColW, y + 10, 1, COUNTS_H_S - 20); }
+        ctx.font = '800 32px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = cc.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText(cc.val, ccx, y + COUNTS_H_S / 2 - 8);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
+        ctx.fillText(cc.label, ccx, y + COUNTS_H_S / 2 + 16);
+      }
+      y += COUNTS_H_S;
+
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, L_W, 1); y += 1 + 20;
+
+      // Section header
+      const isF = D.posGroup === 'F';
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      ctx.fillText('SINGLE SEASON', PAD, y);
+      var ssW = ctx.measureText('SINGLE SEASON').width;
+      ctx.fillStyle = RED;
+      ctx.fillText('  ' + (isF ? 'VS. FORWARDS' : 'VS. DEFENSEMEN'), PAD + ssW, y);
+      y += 12;
+
+      // Single-season bars — identical to drawSeasonCard
+      const pct = D.percentiles;
+      const bars_ev_off = sp(pct.ev_offence, 'rapm_off_pct');
+      const bars_ev_def = sp(pct.ev_defence, 'rapm_def_pct');
+      const bars_goals  = sp(pct.goals,      'goals_pct');
+      const bars_a1     = sp(pct.a1,         'a1_pct');
+      const bars_ixg    = sp(pct.ixg,        'ixg_pct');
+      const bars_fin    = sp(pct.finishing,   'rapm_finishing_pct');
+      const bars_pen    = sp(pct.pen_diff,    'pen_diff_pct');
+      const bars_pp     = sp(pct.pp_off ?? null, 'rapm_pp_pct');
+      const bars_pk     = sp(pct.pk_def ?? null, 'rapm_pk_pct');
+      const bars_qoc    = sp(D.qoc,           'qoc_pct');
+      const bars_qot    = sp(D.qot,           'qot_pct');
+      function barFillSM(v, kind) {
+        if (kind === 'context') return '#4285f4';
+        if (v == null) return 'rgba(13,13,20,0.20)';
+        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+        if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373';
+        return '#E8002D';
+      }
+      function pctColorSM(v, kind) {
         if (kind === 'context') return '#4285f4';
         if (v == null) return 'rgba(13,13,20,0.35)';
         if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
         if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
         return '#E8002D';
       }
-      const fmtToiS = (sec) => sec != null ? `${Math.floor(sec/60)}:${String(Math.round(sec%60)).padStart(2,'0')}` : '—';
-
-      // Count row (G / A / P / GP / TOI) — raw current-season values
-      const counts = [
-        { label: 'G',      val: D.totalG != null ? String(D.totalG) : '—' },
-        { label: 'A',      val: D.totalA != null ? String(D.totalA) : '—' },
-        { label: 'P',      val: (D.totalG != null && D.totalA != null) ? String(D.totalG + D.totalA) : '—' },
-        { label: 'GP',     val: D.gp != null ? String(D.gp) : '—' },
-        { label: 'TOI/GP', val: fmtToiS(D.toiAvgSec) },
-      ];
-      const cw2 = (L_W - PAD * 2) / counts.length;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      for (let ci2 = 0; ci2 < counts.length; ci2++) {
-        const cx2 = PAD + ci2 * cw2 + cw2 / 2;
-        ctx.font = '800 20px "Barlow Condensed", sans-serif'; ctx.fillStyle = INK;
-        ctx.fillText(String(counts[ci2].val), cx2, y + 24);
-        ctx.font = '600 8px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
-        ctx.fillText(counts[ci2].label, cx2, y + 48);
-      }
-      y += COUNTS_H_S;
-
-      ctx.fillStyle = INK10; ctx.fillRect(PAD, y, L_W - PAD * 2, 1); y += 1;
-      y += 20;
-      y += 12;
-
-      // Percentile bars — same 11 bars as Season Card
       const bars = [
-        { label: 'WAR',           val: sp(p.war_pct,          'war_pct'),          kind: 'pct' },
-        { label: 'xGF%',          val: sp(p.xgf_pct_pct,      'xgf_pct_pct'),      kind: 'pct' },
-        { label: 'EV OFF RAPM',   val: sp(p.rapm_off_pct,     'rapm_off_pct'),     kind: 'pct' },
-        { label: 'EV DEF RAPM',   val: sp(p.rapm_def_pct,     'rapm_def_pct'),     kind: 'pct' },
-        { label: 'xG/60',         val: sp(p.xgf60_pct,        'xgf60_pct'),        kind: 'pct' },
-        { label: 'iSCF/60',       val: sp(p.iscf60_pct,       'iscf60_pct'),       kind: 'pct' },
-        { label: 'ixG/60',        val: sp(p.ixg60_pct,        'ixg60_pct'),        kind: 'pct' },
-        { label: 'G-xG',          val: sp(p.g_minus_xg_pct,   'g_minus_xg_pct'),   kind: 'pct' },
-        { label: 'HIT/60',        val: sp(p.hits60_pct,       'hits60_pct'),       kind: 'pct' },
-        { label: 'BLK/60',        val: sp(p.blocks60_pct,     'blocks60_pct'),     kind: 'pct' },
-        { label: 'PIM/60',        val: sp(p.pim60_pct,        'pim60_pct'),        kind: 'pct' },
+        { label: 'EV Offense',       val: bars_ev_off, kind: 'performance' },
+        { label: 'EV Defense',       val: bars_ev_def, kind: 'performance' },
+        { label: 'Goals / 60',       val: bars_goals,  kind: 'performance' },
+        { label: 'A1 / 60',          val: bars_a1,     kind: 'performance' },
+        { label: 'xG / 60',          val: bars_ixg,    kind: 'performance' },
+        { label: 'Pen Diff',         val: bars_pen,    kind: 'performance' },
+        { label: 'Power Play',       val: bars_pp,     kind: 'performance' },
+        { label: 'Penalty Kill',     val: bars_pk,     kind: 'performance' },
+        { label: 'Finishing',        val: bars_fin,    kind: 'context'     },
+        { label: 'Opponent Quality', val: bars_qoc,    kind: 'context'     },
+        { label: 'Teammate Quality', val: bars_qot,    kind: 'context'     },
       ];
-      const BAR_X = PAD, BAR_W = L_W - PAD * 2 - 48 - 8;
+      const BAR_H_PX = 13, BAR_LABEL_W = 108, BAR_RANK_W = 40;
+      const BAR_AVAIL = L_W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
       for (let bi = 0; bi < bars.length; bi++) {
-        const b = bars[bi]; const rowY = y + bi * BAR_ROW_H;
-        ctx.font = '700 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
-        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(b.label, BAR_X, rowY + BAR_ROW_H / 2);
-        const bx = BAR_X + 80, bw = BAR_W - 80;
+        const b = bars[bi], rowY = y + bi * BAR_ROW_H, bby = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
+        ctx.font = '600 11px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(b.label, PAD, rowY + BAR_ROW_H / 2);
+        const bx = PAD + BAR_LABEL_W;
+        rrect(ctx, bx, bby, BAR_AVAIL, BAR_H_PX, 3); ctx.fillStyle = INK10; ctx.fill();
         if (b.val != null) {
-          ctx.fillStyle = INK10; ctx.beginPath(); ctx.roundRect(bx, rowY + 10, bw, 9, 2); ctx.fill();
-          ctx.fillStyle = pctColorS(b.val, b.kind); ctx.beginPath(); ctx.roundRect(bx, rowY + 10, bw * b.val / 100, 9, 2); ctx.fill();
+          rrect(ctx, bx, bby, Math.max(6, (b.val / 100) * BAR_AVAIL), BAR_H_PX, 3);
+          ctx.fillStyle = barFillSM(b.val, b.kind); ctx.fill();
         }
-        ctx.font = '700 10px "Barlow Condensed", sans-serif';
+        ctx.font = '800 15px "Barlow Condensed", sans-serif';
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorS(b.val, b.kind);
+        ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorSM(b.val, b.kind);
         ctx.fillText(b.val == null ? '—' : Math.round(b.val) + '%', L_W - PAD, rowY + BAR_ROW_H / 2);
       }
 
@@ -2111,7 +2160,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillStyle = INK10; ctx.fillRect(0, H - FOOT_H, W, FOOT_H);
       ctx.font = '700 11px "Barlow Condensed", sans-serif'; ctx.fillStyle = FOOT_INK;
       ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-      ctx.fillText('HOCKEYGAMEBOT.COM · 5V5 SHOT LOCATION vs LEAGUE AVERAGE · KDE · hockeygamebot.com', W / 2, H - FOOT_H / 2);
+      ctx.fillText('WAR = single-season, percentile vs ' + (isF ? 'Forwards' : 'Defensemen') + '  ·  HOCKEYGAMEBOT.COM  ·  5V5 SHOT LOCATION vs LEAGUE AVERAGE', W / 2, H - FOOT_H / 2);
 
       return canvas;
     }
@@ -3449,6 +3498,17 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       if (!season) return;
       const btn = document.getElementById('download-season-card-btn');
       if (btn) btn.textContent = `${season} Player Card →`;
+      const smBtn = document.getElementById('download-shotmap-card-btn');
+      const smNote = document.getElementById('shotmap-availability-note');
+      if (smBtn) smBtn.textContent = `${season} Shotmap Card →`;
+      if (smNote) {
+        const [startYr, endSuffix] = season.split(/[-–]/);
+        const seasonRaw = startYr + startYr.slice(0, 2) + endSuffix.padStart(2, '0');
+        const url = `https://media.hockeygamebot.com/stats/skater-shot-maps/skater_shot_map_${_card.playerId}_${seasonRaw}_5v5.png`;
+        fetch(url, { method: 'HEAD' }).then(r => {
+          smNote.style.display = r.ok ? 'none' : 'block';
+        }).catch(() => { smNote.style.display = 'block'; });
+      }
       try { applySeasonToEvBars(season); } catch(err) {}
     });
   })();

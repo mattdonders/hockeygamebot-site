@@ -75,6 +75,9 @@ Full plan: `docs/plans/stats-redesign.md`
 - [ ] **Goalie page** (`/stats/goalies` + `/stats/goalie/[slug]`)
 - [ ] Sortable/filterable full skater table — vanilla JS island, sort/filter/search across all 715
 
+### Skater Shot Map
+- [ ] Add goal markers to shot map — overlay dots where goals were scored vs just shot density; interesting to compare location of goals vs all shots
+
 ### Phase 3 — Card generation
 - [ ] Card generation pipeline: D1 `card_jobs` table, Hetzner 30s poller, R2 upload, client progress UI
 - [ ] Expose Tier 1 cards: grid card, RAPM card, with/without card (start with 3, not all 26)
