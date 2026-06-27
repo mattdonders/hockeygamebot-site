@@ -59,8 +59,27 @@ export type HGBTableProps<T> = {
   /** Enables TanStack Virtual row rendering. Requires a fixed-height scroll container.
    *  With maxHeight: uses that height. Without: defaults to calc(100vh - 300px). */
   virtualize?: boolean;
-  /** Hides the built-in toolbar (search, row count, exports). Use when the parent renders its own toolbar. */
+  /** Hides the built-in toolbar. Prefer `toolbar={{ show: false }}` for new code. */
   hideToolbar?: boolean;
+  /** Fine-grained toolbar/action controls. Omitted values preserve the legacy defaults. */
+  toolbar?: {
+    /** Show the toolbar row at all. Defaults to `!hideToolbar`. */
+    show?: boolean;
+    /** Show built-in global filtering search when `globalSearchField` is provided. Defaults to true. */
+    globalSearch?: boolean;
+    /** Show declarative filters from the `filters` prop. Defaults to true. */
+    filters?: boolean;
+    /** Show default-hidden column toggles. Defaults to true. */
+    columns?: boolean;
+    /** Show CSV export when `exportFilename` is provided. Defaults to true. */
+    csv?: boolean;
+    /** Show PNG export when `exportTitle` is provided. Defaults to true. */
+    png?: boolean;
+    /** Show filtered row count. Defaults to true. */
+    rowCount?: boolean;
+    /** Render hidden export buttons for parent proxy-click patterns. Defaults to `hideToolbar`. */
+    hiddenExports?: boolean;
+  };
   /** Prepend a "#" rank column showing each row's 1-based sort position. */
   showRank?: boolean;
   /** Jump to first matching row with a yellow highlight. Increment `key` to re-trigger. */
@@ -334,6 +353,7 @@ export default function HGBTable<T extends object>({
   emptyMessage = 'No results found.',
   virtualize = false,
   hideToolbar = false,
+  toolbar,
   exportTitle,
   exportChips = [],
   showRank = false,
@@ -466,6 +486,15 @@ export default function HGBTable<T extends object>({
       : 0;
   const visibleColCount = table.getVisibleLeafColumns().length;
 
+  const toolbarVisible = toolbar?.show ?? !hideToolbar;
+  const showToolbarGlobalSearch = toolbar?.globalSearch ?? true;
+  const showToolbarFilters = toolbar?.filters ?? true;
+  const showToolbarColumns = toolbar?.columns ?? true;
+  const showToolbarCsv = toolbar?.csv ?? true;
+  const showToolbarPng = toolbar?.png ?? true;
+  const showToolbarRowCount = toolbar?.rowCount ?? true;
+  const renderHiddenExports = toolbar?.hiddenExports ?? hideToolbar;
+
 
   const updateFilter = useCallback((key: string, value: string | number) => {
     setFilterState(prev => ({ ...prev, [key]: value }));
@@ -538,7 +567,7 @@ export default function HGBTable<T extends object>({
     <div style={{ ...BODY, color: INK }}>
 
       {/* Toolbar */}
-      {!hideToolbar && <div
+      {toolbarVisible && <div
         style={{
           display: 'flex',
           gap: 8,
@@ -550,7 +579,7 @@ export default function HGBTable<T extends object>({
         }}
       >
         {/* Global search */}
-        {globalSearchField && (
+        {showToolbarGlobalSearch && globalSearchField && (
           <SearchInput
             value={searchInput}
             onChange={setSearchInput}
@@ -560,7 +589,7 @@ export default function HGBTable<T extends object>({
         )}
 
         {/* Declarative filters */}
-        {filters.map((f, i) => {
+        {showToolbarFilters && filters.map((f, i) => {
           const key = `filter_${i}`;
           if (f.type === 'search') {
             return (
@@ -610,7 +639,7 @@ export default function HGBTable<T extends object>({
         })}
 
         {/* Column toggles for defaultHidden columns */}
-        {!isMobile && toggleableColumns.length > 0 && (
+        {showToolbarColumns && !isMobile && toggleableColumns.length > 0 && (
           <div style={{ display: 'flex', gap: 4 }}>
             {toggleableColumns.map(col => {
               const visible = effectiveVisibility[col.id] !== false;
@@ -639,15 +668,15 @@ export default function HGBTable<T extends object>({
         )}
 
         {/* Export buttons */}
-        {!isMobile && (exportFilename || exportTitle) && (
+        {!isMobile && ((showToolbarCsv && exportFilename) || (showToolbarPng && exportTitle)) && (
           <div style={{ display: 'flex', gap: 4 }}>
-            {exportFilename && (
-              <button id={hideToolbar ? `__hgb-csv-${exportFilename}` : undefined} onClick={handleExport} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+            {showToolbarCsv && exportFilename && (
+              <button onClick={handleExport} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
                 ↓ CSV
               </button>
             )}
-            {exportTitle && (
-              <button id={hideToolbar ? `__hgb-png-${exportFilename}` : undefined} onClick={handleExportPng} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+            {showToolbarPng && exportTitle && (
+              <button onClick={handleExportPng} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
                 ↓ PNG
               </button>
             )}
@@ -655,7 +684,7 @@ export default function HGBTable<T extends object>({
         )}
 
         {/* Row count */}
-        <span
+        {showToolbarRowCount && <span
           style={{
             ...MONO,
             fontSize: 10,
@@ -664,11 +693,11 @@ export default function HGBTable<T extends object>({
           }}
         >
           {filteredData.length} rows{!isMobile ? ' · click header to sort' : ''}
-        </span>
+        </span>}
       </div>}
 
       {/* Hidden export triggers — always in DOM so external callers can proxy-click them */}
-      {hideToolbar && (exportFilename || exportTitle) && (
+      {renderHiddenExports && (exportFilename || exportTitle) && (
         <div style={{ display: 'none' }}>
           {exportFilename && <button id={`__hgb-csv-${exportFilename}`} onClick={handleExport} />}
           {exportTitle && <button id={`__hgb-png-${exportFilename}`} onClick={handleExportPng} />}
