@@ -77,9 +77,11 @@ export type HGBTableProps<T> = {
     png?: boolean;
     /** Show filtered row count. Defaults to true. */
     rowCount?: boolean;
-    /** Render hidden export buttons for parent proxy-click patterns. Defaults to `hideToolbar`. */
+    /** @deprecated Use `onExportReady` instead. Render hidden export buttons for proxy-click patterns. */
     hiddenExports?: boolean;
   };
+  /** Callback fired once export functions are ready. Preferred alternative to proxy-click patterns. */
+  onExportReady?: (fns: { exportCsv: () => void; exportPng: () => void }) => void;
   /** Prepend a "#" rank column showing each row's 1-based sort position. */
   showRank?: boolean;
   /** Jump to first matching row with a yellow highlight. Increment `key` to re-trigger. */
@@ -358,6 +360,7 @@ export default function HGBTable<T extends object>({
   exportChips = [],
   showRank = false,
   jumpToRow,
+  onExportReady,
 }: HGBTableProps<T>) {
   const isMobile = useIsMobile();
 
@@ -560,6 +563,10 @@ export default function HGBTable<T extends object>({
   const toggleColumn = useCallback((id: string) => {
     setUserVisibility(prev => ({ ...prev, [id]: !(prev[id] ?? true) }));
   }, []);
+
+  useEffect(() => {
+    if (onExportReady) onExportReady({ exportCsv: handleExport, exportPng: handleExportPng });
+  }, [onExportReady, handleExport, handleExportPng]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 

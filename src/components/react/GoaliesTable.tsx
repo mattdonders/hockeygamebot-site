@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, teamLogoSrc } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
 import { MONO, SEMI, useIsDark, FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
@@ -81,6 +81,10 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
   const [filtersOpen,     setFiltersOpen]     = useState(true);
   const [visibleOptional, setVisibleOptional] = useState<Set<OptionalColId>>(new Set());
   const isDark = useIsDark();
+  const exportFnsRef = useRef<{ exportCsv: () => void; exportPng: () => void } | null>(null);
+  const handleExportReady = useCallback((fns: { exportCsv: () => void; exportPng: () => void }) => {
+    exportFnsRef.current = fns;
+  }, []);
 
   const switchGameType = (t: 'regular' | 'playoffs') => {
     setGameType(t);
@@ -227,9 +231,9 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
           {filteredRows.length} goalies
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button onClick={() => (document.getElementById('__hgb-csv-hgb-goalies') as HTMLElement)?.click()}
+          <button onClick={() => exportFnsRef.current?.exportCsv()}
             style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ CSV</button>
-          <button onClick={() => (document.getElementById('__hgb-png-hgb-goalies') as HTMLElement)?.click()}
+          <button onClick={() => exportFnsRef.current?.exportPng()}
             style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ PNG</button>
         </div>
         <button onClick={() => setFiltersOpen(o => !o)} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -354,7 +358,8 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         columns={COLUMNS}
         defaultSort={defaultSort}
         showRank
-        toolbar={{ show: false, hiddenExports: true }}
+        toolbar={{ show: false }}
+        onExportReady={handleExportReady}
         jumpToRow={jumpToRow}
         rowHref={r => `/stats/goalies/${r.slug || `goalie-${r.goalie_id}`}`}
         exportFilename="hgb-goalies"

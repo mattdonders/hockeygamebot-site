@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
 import { aggregateSeasons, availableSeasons, type SlimData, type AggRow } from '../../lib/aggregate-seasons';
@@ -487,6 +487,11 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   const [slimData,   setSlimData]   = useState<SlimData | null>(null);
   const [slimLoading, setSlimLoading] = useState(false);
 
+  const exportFnsRef = useRef<{ exportCsv: () => void; exportPng: () => void } | null>(null);
+  const handleExportReady = useCallback((fns: { exportCsv: () => void; exportPng: () => void }) => {
+    exportFnsRef.current = fns;
+  }, []);
+
   // Use the aggregated (slim) dataset for: any playoff view, or any non-current /
   // multi-season regular range. Regular + current single season keeps the fast
   // build-time path untouched.
@@ -736,9 +741,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           {useAgg ? (slimLoading ? 'loading…' : `${aggFiltered.length} skaters`) : `${filtered.length} skaters`}
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button onClick={() => (document.getElementById('__hgb-csv-hgb-skaters') as HTMLElement)?.click()}
+          <button onClick={() => exportFnsRef.current?.exportCsv()}
             style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ CSV</button>
-          <button onClick={() => (document.getElementById('__hgb-png-hgb-skaters') as HTMLElement)?.click()}
+          <button onClick={() => exportFnsRef.current?.exportPng()}
             style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ PNG</button>
         </div>
         <button onClick={() => setFiltersOpen(o => !o)} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1014,7 +1019,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             `Min ${minGP} GP`,
             ...(topN ? [`Top ${topN}`] : []),
           ]}
-          toolbar={{ show: false, hiddenExports: true }}
+          toolbar={{ show: false }}
+          onExportReady={handleExportReady}
           showRank
           virtualize={true}
           jumpToRow={jumpToRow}
@@ -1036,7 +1042,8 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             `Min ${minGP} GP`,
             ...(topN ? [`Top ${topN}`] : []),
           ]}
-          toolbar={{ show: false, hiddenExports: true }}
+          toolbar={{ show: false }}
+          onExportReady={handleExportReady}
           showRank
           virtualize={true}
           jumpToRow={jumpToRow}
