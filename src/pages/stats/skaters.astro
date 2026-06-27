@@ -6,12 +6,14 @@ import Fonts from '../../components/Fonts.astro';
 import Table from '../../components/Table.astro';
 import ChipGroup from '../../components/ChipGroup.astro';
 import { loadPlayers, loadMeta, loadIsPlayoffSeason } from '../../lib/stats-loader';
+import { fmtSeasonLong } from '../../lib/format-season';
 import SkatersTable from '../../components/react/SkatersTable';
 import { cardFooterText, SITE_DISCLAIMER } from '../../lib/card-footer';
 
 const allPlayers = loadPlayers();
 const eligible   = allPlayers.filter(p => p.gp >= 20 || ((p as any).playoff_gp ?? 0) > 0);
-const _meta      = loadMeta();
+const _meta           = loadMeta();
+const _currentSeasonNorm = fmtSeasonLong(_meta.season);
 const isPlayoffSeason = loadIsPlayoffSeason();
 const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
 
@@ -39,22 +41,26 @@ const tableRows = eligible.map(p => {
   const rawSog   = Math.round(p.rates_per_60.shots * tot60);
   const rawIxg   = p.rates_per_60.ixg * tot60;
 
-  // Strength-state splits
-  const goalsPp  = p.goals_pp  ?? 0;
-  const goalsSh  = p.goals_sh  ?? 0;
-  const goalsEv  = p.goals_ev  ?? 0;
-  const aPp      = (p.a1_pp ?? 0) + (p.a2_pp ?? 0);
-  const aPk      = (p.a1_pk ?? 0) + (p.a2_pk ?? 0);
-  const aEv      = Math.max(0, assists - aPp - aPk);
-  const shotsPp  = p.shots_pp ?? 0;
-  const shotsPk  = p.shots_pk ?? 0;
-  const shotsEv  = Math.max(0, rawSog - shotsPp - shotsPk);
-  const ixgPp    = p.sum_xg_pp ?? 0;
-  const ixgPk    = p.sum_xg_pk ?? 0;
-  const ixgEv    = Math.max(0, rawIxg - ixgPp - ixgPk);
-  const toiPpSec = p.toi_pp_sec_total ?? 0;
-  const toiPkSec = p.toi_pk_sec_total ?? 0;
-  const toiEvSec = p.toi_ev_sec_total ?? 0;
+  // Strength-state splits — keep null when upstream data is absent so the
+  // client filter can render — instead of showing zero as real data.
+  const hasSplits = p.goals_pp != null || p.goals_sh != null || p.toi_pp_sec_total != null;
+  const goalsPp  = p.goals_pp  ?? null;
+  const goalsSh  = p.goals_sh  ?? null;
+  const goalsEv  = p.goals_ev  ?? null;
+  const _aPp     = (p.a1_pp ?? 0) + (p.a2_pp ?? 0);
+  const _aPk     = (p.a1_pk ?? 0) + (p.a2_pk ?? 0);
+  const aPp      = p.a1_pp != null || p.a2_pp != null ? _aPp : null;
+  const aPk      = p.a1_pk != null || p.a2_pk != null ? _aPk : null;
+  const aEv      = hasSplits ? Math.max(0, assists - _aPp - _aPk) : null;
+  const shotsPp  = p.shots_pp ?? null;
+  const shotsPk  = p.shots_pk ?? null;
+  const shotsEv  = hasSplits ? Math.max(0, rawSog - (p.shots_pp ?? 0) - (p.shots_pk ?? 0)) : null;
+  const ixgPp    = p.sum_xg_pp ?? null;
+  const ixgPk    = p.sum_xg_pk ?? null;
+  const ixgEv    = hasSplits ? Math.max(0, rawIxg - (p.sum_xg_pp ?? 0) - (p.sum_xg_pk ?? 0)) : null;
+  const toiPpSec = p.toi_pp_sec_total ?? null;
+  const toiPkSec = p.toi_pk_sec_total ?? null;
+  const toiEvSec = p.toi_ev_sec_total ?? null;
 
   return {
     slug:     p.slug,
@@ -99,16 +105,16 @@ const tableRows = eligible.map(p => {
     gf_diff_60: p.gf_diff_60 ?? 0,
     hdc_pct:  +(p.hdc_pct ?? 50).toFixed(1),
     // PP (legacy fields kept for compat)
-    pp_toi:   toiPpSec > 0 ? +(toiPpSec / p.gp / 60).toFixed(1) : 0,
+    pp_toi:   toiPpSec != null && toiPpSec > 0 ? +(toiPpSec / p.gp / 60).toFixed(1) : null,
     pp_g:     goalsPp,
     pp_xg60:  +(p.rates_per_60.xg_pp_per60 ?? 0).toFixed(2),
     // Strength-state raw fields (used by client-side filter)
     goals_ev: goalsEv,  goals_pp: goalsPp,  goals_sh: goalsSh,
     a_ev:     aEv,      a_pp:     aPp,      a_pk:     aPk,
     shots_ev: shotsEv,  shots_pp: shotsPp,  shots_pk: shotsPk,
-    ixg_ev:   +ixgEv.toFixed(2),
-    ixg_pp:   +ixgPp.toFixed(2),
-    ixg_pk:   +ixgPk.toFixed(2),
+    ixg_ev:   ixgEv != null ? +ixgEv.toFixed(2) : null,
+    ixg_pp:   ixgPp != null ? +ixgPp.toFixed(2) : null,
+    ixg_pk:   ixgPk != null ? +ixgPk.toFixed(2) : null,
     toi_ev_sec: toiEvSec,
     toi_pp_sec: toiPpSec,
     toi_pk_sec: toiPkSec,
@@ -169,7 +175,7 @@ const initialColumns = [
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Leaderboards — HGB Stats — HockeyGameBot</title>
-  <meta name="description" content="All NHL skaters ranked by WAR, Goals/60, xG/60, finishing, and HGB Impact. Sortable table, min 20 GP, 2025–26 season." />
+  <meta name="description" content={`All NHL skaters ranked by WAR, Goals/60, xG/60, finishing, and HGB Impact. Sortable table, min 20 GP, ${_currentSeasonNorm} season.`} />
   <style is:global>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {

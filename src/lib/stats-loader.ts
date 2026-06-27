@@ -43,22 +43,13 @@ async function _safeFetchJSON(path: string, fallback: unknown): Promise<unknown>
   }
 }
 
-// Hardcoded meta fallback satisfies StatsMetaSchema so build/parse don't crash.
-const _META_FALLBACK = {
-  schema_version: '0.0.0-offline',
-  season: '20252026',
-  generated_at: new Date(0).toISOString(),
-  player_count: 0,
-  pending_fields: [] as string[],
-};
-
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
 const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, seriesStatsData, seriesRecordsData, playerSeasonStatsData] = await Promise.all([
-  _safeFetchJSON('players',      []),
-  _safeFetchJSON('leaderboards', {}),
-  _safeFetchJSON('player-games', {}),
-  _safeFetchJSON('meta',         _META_FALLBACK),
+  _fetchJSON('players'),
+  _fetchJSON('leaderboards'),
+  _safeFetchJSON('player-games', {}),  // non-critical: game log panel only
+  _fetchJSON('meta'),
   _fetchJSON('team-game-stats').catch(() => ({})),
   _fetchJSON('goalies').catch(() => []),
   _fetchJSON('lines').catch(() => []),

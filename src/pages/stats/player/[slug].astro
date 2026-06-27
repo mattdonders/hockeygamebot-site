@@ -82,7 +82,7 @@ export async function getStaticPaths() {
       pos: p.pos, gp: p.gp, rapm: p.rapm, war: p.war,
       hgb_rating: p.hgb_rating,
       war_pct: warPctMap.get(p.player_id) ?? p.current_war_pct ?? null,
-      talent_pct: p.talent_pct ?? null,
+      talent_pct: (p as any).hgb_rating_percentile ?? (p as any).talent_pct ?? null,
     });
     const peers        = findPeers(players, player, 'war').map(mapPeer);
     const peersRating  = findPeers(players, player, 'rating').map(mapPeer);
@@ -182,13 +182,6 @@ const iArea = allGames.length >= 2
 const posLabel      = player.pos_group === 'F' ? 'Forward' : 'Defenseman';
 const posPlural     = player.pos_group === 'F' ? 'forwards' : 'defensemen';
 
-// Age at Oct 1 of the current season (2025-26 → Oct 1, 2025)
-const _birthDate    = player.birth_date ? new Date(player.birth_date) : null;
-const _seasonStart  = new Date(2025, 9, 1); // Oct 1, 2025
-const _ageAtSeason  = _birthDate
-  ? Math.floor((_seasonStart.getTime() - _birthDate.getTime()) / (365.25 * 24 * 3.6e6))
-  : null;
-
 // ── Card footer strings (single source of truth: src/lib/card-footer.ts) ──────
 // Built once here and injected into the inline card-drawing script via _card.footers,
 // since that script runs as a non-module define:vars block and can't import the helper.
@@ -217,6 +210,14 @@ const _cardFooters = {
 // ── Build-time freshness ───────────────────────────────────────────────────
 const _meta      = loadMeta();
 const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
+
+// Age at Oct 1 of the current season — derived from _meta.season (e.g. "20252026" → 2025)
+const _birthDate    = player.birth_date ? new Date(player.birth_date) : null;
+const _seasonYear   = parseInt(_meta.season.slice(0, 4), 10) || new Date().getFullYear();
+const _seasonStart  = new Date(_seasonYear, 9, 1); // Oct 1 of season start year
+const _ageAtSeason  = _birthDate
+  ? Math.floor((_seasonStart.getTime() - _birthDate.getTime()) / (365.25 * 24 * 3.6e6))
+  : null;
 
 // ── Shot map data ──────────────────────────────────────────────────────────
 const playerShots = loadPlayerShots(player.player_id);
@@ -703,7 +704,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         <div class="identity-text">
           <div class="player-name">{player.first_name}<br/>{player.last_name}</div>
           <div class="player-meta">
-            {player.team_abbrev} · {posLabel} · {player.gp} GP · 2025–26{_statsDate ? ` · updated ${_statsDate}` : ''}
+            {player.team_abbrev} · {posLabel} · {player.gp} GP · {currentSeasonNorm}{_statsDate ? ` · updated ${_statsDate}` : ''}
           </div>
         </div>
       </div>
@@ -761,6 +762,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
             playerTeam={player.team_abbrev}
             playerName={`${player.first_name} ${player.last_name}`}
             playerSlug={player.slug}
+            currentSeason={_meta.season}
           />
         </div>
       )}
@@ -890,7 +892,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         <div class="card">
           <div class="card-head">
             <span class="card-eyebrow">Shot Map &nbsp;<span class="accent">Offensive Zone</span></span>
-            <span class="card-meta">{playerShots.length} shots · all situations · 2025–26</span>
+            <span class="card-meta">{playerShots.length} shots · all situations · {currentSeasonNorm}</span>
           </div>
           <div class="shot-map-wrap">
             <Fragment set:html={shotMapSVG} />
@@ -951,7 +953,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       <!-- GAME LOG -->
       <div class="card">
         <div class="card-head">
-          <span class="card-eyebrow">Game log &nbsp;<span class="accent">2025–26</span></span>
+          <span class="card-eyebrow">Game log &nbsp;<span class="accent">{currentSeasonNorm}</span></span>
           <span class="card-meta">{recentGames.length} games</span>
         </div>
         <PlayerGameLogTable
@@ -1056,7 +1058,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
   </div>
 </div>
 
-<footer>hockeygamebot.com · HGB Stats · 2025-26 · <a href="/methodology" style="color:inherit;text-decoration:none;opacity:0.6;transition:opacity .15s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">Methodology →</a><span class="footer-disclaimer">{SITE_DISCLAIMER}</span></footer>
+<footer>hockeygamebot.com · HGB Stats · {currentSeasonNorm} · <a href="/methodology" style="color:inherit;text-decoration:none;opacity:0.6;transition:opacity .15s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">Methodology →</a><span class="footer-disclaimer">{SITE_DISCLAIMER}</span></footer>
 
 <script define:vars={{
   // Season-by-season RAPM percentile data for the EV bar season selector
@@ -1456,7 +1458,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // ── Chips ────────────────────────────────────────────────────────────
       const _numEdge = D.sweaterNumber != null ? [`#${D.sweaterNumber}`] : [];
       const _scEdge  = D.shootsCatches ? [`SHOOTS: ${D.shootsCatches}`] : [];
-      const chips = [..._numEdge, D.team, D.posLabel.toUpperCase(), '2025-26', ..._scEdge, 'HOCKEYGAMEBOT'];
+      const chips = [..._numEdge, D.team, D.posLabel.toUpperCase(), D.currentSeason || '2025-26', ..._scEdge, 'HOCKEYGAMEBOT'];
       const _teamChips = 1 + _numEdge.length; // number chip + team name both get TEAM_C
       let cx2 = PAD;
       chips.forEach((txt, i) => {

@@ -58,6 +58,7 @@ type Props = {
   playerTeam: string;
   playerName?: string;
   playerSlug?: string;
+  currentSeason?: string; // e.g. "20252026" — passed from page, avoids hardcoding
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -116,8 +117,11 @@ type PlayoffRow = PlayoffSeason & {
   gax: number | null; // goals - ixg
 };
 
-const CURRENT_SEASON = '20252026';
-const CURRENT_SEASON_NORM = '2025-26';
+// CURRENT_SEASON and CURRENT_SEASON_NORM are now passed as the `currentSeason` prop
+// from the parent page (which derives them from _meta.season). These fallbacks are
+// only used if the prop is not provided.
+const _FALLBACK_SEASON = '20252026';
+const _FALLBACK_SEASON_NORM = '2025-26';
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -128,7 +132,9 @@ function normalizeSeasonKey(s: string | undefined): string {
   return s;
 }
 
-export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerName = 'Player', playerSlug = 'player' }: Props) {
+export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerName = 'Player', playerSlug = 'player', currentSeason }: Props) {
+  const CURRENT_SEASON      = currentSeason ?? _FALLBACK_SEASON;
+  const CURRENT_SEASON_NORM = currentSeason ? normalizeSeasonKey(currentSeason) : _FALLBACK_SEASON_NORM;
   const [isDark, setIsDark] = useState(false);
   // Active season: defaults to most recent (first after desc sort)
   const [activeSeason, setActiveSeason] = useState<string>('');
