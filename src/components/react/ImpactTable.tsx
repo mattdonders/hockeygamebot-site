@@ -110,6 +110,7 @@ export default function ImpactTable({ rows, statsDate }: Props) {
         rowHref={r => `/stats/player/${r.slug}`}
         exportFilename="hgb-impact"
         exportTitle="HGB Impact"
+        toolbar={{ csv: false }}
         exportChips={[pos === 'all' ? 'All Positions' : pos === 'F' ? 'Forwards' : 'Defense', '2025-26']}
         emptyMessage="No impact data for this selection."
         virtualize
