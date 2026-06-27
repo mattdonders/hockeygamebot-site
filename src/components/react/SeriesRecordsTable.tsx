@@ -158,7 +158,7 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
         exportTitle="Playoff Series Records"
         exportChips={[scope, roundFilter !== 'all' ? roundFilter : 'All Rounds', ...(topN ? [`Top ${topN}`] : [])]}
         emptyMessage="No series match the current filters."
-        hideToolbar
+        toolbar={{ show: false, hiddenExports: true }}
       />
 
       <p style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.32)', marginTop: 8, letterSpacing: '0.06em' }}>

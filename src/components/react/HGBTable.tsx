@@ -700,7 +700,7 @@ export default function HGBTable<T extends object>({
       {renderHiddenExports && (exportFilename || exportTitle) && (
         <div style={{ display: 'none' }}>
           {exportFilename && <button id={`__hgb-csv-${exportFilename}`} onClick={handleExport} />}
-          {exportTitle && <button id={`__hgb-png-${exportFilename}`} onClick={handleExportPng} />}
+          {exportTitle && <button id={`__hgb-png-${exportFilename ?? exportTitle ?? 'table'}`} onClick={handleExportPng} />}
         </div>
       )}
 

@@ -4,7 +4,7 @@
  *   DashboardTopImpact:       logged-out "Top Players — HGB Impact" section
  *
  * Both use HGBTable so styling is consistent with the rest of the site.
- * hideToolbar + no virtualization (small row counts, no need).
+ * Toolbar hidden on purpose; small row counts do not need local table chrome.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -168,7 +168,7 @@ export function DashboardFollowedPlayers() {
       columns={followedCols}
       defaultSort={{ id: 'imp_p', desc: true }}
       rowHref={r => `/stats/player/${r.slug}`}
-      hideToolbar
+      toolbar={{ show: false }}
       emptyMessage="No players followed. Add players in Account settings."
     />
   );
@@ -253,7 +253,7 @@ export function DashboardTopImpact({ players }: { players: TopImpactRow[] }) {
       columns={topImpactCols}
       defaultSort={{ id: 'value', desc: true }}
       rowHref={r => `/stats/player/${r.slug}`}
-      hideToolbar
+      toolbar={{ show: false }}
     />
   );
 }

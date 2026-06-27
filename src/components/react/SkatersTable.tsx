@@ -59,7 +59,7 @@ type Display  = 'totals'   | 'per60';
 type Props = { rows: SkaterRow[]; statsDate: string | null; currentSeason: string; isPlayoffSeason?: boolean };
 
 // Physical / faceoff + EDGE columns — managed by SkatersTable (not HGBTable defaultHidden)
-// because both HGBTable instances use hideToolbar, so HGBTable's own toggle UI never renders.
+// because both HGBTable instances hide their toolbars, so HGBTable's own toggle UI never renders.
 const PHYSICAL_COL_DEFS = [
   { id: 'hits',      label: 'Hits' },
   { id: 'blocks',    label: 'BLK'  },
@@ -1014,7 +1014,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             `Min ${minGP} GP`,
             ...(topN ? [`Top ${topN}`] : []),
           ]}
-          hideToolbar
+          toolbar={{ show: false, hiddenExports: true }}
           showRank
           virtualize={true}
           jumpToRow={jumpToRow}
@@ -1036,7 +1036,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             `Min ${minGP} GP`,
             ...(topN ? [`Top ${topN}`] : []),
           ]}
-          hideToolbar
+          toolbar={{ show: false, hiddenExports: true }}
           showRank
           virtualize={true}
           jumpToRow={jumpToRow}
