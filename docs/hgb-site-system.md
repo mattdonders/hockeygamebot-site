@@ -514,8 +514,8 @@ Write like a trusted hockey account posting something useful enough that a fan w
 Must answer:
 
 - how good is he right now?
-- what does the model think his talent level is?
-- what drives the rating?
+- what is the clearest HGB read on this player?
+- what supports that read?
 - what is the recent trend?
 - what should a fan post when he is traded, signed, or argued about?
 
@@ -523,13 +523,14 @@ Belongs:
 
 - hero identity and team context
 - Rating/WAR/Impact with clear scopes
-- model likes/worries
+- strengths, concerns, and context
 - trend chart
 - game log
 - peer/comparison panel
 - shot map when useful
 - share cards
 - recent insight feed
+- artifact-first actions
 
 Does not belong:
 
@@ -537,6 +538,12 @@ Does not belong:
 - unexplained RAPM/EDGE blocks
 - five equal-weight download buttons
 - hidden model caveats
+- stat dumps with no share/use case
+- a kitchen-sink stack of modules with no hierarchy
+
+Player page priority:
+
+The problem to solve is not lack of content. It is that useful modules can feel thrown onto the page without a clear order. A player page should make the top read obvious, make artifacts easy to grab, and then let deeper stats support the read. Do not add new player-page modules until the existing hero, career table, cards/actions, shot map, trend, game log, peers, and insight feed feel like one cohesive page.
 
 ### Team Pages
 
@@ -546,6 +553,8 @@ Must answer:
 - who drives the team?
 - what changed recently?
 - what can fans share?
+- where can fans follow the team bot?
+- how does this team perform against a specific opponent when that context is available?
 
 Belongs:
 
@@ -556,6 +565,8 @@ Belongs:
 - lines or pairings that matter
 - bot/account context
 - shareable team snapshot
+- team insights
+- team-vs-opponent view via query state such as `?opponent=ABBR`
 
 Does not belong:
 
@@ -563,14 +574,18 @@ Does not belong:
 - cap/contracts scope creep
 - standings clone behavior unless directly tied to HGB model context
 
+Team page priority:
+
+Team pages have two valid jobs: bot discovery and team analytics. Bot discovery matters because users may not know the bots post on multiple platforms. Team analytics should prioritize useful, shareable page states such as team insights, team overview, top drivers, goalie story, lines, game log, and team-vs-opponent context. The `?opponent=ABBR` state is a strong fit because it can be linked from the home page and creates a specific argument-ready view.
+
 ### Game Pages
 
 Must answer:
 
-- why did this game end this way?
-- when did it turn?
-- who swung it?
-- what did the box score hide?
+- what were the biggest signals from this game?
+- what changed the game state?
+- who stood out?
+- what did the box score potentially hide?
 - what artifact should fans post?
 
 Belongs:
@@ -583,6 +598,8 @@ Belongs:
 - play log only if filtered or explained
 - bot posts/cards
 - visible data state per panel
+- good-enough live tracking
+- useful recap state after final
 
 Does not belong:
 
@@ -590,25 +607,46 @@ Does not belong:
 - unlabeled chart scopes
 - silent fallback content
 - chart interactions that only make sense to the developer
+- overconfident single-game storylines
+
+Game page priority:
+
+Game pages need both live and postgame value. Live tracking should be good enough and credible, even if other sites are deeper. Postgame recap/explanation should be careful because hockey is noisy and a single game rarely has one definitive statistical story. The page should surface signals, swings, and useful context without pretending the model can fully determine why the game happened.
 
 ## 7. Feature Acceptance Rules
 
-Before a feature ships, answer yes to at least three:
+The current site grew by building the pipeline and frontend together. That created useful features, but it also created pages, cards, and artifacts whenever the backend made new data available. Going forward, new data should not automatically become a new page or artifact.
 
-- Does it make a player/team/game easier to understand?
-- Does it create a shareable artifact or quote?
-- Does it use HGB-specific model context?
-- Does it update with real hockey events?
-- Does it fit one page archetype?
-- Does it reuse canonical components?
-- Does it avoid becoming a generic stat table?
+### 7.1 Product Fit Requirements
 
-Hard requirements:
+Before a feature ships, it must answer:
 
+- who is this for?
+- what will they do with it?
+- is this a page, module, card, query state, or internal-only data?
+- what is the share/use case?
+- why does this belong on HGB specifically?
+
+### 7.2 Feature Value Check
+
+Every public feature should satisfy at least two:
+
+- helps understand a player/team/game
+- creates a shareable artifact, screenshot, or quote
+- improves bot/site/app credibility
+- updates with real hockey events
+- supports a known fan argument or workflow
+
+### 7.3 Technical And Design Requirements
+
+No page or public component should ship without:
+
+- fitting a page archetype
+- reusing canonical patterns where they exist
 - visible empty/error states
 - metric scope labels
 - mobile layout check
-- page title and OG metadata
+- page title and OG metadata where relevant
 - no production mock data
 - no hardcoded current season unless intentionally static historical content
 
@@ -617,14 +655,28 @@ Hard requirements:
 Do not add:
 
 - tables just because the data exists
+- exports as a primary product surface
+- exports without a clear external user need
+- public pages for backend milestones
 - betting/pick language unless explicitly scoped and legally reviewed
 - cap/contracts workflows
 - full draft/scouting platform features
-- a HockeyStats-style head-to-head voting clone
+- recognizable competitor rituals copied directly
+- recognizable competitor page designs or language copied directly
 - generic player rankings without HGB framing
-- features with no share artifact, insight, or model explanation
+- forced/corny engagement mechanics
+- "receipt", "proof", or "I told you so" framing
+- features with no share artifact, insight, workflow, or bot/app value
 - raw SQL/data explorer surfaces in public IA
 - pages whose only value is "we have the data"
+
+Export note:
+
+Screenshots and HGB-branded artifacts are usually better than exports because they carry the brand and the context. Exports are allowed only when there is a clear use for someone else, and they should not become the primary product surface. If an export is necessary, keep it secondary and avoid designing the page around it.
+
+Cap/contracts note:
+
+Cap and contract data can appear when it supports HGB context, but HGB should not build cap-management or "be a GM" workflows. Existing cap sites own that space.
 
 Use this question:
 
@@ -634,47 +686,55 @@ If it only proves the database exists, it probably does not belong.
 
 ## 9. Implementation Order
 
-### Pass 1: Decide The System
+### Pass 1: Finish System Decisions
 
 1. Review and revise this document section by section.
 2. Correct font-token guidance in `BRANDING.md`.
-3. Decide canonical stats navigation groups.
-4. Decide whether `--semi` survives outside table headers.
-5. Decide the minimum metric dictionary shape.
+3. Audit existing masthead patterns before extracting a shared component.
+4. Audit `Table.astro` vs `HGBTable.tsx`.
+5. Audit existing filter consolidation and remaining one-offs.
+6. Decide canonical stats navigation groups.
+7. Decide whether `--semi` survives outside table headers.
+8. Decide the minimum metric dictionary/stat-key shape.
 
 ### Pass 2: Build Foundations
 
-1. Add `StatsMasthead.astro`.
-2. Add shared stats nav config.
-3. Add shared metric-copy helper.
-4. Add shared state components.
-5. Add filter/control primitives.
+1. Add shared stats nav config.
+2. Add shared metric-copy/stat-key helper.
+3. Add shared empty/error/stale data components.
+4. Clean up filter/control primitives based on the audit.
+5. Define artifact action UX rules around the existing `showTable` sharing flow.
+6. Add `StatsMasthead.astro` only if the masthead audit confirms enough shared structure.
 
-### Pass 3: Migrate Low-Risk Pages
+### Pass 3: Cohesion Pass On Existing High-Value Pages
 
-1. Records
-2. Series index
-3. WOWY
-4. Lines
-5. Impact
+1. Player pages
+2. Goalie pages
+3. Team pages
+4. Game pages
 
-### Pass 4: Migrate High-Value Pages
+These pages matter most because they are where users find shareable artifacts, bot context, and the strongest HGB product value.
+
+### Pass 4: Leaderboard And Tool Cleanup
 
 1. Skaters
 2. Goalies
-3. Player detail
-4. Goalie detail
-5. Game page
-6. Team pages
+3. Team stats
+4. Lines
+5. WOWY
+6. Impact
+7. Records
+8. Series
+9. Explore / EDGE Compare
 
-### Pass 5: Add Signature Features
+### Pass 5: Add New Artifact/Product Bets
 
 Use `docs/codex-feature-ideas.md` as the feature backlog. Start with:
 
 1. Trade / Signing Instant Dossier
 2. Game Turning Points Timeline
-3. Receipt Cards
-4. Daily Bot Court
-5. Player Archetype Badges
+3. Player Archetype Badges
+4. Team-vs-Opponent Artifacts
+5. Daily insight prompts, renamed before shipping if used
 
 These should plug into the system rather than create new isolated page patterns.
