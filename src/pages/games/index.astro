@@ -969,7 +969,10 @@ table.lc tbody tr:hover { background: var(--ink-04); }
     const ctx = document.getElementById('mast-context');
     if (ctx) {
       const gt = boxscore.gameType;
-      ctx.textContent = gt === 3 ? '2026 Stanley Cup Playoffs' : gt === 1 ? '2025-26 Preseason' : '2025-26 Regular Season';
+      // Derive season label from game_id prefix (first 4 digits = season start year)
+      const _yr = gameId ? parseInt(String(gameId).slice(0, 4), 10) : new Date().getFullYear();
+      const _szn = `${_yr}-${String(_yr + 1).slice(2)}`;
+      ctx.textContent = gt === 3 ? `${_yr + 1} Stanley Cup Playoffs` : gt === 1 ? `${_szn} Preseason` : `${_szn} Regular Season`;
     }
 
     document.getElementById('away-logo').src = logoUrl(awayAbbr);
@@ -1072,13 +1075,30 @@ table.lc tbody tr:hover { background: var(--ink-04); }
   };
 
   async function renderPregame(boxscore, gameId) {
-    // Try live pregame endpoint; fall back to mock
+    // Try live pregame endpoint; show unavailable state if it fails
     let pg = null;
     try {
       const r = await fetch(`${HGB_API}/v1/games/${gameId}/pregame`);
       if (r.ok) pg = await r.json();
     } catch (_) {}
-    if (!pg) pg = _MOCK_PREGAME;
+    if (!pg) {
+      // Build a minimal stub from boxscore so teams/colors are real
+      const awayTeam = boxscore.awayTeam || {};
+      const homeTeam = boxscore.homeTeam || {};
+      pg = {
+        state: 'pregame',
+        _unavailable: true,
+        matchup: {
+          away: { abbrev: awayTeam.abbrev || 'AWY', name: awayTeam.name?.default || '', primary_color: null, record: null },
+          home: { abbrev: homeTeam.abbrev || 'HME', name: homeTeam.name?.default || '', primary_color: null, record: null },
+        },
+        game_info: {
+          start_time_utc: boxscore.startTimeUTC || null,
+          venue: boxscore.venue?.default || '',
+          broadcasts: { national: [], away_local: [], home_local: [] },
+        },
+      };
+    }
 
     const away = pg.matchup?.away || {};
     const home = pg.matchup?.home || {};
@@ -1136,6 +1156,20 @@ table.lc tbody tr:hover { background: var(--ink-04); }
     if (sogEl && chips.length) {
       sogEl.innerHTML = chips.join('');
       sogEl.style.cssText += ';display:flex;gap:6px;flex-wrap:wrap;align-items:center';
+    }
+
+    // ── Unavailable notice ───────────────────────────────────────────────
+    if (pg._unavailable) {
+      const notice = document.getElementById('pg-matchup-body');
+      if (notice) {
+        notice.innerHTML = '<p style="font-family:var(--mono);font-size:12px;color:var(--ink-48);letter-spacing:0.04em;padding:16px 0">Pregame data unavailable. Check back closer to puck drop.</p>';
+      }
+      document.getElementById('pg-stats-body')?.closest('.pg-section') &&
+        (document.getElementById('pg-stats-body').closest('.pg-section').style.display = 'none');
+      document.getElementById('pg-goalies-body')?.closest('.pg-section') &&
+        (document.getElementById('pg-goalies-body').closest('.pg-section').style.display = 'none');
+      document.getElementById('pg-milestones-body')?.closest('.pg-section') &&
+        (document.getElementById('pg-milestones-body').closest('.pg-section').style.display = 'none');
     }
 
     // ── Section 1: Matchup context ───────────────────────────────────────
@@ -2661,6 +2695,12 @@ table.lc tbody tr:hover { background: var(--ink-04); }
     const section = document.getElementById('section-onice');
     const content = document.getElementById('onice-content');
     const meta    = document.getElementById('onice-meta');
+    if (data === null) {
+      // Fetch failed — show unavailable rather than silently hiding
+      section.style.display = '';
+      if (content) content.innerHTML = '<p style="font-family:var(--mono);font-size:12px;color:var(--ink-48);letter-spacing:0.04em;padding:16px 0">On-ice data unavailable for this game.</p>';
+      return;
+    }
     if (!data?.on_ice?.players?.length) { section.style.display = 'none'; return; }
 
     const d = data.on_ice;
@@ -3012,15 +3052,16 @@ table.lc tbody tr:hover { background: var(--ink-04); }
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
       renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
 
-      // Wire up xG situation toggle (ChipGroup emits chip:changed)
+      // Wire up xG situation toggle (ChipGroup emits chip:changed).
+      // Remove the previous handler before adding a new one to prevent stacking
+      // on live-game re-renders (renderGame is called on every refresh interval).
       let xgCurrentSit = '5v5';
-
-      document.addEventListener('chip:changed', (e) => {
+      if (renderGame._xgChipHandler) {
+        document.removeEventListener('chip:changed', renderGame._xgChipHandler);
+      }
+      renderGame._xgChipHandler = (e) => {
         if (e.detail.name !== 'xg-sit') return;
-
         xgCurrentSit = e.detail.value;
-
-        // Update meta text
         const meta = document.getElementById('chart-section-meta');
         if (meta) {
           const isLive = state === 'live';
@@ -3028,10 +3069,9 @@ table.lc tbody tr:hover { background: var(--ink-04); }
             ? (isLive ? '5v5 · HGB xG model · live' : '5v5 · HGB xG model')
             : (isLive ? 'All Sit · HGB xG model · live' : 'All Sit · HGB xG model');
         }
-
-        // Re-render chart with new filter
         renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, xgCurrentSit);
-      });
+      };
+      document.addEventListener('chip:changed', renderGame._xgChipHandler);
 
       // Wire up chart download buttons
       document.querySelectorAll('.chart-dl-btn[data-chart]').forEach(btn => {
