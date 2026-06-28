@@ -1,0 +1,764 @@
+---
+// /admin/player-compare — HGB Admin: Player RAPM Compare Card
+// Generates a side-by-side Season Card left panel for two skaters.
+// Auth: same client-side whoami pattern as generator.astro / insights.astro.
+// Future: move to /stats/player-compare and drop the auth gate to go public.
+import Nav from '../../components/Nav.astro';
+import ThemeScript from '../../components/ThemeScript.astro';
+import Fonts from '../../components/Fonts.astro';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <ThemeScript />
+  <Fonts />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Player Compare · HGB Admin</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style is:global>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #EFEEE8; --surface: #FFFFFF; --ink: #0d0d14; --red: #E8002D;
+      --ink-06: rgba(13,13,20,0.06); --ink-10: rgba(13,13,20,0.10);
+      --ink-14: rgba(13,13,20,0.14); --ink-20: rgba(13,13,20,0.20);
+      --ink-32: rgba(13,13,20,0.32); --ink-48: rgba(13,13,20,0.48);
+      --display: "Barlow Condensed", sans-serif;
+      --body: "Barlow", sans-serif;
+      --mono: "JetBrains Mono", monospace;
+    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+
+    .admin-mast { border-bottom: 2px solid var(--ink); background: var(--bg); }
+    .admin-mast-inner { max-width: 1200px; margin: 0 auto; padding: 20px 32px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .admin-eyebrow { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--red); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .admin-pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+    .admin-title { font-family: var(--display); font-weight: 800; font-size: clamp(24px, 3vw, 36px); text-transform: uppercase; letter-spacing: -0.005em; }
+    .admin-user { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+
+    .page-body { max-width: 1200px; margin: 0 auto; padding: 28px 32px 80px; }
+
+    .auth-state { text-align: center; padding: 80px 32px; }
+    .auth-state-label { font-family: var(--display); font-weight: 700; font-size: 20px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }
+    .auth-state-sub { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; margin-bottom: 20px; }
+    .auth-btn { font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; padding: 10px 24px; background: var(--ink); color: var(--bg); border: none; cursor: pointer; text-decoration: none; display: inline-block; }
+
+    /* ── Compare UI ── */
+    .compare-ui { display: flex; flex-direction: column; gap: 24px; }
+    .picker-row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: start; }
+    .vs-divider { font-family: var(--display); font-weight: 900; font-size: 28px; letter-spacing: 0.04em; color: var(--ink-32); padding-top: 32px; text-align: center; }
+    .picker-col { display: flex; flex-direction: column; gap: 10px; }
+    .picker-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-32); }
+    .picker-input-wrap { position: relative; }
+    .picker-input {
+      width: 100%; padding: 10px 14px; font-family: var(--mono); font-size: 13px;
+      background: var(--surface); border: 1.5px solid var(--ink-14); color: var(--ink);
+      outline: none; letter-spacing: 0.03em;
+    }
+    .picker-input:focus { border-color: var(--ink); }
+    .picker-dropdown {
+      position: absolute; top: 100%; left: 0; right: 0; z-index: 100;
+      background: var(--surface); border: 1.5px solid var(--ink); border-top: none;
+      max-height: 240px; overflow-y: auto; display: none;
+    }
+    .picker-dropdown.open { display: block; }
+    .picker-option {
+      padding: 9px 14px; cursor: pointer; display: flex; align-items: baseline; gap: 10px;
+      border-bottom: 1px solid var(--ink-06);
+    }
+    .picker-option:hover { background: var(--bg); }
+    .picker-opt-name { font-family: var(--display); font-weight: 700; font-size: 15px; text-transform: uppercase; }
+    .picker-opt-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-32); letter-spacing: 0.06em; }
+    .picker-opt-pct { font-family: var(--display); font-weight: 800; font-size: 14px; margin-left: auto; color: #137333; }
+    .selected-badge {
+      padding: 10px 14px; background: var(--bg); border: 1.5px solid var(--ink-14);
+      display: none; gap: 10px; align-items: center;
+    }
+    .selected-badge.visible { display: flex; }
+    .sel-name { font-family: var(--display); font-weight: 800; font-size: 16px; text-transform: uppercase; }
+    .sel-meta { font-family: var(--mono); font-size: 10px; color: var(--ink-48); letter-spacing: 0.06em; }
+    .sel-clear { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--red); cursor: pointer; letter-spacing: 0.04em; }
+    .sel-color-bar { width: 4px; height: 36px; border-radius: 2px; flex-shrink: 0; }
+
+    .controls { display: flex; align-items: center; gap: 16px; }
+    .gen-btn {
+      font-family: var(--display); font-weight: 800; font-size: 14px; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 12px 32px; background: var(--ink); color: var(--bg);
+      border: none; cursor: pointer; transition: opacity 0.15s;
+    }
+    .gen-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .gen-status { font-family: var(--mono); font-size: 11px; color: var(--ink-32); letter-spacing: 0.04em; }
+
+    .preview-area { display: none; flex-direction: column; gap: 16px; }
+    .preview-area.visible { display: flex; }
+    .preview-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-32); }
+    .preview-scroll { overflow-x: auto; }
+    #preview-canvas { display: block; max-width: 100%; height: auto; border: 1px solid var(--ink-14); }
+    .preview-actions { display: flex; gap: 10px; }
+    .dl-btn {
+      font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 10px 24px; background: var(--ink); color: var(--bg);
+      border: none; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<Nav currentPath="/admin/player-compare" />
+
+<div class="admin-mast">
+  <div class="admin-mast-inner">
+    <div>
+      <div class="admin-eyebrow"><span class="admin-pip"></span>HGB Admin · Player Compare</div>
+      <h1 class="admin-title">Compare Card</h1>
+    </div>
+    <div class="admin-user" id="admin-user-display"></div>
+  </div>
+</div>
+
+<div class="page-body">
+
+  <div id="state-loading" class="auth-state">
+    <div class="auth-state-label">Checking authorization…</div>
+    <div class="auth-state-sub">Verifying admin session</div>
+  </div>
+  <div id="state-unauthed" class="auth-state" style="display:none">
+    <div class="auth-state-label">Sign in required</div>
+    <div class="auth-state-sub">You need an active session to access admin tools.</div>
+    <a href="/account" class="auth-btn">Sign in →</a>
+  </div>
+  <div id="state-forbidden" class="auth-state" style="display:none">
+    <div class="auth-state-label">Admin access required</div>
+    <div class="auth-state-sub">Your account does not have admin privileges.</div>
+  </div>
+  <div id="state-error" class="auth-state" style="display:none">
+    <div class="auth-state-label">Something went wrong</div>
+    <div class="auth-state-sub" id="error-msg"></div>
+  </div>
+
+  <!-- Main UI — shown after auth confirmed -->
+  <div id="compare-ui" class="compare-ui" style="display:none">
+
+    <div class="picker-row">
+      <!-- Player 1 -->
+      <div class="picker-col">
+        <div class="picker-label">Player 1</div>
+        <div class="picker-input-wrap">
+          <input id="search-1" class="picker-input" type="text" placeholder="Search by name…" autocomplete="off" />
+          <div id="dropdown-1" class="picker-dropdown"></div>
+        </div>
+        <div id="selected-1" class="selected-badge">
+          <div class="sel-color-bar" id="sel-bar-1"></div>
+          <div>
+            <div class="sel-name" id="sel-name-1"></div>
+            <div class="sel-meta" id="sel-meta-1"></div>
+          </div>
+          <div class="sel-clear" id="sel-clear-1">✕ clear</div>
+        </div>
+      </div>
+
+      <div class="vs-divider">VS</div>
+
+      <!-- Player 2 -->
+      <div class="picker-col">
+        <div class="picker-label">Player 2</div>
+        <div class="picker-input-wrap">
+          <input id="search-2" class="picker-input" type="text" placeholder="Search by name…" autocomplete="off" />
+          <div id="dropdown-2" class="picker-dropdown"></div>
+        </div>
+        <div id="selected-2" class="selected-badge">
+          <div class="sel-color-bar" id="sel-bar-2"></div>
+          <div>
+            <div class="sel-name" id="sel-name-2"></div>
+            <div class="sel-meta" id="sel-meta-2"></div>
+          </div>
+          <div class="sel-clear" id="sel-clear-2">✕ clear</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="gen-btn" class="gen-btn" disabled>Generate Compare Card</button>
+      <div class="gen-status" id="gen-status"></div>
+    </div>
+
+    <div id="preview-area" class="preview-area">
+      <div class="preview-label">Preview</div>
+      <div class="preview-scroll">
+        <canvas id="preview-canvas"></canvas>
+      </div>
+      <div class="preview-actions">
+        <button id="dl-btn" class="dl-btn">↓ Download PNG</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script is:inline>
+  const API = 'https://api.hockeygamebot.com';
+  const SESSION_KEY = 'hgb_session';
+  const DEV_BYPASS = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+  // ── Color constants (mirrors slug.astro canvas constants) ─────────────────
+  const INK     = '#0D0D14';
+  const RED     = '#E8002D';
+  const INK32   = 'rgba(13,13,20,0.32)';
+  const INK14   = 'rgba(13,13,20,0.14)';
+  const INK10   = 'rgba(13,13,20,0.10)';
+  const INK06   = 'rgba(13,13,20,0.06)';
+  const FOOT_INK = 'rgba(13,13,20,0.55)';
+  const BG_COLOR  = '#EFEEE8';
+  const SURFACE   = '#FFFFFF';
+
+  // Team color map — synced with team-colors.ts
+  const TC = {
+    ANA:'#F47A38', BOS:'#FFB81C', BUF:'#FDBB30', CAR:'#CC0000', CBJ:'#CE1126',
+    CGY:'#C8102E', CHI:'#CF0A2C', COL:'#6F263D', DAL:'#006847', DET:'#CE1126',
+    EDM:'#FF4C00', FLA:'#C8102E', LAK:'#A2AAAD', MIN:'#154734', MTL:'#AF1E2D',
+    NSH:'#FFB81C', NJD:'#CE1126', NYI:'#00539B', NYR:'#0038A8', OTT:'#DA1A32',
+    PHI:'#FA4616', PIT:'#FCB514', SEA:'#99D9D9', SJS:'#006D75', STL:'#002F87',
+    TBL:'#00205B', TOR:'#00205B', UTA:'#71AFE5', VAN:'#00205B', VGK:'#B4975A',
+    WSH:'#C8102E', WPG:'#004C97',
+  };
+  function pickTeamColor(abbrev) { return TC[abbrev] || INK; }
+
+  const TEAM_NAMES = {
+    ANA:'ANAHEIM DUCKS', BOS:'BOSTON BRUINS', BUF:'BUFFALO SABRES', CAR:'CAROLINA HURRICANES',
+    CBJ:'COLUMBUS BLUE JACKETS', CGY:'CALGARY FLAMES', CHI:'CHICAGO BLACKHAWKS', COL:'COLORADO AVALANCHE',
+    DAL:'DALLAS STARS', DET:'DETROIT RED WINGS', EDM:'EDMONTON OILERS', FLA:'FLORIDA PANTHERS',
+    LAK:'LOS ANGELES KINGS', MIN:'MINNESOTA WILD', MTL:'MONTREAL CANADIENS', NSH:'NASHVILLE PREDATORS',
+    NJD:'NEW JERSEY DEVILS', NYI:'NEW YORK ISLANDERS', NYR:'NEW YORK RANGERS', OTT:'OTTAWA SENATORS',
+    PHI:'PHILADELPHIA FLYERS', PIT:'PITTSBURGH PENGUINS', SEA:'SEATTLE KRAKEN', SJS:'SAN JOSE SHARKS',
+    STL:'ST. LOUIS BLUES', TBL:'TAMPA BAY LIGHTNING', TOR:'TORONTO MAPLE LEAFS', UTA:'UTAH HOCKEY CLUB',
+    VAN:'VANCOUVER CANUCKS', VGK:'VEGAS GOLDEN KNIGHTS', WSH:'WASHINGTON CAPITALS', WPG:'WINNIPEG JETS',
+  };
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let _token = null;
+  let _players = [];
+  let _warRankF = new Map(), _warRankD = new Map(); // player_id → percentile
+  let _p1 = null, _p2 = null;
+  let _ss1 = null, _ss2 = null; // current-season entry from player-season-stats
+  let _lastCanvas = null;
+
+  // ── DOM helpers ───────────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+
+  function showState(id) {
+    ['state-loading','state-unauthed','state-forbidden','state-error','compare-ui']
+      .forEach(s => $(s).style.display = s === id ? (id === 'compare-ui' ? 'flex' : '') : 'none');
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  async function init() {
+    if (DEV_BYPASS) {
+      const u = $('admin-user-display');
+      if (u) u.textContent = '// dev@localhost';
+      await loadPlayers();
+      wireUI();
+      showState('compare-ui');
+      return;
+    }
+
+    try { _token = localStorage.getItem(SESSION_KEY); } catch(e) {}
+    if (!_token) { showState('state-unauthed'); return; }
+
+    let whoami;
+    try {
+      const r = await fetch(`${API}/v1/admin/whoami`, { headers: { Authorization: `Bearer ${_token}` } });
+      if (r.status === 401) { showState('state-unauthed'); return; }
+      if (!r.ok) throw new Error(`whoami ${r.status}`);
+      whoami = await r.json();
+    } catch(e) {
+      $('error-msg').textContent = `Auth check failed: ${e.message}`;
+      showState('state-error'); return;
+    }
+
+    if (!whoami.is_admin) { showState('state-forbidden'); return; }
+    const u = $('admin-user-display');
+    if (u && whoami.email) u.textContent = `// ${whoami.email}`;
+
+    await loadPlayers();
+    wireUI();
+    showState('compare-ui');
+  }
+
+  // ── Data loading ──────────────────────────────────────────────────────────
+  async function loadPlayers() {
+    try {
+      const r = await fetch('/data/stats/players.json');
+      _players = await r.json();
+    } catch(e) { console.error('Failed to load players.json', e); _players = []; }
+
+    // Precompute WAR percentile rank within pos_group from rapm values.
+    const withRapm = _players.filter(p => p.rapm != null);
+    const byGroup = { F: [], D: [] };
+    withRapm.forEach(p => { if (byGroup[p.pos_group]) byGroup[p.pos_group].push(p); });
+    ['F','D'].forEach(g => {
+      const sorted = byGroup[g].sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
+      sorted.forEach((p, i) => {
+        const pct = Math.round((1 - i / sorted.length) * 100);
+        (g === 'F' ? _warRankF : _warRankD).set(p.player_id, pct);
+      });
+    });
+  }
+
+  async function loadSeasonStats(playerId) {
+    try {
+      const r = await fetch(`${API}/v1/stats/player-season-stats?player_id=${playerId}`);
+      if (!r.ok) return null;
+      const data = await r.json();
+      const seasons = Array.isArray(data) ? data : (data.seasons || []);
+      // Return the most recent regular-season entry
+      return seasons.filter(s => s.game_type === 2 || s.game_type == null).slice(-1)[0] ?? null;
+    } catch(e) { return null; }
+  }
+
+  function getWarPct(p) {
+    const map = p.pos_group === 'F' ? _warRankF : _warRankD;
+    return map.get(p.player_id) ?? null;
+  }
+
+  // ── UI wiring ─────────────────────────────────────────────────────────────
+  function wireUI() {
+    wireSearch(1);
+    wireSearch(2);
+
+    $('sel-clear-1').addEventListener('click', () => clearPlayer(1));
+    $('sel-clear-2').addEventListener('click', () => clearPlayer(2));
+    $('gen-btn').addEventListener('click', generate);
+    $('dl-btn').addEventListener('click', download);
+  }
+
+  function wireSearch(n) {
+    const input = $(`search-${n}`);
+    const dropdown = $(`dropdown-${n}`);
+
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      if (q.length < 2) { dropdown.classList.remove('open'); return; }
+      const results = _players
+        .filter(p => (p.first_name + ' ' + p.last_name).toLowerCase().includes(q))
+        .sort((a, b) => (b.hgb_rating ?? 0) - (a.hgb_rating ?? 0))
+        .slice(0, 12);
+      renderDropdown(n, results);
+    });
+
+    input.addEventListener('blur', () => {
+      // Short delay so click on option fires first
+      setTimeout(() => dropdown.classList.remove('open'), 150);
+    });
+  }
+
+  function renderDropdown(n, players) {
+    const dropdown = $(`dropdown-${n}`);
+    if (!players.length) { dropdown.classList.remove('open'); return; }
+    dropdown.innerHTML = players.map(p => {
+      const tc = pickTeamColor(p.team_abbrev);
+      const pct = p.hgb_rating_percentile ?? '—';
+      return `<div class="picker-option" data-id="${p.player_id}">
+        <div class="picker-opt-name" style="color:${tc}">${p.first_name} ${p.last_name}</div>
+        <div class="picker-opt-meta">${p.team_abbrev} · ${p.pos}</div>
+        <div class="picker-opt-pct">${pct}%</div>
+      </div>`;
+    }).join('');
+    dropdown.classList.add('open');
+    dropdown.querySelectorAll('.picker-option').forEach(el => {
+      el.addEventListener('mousedown', () => {
+        const pid = parseInt(el.dataset.id);
+        const player = _players.find(p => p.player_id === pid);
+        if (player) selectPlayer(n, player);
+      });
+    });
+  }
+
+  async function selectPlayer(n, player) {
+    $(`search-${n}`).value = '';
+    $(`dropdown-${n}`).classList.remove('open');
+
+    if (n === 1) { _p1 = player; _ss1 = null; }
+    else         { _p2 = player; _ss2 = null; }
+
+    // Show badge
+    const tc = pickTeamColor(player.team_abbrev);
+    $(`sel-bar-${n}`).style.background = tc;
+    $(`sel-name-${n}`).textContent = `${player.first_name} ${player.last_name}`;
+    $(`sel-meta-${n}`).textContent = `${player.team_abbrev} · ${player.pos} · ${player.gp} GP · Talent ${player.hgb_rating_percentile ?? '—'}%`;
+    $(`selected-${n}`).classList.add('visible');
+
+    // Fetch season stats in background
+    const ss = await loadSeasonStats(player.player_id);
+    if (n === 1) _ss1 = ss;
+    else         _ss2 = ss;
+
+    updateGenBtn();
+  }
+
+  function clearPlayer(n) {
+    if (n === 1) { _p1 = null; _ss1 = null; }
+    else         { _p2 = null; _ss2 = null; }
+    $(`selected-${n}`).classList.remove('visible');
+    $(`search-${n}`).value = '';
+    updateGenBtn();
+  }
+
+  function updateGenBtn() {
+    $('gen-btn').disabled = !(_p1 && _p2);
+  }
+
+  // ── Card generation ───────────────────────────────────────────────────────
+  async function generate() {
+    if (!_p1 || !_p2) return;
+    $('gen-status').textContent = 'Rendering…';
+    $('gen-btn').disabled = true;
+
+    try {
+      const canvas = await drawCompareCard(_p1, _p2, _ss1, _ss2);
+      _lastCanvas = canvas;
+
+      // Show preview
+      const preview = $('preview-canvas');
+      preview.width  = canvas.width;
+      preview.height = canvas.height;
+      const pctx = preview.getContext('2d');
+      pctx.drawImage(canvas, 0, 0);
+      $('preview-area').classList.add('visible');
+      $('gen-status').textContent = 'Done.';
+    } catch(e) {
+      console.error(e);
+      $('gen-status').textContent = `Error: ${e.message}`;
+    }
+
+    $('gen-btn').disabled = false;
+  }
+
+  function download() {
+    if (!_lastCanvas) return;
+    const slug1 = (_p1.first_name + '-' + _p1.last_name).toLowerCase().replace(/\s+/g, '-');
+    const slug2 = (_p2.first_name + '-' + _p2.last_name).toLowerCase().replace(/\s+/g, '-');
+    _lastCanvas.toBlob(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `hgb-compare-${slug1}-vs-${slug2}.png`;
+      a.click();
+    }, 'image/png');
+  }
+
+  // ── Canvas helpers ────────────────────────────────────────────────────────
+  function rrect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') { ctx.roundRect(x, y, w, h, r); }
+    else {
+      ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+      ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+      ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+      ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+    }
+  }
+
+  function loadImg(src) {
+    return new Promise(res => {
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = () => res(img); img.onerror = () => res(null);
+      img.src = src;
+    });
+  }
+
+  function fmtToi(sec) {
+    if (sec == null) return '—';
+    return Math.floor(sec/60) + ':' + String(Math.round(sec%60)).padStart(2,'0');
+  }
+
+  function barFillS(v, kind) {
+    if (kind === 'context') return '#4285f4';
+    if (v == null) return 'rgba(13,13,20,0.20)';
+    if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+    if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373';
+    return '#E8002D';
+  }
+
+  function pctColorS(v, kind) {
+    if (kind === 'context') return '#4285f4';
+    if (v == null) return 'rgba(13,13,20,0.35)';
+    if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+    if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
+    return '#E8002D';
+  }
+
+  // ── drawPlayerPanel — exact Season Card left panel, translated by offsetX ─
+  async function drawPlayerPanel(ctx, offsetX, panelW, p, ss, season, TEAM_C) {
+    const PAD = 24;
+    const HDR_H = 52, CHIP_H = 34;
+    const ID_H = 122, COUNTS_H_S = 68, BAR_ROW_H = 29, BAR_ROWS = 11;
+    const BAR_H_PX = 13, BAR_LABEL_W = 108, BAR_RANK_W = 40;
+    const BAR_AVAIL = panelW - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
+
+    const warPct   = ss?.war_pct   ?? getWarPct(p);
+    const impactPct = Math.round(p.percentiles_vs_pos?.game_score ?? 0);
+    const pct = p.percentiles_vs_pos ?? {};
+
+    // Resolve RAPM bar values: prefer season stats (rapm_off/def_pct), fall back to on-ice pct
+    function sp(currentVal, ssKey) {
+      if (ss && ss[ssKey] != null) return ss[ssKey];
+      return currentVal ?? null;
+    }
+
+    let y = HDR_H + CHIP_H + 6;
+
+    // Headshot circle
+    const R = 36, HS_CX = offsetX + PAD + R, HS_CY = y + ID_H / 2;
+    const headshotUrl = `${API}/v1/proxy/headshot/${p.team_abbrev}/${p.player_id}`;
+    const hsImg = await loadImg(headshotUrl);
+    ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+    if (hsImg) ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
+    else { ctx.fillStyle = INK10; ctx.fill(); }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+    ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+    // WAR + Impact hero tiles
+    const heroX = HS_CX + R + 18;
+    const heroW = (panelW - (heroX - offsetX) - PAD) / 2;
+    const heroTiles = [
+      { label: 'HGB WAR · ' + season,    pct: warPct   != null ? Math.round(warPct)    : null },
+      { label: 'HGB IMPACT · ' + season, pct: impactPct != null ? impactPct : null },
+    ];
+    for (let i = 0; i < heroTiles.length; i++) {
+      const t = heroTiles[i];
+      const tcx = heroX + i * heroW + heroW / 2;
+      if (i > 0) { ctx.fillStyle = INK10; ctx.fillRect(heroX + i * heroW, y + 18, 1, ID_H - 36); }
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+      ctx.fillText(t.label, tcx, y + 18);
+      ctx.font = '900 58px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = t.pct != null ? TEAM_C : INK32;
+      ctx.fillText(t.pct != null ? t.pct + '%' : '—', tcx, y + 34);
+    }
+    y += ID_H;
+
+    // Counting stats strip
+    ctx.fillStyle = SURFACE; ctx.fillRect(offsetX + 4, y, panelW - 4, COUNTS_H_S);
+    const cG   = p.goals   ?? null;
+    const cA   = p.assists ?? null;
+    const cP   = (cG != null && cA != null) ? cG + cA : null;
+    const cToi = p.toi_avg_sec ?? null;
+    const countCols = [
+      { label: 'GOALS',   val: cG  != null ? String(cG)  : '—', color: cG  != null ? INK   : INK32 },
+      { label: 'ASSISTS', val: cA  != null ? String(cA)  : '—', color: cA  != null ? INK   : INK32 },
+      { label: 'POINTS',  val: cP  != null ? String(cP)  : '—', color: cP  != null ? TEAM_C : INK32 },
+      { label: 'GP',      val: String(p.gp ?? '—'),              color: INK },
+      { label: 'TOI/GP',  val: fmtToi(cToi),                     color: cToi != null ? INK  : INK32 },
+    ];
+    const cColW = (panelW - PAD * 2) / countCols.length;
+    for (let ci = 0; ci < countCols.length; ci++) {
+      const cc = countCols[ci];
+      const ccx = offsetX + PAD + ci * cColW + cColW / 2;
+      if (ci > 0) { ctx.fillStyle = INK06; ctx.fillRect(offsetX + PAD + ci * cColW, y + 10, 1, COUNTS_H_S - 20); }
+      ctx.font = '800 32px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = cc.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText(cc.val, ccx, y + COUNTS_H_S / 2 - 8);
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
+      ctx.fillText(cc.label, ccx, y + COUNTS_H_S / 2 + 16);
+    }
+    y += COUNTS_H_S;
+
+    // Separator + section header
+    ctx.fillStyle = INK14; ctx.fillRect(offsetX, y, panelW, 1); y += 1 + 20;
+    const isF = p.pos_group === 'F';
+    ctx.font = '700 10px "JetBrains Mono", monospace';
+    ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillText('SINGLE SEASON', offsetX + PAD, y);
+    const ssW = ctx.measureText('SINGLE SEASON').width;
+    ctx.fillStyle = RED;
+    ctx.fillText('  ' + (isF ? 'VS. FORWARDS' : 'VS. DEFENSEMEN'), offsetX + PAD + ssW, y);
+    y += 12;
+
+    // RAPM bars
+    const bars = [
+      { label: 'EV Offense',       val: sp(pct.ev_offence,  'rapm_off_pct'),     kind: 'performance' },
+      { label: 'EV Defense',       val: sp(pct.ev_defence,  'rapm_def_pct'),     kind: 'performance' },
+      { label: 'Goals / 60',       val: sp(pct.goals,       'goals_pct'),        kind: 'performance' },
+      { label: 'A1 / 60',          val: sp(pct.a1,          'a1_pct'),           kind: 'performance' },
+      { label: 'xG / 60',          val: sp(pct.ixg,         'ixg_pct'),          kind: 'performance' },
+      { label: 'Pen Diff',         val: sp(pct.pen_diff,    'pen_diff_pct'),     kind: 'performance' },
+      { label: 'Power Play',       val: sp(pct.pp_off??null, 'rapm_pp_pct'),     kind: 'performance' },
+      { label: 'Penalty Kill',     val: sp(pct.pk_def??null, 'rapm_pk_pct'),     kind: 'performance' },
+      { label: 'Finishing',        val: sp(pct.finishing,   'rapm_finishing_pct'), kind: 'context'  },
+      { label: 'Opponent Quality', val: sp(p.qoc??null,     'qoc_pct'),          kind: 'context'    },
+      { label: 'Teammate Quality', val: sp(p.qot??null,     'qot_pct'),          kind: 'context'    },
+    ];
+
+    for (let bi = 0; bi < bars.length; bi++) {
+      const b = bars[bi];
+      const rowY = y + bi * BAR_ROW_H;
+      const bby  = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
+      const bx   = offsetX + PAD + BAR_LABEL_W;
+
+      ctx.font = '600 11px "Barlow", sans-serif';
+      ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(b.label, offsetX + PAD, rowY + BAR_ROW_H / 2);
+
+      rrect(ctx, bx, bby, BAR_AVAIL, BAR_H_PX, 3); ctx.fillStyle = INK10; ctx.fill();
+      if (b.val != null) {
+        rrect(ctx, bx, bby, Math.max(6, (b.val / 100) * BAR_AVAIL), BAR_H_PX, 3);
+        ctx.fillStyle = barFillS(b.val, b.kind); ctx.fill();
+      }
+
+      ctx.font = '800 15px "Barlow Condensed", sans-serif';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorS(b.val, b.kind);
+      ctx.fillText(
+        b.val == null ? '—' : Math.round(b.val) + '%',
+        offsetX + panelW - PAD,
+        rowY + BAR_ROW_H / 2
+      );
+    }
+  }
+
+  // ── drawCompareCard — two player panels side by side ──────────────────────
+  async function drawCompareCard(p1, p2, ss1, ss2) {
+    const SCALE = 2;
+    const L_W = 520, R_W = 520, W = L_W + R_W;
+    const PAD = 24;
+
+    // Load season from _meta if available
+    let season = '2025-26';
+    try {
+      const mr = await fetch('/data/stats/_meta.json');
+      const meta = await mr.json();
+      if (meta.season) season = meta.season;
+    } catch(e) {}
+
+    const HDR_H = 52, CHIP_H = 34;
+    const ID_H = 122, BAR_ROW_H = 29, BAR_ROWS = 11;
+    const COUNTS_H_S = 68;
+    const L_CONTENT_H = 6 + ID_H + COUNTS_H_S + 1 + 20 + 12 + BAR_ROWS * BAR_ROW_H + 12;
+    const FOOT_H = 36;
+    const H = HDR_H + CHIP_H + L_CONTENT_H + FOOT_H;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W * SCALE; canvas.height = H * SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+
+    const TEAM_C1 = pickTeamColor(p1.team_abbrev);
+    const TEAM_C2 = pickTeamColor(p2.team_abbrev);
+
+    // Background
+    ctx.fillStyle = BG_COLOR; ctx.fillRect(0, 0, W, H);
+
+    // Accent bars: P1 team color left edge, P2 team color right edge
+    ctx.fillStyle = TEAM_C1; ctx.fillRect(0, 0, 4, H);
+    ctx.fillStyle = TEAM_C2; ctx.fillRect(W - 4, 0, 4, H);
+
+    // Header white band
+    ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, HDR_H + CHIP_H);
+    ctx.fillStyle = INK14; ctx.fillRect(0, HDR_H + CHIP_H - 1, W, 1);
+
+    // P1 name — left-aligned in left half
+    ctx.font = '800 24px "Barlow Condensed", sans-serif';
+    ctx.fillStyle = INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText((p1.first_name + ' ' + p1.last_name).toUpperCase(), PAD, HDR_H / 2);
+
+    // P2 name — left-aligned in right half (starts after divider)
+    ctx.fillText((p2.first_name + ' ' + p2.last_name).toUpperCase(), L_W + PAD, HDR_H / 2);
+
+    // "VS" at panel divide
+    ctx.font = '700 9px "JetBrains Mono", monospace';
+    ctx.fillStyle = INK32; ctx.textAlign = 'center';
+    ctx.fillText('VS', L_W, HDR_H / 2);
+
+    // Card type label — top right
+    ctx.font = '700 10px "JetBrains Mono", monospace';
+    ctx.fillStyle = TEAM_C2; ctx.textAlign = 'right';
+    ctx.fillText('COMPARE CARD · ' + season, W - PAD, HDR_H / 2);
+
+    // ── Chip rows ────────────────────────────────────────────────────────────
+    const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
+    ctx.font = '700 9px "Barlow Condensed", sans-serif';
+
+    function drawChipRow(player, teamC, startX, maxX, includeBrand) {
+      const sznYr = season ? parseInt(season.slice(0, 4)) : null;
+      const sznAge = (player.birth_date && sznYr)
+        ? Math.floor((new Date(sznYr, 9, 1) - new Date(player.birth_date)) / (365.25 * 24 * 3.6e6))
+        : null;
+      const numChip   = player.sweater_number != null ? [`#${player.sweater_number}`] : [];
+      const scChip    = player.shoots_catches ? [`SHOOTS: ${player.shoots_catches}`] : [];
+      const chips     = [...numChip, (TEAM_NAMES[player.team_abbrev] || player.team_abbrev), player.pos.toUpperCase(), season, ...(sznAge != null ? [`AGE: ${sznAge}`] : []), ...scChip];
+      const tcCount   = 1 + numChip.length; // first N chips get team color bg
+
+      let cx = startX;
+      for (let ci = 0; ci < chips.length; ci++) {
+        const cw = ctx.measureText(chips[ci]).width + 18;
+        if (cx + cw > maxX - (includeBrand ? 130 : 0)) break; // guard overflow
+        rrect(ctx, cx, chipY0, cw, chipH, 3);
+        ctx.fillStyle = ci < tcCount ? teamC : INK; ctx.fill();
+        ctx.fillStyle = BG_COLOR; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
+        cx += cw + 8;
+      }
+
+      if (includeBrand) {
+        const brand = 'HOCKEYGAMEBOT';
+        const bcw = ctx.measureText(brand).width + 18;
+        rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
+        ctx.fillStyle = RED; ctx.fill();
+        ctx.fillStyle = BG_COLOR; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
+      }
+    }
+
+    drawChipRow(p1, TEAM_C1, PAD,       L_W,   false);
+    drawChipRow(p2, TEAM_C2, L_W + PAD, W,     true);
+
+    // Panel divider — full height
+    ctx.fillStyle = INK14; ctx.fillRect(L_W, 0, 1, H);
+
+    // ── Both player panels ────────────────────────────────────────────────────
+    await drawPlayerPanel(ctx, 0,   L_W, p1, ss1, season, TEAM_C1);
+    await drawPlayerPanel(ctx, L_W, R_W, p2, ss2, season, TEAM_C2);
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+    ctx.fillStyle = INK10; ctx.fillRect(0, H - FOOT_H, W, FOOT_H);
+
+    const isF1 = p1.pos_group === 'F', isF2 = p2.pos_group === 'F';
+    const posLabel1 = isF1 ? 'Forwards' : 'Defensemen';
+    const posLabel2 = isF2 ? 'Forwards' : 'Defensemen';
+    let footText, footRedText;
+    if (posLabel1 === posLabel2) {
+      footText    = 'WAR = single-season · percentile ';
+      footRedText = `vs ${posLabel1}`;
+      const footPost = ` · HOCKEYGAMEBOT.COM · ${season}`;
+      ctx.font = '700 11px "Barlow Condensed", sans-serif';
+      ctx.textBaseline = 'middle';
+      const w1 = ctx.measureText(footText).width;
+      const w2 = ctx.measureText(footRedText).width;
+      const w3 = ctx.measureText(footPost).width;
+      let fx = (W - (w1 + w2 + w3)) / 2;
+      const fy = H - FOOT_H / 2;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = FOOT_INK; ctx.fillText(footText, fx, fy); fx += w1;
+      ctx.fillStyle = RED;      ctx.fillText(footRedText, fx, fy); fx += w2;
+      ctx.fillStyle = FOOT_INK; ctx.fillText(footPost, fx, fy);
+    } else {
+      // Mixed positions — simpler footer
+      const footFull = `WAR = single-season · ${p1.last_name} vs ${posLabel1} · ${p2.last_name} vs ${posLabel2} · HOCKEYGAMEBOT.COM · ${season}`;
+      ctx.font = '700 10px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = FOOT_INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText(footFull, W / 2, H - FOOT_H / 2);
+    }
+
+    return canvas;
+  }
+
+  init();
+</script>
+
+</body>
+</html>
