@@ -300,21 +300,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         },
       },
       {
-        id: 'hgb_rating_pct',
-        header: 'Talent Pct',
-        size: 90,
-        accessorFn: (r) => (r as any).hgb_rating_pct ?? -1,
-        cell: (info) => {
-          const v = (info.row.original as any).hgb_rating_pct;
-          const color = rapmPctColor(v);
-          return (
-            <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
-              {v == null ? '—' : `${Math.round(Number(v))}`}
-            </span>
-          );
-        },
-      },
-      {
         id: 'war_pct',
         header: 'WAR Pct',
         size: 90,
@@ -324,7 +309,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           const color = rapmPctColor(v);
           return (
             <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
-              {v == null ? '—' : `${Math.round(Number(v))}`}
+              {v == null ? '—' : `${Math.round(Number(v))}%`}
             </span>
           );
         },
@@ -339,7 +324,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           const color = rapmPctColor(v);
           return (
             <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
-              {v == null ? '—' : `${Math.round(Number(v))}`}
+              {v == null ? '—' : `${Math.round(Number(v))}%`}
             </span>
           );
         },
@@ -533,7 +518,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       { label: 'TOI/GP',  key: 'toi_gp',         width: 78,  align: 'center', ...mark('toi_gp') },
       { label: 'GF%',     key: 'gf_pct',         width: 74,  align: 'center', format: oneFmt, color: pctColor, ...mark('gf_pct') },
       { label: 'xGF%',    key: 'xgf_pct',        width: 74,  align: 'center', format: oneFmt, color: pctColor, ...mark('xgf_pct') },
-      { label: 'Talent%', key: 'hgb_rating_pct', width: 80,  align: 'center', format: pctFmt, color: rankColor, ...mark('hgb_rating_pct') },
       { label: 'WAR%',    key: 'war_pct',        width: 74,  align: 'center', format: pctFmt, color: rankColor, ...mark('war_pct') },
       { label: 'Impact%', key: 'impact_pct',     width: 80,  align: 'center', format: pctFmt, color: rankColor, ...mark('impact_pct') },
     ];
@@ -757,7 +741,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       >
         {isPlayoffs
           ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP is 5v5 only</>
-          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />TALENT % = Blended Multi-Year WAR · WAR % = Single-Season WAR · IMPACT % = HGB Impact avg</>}
+          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />WAR % = Single-Season WAR · IMPACT % = HGB Impact avg</>}
       </p>
     </div>
   );
