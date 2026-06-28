@@ -28,6 +28,10 @@ export type CareerSeason = {
   team?: string;
   gp?: number;
   toi_5v5_sec?: number;
+  gf_5v5?: number;
+  ga_5v5?: number;
+  xgf_5v5?: number;
+  xga_5v5?: number;
   gf_pct?: number | null;
   xgf_pct?: number | null;
   // Enriched from player_season_stats — may be null until pipeline delivers
@@ -532,15 +536,23 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
     });
   }
 
-  // Career row aggregates — GP and TOI/GP are exact sums. GF%/xGF% show "—" because
-  // career seasons only expose the pre-computed percentage, not raw GF/GA or xGF/xGA
-  // totals. Showing a TOI-weighted average would look like an exact career stat when
-  // it is only an approximation.
-  // TODO(pipeline): expose raw 5v5 GF, GA, xGF, xGA per career season so Career row
-  //   can show exact GF% = sum(GF) / sum(GF+GA) and xGF% = sum(xGF) / sum(xGF+xGA).
+  // Career row aggregates — GP and TOI/GP are exact. GF%/xGF% are exact when raw
+  // totals (gf_5v5/ga_5v5/xgf_5v5/xga_5v5) are present in the pipeline output;
+  // fall back to "—" for older cached data that predates those fields.
   const careerGP = rows.reduce((s, r) => s + (r.gp ?? 0), 0);
   const careerToiSec = rows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
   const careerToiGP = careerGP > 0 ? fmtToi5v5(careerToiSec, careerGP) : '—';
+
+  const hasRawGF  = rows.some(r => r.gf_5v5 != null);
+  const hasRawXGF = rows.some(r => r.xgf_5v5 != null);
+  const careerGF  = hasRawGF  ? rows.reduce((s, r) => s + (r.gf_5v5  ?? 0), 0) : null;
+  const careerGA  = hasRawGF  ? rows.reduce((s, r) => s + (r.ga_5v5  ?? 0), 0) : null;
+  const careerXGF = hasRawXGF ? rows.reduce((s, r) => s + (r.xgf_5v5 ?? 0), 0) : null;
+  const careerXGA = hasRawXGF ? rows.reduce((s, r) => s + (r.xga_5v5 ?? 0), 0) : null;
+  const careerGfPct  = careerGF  != null && careerGA  != null && (careerGF  + careerGA)  > 0
+    ? careerGF  / (careerGF  + careerGA)  * 100 : null;
+  const careerXgfPct = careerXGF != null && careerXGA != null && (careerXGF + careerXGA) > 0
+    ? careerXGF / (careerXGF + careerXGA) * 100 : null;
 
   const playoffCareerGP = playoffRows.reduce((s, r) => s + (r.gp ?? 0), 0);
   const playoffCareerToiSec = playoffRows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
@@ -706,8 +718,12 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerGP}</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{careerToiGP}</td>
-                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
-                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: careerGfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerGfPct != null ? (pctColor(careerGfPct) ?? INK) : MUTED }}>
+                  {careerGfPct != null ? `${careerGfPct.toFixed(1)}%` : '—'}
+                </td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: careerXgfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerXgfPct != null ? (pctColor(careerXgfPct) ?? INK) : MUTED }}>
+                  {careerXgfPct != null ? `${careerXgfPct.toFixed(1)}%` : '—'}
+                </td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
