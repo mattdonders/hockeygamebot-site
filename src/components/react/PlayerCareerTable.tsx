@@ -59,6 +59,7 @@ type Props = {
   playerName?: string;
   playerSlug?: string;
   currentSeason?: string; // e.g. "20252026" — passed from page, avoids hardcoding
+  leaderboardHref?: string; // "See in Skater Stats" link shown in toolbar
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -132,7 +133,7 @@ function normalizeSeasonKey(s: string | undefined): string {
   return s;
 }
 
-export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerName = 'Player', playerSlug = 'player', currentSeason }: Props) {
+export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerName = 'Player', playerSlug = 'player', currentSeason, leaderboardHref }: Props) {
   const CURRENT_SEASON      = currentSeason ?? _FALLBACK_SEASON;
   const CURRENT_SEASON_NORM = currentSeason ? normalizeSeasonKey(currentSeason) : _FALLBACK_SEASON_NORM;
   const [isDark, setIsDark] = useState(false);
@@ -556,6 +557,11 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         <button style={chip(mode === 'regular')} onClick={() => setMode('regular')}>Regular Season</button>
         <button style={chip(mode === 'playoffs')} onClick={() => setMode('playoffs')}>Playoffs</button>
         <div style={{ flex: 1 }} />
+        {leaderboardHref && (
+          <a href={leaderboardHref} style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', color: MUTED, textDecoration: 'none', marginRight: 8 }}>
+            Skater Stats ↗
+          </a>
+        )}
         <button style={chip(false)} onClick={exportPng} title="Download this table as a PNG">↓ PNG</button>
       </div>
 
