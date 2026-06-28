@@ -343,8 +343,10 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
     [],
   );
 
-  // Playoff columns: counting stats forward (the headline story), plus GAx.
-  // RAPM/WAR/Impact are null in playoff rows, so they're omitted entirely.
+  // Playoff columns differ from regular-season columns intentionally: regular-season
+  // career rows come from the career_seasons feed (GF%/xGF%/Talent%/WAR%/Impact%),
+  // while playoff rows come from player_season_stats playoffs[] (raw G/A/PTS/GAx).
+  // Unifying them would require the pipeline to expose matching fields in both feeds.
   const playoffColumns = useMemo<ColumnDef<PlayoffRow>[]>(
     () => [
       {
@@ -528,17 +530,15 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
     });
   }
 
-  // Career row aggregates
+  // Career row aggregates — GP and TOI/GP are exact sums. GF%/xGF% show "—" because
+  // career seasons only expose the pre-computed percentage, not raw GF/GA or xGF/xGA
+  // totals. Showing a TOI-weighted average would look like an exact career stat when
+  // it is only an approximation.
+  // TODO(pipeline): expose raw 5v5 GF, GA, xGF, xGA per career season so Career row
+  //   can show exact GF% = sum(GF) / sum(GF+GA) and xGF% = sum(xGF) / sum(xGF+xGA).
   const careerGP = rows.reduce((s, r) => s + (r.gp ?? 0), 0);
   const careerToiSec = rows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
   const careerToiGP = careerGP > 0 ? fmtToi5v5(careerToiSec, careerGP) : '—';
-  // GF%/xGF% are TOI-weighted averages (not simple mean) — cross-team seasons weighted by 5v5 ice time
-  const careerGfPct = careerToiSec > 0 && rows.some(r => r.gf_pct != null)
-    ? rows.reduce((s, r) => s + ((r.gf_pct ?? 0) * (r.toi_5v5_sec ?? 0)), 0) / careerToiSec
-    : null;
-  const careerXgfPct = careerToiSec > 0 && rows.some(r => r.xgf_pct != null)
-    ? rows.reduce((s, r) => s + ((r.xgf_pct ?? 0) * (r.toi_5v5_sec ?? 0)), 0) / careerToiSec
-    : null;
 
   const playoffCareerGP = playoffRows.reduce((s, r) => s + (r.gp ?? 0), 0);
   const playoffCareerToiSec = playoffRows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
@@ -548,9 +548,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
   const playoffCareerPTS = playoffRows.reduce((s, r) => s + (r.points ?? 0), 0);
   const playoffCareerGax = playoffRows.some(r => (r as any).gax != null)
     ? playoffRows.reduce((s, r) => s + ((r as any).gax ?? 0), 0)
-    : null;
-  const playoffCareerXgfPct = playoffCareerToiSec > 0 && playoffRows.some(r => r.xgf_pct_5v5 != null)
-    ? playoffRows.reduce((s, r) => s + ((r.xgf_pct_5v5 ?? 0) * (r.toi_5v5_sec ?? 0)), 0) / playoffCareerToiSec
     : null;
 
   return (
@@ -691,9 +688,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerG}</td>
                 <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerA}</td>
                 <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerPTS}</td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: playoffCareerXgfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerXgfPct != null ? (pctColor(playoffCareerXgfPct) ?? INK) : MUTED }}>
-                  {playoffCareerXgfPct != null ? `${playoffCareerXgfPct.toFixed(1)}%` : '—'}
-                </td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 12, fontWeight: playoffCareerGax != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerGax != null ? (playoffCareerGax >= 0 ? '#14803c' : '#E8002D') : MUTED }}>
                   {playoffCareerGax != null ? `${playoffCareerGax > 0 ? '+' : ''}${playoffCareerGax.toFixed(2)}` : '—'}
                 </td>
@@ -704,12 +699,8 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerGP}</td>
                 <td style={{ ...MONO, fontSize: 12, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{careerToiGP}</td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: careerGfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerGfPct != null ? (pctColor(careerGfPct) ?? INK) : MUTED }}>
-                  {careerGfPct != null ? `${careerGfPct.toFixed(1)}%` : '—'}
-                </td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: careerXgfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerXgfPct != null ? (pctColor(careerXgfPct) ?? INK) : MUTED }}>
-                  {careerXgfPct != null ? `${careerXgfPct.toFixed(1)}%` : '—'}
-                </td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
@@ -732,8 +723,8 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         }}
       >
         {isPlayoffs
-          ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP and xGF% career rows are TOI-weighted</>
-          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />TALENT % = Blended Multi-Year WAR · WAR % = Single-Season WAR · GF%/xGF% career row is TOI-weighted</>}
+          ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP is 5v5 only</>
+          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />TALENT % = Blended Multi-Year WAR · WAR % = Single-Season WAR · IMPACT % = HGB Impact avg</>}
       </p>
     </div>
   );

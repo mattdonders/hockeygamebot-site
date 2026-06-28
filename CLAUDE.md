@@ -8,7 +8,8 @@
 - Wrappers own: page-specific filters, defaults, column definitions, export chips, row actions.
 - HGBTable owns: sorting, filtering, virtualization, CSV/PNG export, toolbar.
 - `Table.astro` is for Astro/SSR static tables (no React interactivity). It is NOT the canonical foundation for interactive tables.
-- `PlayerCareerTable` and `PlayerGameLogTable` are justified exceptions — they have specialized two-tier or themed layouts that cannot be expressed through HGBTable column defs.
+- `PlayerCareerTable` is a justified exception — it cannot be expressed through HGBTable's declarative API because it owns: (1) a Regular/Playoffs mode toggle that switches the entire column set and data source, (2) `document.dispatchEvent('hgb:season-select')` on row click to update EV bars on the Astro page, (3) a `<tfoot>` career totals row, (4) a PNG export path via `window.HGB_Export.downloadTablePng`, and (5) different column schemas for the two modes (career_seasons feed for regular, player_season_stats playoffs[] for playoffs).
+- `PlayerGameLogTable` uses HGBTable as its base (migrated Jun 2026). If you see it re-implemented with a raw TanStack table, that is a regression.
 
 **Do not add new table surfaces outside this pattern without a documented reason.**
 
