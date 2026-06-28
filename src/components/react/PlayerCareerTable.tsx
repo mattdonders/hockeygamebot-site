@@ -580,6 +580,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       <table
         style={{
           width: '100%',
+          tableLayout: 'fixed',
           borderCollapse: 'collapse',
           fontSize: CELL_FONT_SIZE,
           background: SURFACE,
@@ -656,6 +657,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                         padding: '10px 10px',
                         textAlign: ci === 0 ? 'left' : 'center',
                         whiteSpace: 'nowrap',
+                        overflow: 'hidden',
                         borderRight: '1px solid rgba(13,13,20,0.03)',
                       }}
                     >
