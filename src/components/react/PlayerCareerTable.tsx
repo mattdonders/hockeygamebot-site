@@ -481,8 +481,8 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
   // Chip toggle — matches the shared ChipGroup style used in HGBTable/SkatersTable
   const chip = (active: boolean): React.CSSProperties => ({
     ...MONO,
-    fontSize: 10,
-    letterSpacing: '0.14em',
+    fontSize: 11,
+    letterSpacing: '0.12em',
     textTransform: 'uppercase',
     padding: '5px 10px',
     border: BORDER,
