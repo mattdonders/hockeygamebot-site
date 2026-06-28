@@ -28,6 +28,10 @@ export type CareerSeason = {
   team?: string;
   gp?: number;
   toi_5v5_sec?: number;
+  gf_5v5?: number;
+  ga_5v5?: number;
+  xgf_5v5?: number;
+  xga_5v5?: number;
   gf_pct?: number | null;
   xgf_pct?: number | null;
   // Enriched from player_season_stats — may be null until pipeline delivers
@@ -59,12 +63,14 @@ type Props = {
   playerName?: string;
   playerSlug?: string;
   currentSeason?: string; // e.g. "20252026" — passed from page, avoids hardcoding
+  leaderboardHref?: string; // "See in Skater Stats" link shown in toolbar
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const CELL_FONT_SIZE = 14; // matches HGBTable.CELL_FONT_SIZE
 const INK_LIGHT = '#0d0d14';
 const INK_DARK  = '#EFEEE8';
 const BG_LIGHT  = '#EFEEE8';
@@ -132,7 +138,7 @@ function normalizeSeasonKey(s: string | undefined): string {
   return s;
 }
 
-export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerName = 'Player', playerSlug = 'player', currentSeason }: Props) {
+export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerName = 'Player', playerSlug = 'player', currentSeason, leaderboardHref }: Props) {
   const CURRENT_SEASON      = currentSeason ?? _FALLBACK_SEASON;
   const CURRENT_SEASON_NORM = currentSeason ? normalizeSeasonKey(currentSeason) : _FALLBACK_SEASON_NORM;
   const [isDark, setIsDark] = useState(false);
@@ -343,8 +349,10 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
     [],
   );
 
-  // Playoff columns: counting stats forward (the headline story), plus GAx.
-  // RAPM/WAR/Impact are null in playoff rows, so they're omitted entirely.
+  // Playoff columns differ from regular-season columns intentionally: regular-season
+  // career rows come from the career_seasons feed (GF%/xGF%/Talent%/WAR%/Impact%),
+  // while playoff rows come from player_season_stats playoffs[] (raw G/A/PTS/GAx).
+  // Unifying them would require the pipeline to expose matching fields in both feeds.
   const playoffColumns = useMemo<ColumnDef<PlayoffRow>[]>(
     () => [
       {
@@ -473,8 +481,8 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
   // Chip toggle — matches the shared ChipGroup style used in HGBTable/SkatersTable
   const chip = (active: boolean): React.CSSProperties => ({
     ...MONO,
-    fontSize: 10,
-    letterSpacing: '0.14em',
+    fontSize: 11,
+    letterSpacing: '0.12em',
     textTransform: 'uppercase',
     padding: '5px 10px',
     border: BORDER,
@@ -487,7 +495,17 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
   function exportPng() {
     const exp = (window as any).HGB_Export;
     if (!exp?.downloadTablePng) return;
-    const data = activeTable.getRowModel().rows.map(r => r.original as CareerRow & PlayoffRow);
+    const bodyRows = activeTable.getRowModel().rows.map(r => r.original as CareerRow & PlayoffRow);
+    // Append synthetic career row so the tfoot totals appear in the PNG
+    const careerRow: any = isPlayoffs
+      ? { season_fmt: 'CAREER', team: '—', gp: playoffCareerGP, toi_gp: playoffCareerToiGP,
+          goals: playoffCareerG, assists: playoffCareerA, points: playoffCareerPTS,
+          xgf_pct_5v5: null, gax: playoffCareerGax }
+      : { season_fmt: 'CAREER', team: '—', gp: careerGP, toi_gp: careerToiGP,
+          gf_pct: careerGfPct != null ? careerGfPct : null,
+          xgf_pct: careerXgfPct != null ? careerXgfPct : null,
+          hgb_rating_pct: null, war_pct: null, impact_pct: null };
+    const data = [...bodyRows, careerRow];
     const pctFmt = (v: any) => v != null ? `${Math.round(Number(v))}%` : '—';
     const oneFmt = (v: any) => v != null ? `${Number(v).toFixed(1)}%` : '—';
     const pctColor = (v: any, _r: any, tok: any) => v == null ? null : v >= 55 ? tok.pos : v <= 45 ? tok.neg : null;
@@ -528,12 +546,45 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
     });
   }
 
+  // Career row aggregates — GP and TOI/GP are exact. GF%/xGF% are exact when raw
+  // totals (gf_5v5/ga_5v5/xgf_5v5/xga_5v5) are present in the pipeline output;
+  // fall back to "—" for older cached data that predates those fields.
+  const careerGP = rows.reduce((s, r) => s + (r.gp ?? 0), 0);
+  const careerToiSec = rows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
+  const careerToiGP = careerGP > 0 ? fmtToi5v5(careerToiSec, careerGP) : '—';
+
+  const hasRawGF  = rows.some(r => r.gf_5v5 != null);
+  const hasRawXGF = rows.some(r => r.xgf_5v5 != null);
+  const careerGF  = hasRawGF  ? rows.reduce((s, r) => s + (r.gf_5v5  ?? 0), 0) : null;
+  const careerGA  = hasRawGF  ? rows.reduce((s, r) => s + (r.ga_5v5  ?? 0), 0) : null;
+  const careerXGF = hasRawXGF ? rows.reduce((s, r) => s + (r.xgf_5v5 ?? 0), 0) : null;
+  const careerXGA = hasRawXGF ? rows.reduce((s, r) => s + (r.xga_5v5 ?? 0), 0) : null;
+  const careerGfPct  = careerGF  != null && careerGA  != null && (careerGF  + careerGA)  > 0
+    ? careerGF  / (careerGF  + careerGA)  * 100 : null;
+  const careerXgfPct = careerXGF != null && careerXGA != null && (careerXGF + careerXGA) > 0
+    ? careerXGF / (careerXGF + careerXGA) * 100 : null;
+
+  const playoffCareerGP = playoffRows.reduce((s, r) => s + (r.gp ?? 0), 0);
+  const playoffCareerToiSec = playoffRows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
+  const playoffCareerToiGP = playoffCareerGP > 0 ? fmtToi5v5(playoffCareerToiSec, playoffCareerGP) : '—';
+  const playoffCareerG = playoffRows.reduce((s, r) => s + (r.goals ?? 0), 0);
+  const playoffCareerA = playoffRows.reduce((s, r) => s + (r.assists ?? 0), 0);
+  const playoffCareerPTS = playoffRows.reduce((s, r) => s + (r.points ?? 0), 0);
+  const playoffCareerGax = playoffRows.some(r => (r as any).gax != null)
+    ? playoffRows.reduce((s, r) => s + ((r as any).gax ?? 0), 0)
+    : null;
+
   return (
     <div style={{ ...BODY, color: INK, overflowX: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '12px 18px' }}>
         <button style={chip(mode === 'regular')} onClick={() => setMode('regular')}>Regular Season</button>
         <button style={chip(mode === 'playoffs')} onClick={() => setMode('playoffs')}>Playoffs</button>
         <div style={{ flex: 1 }} />
+        {leaderboardHref && (
+          <a href={leaderboardHref} style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', color: MUTED, textDecoration: 'none', marginRight: 8 }}>
+            Skater Stats ↗
+          </a>
+        )}
         <button style={chip(false)} onClick={exportPng} title="Download this table as a PNG">↓ PNG</button>
       </div>
 
@@ -546,7 +597,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         style={{
           width: '100%',
           borderCollapse: 'collapse',
-          fontSize: 12,
+          fontSize: CELL_FONT_SIZE,
           background: SURFACE,
           border: BORDER,
         }}
@@ -617,7 +668,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                       key={cell.id}
                       style={{
                         ...MONO,
-                        fontSize: 12,
+                        fontSize: CELL_FONT_SIZE,
                         padding: '10px 10px',
                         textAlign: ci === 0 ? 'left' : 'center',
                         whiteSpace: 'nowrap',
@@ -651,6 +702,45 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
             );
           })}
         </tbody>
+        {/* Career totals row */}
+        <tfoot>
+          <tr style={{
+            borderTop: `2px solid ${INK}`,
+            background: isDark ? 'rgba(239,238,232,0.05)' : 'rgba(13,13,20,0.04)',
+          }}>
+            {isPlayoffs ? (
+              <>
+                <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerToiGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerG}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerA}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerPTS}</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: playoffCareerGax != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerGax != null ? (playoffCareerGax >= 0 ? '#14803c' : '#E8002D') : MUTED }}>
+                  {playoffCareerGax != null ? `${playoffCareerGax > 0 ? '+' : ''}${playoffCareerGax.toFixed(2)}` : '—'}
+                </td>
+              </>
+            ) : (
+              <>
+                <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerToiGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: careerGfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerGfPct != null ? (pctColor(careerGfPct) ?? INK) : MUTED }}>
+                  {careerGfPct != null ? `${careerGfPct.toFixed(1)}%` : '—'}
+                </td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: careerXgfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerXgfPct != null ? (pctColor(careerXgfPct) ?? INK) : MUTED }}>
+                  {careerXgfPct != null ? `${careerXgfPct.toFixed(1)}%` : '—'}
+                </td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+              </>
+            )}
+          </tr>
+        </tfoot>
       </table>
       )}
 
