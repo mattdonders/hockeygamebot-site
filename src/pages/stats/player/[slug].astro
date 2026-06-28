@@ -1122,7 +1122,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 <script define:vars={{
   // Season-by-season RAPM percentile data for the EV bar season selector
   // Shape: { season: string, rapm_off_pct: number|null, rapm_def_pct: number|null, ... }[]
-  _seasonStats: seasonStatsSorted.map((s, idx) => {
+  _seasonStats: (() => {
+  const _csMap = new Map(((player as any).career_seasons ?? []).map((cs: any) => [cs.season, cs]));
+  return seasonStatsSorted.map((s, idx) => {
     const isCurrent = idx === 0; // first entry = most recent season
     return {
       season:            s.season,
@@ -1150,8 +1152,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       war_pct:        isCurrent ? (warPct ?? null)                        : (s.war_pct        ?? null),
       impact_pct:     isCurrent ? Math.round(player.percentiles_vs_pos.game_score) : (s.impact_pct ?? null),
       gp:             s.gp ?? null,
+      gf_pct:         (_csMap.get(s.season) as any)?.gf_pct  ?? null,
+      xgf_pct:        (_csMap.get(s.season) as any)?.xgf_pct ?? null,
     };
-  }),
+  });
+  })(),
   // Fallback percentiles from players.json (used when season RAPM is null)
   _evOffFallback: player.percentiles_vs_pos.ev_offence,
   _evDefFallback: player.percentiles_vs_pos.ev_defence,
@@ -1242,11 +1247,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     footers: _cardFooters,
     // 3 prior seasons of Historical Talent for the right-half timeline.
     // seasonStatsSorted is newest-first; skip index 0 (current season).
-    priorTalent: (() => {
+    priorWar: (() => {
       const out: {season: string, pct: number}[] = [];
       for (let i = 1; i < seasonStatsSorted.length && out.length < 3; i++) {
         const s = seasonStatsSorted[i] as any;
-        const pct = s.hgb_rating_pct ?? null;
+        const pct = s.war_pct ?? null;
         if (pct != null) out.push({ season: s.season, pct });
       }
       return out;
@@ -2349,7 +2354,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const heroW  = (W - heroX - PAD);
 
       const ratingPctVal = D.hgb_rating_percentile;
-      const priorTalentP = D.priorTalent ?? [];
+      const priorTalentP = D.priorWar ?? [];
       const hasContextPanel = priorTalentP.length > 0;
 
       // Two balanced halves when prior talent exists; otherwise one full-width half.
@@ -2386,7 +2391,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         // Eyebrow
         ctx.font = '700 10px "JetBrains Mono", monospace';
         ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('PAST TALENT RATINGS', rcx, y + 8);
+        ctx.fillText('PAST WAR', rcx, y + 8);
 
         // 3 evenly-spaced column centers across the right half. No arrows — standalone
         // blocks avoid implying a causal trend (volatile profiles read as past model outputs).
@@ -2671,7 +2676,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // the Talent half centers across the full hero, no divider (fallback).
       const STAT_X = HS_CX + HS_R + 28;
       const heroTalentPct = D.hgb_rating_percentile;
-      const priorTalentH = D.priorTalent ?? [];
+      const priorTalentH = D.priorWar ?? [];
       const hasCtxPanelH = priorTalentH.length > 0;
 
       const HERO_SPAN = (W - STAT_X - PAD);
@@ -2727,7 +2732,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
         ctx.font = '700 15px "Barlow", sans-serif';
         ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('PAST TALENT RATINGS', rcx, eyebrowTop);
+        ctx.fillText('PAST WAR', rcx, eyebrowTop);
 
         // 3 columns oldest→newest across the right half (padded 36px each side)
         const PAD_INNER = 36;
@@ -3314,10 +3319,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // ── COLUMN HEADERS ───────────────────────────────────────────────────
     // Season column is left-aligned; the three value columns are evenly spaced
     // and centered (header + cell share the same center x).
-    const SEASON_W = 130;            // width reserved for the SEASON column
+    const SEASON_W = 120;            // width reserved for the SEASON column
     const COL1_X   = PAD;            // SEASON label (left-aligned)
     const VAL_AREA = W - PAD - (PAD + SEASON_W);
-    const VAL_COL_W = VAL_AREA / 3;
+    const VAL_COL_W = VAL_AREA / 4;
     const VAL_CX_0  = PAD + SEASON_W + VAL_COL_W / 2;  // center x of first value col
     const valCenterX = (i) => VAL_CX_0 + i * VAL_COL_W;
 
@@ -3327,7 +3332,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     ctx.textAlign = 'left';
     ctx.fillText('SEASON', COL1_X, y + COL_H / 2);
     ctx.textAlign = 'center';
-    ['TALENT', 'WAR', 'IMPACT'].forEach((label, i) => {
+    ['WAR', 'IMPACT', 'GF%', 'xGF%'].forEach((label, i) => {
       ctx.fillText(label, valCenterX(i), y + COL_H / 2);
     });
     // header bottom border
@@ -3372,7 +3377,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillText(s.gp + ' GP', COL1_X + 56, rowY);
       }
 
-      // Helper to draw a centered percentile value cell (percentile-only).
+      // Percentile cell — color by tier (WAR, IMPACT).
       function drawPctCell(centerX, val) {
         const displayVal = val != null ? Math.round(val) + '%' : '—';
         const color = val != null ? tierColor(val) : INK32;
@@ -3381,11 +3386,24 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.textAlign = 'center';
         ctx.fillText(displayVal, centerX, rowY);
       }
+      // Raw on-ice % cell — color relative to 50% midpoint (GF%, xGF%).
+      function drawOnIcePctCell(centerX, val) {
+        if (val == null) {
+          ctx.font = '400 13px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textAlign = 'center';
+          ctx.fillText('—', centerX, rowY);
+          return;
+        }
+        const color = val >= 52 ? '#15803d' : val >= 48 ? '#888888' : '#E8002D';
+        ctx.font = '700 13px "JetBrains Mono", monospace';
+        ctx.fillStyle = color; ctx.textAlign = 'center';
+        ctx.fillText(val.toFixed(1) + '%', centerX, rowY);
+      }
 
-      // hgb_rating_pct / war_pct / impact_pct will be null until pipeline writes them
-      drawPctCell(valCenterX(0), s.hgb_rating_pct);
-      drawPctCell(valCenterX(1), s.war_pct);
-      drawPctCell(valCenterX(2), s.impact_pct);
+      drawPctCell(valCenterX(0), s.war_pct);
+      drawPctCell(valCenterX(1), s.impact_pct);
+      drawOnIcePctCell(valCenterX(2), s.gf_pct);
+      drawOnIcePctCell(valCenterX(3), s.xgf_pct);
     }
 
     y += N * ROW_H;
