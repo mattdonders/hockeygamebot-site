@@ -302,7 +302,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       {
         id: 'war_pct',
         header: 'WAR Pct',
-        size: 135,
+        size: 90,
         accessorFn: (r) => r.war_pct ?? -1,
         cell: (info) => {
           const v = info.row.original.war_pct;
@@ -317,7 +317,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       {
         id: 'impact_pct',
         header: 'Impact Pct',
-        size: 135,
+        size: 90,
         accessorFn: (r) => (r as any).impact_pct ?? -1,
         cell: (info) => {
           const v = (info.row.original as any).impact_pct;
@@ -608,7 +608,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                       cursor: canSort ? 'pointer' : 'default',
                       userSelect: 'none',
                       whiteSpace: 'nowrap',
-                      ...(h.column.getSize() !== 150 ? { minWidth: h.column.getSize() } : {}),
                     }}
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
