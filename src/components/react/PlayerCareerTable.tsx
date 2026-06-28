@@ -495,7 +495,17 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
   function exportPng() {
     const exp = (window as any).HGB_Export;
     if (!exp?.downloadTablePng) return;
-    const data = activeTable.getRowModel().rows.map(r => r.original as CareerRow & PlayoffRow);
+    const bodyRows = activeTable.getRowModel().rows.map(r => r.original as CareerRow & PlayoffRow);
+    // Append synthetic career row so the tfoot totals appear in the PNG
+    const careerRow: any = isPlayoffs
+      ? { season_fmt: 'CAREER', team: '—', gp: playoffCareerGP, toi_gp: playoffCareerToiGP,
+          goals: playoffCareerG, assists: playoffCareerA, points: playoffCareerPTS,
+          xgf_pct_5v5: null, gax: playoffCareerGax }
+      : { season_fmt: 'CAREER', team: '—', gp: careerGP, toi_gp: careerToiGP,
+          gf_pct: careerGfPct != null ? careerGfPct : null,
+          xgf_pct: careerXgfPct != null ? careerXgfPct : null,
+          hgb_rating_pct: null, war_pct: null, impact_pct: null };
+    const data = [...bodyRows, careerRow];
     const pctFmt = (v: any) => v != null ? `${Math.round(Number(v))}%` : '—';
     const oneFmt = (v: any) => v != null ? `${Number(v).toFixed(1)}%` : '—';
     const pctColor = (v: any, _r: any, tok: any) => v == null ? null : v >= 55 ? tok.pos : v <= 45 ? tok.neg : null;
@@ -703,7 +713,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerGP}</td>
-                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{playoffCareerToiGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerToiGP}</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerG}</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerA}</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerPTS}</td>
@@ -717,7 +727,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerGP}</td>
-                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{careerToiGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerToiGP}</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: careerGfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerGfPct != null ? (pctColor(careerGfPct) ?? INK) : MUTED }}>
                   {careerGfPct != null ? `${careerGfPct.toFixed(1)}%` : '—'}
                 </td>
