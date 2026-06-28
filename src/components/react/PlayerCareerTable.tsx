@@ -609,6 +609,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                       cursor: canSort ? 'pointer' : 'default',
                       userSelect: 'none',
                       whiteSpace: 'nowrap',
+                      overflow: 'hidden',
                       ...(h.column.getSize() !== 150 && hi < hg.headers.length - 1 ? { width: h.column.getSize() } : {}),
                     }}
                   >
