@@ -283,13 +283,14 @@ export default function PlayerGameLogTable({ games }: Props) {
   return (
     <div style={{ ...BODY, color: ink(isDark) }}>
 
-      {/* Search bar */}
+      {/* Toolbar — matches HGBTable toolbar language */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          padding: '0 0 12px 0',
+          padding: '8px 14px',
+          borderBottom: border(isDark),
         }}
       >
         <input
@@ -308,10 +309,13 @@ export default function PlayerGameLogTable({ games }: Props) {
             width: isMobile ? 130 : 180,
           }}
         />
+        <span style={{ ...MONO, fontSize: 10, color: isDark ? 'rgba(239,238,232,0.32)' : 'rgba(13,13,20,0.32)', marginLeft: 'auto', letterSpacing: '0.04em' }}>
+          {filteredRows.length} games
+        </span>
       </div>
 
       {/* Table */}
-      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxHeight: 420, overflowY: 'auto' }}>
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', maxHeight: 400, overflowY: 'auto' }}>
         <table
           style={{
             width: '100%',

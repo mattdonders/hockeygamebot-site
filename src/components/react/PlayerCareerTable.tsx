@@ -532,6 +532,13 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
   const careerGP = rows.reduce((s, r) => s + (r.gp ?? 0), 0);
   const careerToiSec = rows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
   const careerToiGP = careerGP > 0 ? fmtToi5v5(careerToiSec, careerGP) : '—';
+  // GF%/xGF% are TOI-weighted averages (not simple mean) — cross-team seasons weighted by 5v5 ice time
+  const careerGfPct = careerToiSec > 0 && rows.some(r => r.gf_pct != null)
+    ? rows.reduce((s, r) => s + ((r.gf_pct ?? 0) * (r.toi_5v5_sec ?? 0)), 0) / careerToiSec
+    : null;
+  const careerXgfPct = careerToiSec > 0 && rows.some(r => r.xgf_pct != null)
+    ? rows.reduce((s, r) => s + ((r.xgf_pct ?? 0) * (r.toi_5v5_sec ?? 0)), 0) / careerToiSec
+    : null;
 
   const playoffCareerGP = playoffRows.reduce((s, r) => s + (r.gp ?? 0), 0);
   const playoffCareerToiSec = playoffRows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
@@ -541,6 +548,9 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
   const playoffCareerPTS = playoffRows.reduce((s, r) => s + (r.points ?? 0), 0);
   const playoffCareerGax = playoffRows.some(r => (r as any).gax != null)
     ? playoffRows.reduce((s, r) => s + ((r as any).gax ?? 0), 0)
+    : null;
+  const playoffCareerXgfPct = playoffCareerToiSec > 0 && playoffRows.some(r => r.xgf_pct_5v5 != null)
+    ? playoffRows.reduce((s, r) => s + ((r.xgf_pct_5v5 ?? 0) * (r.toi_5v5_sec ?? 0)), 0) / playoffCareerToiSec
     : null;
 
   return (
@@ -681,7 +691,9 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerG}</td>
                 <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerA}</td>
                 <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerPTS}</td>
-                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: playoffCareerXgfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerXgfPct != null ? (pctColor(playoffCareerXgfPct) ?? INK) : MUTED }}>
+                  {playoffCareerXgfPct != null ? `${playoffCareerXgfPct.toFixed(1)}%` : '—'}
+                </td>
                 <td style={{ ...MONO, fontSize: 12, fontWeight: playoffCareerGax != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerGax != null ? (playoffCareerGax >= 0 ? '#14803c' : '#E8002D') : MUTED }}>
                   {playoffCareerGax != null ? `${playoffCareerGax > 0 ? '+' : ''}${playoffCareerGax.toFixed(2)}` : '—'}
                 </td>
@@ -692,8 +704,12 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerGP}</td>
                 <td style={{ ...MONO, fontSize: 12, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{careerToiGP}</td>
-                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
-                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: careerGfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerGfPct != null ? (pctColor(careerGfPct) ?? INK) : MUTED }}>
+                  {careerGfPct != null ? `${careerGfPct.toFixed(1)}%` : '—'}
+                </td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: careerXgfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerXgfPct != null ? (pctColor(careerXgfPct) ?? INK) : MUTED }}>
+                  {careerXgfPct != null ? `${careerXgfPct.toFixed(1)}%` : '—'}
+                </td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
@@ -716,8 +732,8 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         }}
       >
         {isPlayoffs
-          ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP is 5v5 only</>
-          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />TALENT % = Blended Multi-Year WAR · WAR % = Single-Season WAR · IMPACT % = HGB Impact avg</>}
+          ? <>hockeygamebot.com · HGB Stats · Playoff stats · 5v5 unless noted<br />GAx = Goals − Individual xG · TOI/GP and xGF% career rows are TOI-weighted</>
+          : <>hockeygamebot.com · HGB Stats · 5v5 percentiles vs position<br />TALENT % = Blended Multi-Year WAR · WAR % = Single-Season WAR · GF%/xGF% career row is TOI-weighted</>}
       </p>
     </div>
   );
