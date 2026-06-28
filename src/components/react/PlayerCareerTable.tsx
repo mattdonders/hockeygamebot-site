@@ -272,7 +272,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       {
         id: 'gf_pct',
         header: 'GF%',
-        size: 72,
+        size: 150,
         accessorFn: (r) => r.gf_pct,
         cell: (info) => {
           const v = info.getValue<number | null>();
@@ -287,7 +287,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       {
         id: 'xgf_pct',
         header: 'xGF%',
-        size: 72,
+        size: 150,
         accessorFn: (r) => r.xgf_pct,
         cell: (info) => {
           const v = info.getValue<number | null>();
