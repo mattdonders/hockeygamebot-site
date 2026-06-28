@@ -68,6 +68,8 @@ export interface CardFooterParts {
   hgbStats?: boolean;
   /** Append the season token (2025-26). Default true. */
   season?: boolean;
+  /** Override the season token (default: SEASON constant). */
+  seasonOverride?: string;
   /** Position name for "percentile vs {Position}" — omit to drop that segment. */
   vsPosition?: string;
   /** Extra trailing context, e.g. "GSAx XGBoost". */
@@ -93,6 +95,7 @@ export function cardFooterText(parts: CardFooterParts = {}): string {
     domain = 'upper',
     hgbStats = true,
     season = true,
+    seasonOverride,
     vsPosition,
     extra,
     edgeData = false,
@@ -103,7 +106,7 @@ export function cardFooterText(parts: CardFooterParts = {}): string {
   else if (hgbStats) segments.push(HGB_STATS);
   if (domain === 'upper') segments.push(DOMAIN_UPPER);
   else if (domain === 'lower') segments.push(DOMAIN_LOWER);
-  if (season) segments.push(SEASON);
+  if (season) segments.push(seasonOverride ?? SEASON);
   if (vsPosition) segments.push(`percentile vs ${vsPosition}`);
   if (extra) segments.push(extra);
   if (edgeData) segments.push(NHL_ATTRIBUTION);

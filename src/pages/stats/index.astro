@@ -5,7 +5,7 @@
 import Nav from '../../components/Nav.astro';
 import ThemeScript from '../../components/ThemeScript.astro';
 import Fonts from '../../components/Fonts.astro';
-import { loadPlayers, loadLeaderboard, loadGoalies } from '../../lib/stats-loader';
+import { loadPlayers, loadLeaderboard, loadGoalies, loadMeta } from '../../lib/stats-loader';
 import { DashboardFollowedPlayers, DashboardTopImpact, type DashboardPlayerRow, type TopImpactRow } from '../../components/react/DashboardPlayersTable';
 import { DashboardTeamCards, DashboardTrending, DashboardModelSignals } from '../../components/react/DashboardPersonalized';
 import GlobalPlayerSearch, { type PlayerSearchItem } from '../../components/react/GlobalPlayerSearch';
@@ -193,6 +193,9 @@ const playerSearchIndex: PlayerSearchItem[] = [
     type:          'goalie' as const,
   })),
 ];
+
+const _meta = loadMeta();
+const currentSeasonNorm = _meta.season; // "2025-26" — source of truth
 
 const _playerById = new Map(allPlayers.map(p => [p.player_id, p]));
 const topImpact: TopImpactRow[] = loadLeaderboard('game_score').slice(0, 10).map((p) => {
@@ -1029,7 +1032,7 @@ import { getSessionToken, getPrefs } from '../../lib/auth-client';
 (window as any).__hgbAuth = { getSessionToken, getPrefs };
 </script>
 
-<script is:inline>
+<script is:inline define:vars={{ _currentSeason: currentSeasonNorm }}>
 (async function() {
   var API = 'https://api.hockeygamebot.com';
 
@@ -1075,12 +1078,12 @@ import { getSessionToken, getPrefs } from '../../lib/auth-client';
 
   function getCurrentTeamStats(teamsData, abbrev) {
     return (teamsData.regular || []).find(function(t) {
-      return t.team_abbrev === abbrev && t.season === '2025-26';
+      return t.team_abbrev === abbrev && t.season === _currentSeason;
     }) || null;
   }
 
   function computeImpactRank(teamsData, abbrev) {
-    var current = (teamsData.regular || []).filter(function(t) { return t.season === '2025-26'; });
+    var current = (teamsData.regular || []).filter(function(t) { return t.season === _currentSeason; });
     current.sort(function(a, b) { return b.xgf_pct_5v5 - a.xgf_pct_5v5; });
     var idx = current.findIndex(function(t) { return t.team_abbrev === abbrev; });
     return idx >= 0 ? idx + 1 : null;
