@@ -20,3 +20,12 @@ export function fmtSeasonShort(s: string | null | undefined): string {
   if (s.length > 5 && s.includes('-')) return s.slice(2);
   return s; // already short e.g. "25-26"
 }
+
+export function fmtSeasonCompact(s: string | null | undefined): string {
+  if (!s) return '';
+  if (/^\d{8}$/.test(s)) return s; // already compact
+  // "2025-26" → "20252026"
+  const [y1, y2] = s.split('-');
+  if (!y1 || !y2) return s;
+  return `${y1}${y1.slice(0, 2)}${y2.padStart(2, '0')}`;
+}
