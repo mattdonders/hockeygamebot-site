@@ -580,12 +580,21 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       <table
         style={{
           width: '100%',
+          tableLayout: 'fixed',
           borderCollapse: 'collapse',
           fontSize: CELL_FONT_SIZE,
           background: SURFACE,
           border: BORDER,
         }}
       >
+        <colgroup>
+          <col style={{ width: 90 }} />{/* SEASON */}
+          <col style={{ width: 110 }} />{/* TEAM */}
+          {/* 6 data columns: no width → fixed layout splits remaining space equally */}
+          {activeTable.getHeaderGroups()[0]?.headers.slice(2).map(h => (
+            <col key={h.id} />
+          ))}
+        </colgroup>
         <thead>
           {activeTable.getHeaderGroups().map(hg => (
             <tr key={hg.id} style={{ borderBottom: BORDER, background: BG }}>
@@ -608,7 +617,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                       cursor: canSort ? 'pointer' : 'default',
                       userSelect: 'none',
                       whiteSpace: 'nowrap',
-                      ...(hi === 0 ? { width: '100%' } : {}),
                     }}
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
@@ -718,7 +726,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: careerXgfPct != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: careerXgfPct != null ? (pctColor(careerXgfPct) ?? INK) : MUTED }}>
                   {careerXgfPct != null ? `${careerXgfPct.toFixed(1)}%` : '—'}
                 </td>
-                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
               </>
