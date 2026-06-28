@@ -91,6 +91,26 @@ Example tags:
 
 Each badge should be explainable with the 2-3 stats that triggered it.
 
+## 5A. RAPM Component Comparison Card
+
+A two-player comparison card that puts RAPM components side by side.
+
+Core output:
+
+- Player A vs Player B
+- EV offense
+- EV defense
+- PP impact
+- PK impact
+- finishing
+- penalty differential
+- teammate/opponent context if available
+- concise "profile read" label for each player
+
+Why it fits: fans often argue player-vs-player from a single overall WAR/Impact number. A component-level card shows *why* two players differ without turning the site into a table export.
+
+Implementation note: this is a Claude Code-sized task. It should reuse existing RAPM/player-card data and produce a shareable artifact first; an interactive page can come later.
+
 ## 6. The War Room
 
 A team-context voting or comparison tool. Not "who is better right now?", but "who fits this problem?"
@@ -118,32 +138,32 @@ Output:
 
 Can start with manual offseason depth charts and become more automated later.
 
-## 8. Daily Bot Court
+## 8. Daily Debate Prompt
 
-A daily argument prompt generated from overnight insights.
+A daily discussion prompt generated from overnight insights.
 
 Examples:
 
 - Was the goalie actually the reason they lost?
 - Is this player's heater real?
 - Who drove the win: goalie, top line, or special teams?
-- Which traded player is being overrated?
+- Which traded player needs more context?
 
-Users vote, then reveal the HGB evidence.
+Users vote or reply, then HGB shares the relevant context.
 
-Why it fits: this makes the insight system interactive and turns analytics into fandom debate.
+Why it fits: this makes the insight system interactive and turns analytics into fandom discussion without making HGB sound like the final judge.
 
-## 9. Receipt Cards
+## 9. Narrative Shift Cards
 
-Shareable cards when a player/team narrative flips.
+Shareable cards when a player/team narrative changes.
 
 Examples:
 
-- Everyone said he was washed. Last 15 games: 93rd percentile Impact.
-- The model warned you: team had 43% xG over last 10 before the skid.
-- Deadline pickup check-in: +0.8 WAR since acquisition.
+- A struggling player starts showing stronger recent impact.
+- A team's results start matching the underlying process.
+- Deadline pickup check-in: profile since acquisition.
 
-Why it fits: this is timely, spicy, and artifact-native.
+Why it fits: this is timely and artifact-native without relying on "we told you" framing.
 
 ## 10. Player Stock Market
 
@@ -210,8 +230,8 @@ Why it fits: users already share cards in Discord. Build directly for that workf
 
 1. Trade / Signing Instant Dossier
 2. Game Turning Points Timeline
-3. Receipt Cards
-4. Daily Bot Court
+3. Narrative Shift Cards
+4. Daily Debate Prompt
 5. Player Archetype Badges
 
 The common requirement: every feature must produce a useful page state and a shareable artifact.
