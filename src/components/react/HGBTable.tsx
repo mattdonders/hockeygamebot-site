@@ -86,6 +86,8 @@ export type HGBTableProps<T> = {
   showRank?: boolean;
   /** Jump to first matching row with a yellow highlight. Increment `key` to re-trigger. */
   jumpToRow?: { predicate: (row: T) => boolean; key: number };
+  /** Short label shown in the toolbar row (left side, before filters). Not the same as exportTitle. */
+  label?: string;
   /** Big Barlow title shown in the PNG export header. If omitted, PNG button is hidden. */
   exportTitle?: string;
   /** Active filter labels shown as chips in PNG export (e.g. ["REG SEASON", "FORWARDS"]). */
@@ -356,6 +358,7 @@ export default function HGBTable<T extends object>({
   virtualize = false,
   hideToolbar = false,
   toolbar,
+  label,
   exportTitle,
   exportChips = [],
   showRank = false,
@@ -581,10 +584,16 @@ export default function HGBTable<T extends object>({
           flexWrap: 'wrap',
           alignItems: 'center',
           marginBottom: 12,
-          padding: '10px 0',
+          padding: '10px 14px',
           borderBottom: '1px solid rgba(13,13,20,0.1)',
         }}
       >
+        {/* Optional inline label */}
+        {label && (
+          <span style={{ ...MONO, fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', color: MUTED, marginRight: 4 }}>
+            {label}
+          </span>
+        )}
         {/* Global search */}
         {showToolbarGlobalSearch && globalSearchField && (
           <SearchInput

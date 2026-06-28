@@ -48,11 +48,12 @@ type GameRow = GameLogEntry & {
 type Props = {
   games: GameLogEntry[];
   playerTeam?: string;
+  label?: string;
 };
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function PlayerGameLogTable({ games }: Props) {
+export default function PlayerGameLogTable({ games, label }: Props) {
   const rows = useMemo<GameRow[]>(() =>
     games.map(g => {
       const win    = g.team_score > g.opp_score;
@@ -154,6 +155,7 @@ export default function PlayerGameLogTable({ games }: Props) {
       maxHeight={400}
       emptyMessage="No games found."
       toolbar={{ csv: false, png: false, columns: false }}
+      label={label}
     />
   );
 }

@@ -66,6 +66,7 @@ type Props = {
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const CELL_FONT_SIZE = 14; // matches HGBTable.CELL_FONT_SIZE
 const INK_LIGHT = '#0d0d14';
 const INK_DARK  = '#EFEEE8';
 const BG_LIGHT  = '#EFEEE8';
@@ -574,7 +575,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         style={{
           width: '100%',
           borderCollapse: 'collapse',
-          fontSize: 12,
+          fontSize: CELL_FONT_SIZE,
           background: SURFACE,
           border: BORDER,
         }}
@@ -645,7 +646,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                       key={cell.id}
                       style={{
                         ...MONO,
-                        fontSize: 12,
+                        fontSize: CELL_FONT_SIZE,
                         padding: '10px 10px',
                         textAlign: ci === 0 ? 'left' : 'center',
                         whiteSpace: 'nowrap',
@@ -689,13 +690,13 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
               <>
                 <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerGP}</td>
-                <td style={{ ...MONO, fontSize: 12, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{playoffCareerToiGP}</td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerG}</td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerA}</td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerPTS}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{playoffCareerToiGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerG}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerA}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerPTS}</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: playoffCareerGax != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerGax != null ? (playoffCareerGax >= 0 ? '#14803c' : '#E8002D') : MUTED }}>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: playoffCareerGax != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerGax != null ? (playoffCareerGax >= 0 ? '#14803c' : '#E8002D') : MUTED }}>
                   {playoffCareerGax != null ? `${playoffCareerGax > 0 ? '+' : ''}${playoffCareerGax.toFixed(2)}` : '—'}
                 </td>
               </>
@@ -703,8 +704,8 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
               <>
                 <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
-                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerGP}</td>
-                <td style={{ ...MONO, fontSize: 12, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{careerToiGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerGP}</td>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{careerToiGP}</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
