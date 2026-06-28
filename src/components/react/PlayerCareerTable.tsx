@@ -528,6 +528,21 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
     });
   }
 
+  // Career row aggregates
+  const careerGP = rows.reduce((s, r) => s + (r.gp ?? 0), 0);
+  const careerToiSec = rows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
+  const careerToiGP = careerGP > 0 ? fmtToi5v5(careerToiSec, careerGP) : '—';
+
+  const playoffCareerGP = playoffRows.reduce((s, r) => s + (r.gp ?? 0), 0);
+  const playoffCareerToiSec = playoffRows.reduce((s, r) => s + (r.toi_5v5_sec ?? 0), 0);
+  const playoffCareerToiGP = playoffCareerGP > 0 ? fmtToi5v5(playoffCareerToiSec, playoffCareerGP) : '—';
+  const playoffCareerG = playoffRows.reduce((s, r) => s + (r.goals ?? 0), 0);
+  const playoffCareerA = playoffRows.reduce((s, r) => s + (r.assists ?? 0), 0);
+  const playoffCareerPTS = playoffRows.reduce((s, r) => s + (r.points ?? 0), 0);
+  const playoffCareerGax = playoffRows.some(r => (r as any).gax != null)
+    ? playoffRows.reduce((s, r) => s + ((r as any).gax ?? 0), 0)
+    : null;
+
   return (
     <div style={{ ...BODY, color: INK, overflowX: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '12px 18px' }}>
@@ -651,6 +666,41 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
             );
           })}
         </tbody>
+        {/* Career totals row */}
+        <tfoot>
+          <tr style={{
+            borderTop: `2px solid ${INK}`,
+            background: isDark ? 'rgba(239,238,232,0.05)' : 'rgba(13,13,20,0.04)',
+          }}>
+            {isPlayoffs ? (
+              <>
+                <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerGP}</td>
+                <td style={{ ...MONO, fontSize: 12, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{playoffCareerToiGP}</td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerG}</td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerA}</td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerPTS}</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: playoffCareerGax != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerGax != null ? (playoffCareerGax >= 0 ? '#14803c' : '#E8002D') : MUTED }}>
+                  {playoffCareerGax != null ? `${playoffCareerGax > 0 ? '+' : ''}${playoffCareerGax.toFixed(2)}` : '—'}
+                </td>
+              </>
+            ) : (
+              <>
+                <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 12, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{careerGP}</td>
+                <td style={{ ...MONO, fontSize: 12, padding: '9px 10px', textAlign: 'center', color: MUTED }}>{careerToiGP}</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+                <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
+              </>
+            )}
+          </tr>
+        </tfoot>
       </table>
       )}
 
