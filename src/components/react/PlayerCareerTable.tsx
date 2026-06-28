@@ -608,7 +608,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                       cursor: canSort ? 'pointer' : 'default',
                       userSelect: 'none',
                       whiteSpace: 'nowrap',
-                      ...(h.column.getSize() !== 150 ? { width: h.column.getSize() } : {}),
+                      ...(h.column.getSize() !== 150 && hi < hg.headers.length - 1 ? { width: h.column.getSize() } : {}),
                     }}
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
