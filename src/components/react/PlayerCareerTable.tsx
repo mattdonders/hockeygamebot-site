@@ -580,7 +580,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       <table
         style={{
           width: '100%',
-          tableLayout: 'fixed',
           borderCollapse: 'collapse',
           fontSize: CELL_FONT_SIZE,
           background: SURFACE,
@@ -609,8 +608,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                       cursor: canSort ? 'pointer' : 'default',
                       userSelect: 'none',
                       whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      ...(h.column.getSize() !== 150 && hi < hg.headers.length - 1 ? { width: h.column.getSize() } : {}),
+                      ...(h.column.getSize() !== 150 ? { minWidth: h.column.getSize() } : {}),
                     }}
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
@@ -658,7 +656,6 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                         padding: '10px 10px',
                         textAlign: ci === 0 ? 'left' : 'center',
                         whiteSpace: 'nowrap',
-                        overflow: 'hidden',
                         borderRight: '1px solid rgba(13,13,20,0.03)',
                       }}
                     >
