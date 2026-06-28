@@ -272,7 +272,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       {
         id: 'gf_pct',
         header: 'GF%',
-        size: 150,
+        size: 72,
         accessorFn: (r) => r.gf_pct,
         cell: (info) => {
           const v = info.getValue<number | null>();
@@ -287,7 +287,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       {
         id: 'xgf_pct',
         header: 'xGF%',
-        size: 150,
+        size: 72,
         accessorFn: (r) => r.xgf_pct,
         cell: (info) => {
           const v = info.getValue<number | null>();
@@ -302,7 +302,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       {
         id: 'war_pct',
         header: 'WAR Pct',
-        size: 90,
+        size: 135,
         accessorFn: (r) => r.war_pct ?? -1,
         cell: (info) => {
           const v = info.row.original.war_pct;
@@ -317,7 +317,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       {
         id: 'impact_pct',
         header: 'Impact Pct',
-        size: 90,
+        size: 135,
         accessorFn: (r) => (r as any).impact_pct ?? -1,
         cell: (info) => {
           const v = (info.row.original as any).impact_pct;
