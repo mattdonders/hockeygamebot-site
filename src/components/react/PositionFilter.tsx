@@ -10,13 +10,13 @@ type Props = {
 
 export default function PositionFilter({ value, onChange }: Props) {
   return (
-    <>
+    <div>
       <FilterLabel text="Position" />
       <FilterChipGroup>
         <FilterChip label="All"  active={value === 'all'} onClick={() => onChange('all')} />
         <FilterChip label="Fwds" active={value === 'F'}   onClick={() => onChange('F')} />
         <FilterChip label="Def"  active={value === 'D'}   onClick={() => onChange('D')} />
       </FilterChipGroup>
-    </>
+    </div>
   );
 }

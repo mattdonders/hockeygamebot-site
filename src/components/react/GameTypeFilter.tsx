@@ -10,12 +10,12 @@ type Props = {
 
 export default function GameTypeFilter({ value, onChange }: Props) {
   return (
-    <>
+    <div>
       <FilterLabel text="Game Type" />
       <FilterChipGroup>
         <FilterChip label="Reg Season" active={value === 'regular'}  onClick={() => onChange('regular')} />
         <FilterChip label="Playoffs"   active={value === 'playoffs'} onClick={() => onChange('playoffs')} />
       </FilterChipGroup>
-    </>
+    </div>
   );
 }
