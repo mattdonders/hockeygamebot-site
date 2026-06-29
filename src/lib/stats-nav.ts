@@ -1,4 +1,4 @@
-export type StatsNavGroupId = 'core' | 'tools' | 'history' | 'studio';
+export type StatsNavGroupId = 'core' | 'tools' | 'history' | 'studio' | 'pwhl';
 
 export interface StatsNavItem {
   href: string;
@@ -26,6 +26,9 @@ export const STATS_NAV_ITEMS: StatsNavItem[] = [
   { href: '/stats/records', label: 'Series Records', group: 'history' },
 
   { href: '/cards', label: 'Cards', group: 'studio', activePaths: ['/cards'] },
+
+  { href: '/stats/pwhl', label: 'PWHL Players', group: 'pwhl', activePaths: ['/stats/pwhl'] },
+  { href: '/stats/pwhl/teams', label: 'PWHL Teams', group: 'pwhl' },
 ];
 
 export const STATS_NAV_GROUP_LABELS: Record<StatsNavGroupId, string> = {
@@ -33,6 +36,7 @@ export const STATS_NAV_GROUP_LABELS: Record<StatsNavGroupId, string> = {
   tools: 'Tools',
   history: 'History',
   studio: 'Studio',
+  pwhl: 'PWHL',
 };
 
 export function isStatsNavItemActive(item: StatsNavItem, currentPath: string): boolean {

@@ -546,6 +546,70 @@ export const PlayerShotsSchema = z.record(z.string(), z.array(PlayerShotSchema))
 export type PlayerShot = z.infer<typeof PlayerShotSchema>;
 export type PlayerShots = z.infer<typeof PlayerShotsSchema>;
 
+// ── PWHL schemas ─────────────────────────────────────────────────────────────
+// All xG values are uncalibrated estimates — rendered as "iXG (est.)" in UI.
+
+export const PwhlPlayerSchema = z.object({
+  player_id:   z.number().int(),
+  name:        z.string(),
+  team_abbrev: z.string(),
+  pos:         z.string(),
+  season:      z.string(),
+  gp:          z.number().int().nonnegative(),
+  goals:       z.number().int().nonnegative(),
+  assists:     z.number().int().nonnegative(),
+  points:      z.number().int().nonnegative(),
+  pp_goals:    z.number().int().nonnegative(),
+  pp_assists:  z.number().int().nonnegative(),
+  sog:         z.number().int().nonnegative(),
+  ixg:         z.number().nonnegative(),
+});
+
+export const PwhlGoalieSchema = z.object({
+  player_id:   z.number().int(),
+  name:        z.string(),
+  team_abbrev: z.string(),
+  season:      z.string(),
+  gp:          z.number().int().nonnegative(),
+  sa:          z.number().int().nonnegative(),
+  ga:          z.number().int().nonnegative(),
+  saves:       z.number().int().nonnegative(),
+  sv_pct:      z.number(),
+  xga:         z.number().nonnegative(),
+  gsax:        z.number(),
+});
+
+export const PwhlTeamSchema = z.object({
+  team_id:           z.number().int(),
+  team_abbrev:       z.string(),
+  city:              z.string(),
+  season:            z.string(),
+  gp:                z.number().int(),
+  wins:              z.number().int(),
+  losses:            z.number().int(),
+  otl:               z.number().int(),
+  pts:               z.number().int(),
+  gf:                z.number().int(),
+  ga:                z.number().int(),
+  xgf:               z.number(),
+  xga:               z.number(),
+  xg_pct:            z.number(),
+  pp_goals:          z.number().int(),
+  pp_opportunities:  z.number().int(),
+  pp_pct:            z.number(),
+  pk_goals_against:  z.number().int(),
+  times_shorthanded: z.number().int(),
+  pk_pct:            z.number(),
+});
+
+export const PwhlPlayersSchema = z.array(PwhlPlayerSchema);
+export const PwhlGoaliesSchema = z.array(PwhlGoalieSchema);
+export const PwhlTeamsSchema   = z.array(PwhlTeamSchema);
+
+export type PwhlPlayer = z.infer<typeof PwhlPlayerSchema>;
+export type PwhlGoalie = z.infer<typeof PwhlGoalieSchema>;
+export type PwhlTeam   = z.infer<typeof PwhlTeamSchema>;
+
 // ── Parse helper ────────────────────────────────────────────────────────────
 
 /**
