@@ -41,6 +41,8 @@ export type GoalieCareerSeason = {
   xga?: number | null;
   gsax?: number | null;
   sa_5v5?: number;
+  ga_5v5?: number;
+  xga_5v5?: number | null;
   gsax_5v5?: number | null;
   gsax_pct?: number | null;
   gsax_5v5_pct?: number | null;
@@ -109,7 +111,9 @@ function gsaxColor(v: number | null): string | undefined {
 
 type RsRow = GoalieCareerSeason & {
   season_fmt: string;
-  dsv_pct: number | null;
+  dsv_pct: number | null;      // all-sit ΔSV%
+  dsv_pct_5v5: number | null;  // 5v5 ΔSV% = gsax_5v5/sa_5v5
+  sv_pct_5v5: number | null;   // 5v5 SV% = 1 - ga_5v5/sa_5v5
   is_current: boolean;
   season_normalized: string;
 };
@@ -117,6 +121,8 @@ type RsRow = GoalieCareerSeason & {
 type PoRow = GoalieCareerSeason & {
   season_fmt: string;
   dsv_pct: number | null;
+  dsv_pct_5v5: number | null;
+  sv_pct_5v5: number | null;
   is_current: boolean;
   season_normalized: string;
 };
@@ -163,43 +169,32 @@ export default function GoalieCareerTable({
   const [sorting, setSorting] = useState<SortingState>([{ id: 'season', desc: true }]);
 
   // Split career_seasons by game_type
-  const rsRows = useMemo<RsRow[]>(() => {
-    return careerSeasons
-      .filter(r => (r.game_type ?? 2) === 2)
-      .map(row => {
-        const xsv = row.sa && row.sa > 0 && row.xga != null
-          ? 1 - row.xga / row.sa
-          : null;
-        const dsv = row.sv_pct != null && xsv != null ? row.sv_pct - xsv : null;
-        const norm = normalizeSeasonKey(row.season);
-        return {
-          ...row,
-          season_fmt: fmtSeason(norm),
-          dsv_pct: dsv,
-          is_current: norm === CURRENT_SEASON_NORM,
-          season_normalized: norm,
-        };
-      });
-  }, [careerSeasons]);
+  function buildRow<T extends GoalieCareerSeason>(row: T) {
+    const xsv = row.sa && row.sa > 0 && row.xga != null ? 1 - row.xga / row.sa : null;
+    const dsv = row.sv_pct != null && xsv != null ? row.sv_pct - xsv : null;
+    const sa5 = row.sa_5v5 ?? 0;
+    const ga5 = row.ga_5v5 ?? 0;
+    const sv5 = sa5 > 0 ? 1 - ga5 / sa5 : null;
+    const dsv5 = row.gsax_5v5 != null && sa5 > 0 ? row.gsax_5v5 / sa5 : null;
+    const norm = normalizeSeasonKey(row.season);
+    return {
+      ...row,
+      season_fmt: fmtSeason(norm),
+      dsv_pct: dsv,
+      dsv_pct_5v5: dsv5,
+      sv_pct_5v5: sv5,
+      is_current: norm === CURRENT_SEASON_NORM,
+      season_normalized: norm,
+    };
+  }
 
-  const poRows = useMemo<PoRow[]>(() => {
-    return careerSeasons
-      .filter(r => (r.game_type ?? 2) === 3)
-      .map(row => {
-        const xsv = row.sa && row.sa > 0 && row.xga != null
-          ? 1 - row.xga / row.sa
-          : null;
-        const dsv = row.sv_pct != null && xsv != null ? row.sv_pct - xsv : null;
-        const norm = normalizeSeasonKey(row.season);
-        return {
-          ...row,
-          season_fmt: fmtSeason(norm),
-          dsv_pct: dsv,
-          is_current: norm === CURRENT_SEASON_NORM,
-          season_normalized: norm,
-        };
-      });
-  }, [careerSeasons]);
+  const rsRows = useMemo<RsRow[]>(() =>
+    careerSeasons.filter(r => (r.game_type ?? 2) === 2).map(buildRow),
+  [careerSeasons]);
+
+  const poRows = useMemo<PoRow[]>(() =>
+    careerSeasons.filter(r => (r.game_type ?? 2) === 3).map(buildRow),
+  [careerSeasons]);
 
   // Set active season to most recent on mount
   useEffect(() => {
@@ -256,25 +251,26 @@ export default function GoalieCareerTable({
       id: 'sa',
       header: 'SA',
       size: 68,
-      accessorFn: (r) => r.sa ?? 0,
-      cell: (info) => <span>{info.getValue<number>()}</span>,
+      accessorFn: (r) => (sit === '5v5' ? r.sa_5v5 : r.sa) ?? 0,
+      cell: (info) => <span>{sit === '5v5' ? (info.row.original.sa_5v5 ?? 0) : (info.row.original.sa ?? 0)}</span>,
     },
     {
       id: 'sv_pct',
       header: 'SV%',
       size: 72,
-      accessorFn: (r) => r.sv_pct ?? -1,
-      cell: (info) => (
-        <span style={{ fontWeight: 700 }}>{fmtSvPct(info.row.original.sv_pct)}</span>
-      ),
+      accessorFn: (r) => (sit === '5v5' ? r.sv_pct_5v5 : r.sv_pct) ?? -1,
+      cell: (info) => {
+        const v = sit === '5v5' ? info.row.original.sv_pct_5v5 : info.row.original.sv_pct;
+        return <span style={{ fontWeight: 700 }}>{fmtSvPct(v)}</span>;
+      },
     },
     {
       id: 'dsv_pct',
       header: 'ΔSV%',
       size: 80,
-      accessorFn: (r) => r.dsv_pct ?? -999,
+      accessorFn: (r) => (sit === '5v5' ? r.dsv_pct_5v5 : r.dsv_pct) ?? -999,
       cell: (info) => {
-        const v = info.row.original.dsv_pct;
+        const v = sit === '5v5' ? info.row.original.dsv_pct_5v5 : info.row.original.dsv_pct;
         const color = v == null ? 'rgba(13,13,20,0.32)' : v > 0.0001 ? '#137333' : v < -0.0001 ? '#991b1b' : undefined;
         return <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'rgba(13,13,20,0.72)' }}>{fmtDsv(v)}</span>;
       },

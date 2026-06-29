@@ -411,6 +411,8 @@ export const GoalieRecordSchema = z.object({
     xga:           z.number(),
     gsax:          z.number(),
     sa_5v5:        z.number().int().optional().default(0),
+    ga_5v5:        z.number().int().optional().default(0),
+    xga_5v5:       z.number().nullable().optional(),
     gsax_5v5:      z.number().nullable().optional(),
     gsax_pct:      z.number().int().nullable().optional(),
     gsax_5v5_pct:  z.number().int().nullable().optional(),
