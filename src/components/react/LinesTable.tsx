@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import HGBTable, { type HGBColumnDef } from './HGBTable';
+import HGBTable, { type HGBColumnDef, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { toLineSlug } from '../../lib/line-slug';
 import type { LineData } from '../../lib/stats-loader';
 import { fmtSeasonShort } from '../../lib/format-season';
@@ -38,7 +38,15 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
     sortType: 'string',
   },
   { id: 'type',   header: 'Type',    accessor: r => r.type,   width: 48,  cell: v => <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, border: '1px solid rgba(13,13,20,0.2)', padding: '1px 5px' }}>{v as string}</span> },
-  { id: 'team',   header: 'Team',    accessor: r => r.team,   width: 52 },
+  { id: 'team',   header: 'Team',    accessor: r => r.team,   width: 70,
+    cell: (_v, row) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+        <img src={teamLogoSrc(row.team, false)} style={TEAM_LOGO_STYLE} alt="" />
+        <span>{row.team}</span>
+      </div>
+    ),
+    exportText: (_v, row) => row.team,
+  },
   { id: 'season', header: 'Season',  accessor: r => r.season, width: 64,  cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')) },
   { id: 'games',  header: 'GP',      accessor: r => r.games,  width: 48 },
   { id: 'toi',    header: 'TOI',     accessor: r => r.toi_min, width: 68, cell: v => toMMSS(v as number), exportText: v => toMMSS(Number(v)) },

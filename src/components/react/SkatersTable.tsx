@@ -144,7 +144,15 @@ function buildColumns(
     },
     { id: 'season', header: 'Season', accessor: r => r.season ?? currentSeason, width: 68, mobileHidden: true,
       cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')) },
-    { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
+    { id: 'team', header: 'Team', accessor: r => r.team, width: 70,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+          <img src={teamLogoSrc(row.team, isDark)} style={TEAM_LOGO_STYLE} alt="" />
+          <span>{row.team}</span>
+        </div>
+      ),
+      exportText: (_v, row) => row.team,
+    },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp', header: 'GP', accessor: r => isPlayoff ? r.po_gp : r.gp, width: 48, cell: v => v != null ? String(v) : '—' },
   ];
@@ -371,7 +379,15 @@ function buildAggColumns(
     },
     { id: 'season', header: 'Seasons', accessor: () => rangeLabel, width: 116, mobileHidden: true,
       cell: () => <span style={{ ...MONO, fontSize: 13, whiteSpace: 'nowrap' }}>{rangeLabel}</span>, exportText: () => rangeLabel },
-    { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
+    { id: 'team', header: 'Team', accessor: r => r.team, width: 70,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+          <img src={teamLogoSrc(row.team, isDark)} style={TEAM_LOGO_STYLE} alt="" />
+          <span>{row.team}</span>
+        </div>
+      ),
+      exportText: (_v, row) => row.team,
+    },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp', header: 'GP', accessor: r => r.gp, width: 52 },
   ];

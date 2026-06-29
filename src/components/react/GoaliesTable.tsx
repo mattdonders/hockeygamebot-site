@@ -170,7 +170,15 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         id: 'season', header: 'Season', accessor: r => r.season, align: 'center', width: 72, mobileHidden: true,
         cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')),
       },
-      { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
+      { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 70,
+        cell: (_v, row) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+            <img src={teamLogoSrc(row.team, isDark)} style={TEAM_LOGO_STYLE} alt="" />
+            <span>{row.team}</span>
+          </div>
+        ),
+        exportText: (_v, row) => row.team,
+      },
       { id: 'gp',   header: 'GP',   accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },
       {
         id: 'toi', header: 'TOI', accessor: r => is5v5 ? r.toi_5v5_sec : r.toi_sec, align: 'center', width: 72, mobileHidden: true,

@@ -63,7 +63,15 @@ export default function ImpactTable({ rows, statsDate }: Props) {
       exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
       sortType: 'string',
     },
-    { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
+    { id: 'team', header: 'Team', accessor: r => r.team, width: 70,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+          <img src={teamLogoSrc(row.team, isDark)} style={TEAM_LOGO_STYLE} alt="" />
+          <span>{row.team}</span>
+        </div>
+      ),
+      exportText: (_v, row) => row.team,
+    },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp',   header: 'GP',   accessor: r => r.gp,   width: 48 },
     {
