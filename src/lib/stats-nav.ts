@@ -20,15 +20,15 @@ export const STATS_NAV_ITEMS: StatsNavItem[] = [
   { href: '/stats/wowy', label: 'WOWY', group: 'tools' },
   { href: '/stats/impact', label: 'Impact', group: 'tools' },
   { href: '/stats/explore', label: 'Explore', group: 'tools', activePaths: ['/stats/explore'] },
-  { href: '/stats/edge-compare', label: 'EDGE Compare', group: 'tools' },
+  { href: '/stats/edge-compare', label: 'Edge', group: 'tools' },
 
-  { href: '/stats/series', label: 'Playoff Series', group: 'history' },
-  { href: '/stats/records', label: 'Series Records', group: 'history' },
+  { href: '/stats/series', label: 'Series', group: 'history' },
+  { href: '/stats/records', label: 'Records', group: 'history' },
 
   { href: '/cards', label: 'Cards', group: 'studio', activePaths: ['/cards'], showInSubnav: false },
 
-  { href: '/stats/pwhl', label: 'PWHL Players', group: 'pwhl', activePaths: ['/stats/pwhl'] },
-  { href: '/stats/pwhl/teams', label: 'PWHL Teams', group: 'pwhl' },
+  { href: '/stats/pwhl', label: 'Players', group: 'pwhl', activePaths: ['/stats/pwhl'] },
+  { href: '/stats/pwhl/teams', label: 'Teams', group: 'pwhl' },
 ];
 
 export const STATS_NAV_GROUP_LABELS: Record<StatsNavGroupId, string> = {
