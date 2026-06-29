@@ -104,6 +104,14 @@ Full plan: `docs/plans/stats-redesign.md`
 - [ ] Teams page (`/stats/teams`)
 - [ ] xG recalibration (apply 1.46× stopgap → xG v2 rebuild is longer project)
 
+## Season String Hardcodes — Remaining (low priority)
+
+Three literals intentionally deferred from the Jun 2026 cohesion-pass cleanup:
+
+- `src/components/react/DashboardPersonalized.tsx:79` — `t.season === '2025-26'` filter; needs season passed as prop from parent page
+- `src/components/react/ImpactTable.tsx:114` — `'2025-26'` in `exportChips` label; cosmetic only
+- `src/pages/stats/wowy.astro:250` — `<option value="20252026">2025–26</option>` in season dropdown; needs `_meta` loaded + options derived dynamically
+
 ## Component Refactor
 
 - [ ] **Extract SparklineSvg.astro** — same 72×22 sparkline logic copy-pasted in leaderboards, impact, player page, games page. Extract to `src/components/SparklineSvg.astro` with props: `values: number[]`, `color?: string`, `min?`, `max?`.
@@ -153,6 +161,7 @@ Currently a beta page with a leaderboard table + EV Off vs EV Def scatter plot. 
 - [ ] **Goalie metrics**: Add GSAx to leaderboards when export pipeline has it — xG section in `/stats` has a comment marking the swap point
 - [ ] **Table strength/mode toggle — don't rename column headers**: When switching to 5v5 (or per60), keep column headers as "SA", "GA", "GSAx", "SV%", "TOI" — the export chip already labels the mode (e.g. "5V5"). Renaming to "5V5 SA", "5V5 GSAX" etc. adds noise with no benefit. Applies to GoaliesTable and SkatersTable.
 - [ ] **Goalie/player card age may be wrong**: Age is computed as floor((Oct 1 season start − birth_date) / 365.25). Some cards reportedly show incorrect ages — audit whether the bug is (a) wrong birth_date in the export pipeline, (b) off-by-one in the birthday-crossing logic, or (c) the wrong season year being used. Compare against NHL.com profile ages for a sample of affected players.
+- [ ] **Historical goalie cards missing percentile bars**: Pre-2025-26 cards only show GSAx % bar (from `career_seasons.gsax_pct`); GSAx/60, SV%, dSV%, HD SV%, and GAA bars all show `—` because those cross-sectional percentiles aren't stored per historical season in the pipeline. Fix: export per-season percentile ranks for all metrics in `_load_goalie_career_stats()` on Hetzner, add to `career_seasons` schema.
 
 ## Completed
 
