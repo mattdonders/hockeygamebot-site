@@ -168,7 +168,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 70,
         cell: (_v, row) => (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
-            <img src={teamLogoSrc(row.team, isDark)} width={20} height={20} style={TEAM_LOGO_STYLE} alt="" />
+            <img src={teamLogoSrc(row.team, isDark)} width={28} height={28} style={TEAM_LOGO_STYLE} alt="" />
             <span>{row.team}</span>
           </div>
         ),

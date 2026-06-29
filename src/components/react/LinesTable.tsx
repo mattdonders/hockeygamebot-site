@@ -41,7 +41,7 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
   { id: 'team',   header: 'Team',    accessor: r => r.team,   width: 70,
     cell: (_v, row) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
-        <img src={teamLogoSrc(row.team, false)} width={20} height={20} style={TEAM_LOGO_STYLE} alt="" />
+        <img src={teamLogoSrc(row.team, false)} width={28} height={28} style={TEAM_LOGO_STYLE} alt="" />
         <span>{row.team}</span>
       </div>
     ),
