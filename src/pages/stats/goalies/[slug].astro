@@ -91,6 +91,10 @@ const { goalie, gsaxRank, gsax60Rank, gsax5v5Rank, dsvPctRank, qualCount, gsax60
 const SA_QUAL    = 500; // keep in sync with getStaticPaths qualifier
 const hasTeam    = goalie.team_abbrev != null && goalie.team_abbrev !== '???' && goalie.team_abbrev !== '';
 const teamColor  = hasTeam ? pickTeamColor(goalie.team_abbrev) : '#8a8a8a';
+const allTeamColors = Object.fromEntries(
+  ['ANA','BOS','BUF','CAR','CBJ','CGY','CHI','COL','DAL','DET','EDM','FLA','LAK','MIN','MTL','NSH','NJD','NYI','NYR','OTT','PHI','PIT','SEA','SJS','STL','TBL','TOR','UTA','VAN','VGK','WSH','WPG']
+    .map(t => [t, pickTeamColor(t)])
+);
 const initial    = goalie.name.split('.')[0]?.trim() ?? '';
 const lastName   = goalie.name.split('.').pop()?.trim() ?? goalie.name;
 const firstName  = (goalie.first_name && goalie.first_name.length > 0) ? goalie.first_name : initial;
@@ -1137,7 +1141,7 @@ const cardData = {
 })();
 </script>
 
-<script define:vars={{ G: cardData }}>
+<script define:vars={{ G: cardData, careerSeasons: (goalie.career_seasons ?? []).filter(s => s.game_type === 2), teamColors: allTeamColors }}>
   (function () {
     const status = document.getElementById('goalie-card-status');
     const btn    = document.getElementById('dl-goalie-card');
@@ -1158,6 +1162,7 @@ const cardData = {
     const INK10   = 'rgba(13,13,20,0.10)';
     const INK06   = 'rgba(13,13,20,0.06)';
     const TEAM_C  = G.hasTeam ? (G.teamColor || INK) : '#8a8a8a';
+    let _selectedSeason = G.season;
 
     const TEAM_NAMES = {
       ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
@@ -1265,11 +1270,38 @@ const cardData = {
     }
 
     // ── card draw ──────────────────────────────────────────────────────────
-    async function drawGoalieCard() {
+    async function drawGoalieCard(selectedSeason) {
+      // ── season lookup (mirrors drawSeasonCard pattern from player page) ───
+      var allSeasons = typeof careerSeasons !== 'undefined' ? careerSeasons : [];
+      var hist = null;
+      if (selectedSeason && selectedSeason !== G.season) {
+        hist = allSeasons.find(function(s) { return s.season === selectedSeason; }) || null;
+      }
+      var isHistorical = !!hist;
+      // Season-aware local variables (shadow G for historical seasons)
+      var heroSeason   = isHistorical ? selectedSeason : G.season;
+      var seasonTeam   = isHistorical ? (hist.team_abbrev || G.team) : G.team;
+      var TEAM_C       = (teamColors && teamColors[seasonTeam]) ? teamColors[seasonTeam] : (G.teamColor || INK);
+      var gSa          = isHistorical ? (hist.sa          ?? G.sa)       : G.sa;
+      var gGa          = isHistorical ? (hist.ga          ?? G.ga)       : G.ga;
+      var gSvPct       = isHistorical ? (hist.sv_pct      ?? null)       : G.svPct;
+      var gGp          = isHistorical ? (hist.gp          ?? G.gp)       : G.gp;
+      var gGsax        = isHistorical ? (hist.gsax        ?? null)       : G.gsax;
+      var gGsax5v5     = isHistorical ? (hist.gsax_5v5    ?? null)       : G.gsax5v5;
+      var gGsaxPct     = isHistorical ? (hist.gsax_pct    ?? null)       : G.gsaxPct;
+      var gGsax5v5Pct  = isHistorical ? (hist.gsax_5v5_pct ?? null)      : G.gsax5v5Pct;
+      var gGsaxPer60   = isHistorical ? null                             : G.gsaxPer60;
+      var gGsax60Pct   = isHistorical ? null                             : G.gsax60Pct;
+      var gDSvPct      = isHistorical
+        ? (hist.gsax != null && hist.sa > 0 ? hist.gsax / hist.sa : null)
+        : G.dSvPct;
+      var gDsvPctPct   = isHistorical ? null : G.dsvPctPct;
+      var gGaa         = isHistorical ? null : G.gaa;
+      var e            = isHistorical ? null : G.edge;
+
       const BG2 = '#EFEEE8', SURFACE2 = '#FFFFFF';
       const SCALE = 2;
       const L_W = 520, R_W = 520, PAD2 = 24, R_PAD = 20;
-      const e = G.edge;
       const hasEdge = !!e;
       const W = hasEdge ? L_W + R_W : L_W;
 
@@ -1302,14 +1334,14 @@ const cardData = {
       ctx.fillText((G.firstName + ' ' + G.lastName).toUpperCase(), PAD2, HDR_H / 2);
       ctx.font = '700 10px "JetBrains Mono", monospace';
       ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
-      ctx.fillText('SEASON CARD · ' + G.season, W - PAD2, HDR_H / 2);
+      ctx.fillText('SEASON CARD · ' + heroSeason, W - PAD2, HDR_H / 2);
 
       // Chips
       const chipH2 = 18, chipY0 = HDR_H + (CHIP_H - chipH2) / 2;
-      const teamFull = TEAM_NAMES[G.team] || G.team || 'FREE AGENT';
+      const teamFull = TEAM_NAMES[seasonTeam] || seasonTeam || 'FREE AGENT';
       const chipLabels = [
         ...(G.sweaterNumber != null ? [`#${G.sweaterNumber}`] : []),
-        teamFull, 'GOALIE', G.season,
+        teamFull, 'GOALIE', heroSeason,
         ...(G.age != null ? [`AGE: ${G.age}`] : []),
         ...(G.shoots ? [`CATCHES: ${G.shoots}`] : []),
       ];
@@ -1359,8 +1391,8 @@ const cardData = {
       const heroX = HS_CX + R + 18;
       const heroW = (L_W - heroX - PAD2) / 2;
       const heroTiles = [
-        { label: 'HGB GSAx · ' + G.season,  pct: G.gsaxPct,    sub: G.gsax    != null ? (G.gsax    >= 0 ? '+' : '') + G.gsax.toFixed(1)    + ' GSAx' : '' },
-        { label: 'GSAx 5v5 · ' + G.season,  pct: G.gsax5v5Pct, sub: G.gsax5v5 != null ? (G.gsax5v5 >= 0 ? '+' : '') + G.gsax5v5.toFixed(1) + ' GSAx' : '' },
+        { label: 'HGB GSAx · ' + heroSeason,  pct: gGsaxPct,    sub: gGsax    != null ? (gGsax    >= 0 ? '+' : '') + gGsax.toFixed(1)    + ' GSAx' : '' },
+        { label: 'GSAx 5v5 · ' + heroSeason,  pct: gGsax5v5Pct, sub: gGsax5v5 != null ? (gGsax5v5 >= 0 ? '+' : '') + gGsax5v5.toFixed(1) + ' GSAx' : '' },
       ];
       for (let i = 0; i < heroTiles.length; i++) {
         const t = heroTiles[i];
@@ -1384,10 +1416,10 @@ const cardData = {
       ctx.fillStyle = SURFACE2; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
       const fmtSvPct = (v) => v != null ? v.toFixed(3).replace(/^0/, '') : '—';
       const countCols = [
-        { label: 'SA',  val: G.sa  != null ? String(G.sa)  : '—', color: INK },
-        { label: 'GA',  val: G.ga  != null ? String(G.ga)  : '—', color: INK },
-        { label: 'SV%', val: fmtSvPct(G.svPct),                    color: TEAM_C },
-        { label: 'GP',  val: G.gp  != null ? String(G.gp)  : '—', color: INK },
+        { label: 'SA',  val: gSa   != null ? String(gSa)   : '—', color: INK },
+        { label: 'GA',  val: gGa   != null ? String(gGa)   : '—', color: INK },
+        { label: 'SV%', val: fmtSvPct(gSvPct),                     color: TEAM_C },
+        { label: 'GP',  val: gGp   != null ? String(gGp)   : '—', color: INK },
       ];
       const cColW = (L_W - PAD2 * 2) / countCols.length;
       for (let ci = 0; ci < countCols.length; ci++) {
@@ -1415,17 +1447,17 @@ const cardData = {
       y += 12;
 
       // 6 percentile bars — label top line, actual value bottom line, bar, % right
-      const dVal = G.dSvPct != null ? G.dSvPct * 100 : null;
+      const dVal = gDSvPct != null ? gDSvPct * 100 : null;
       const svPctPct2 = e?.svpct_all?.pct != null ? e.svpct_all.pct * 100 : null;
       const gaaPct2   = e?.gaa?.pct        != null ? e.gaa.pct * 100        : null;
       const hdPct     = e?.zones?.[0]?.svpct_pct != null ? e.zones[0].svpct_pct * 100 : null;
       const bars = [
-        { label: 'GSAx',      val: G.gsaxPct,   raw: G.gsax    != null ? (G.gsax    >= 0 ? '+' : '') + G.gsax.toFixed(1)         : null, rawColor: G.gsax    != null ? (G.gsax    >= 0 ? GREEN : RED) : INK32 },
-        { label: 'GSAx / 60', val: G.gsax60Pct, raw: G.gsaxPer60 != null ? (G.gsaxPer60 >= 0 ? '+' : '') + G.gsaxPer60.toFixed(2) : null, rawColor: G.gsaxPer60 != null ? (G.gsaxPer60 >= 0 ? GREEN : RED) : INK32 },
-        { label: 'SV %',      val: svPctPct2,   raw: G.svPct   != null ? fmtSvPct(G.svPct)                                        : null, rawColor: INK },
-        { label: 'dSV %',     val: G.dsvPctPct, raw: dVal      != null ? (dVal      >= 0 ? '+' : '') + dVal.toFixed(2) + '%'      : null, rawColor: dVal       != null ? (dVal       >= 0 ? GREEN : RED) : INK32 },
-        { label: 'HD SV %',   val: hdPct,       raw: e?.zones?.[0]?.svpct != null ? fmtSvPct(e.zones[0].svpct)                    : null, rawColor: INK },
-        { label: 'GAA',       val: gaaPct2,     raw: G.gaa     != null ? G.gaa.toFixed(2)                                         : null, rawColor: INK },
+        { label: 'GSAx',      val: gGsaxPct,    raw: gGsax     != null ? (gGsax     >= 0 ? '+' : '') + gGsax.toFixed(1)           : null, rawColor: gGsax     != null ? (gGsax     >= 0 ? GREEN : RED) : INK32 },
+        { label: 'GSAx / 60', val: gGsax60Pct,  raw: gGsaxPer60 != null ? (gGsaxPer60 >= 0 ? '+' : '') + gGsaxPer60.toFixed(2)   : null, rawColor: gGsaxPer60 != null ? (gGsaxPer60 >= 0 ? GREEN : RED) : INK32 },
+        { label: 'SV %',      val: svPctPct2,   raw: gSvPct    != null ? fmtSvPct(gSvPct)                                          : null, rawColor: INK },
+        { label: 'dSV %',     val: gDsvPctPct,  raw: dVal      != null ? (dVal      >= 0 ? '+' : '') + dVal.toFixed(2) + '%'       : null, rawColor: dVal       != null ? (dVal       >= 0 ? GREEN : RED) : INK32 },
+        { label: 'HD SV %',   val: hdPct,       raw: e?.zones?.[0]?.svpct != null ? fmtSvPct(e.zones[0].svpct)                     : null, rawColor: INK },
+        { label: 'GAA',       val: gaaPct2,     raw: gGaa      != null ? gGaa.toFixed(2)                                            : null, rawColor: INK },
       ];
       function barFillG(v) {
         if (v == null) return 'rgba(13,13,20,0.20)';
@@ -1849,10 +1881,11 @@ const cardData = {
       });
     }
 
-    // ── update button label when a career table row is clicked ────────────
-    document.addEventListener('hgb:season-select', (e) => {
-      const season = e.detail?.season;
+    // ── update button label + selected season when a career table row is clicked
+    document.addEventListener('hgb:season-select', (ev) => {
+      const season = ev.detail?.season;
       if (!season || !btn) return;
+      _selectedSeason = season;
       btn.textContent = `${season} Goalie Card →`;
     });
 
@@ -1870,9 +1903,10 @@ const cardData = {
             document.fonts.load('600 1px "Barlow"'),
           ]);
         }
-        const canvas = await drawGoalieCard();
+        const canvas = await drawGoalieCard(_selectedSeason);
         const slug = G.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        window.HGB_Export.showCardModal(canvas, `hgb_goalie_${slug}_25-26.png`);
+        const seasonSlug = (_selectedSeason || G.season).replace(/[-–]/g, '-');
+        window.HGB_Export.showCardModal(canvas, `hgb_goalie_${slug}_${seasonSlug}.png`);
         if (status) { status.textContent = 'Done ✓'; setTimeout(() => { if (status) status.style.display = 'none'; }, 3000); }
       } catch (e) {
         console.error(e);
