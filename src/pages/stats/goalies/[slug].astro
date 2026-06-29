@@ -3,6 +3,7 @@ import Nav from '../../../components/Nav.astro';
 import ThemeScript from '../../../components/ThemeScript.astro';
 import Fonts from '../../../components/Fonts.astro';
 import Table from '../../../components/Table.astro';
+import GoalieCareerTable from '../../../components/react/GoalieCareerTable';
 import { loadGoalies, loadMeta } from '../../../lib/stats-loader';
 import { pickTeamColor } from '../../../lib/team-colors';
 import type { GoalieRecord } from '../../../lib/stats-schemas';
@@ -90,6 +91,10 @@ const { goalie, gsaxRank, gsax60Rank, gsax5v5Rank, dsvPctRank, qualCount, gsax60
 const SA_QUAL    = 500; // keep in sync with getStaticPaths qualifier
 const hasTeam    = goalie.team_abbrev != null && goalie.team_abbrev !== '???' && goalie.team_abbrev !== '';
 const teamColor  = hasTeam ? pickTeamColor(goalie.team_abbrev) : '#8a8a8a';
+const allTeamColors = Object.fromEntries(
+  ['ANA','BOS','BUF','CAR','CBJ','CGY','CHI','COL','DAL','DET','EDM','FLA','LAK','MIN','MTL','NSH','NJD','NYI','NYR','OTT','PHI','PIT','SEA','SJS','STL','TBL','TOR','UTA','VAN','VGK','WSH','WPG']
+    .map(t => [t, pickTeamColor(t)])
+);
 const initial    = goalie.name.split('.')[0]?.trim() ?? '';
 const lastName   = goalie.name.split('.').pop()?.trim() ?? goalie.name;
 const firstName  = (goalie.first_name && goalie.first_name.length > 0) ? goalie.first_name : initial;
@@ -488,11 +493,22 @@ const cardData = {
     .page-sidebar { grid-column: 2; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 20px; align-self: start; }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
     .cta-card { background: var(--ink); padding: 22px 18px; }
-    .cta-btn { display: block; width: 100%; background: var(--red); color: #fff; font-family: var(--body); font-weight: 700; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; border: none; cursor: pointer; text-align: center; margin-bottom: 8px; }
     .cta-note { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: rgba(255,255,255,0.24); margin-top: 8px; text-align: center; }
+    .cta-section-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.35); margin-bottom: 10px; }
+    .cta-btn-primary { display: block; width: 100%; font-family: var(--body); font-weight: 800; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; padding: 13px 16px; border: none; cursor: pointer; text-align: center; margin-bottom: 8px; }
+    .cta-btn-secondary { display: block; width: 100%; font-family: var(--body); font-weight: 700; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.22); color: rgba(255,255,255,0.85); cursor: pointer; text-align: center; margin-bottom: 6px; transition: background 0.12s, border-color 0.12s; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cta-btn-secondary:hover { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.40); }
+    .cta-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 16px 0; }
+    .related-links { display: flex; flex-direction: column; gap: 4px; }
+    .related-link { display: flex; align-items: center; justify-content: space-between; font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; color: rgba(255,255,255,0.72); text-decoration: none; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.14); transition: background 0.1s, color 0.1s, border-color 0.1s; }
+    .related-link:hover { background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.28); }
+    .related-link-arrow { color: rgba(255,255,255,0.38); flex-shrink: 0; margin-left: 8px; }
+    .content-side { display: flex; flex-direction: column; gap: 16px; }
     @media (max-width: 768px) {
       .content { grid-template-columns: 1fr; padding: 20px 0 60px; }
-      .page-sidebar { grid-column: 1; position: static; }
+      .page-sidebar { display: contents; }
+      .cta-card     { grid-column: 1; order: 1; }
+      .content-side { grid-column: 1; order: 3; min-width: 0; overflow: hidden; }
       .two-col { grid-template-columns: 1fr; }
     }
 
@@ -655,55 +671,19 @@ const cardData = {
 <div class="content">
 <div class="content-main">
 
-  <!-- ── Season stats table ── -->
-  <div class="sec-card">
-    <div class="sec-head">
-      <div class="sec-title">2025–26 <span style={`color:${teamColor}`}>Season Stats</span></div>
-      <div class="sec-sub">All situations · min 500 SA for percentile ranking</div>
+  <!-- ── Career Stats (season by season) — replaces single-season static table ── -->
+  {hasCareer && (
+    <div class="sec-card" style="padding:0">
+      <GoalieCareerTable
+        client:load
+        careerSeasons={goalie.career_seasons ?? []}
+        goalieName={`${goalie.first_name} ${goalie.last_name}`}
+        goalieSlug={goalie.slug}
+        currentSeason={currentSeasonNorm}
+        leaderboardHref="/stats/goalies"
+      />
     </div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid rgba(13,13,20,0.14)">
-        <thead>
-          <tr style="background:#EFEEE8;border-bottom:1px solid rgba(13,13,20,0.14)">
-            {['Season','Team','GP','GAA','SV%','ΔSV%','GSAx','GSAx 5v5'].map((h, i) => (
-              <th style={`font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:rgba(13,13,20,0.48);padding:8px 10px;text-align:${i <= 1 ? 'left' : 'center'};white-space:nowrap`}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="border-bottom:1px solid rgba(13,13,20,0.05)">
-            {/* Season */}
-            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;padding:10px 10px;text-align:left;white-space:nowrap">{currentSeasonNorm}</td>
-            {/* Team logo + abbrev */}
-            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px 10px;text-align:left;white-space:nowrap">
-              <div style="display:flex;align-items:center;gap:6px">
-                <img src={`https://assets.nhle.com/logos/nhl/svg/${goalie.team_abbrev}_light.svg`} width="20" height="20" alt={goalie.team_abbrev} style="object-fit:contain;flex-shrink:0" />
-                <span style="color:rgba(13,13,20,0.72)">{goalie.team_abbrev}</span>
-              </div>
-            </td>
-            {/* GP */}
-            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px 10px;text-align:center">{statsRow.gp}</td>
-            {/* GAA */}
-            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px 10px;text-align:center">{statsRow.gaa != null ? statsRow.gaa.toFixed(2) : '—'}</td>
-            {/* SV% */}
-            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px 10px;text-align:center">{goalie.sv_pct != null ? goalie.sv_pct.toFixed(3) : '—'}</td>
-            {/* ΔSV% */}
-            <td style={`font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;padding:10px 10px;text-align:center;color:${statsRow.d_sv_pct != null ? (statsRow.d_sv_pct >= 0 ? '#137333' : '#991b1b') : 'inherit'}`}>
-              {statsRow.d_sv_pct != null ? `${statsRow.d_sv_pct >= 0 ? '+' : ''}${statsRow.d_sv_pct.toFixed(2)}%` : '—'}
-            </td>
-            {/* GSAx */}
-            <td style={`font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;padding:10px 10px;text-align:center;color:${goalie.gsax >= 0 ? '#137333' : '#991b1b'}`}>
-              {goalie.gsax >= 0 ? '+' : ''}{goalie.gsax.toFixed(2)}
-            </td>
-            {/* GSAx 5v5 */}
-            <td style={`font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;padding:10px 10px;text-align:center;color:${statsRow.gsax_5v5 != null ? (statsRow.gsax_5v5 >= 0 ? '#137333' : '#991b1b') : 'inherit'}`}>
-              {statsRow.gsax_5v5 != null ? `${statsRow.gsax_5v5 >= 0 ? '+' : ''}${statsRow.gsax_5v5.toFixed(2)}` : '—'}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
+  )}
 
   <!-- ── Cumulative GSAx chart ── -->
   {cumPoints.length > 1 && (
@@ -950,67 +930,6 @@ const cardData = {
     </div>
   )}
 
-  <!-- ── Career Stats ── -->
-  {hasCareer && (
-    <div class="sec-card">
-      <div class="sec-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <div>
-          <div class="sec-title">Career Stats — <span style={`color:${teamColor}`}>Season by Season</span></div>
-          <div class="sec-sub">xG-model stats · all seasons with 100+ SA faced</div>
-        </div>
-      </div>
-      <div class="career-tabs">
-        <button class="career-tab active" data-type="2">Regular Season</button>
-        {careerPO.length > 0 && <button class="career-tab" data-type="3">Playoffs</button>}
-      </div>
-      <div style="overflow-x:auto;padding-bottom:4px">
-        <table class="career-tbl">
-          <thead>
-            <tr>
-              <th>Season</th>
-              <th>Team</th>
-              <th>GP</th>
-              <th>SA</th>
-              <th>GA</th>
-              <th>SV%</th>
-              <th>xGA</th>
-              <th>GSAx (all sit.)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...careerRS, ...careerPO].map(s => {
-              const gsaxSign = s.gsax >= 0 ? '+' : '';
-              const cls = s.game_type === 2 ? 'career-season-row rs-row' : 'career-season-row po-row';
-              return (
-                <tr class={cls}>
-                  <td>{s.season}</td>
-                  <td>
-                    <div class="career-team-cell">
-                      {s.team_abbrev && (
-                        <img class="career-team-logo"
-                          src={`https://assets.nhle.com/logos/nhl/svg/${s.team_abbrev}_light.svg`}
-                          alt={s.team_abbrev} width="20" height="20" />
-                      )}
-                      <span>{s.team_abbrev ?? '—'}</span>
-                    </div>
-                  </td>
-                  <td>{s.gp}</td>
-                  <td>{s.sa.toLocaleString()}</td>
-                  <td>{s.ga}</td>
-                  <td>{s.sv_pct != null ? s.sv_pct.toFixed(3) : '—'}</td>
-                  <td>{s.xga.toFixed(1)}</td>
-                  <td class={s.gsax >= 0 ? 'career-gsax-pos' : 'career-gsax-neg'}>{gsaxSign}{s.gsax.toFixed(1)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div style="padding:8px 20px;font-family:var(--mono);font-size:9px;color:rgba(13,13,20,0.55);letter-spacing:0.06em">
-        hockeygamebot.com · GSAx = xGA − GA via XGBoost model · min 100 SA
-      </div>
-    </div>
-  )}
 
   <!-- ── Game Log Table ── -->
   {gameLogRows.length > 0 && (
@@ -1034,45 +953,58 @@ const cardData = {
 
 <!-- ── Sidebar ── -->
 <div class="page-sidebar">
+
+  <!-- ARTIFACT ACTION BLOCK -->
   <div class="cta-card">
-    <button id="dl-goalie-card" type="button" class="cta-btn" style={`background:${teamColor}`}>
-      2025–26 Goalie Card →
+    <div class="cta-section-label">Shareable Artifacts</div>
+    <button id="dl-goalie-card" type="button" class="cta-btn-primary" style={`background:${teamColor};color:#ffffff;`}>
+      {currentSeasonNorm} Goalie Card →
     </button>
+    {goalie.sa >= 500 && (
+      <button id="dl-goalie-kde" type="button" class="cta-btn-secondary">
+        Shot Zone Map Card
+      </button>
+    )}
     <div class="cta-note" id="goalie-card-status" style="display:none"></div>
+    <div class="cta-note" id="goalie-kde-status" style="display:none"></div>
+
+    <div class="cta-divider"></div>
+    <div class="cta-section-label">Related Analysis</div>
+    <div class="related-links">
+      <a href="/stats/goalies" class="related-link">
+        Goalie Leaderboard
+        <span class="related-link-arrow">→</span>
+      </a>
+    </div>
   </div>
 
-  {goalie.sa >= 500 && (
-    <div class="cta-card" style="margin-top:8px">
-      <button id="dl-goalie-kde" type="button" class="cta-btn" style={`background:${teamColor}`}>
-        Shot Zone Map Card →
-      </button>
-      <div class="cta-note" id="goalie-kde-status" style="display:none"></div>
-    </div>
+  <!-- SIMILAR GOALIES -->
+  {similarGoalies.length > 0 && (
+    <aside class="content-side">
+      <div class="sec-card">
+        <div class="sec-head">
+          <div class="sec-title">Similar <span style={`color:${teamColor}`}>Goalies</span></div>
+          <div class="sec-sub">By GSAx · qualified starters</div>
+        </div>
+        <div class="peer-strip">
+          {similarGoalies.map(g => {
+            const sign = g.gsax >= 0 ? '+' : '';
+            const peerSlug = g.slug && g.slug.length > 0 ? g.slug : `goalie-${g.goalie_id}`;
+            return (
+              <a href={`/stats/goalies/${peerSlug}`} class="peer-row">
+                <div style="flex:1">
+                  <div class="peer-name">{g.first_name && g.last_name ? `${g.first_name} ${g.last_name}` : g.name}</div>
+                  <div class="peer-meta">{g.team_abbrev} · {g.sa.toLocaleString()} SA</div>
+                </div>
+                <span class={`peer-gsax ${g.gsax >= 0 ? 'pos' : 'neg'}`}>{sign}{g.gsax.toFixed(2)}</span>
+              </a>
+            );
+          })}
+        </div>
+      </div>
+    </aside>
   )}
 
-  {similarGoalies.length > 0 && (
-    <div class="sec-card">
-      <div class="sec-head">
-        <div class="sec-title">Similar <span style={`color:${teamColor}`}>Goalies</span></div>
-        <div class="sec-sub">By GSAx · qualified starters</div>
-      </div>
-      <div class="peer-strip">
-        {similarGoalies.map(g => {
-          const sign = g.gsax >= 0 ? '+' : '';
-          const peerSlug = g.slug && g.slug.length > 0 ? g.slug : `goalie-${g.goalie_id}`;
-          return (
-            <a href={`/stats/goalies/${peerSlug}`} class="peer-row">
-              <div style="flex:1">
-                <div class="peer-name">{g.first_name && g.last_name ? `${g.first_name} ${g.last_name}` : g.name}</div>
-                <div class="peer-meta">{g.team_abbrev} · {g.sa.toLocaleString()} SA</div>
-              </div>
-              <span class={`peer-gsax ${g.gsax >= 0 ? 'pos' : 'neg'}`}>{sign}{g.gsax.toFixed(2)}</span>
-            </a>
-          );
-        })}
-      </div>
-    </div>
-  )}
 </div><!-- /page-sidebar -->
 
 </div><!-- /content -->
@@ -1209,7 +1141,7 @@ const cardData = {
 })();
 </script>
 
-<script define:vars={{ G: cardData }}>
+<script define:vars={{ G: cardData, careerSeasons: (goalie.career_seasons ?? []).filter(s => s.game_type === 2), teamColors: allTeamColors }}>
   (function () {
     const status = document.getElementById('goalie-card-status');
     const btn    = document.getElementById('dl-goalie-card');
@@ -1230,6 +1162,7 @@ const cardData = {
     const INK10   = 'rgba(13,13,20,0.10)';
     const INK06   = 'rgba(13,13,20,0.06)';
     const TEAM_C  = G.hasTeam ? (G.teamColor || INK) : '#8a8a8a';
+    let _selectedSeason = G.season;
 
     const TEAM_NAMES = {
       ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
@@ -1337,11 +1270,38 @@ const cardData = {
     }
 
     // ── card draw ──────────────────────────────────────────────────────────
-    async function drawGoalieCard() {
+    async function drawGoalieCard(selectedSeason) {
+      // ── season lookup (mirrors drawSeasonCard pattern from player page) ───
+      var allSeasons = typeof careerSeasons !== 'undefined' ? careerSeasons : [];
+      var hist = null;
+      if (selectedSeason && selectedSeason !== G.season) {
+        hist = allSeasons.find(function(s) { return s.season === selectedSeason; }) || null;
+      }
+      var isHistorical = !!hist;
+      // Season-aware local variables (shadow G for historical seasons)
+      var heroSeason   = isHistorical ? selectedSeason : G.season;
+      var seasonTeam   = isHistorical ? (hist.team_abbrev || G.team) : G.team;
+      var TEAM_C       = (teamColors && teamColors[seasonTeam]) ? teamColors[seasonTeam] : (G.teamColor || INK);
+      var gSa          = isHistorical ? (hist.sa          ?? G.sa)       : G.sa;
+      var gGa          = isHistorical ? (hist.ga          ?? G.ga)       : G.ga;
+      var gSvPct       = isHistorical ? (hist.sv_pct      ?? null)       : G.svPct;
+      var gGp          = isHistorical ? (hist.gp          ?? G.gp)       : G.gp;
+      var gGsax        = isHistorical ? (hist.gsax        ?? null)       : G.gsax;
+      var gGsax5v5     = isHistorical ? (hist.gsax_5v5    ?? null)       : G.gsax5v5;
+      var gGsaxPct     = isHistorical ? (hist.gsax_pct    ?? null)       : G.gsaxPct;
+      var gGsax5v5Pct  = isHistorical ? (hist.gsax_5v5_pct ?? null)      : G.gsax5v5Pct;
+      var gGsaxPer60   = isHistorical ? null                             : G.gsaxPer60;
+      var gGsax60Pct   = isHistorical ? null                             : G.gsax60Pct;
+      var gDSvPct      = isHistorical
+        ? (hist.gsax != null && hist.sa > 0 ? hist.gsax / hist.sa : null)
+        : G.dSvPct;
+      var gDsvPctPct   = isHistorical ? null : G.dsvPctPct;
+      var gGaa         = isHistorical ? null : G.gaa;
+      var e            = isHistorical ? null : G.edge;
+
       const BG2 = '#EFEEE8', SURFACE2 = '#FFFFFF';
       const SCALE = 2;
       const L_W = 520, R_W = 520, PAD2 = 24, R_PAD = 20;
-      const e = G.edge;
       const hasEdge = !!e;
       const W = hasEdge ? L_W + R_W : L_W;
 
@@ -1374,14 +1334,14 @@ const cardData = {
       ctx.fillText((G.firstName + ' ' + G.lastName).toUpperCase(), PAD2, HDR_H / 2);
       ctx.font = '700 10px "JetBrains Mono", monospace';
       ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
-      ctx.fillText('SEASON CARD · ' + G.season, W - PAD2, HDR_H / 2);
+      ctx.fillText('SEASON CARD · ' + heroSeason, W - PAD2, HDR_H / 2);
 
       // Chips
       const chipH2 = 18, chipY0 = HDR_H + (CHIP_H - chipH2) / 2;
-      const teamFull = TEAM_NAMES[G.team] || G.team || 'FREE AGENT';
+      const teamFull = TEAM_NAMES[seasonTeam] || seasonTeam || 'FREE AGENT';
       const chipLabels = [
         ...(G.sweaterNumber != null ? [`#${G.sweaterNumber}`] : []),
-        teamFull, 'GOALIE', G.season,
+        teamFull, 'GOALIE', heroSeason,
         ...(G.age != null ? [`AGE: ${G.age}`] : []),
         ...(G.shoots ? [`CATCHES: ${G.shoots}`] : []),
       ];
@@ -1431,8 +1391,8 @@ const cardData = {
       const heroX = HS_CX + R + 18;
       const heroW = (L_W - heroX - PAD2) / 2;
       const heroTiles = [
-        { label: 'HGB GSAx · ' + G.season,  pct: G.gsaxPct,    sub: G.gsax    != null ? (G.gsax    >= 0 ? '+' : '') + G.gsax.toFixed(1)    + ' GSAx' : '' },
-        { label: 'GSAx 5v5 · ' + G.season,  pct: G.gsax5v5Pct, sub: G.gsax5v5 != null ? (G.gsax5v5 >= 0 ? '+' : '') + G.gsax5v5.toFixed(1) + ' GSAx' : '' },
+        { label: 'HGB GSAx · ' + heroSeason,  pct: gGsaxPct,    sub: gGsax    != null ? (gGsax    >= 0 ? '+' : '') + gGsax.toFixed(1)    + ' GSAx' : '' },
+        { label: 'GSAx 5v5 · ' + heroSeason,  pct: gGsax5v5Pct, sub: gGsax5v5 != null ? (gGsax5v5 >= 0 ? '+' : '') + gGsax5v5.toFixed(1) + ' GSAx' : '' },
       ];
       for (let i = 0; i < heroTiles.length; i++) {
         const t = heroTiles[i];
@@ -1456,10 +1416,10 @@ const cardData = {
       ctx.fillStyle = SURFACE2; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
       const fmtSvPct = (v) => v != null ? v.toFixed(3).replace(/^0/, '') : '—';
       const countCols = [
-        { label: 'SA',  val: G.sa  != null ? String(G.sa)  : '—', color: INK },
-        { label: 'GA',  val: G.ga  != null ? String(G.ga)  : '—', color: INK },
-        { label: 'SV%', val: fmtSvPct(G.svPct),                    color: TEAM_C },
-        { label: 'GP',  val: G.gp  != null ? String(G.gp)  : '—', color: INK },
+        { label: 'SA',  val: gSa   != null ? String(gSa)   : '—', color: INK },
+        { label: 'GA',  val: gGa   != null ? String(gGa)   : '—', color: INK },
+        { label: 'SV%', val: fmtSvPct(gSvPct),                     color: TEAM_C },
+        { label: 'GP',  val: gGp   != null ? String(gGp)   : '—', color: INK },
       ];
       const cColW = (L_W - PAD2 * 2) / countCols.length;
       for (let ci = 0; ci < countCols.length; ci++) {
@@ -1487,17 +1447,17 @@ const cardData = {
       y += 12;
 
       // 6 percentile bars — label top line, actual value bottom line, bar, % right
-      const dVal = G.dSvPct != null ? G.dSvPct * 100 : null;
+      const dVal = gDSvPct != null ? gDSvPct * 100 : null;
       const svPctPct2 = e?.svpct_all?.pct != null ? e.svpct_all.pct * 100 : null;
       const gaaPct2   = e?.gaa?.pct        != null ? e.gaa.pct * 100        : null;
       const hdPct     = e?.zones?.[0]?.svpct_pct != null ? e.zones[0].svpct_pct * 100 : null;
       const bars = [
-        { label: 'GSAx',      val: G.gsaxPct,   raw: G.gsax    != null ? (G.gsax    >= 0 ? '+' : '') + G.gsax.toFixed(1)         : null, rawColor: G.gsax    != null ? (G.gsax    >= 0 ? GREEN : RED) : INK32 },
-        { label: 'GSAx / 60', val: G.gsax60Pct, raw: G.gsaxPer60 != null ? (G.gsaxPer60 >= 0 ? '+' : '') + G.gsaxPer60.toFixed(2) : null, rawColor: G.gsaxPer60 != null ? (G.gsaxPer60 >= 0 ? GREEN : RED) : INK32 },
-        { label: 'SV %',      val: svPctPct2,   raw: G.svPct   != null ? fmtSvPct(G.svPct)                                        : null, rawColor: INK },
-        { label: 'dSV %',     val: G.dsvPctPct, raw: dVal      != null ? (dVal      >= 0 ? '+' : '') + dVal.toFixed(2) + '%'      : null, rawColor: dVal       != null ? (dVal       >= 0 ? GREEN : RED) : INK32 },
-        { label: 'HD SV %',   val: hdPct,       raw: e?.zones?.[0]?.svpct != null ? fmtSvPct(e.zones[0].svpct)                    : null, rawColor: INK },
-        { label: 'GAA',       val: gaaPct2,     raw: G.gaa     != null ? G.gaa.toFixed(2)                                         : null, rawColor: INK },
+        { label: 'GSAx',      val: gGsaxPct,    raw: gGsax     != null ? (gGsax     >= 0 ? '+' : '') + gGsax.toFixed(1)           : null, rawColor: gGsax     != null ? (gGsax     >= 0 ? GREEN : RED) : INK32 },
+        { label: 'GSAx / 60', val: gGsax60Pct,  raw: gGsaxPer60 != null ? (gGsaxPer60 >= 0 ? '+' : '') + gGsaxPer60.toFixed(2)   : null, rawColor: gGsaxPer60 != null ? (gGsaxPer60 >= 0 ? GREEN : RED) : INK32 },
+        { label: 'SV %',      val: svPctPct2,   raw: gSvPct    != null ? fmtSvPct(gSvPct)                                          : null, rawColor: INK },
+        { label: 'dSV %',     val: gDsvPctPct,  raw: dVal      != null ? (dVal      >= 0 ? '+' : '') + dVal.toFixed(2) + '%'       : null, rawColor: dVal       != null ? (dVal       >= 0 ? GREEN : RED) : INK32 },
+        { label: 'HD SV %',   val: hdPct,       raw: e?.zones?.[0]?.svpct != null ? fmtSvPct(e.zones[0].svpct)                     : null, rawColor: INK },
+        { label: 'GAA',       val: gaaPct2,     raw: gGaa      != null ? gGaa.toFixed(2)                                            : null, rawColor: INK },
       ];
       function barFillG(v) {
         if (v == null) return 'rgba(13,13,20,0.20)';
@@ -1921,6 +1881,14 @@ const cardData = {
       });
     }
 
+    // ── update button label + selected season when a career table row is clicked
+    document.addEventListener('hgb:season-select', (ev) => {
+      const season = ev.detail?.season;
+      if (!season || !btn) return;
+      _selectedSeason = season;
+      btn.textContent = `${season} Goalie Card →`;
+    });
+
     // ── wire button ────────────────────────────────────────────────────────
     btn.addEventListener('click', async () => {
       const label = btn.textContent;
@@ -1935,9 +1903,10 @@ const cardData = {
             document.fonts.load('600 1px "Barlow"'),
           ]);
         }
-        const canvas = await drawGoalieCard();
+        const canvas = await drawGoalieCard(_selectedSeason);
         const slug = G.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        window.HGB_Export.showCardModal(canvas, `hgb_goalie_${slug}_25-26.png`);
+        const seasonSlug = (_selectedSeason || G.season).replace(/[-–]/g, '-');
+        window.HGB_Export.showCardModal(canvas, `hgb_goalie_${slug}_${seasonSlug}.png`);
         if (status) { status.textContent = 'Done ✓'; setTimeout(() => { if (status) status.style.display = 'none'; }, 3000); }
       } catch (e) {
         console.error(e);
