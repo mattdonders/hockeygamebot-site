@@ -849,22 +849,19 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           </div>
           )}
           <div>
-            <FilterLabel text="Scope" />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <label style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                Min GP
-                <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-                  style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
-              </label>
-              <label style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                Min TOI
-                <input type="number" value={minToi} min={0} max={9999} step={100} onChange={e => setMinToi(Number(e.target.value))}
-                  style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
-                <span style={{ color: 'rgba(13,13,20,0.32)' }}>min</span>
-              </label>
-              <TopNFilter value={topN} onChange={setTopN} />
+            <FilterLabel text="Min GP" />
+            <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
+              style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff', display: 'block' }} />
+          </div>
+          <div>
+            <FilterLabel text="Min TOI" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input type="number" value={minToi} min={0} max={9999} step={100} onChange={e => setMinToi(Number(e.target.value))}
+                style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+              <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.32)' }}>min</span>
             </div>
           </div>
+          <TopNFilter value={topN} onChange={setTopN} />
 
           {/* PLAYERS — search-to-add multi-select */}
           <div style={{ position: 'relative' }}>

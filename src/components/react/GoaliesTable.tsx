@@ -301,16 +301,11 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
           {/* Row 2 — Scope | Find Goalie | Team */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start' }}>
             <div>
-              <FilterLabel text="Scope" />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <label style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  Min GP
-                  <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-                    style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
-                </label>
-                <TopNFilter value={topN} onChange={setTopN} />
-              </div>
+              <FilterLabel text="Min GP" />
+              <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
+                style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff', display: 'block' }} />
             </div>
+            <TopNFilter value={topN} onChange={setTopN} />
 
             <div>
               <FilterLabel text="Find Goalie" />
