@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { FilterChip, FilterChipGroup } from './FilterPrimitives';
+import TopNFilter from './TopNFilter';
 import { fmtSeasonShort } from '../../lib/format-season';
 
 export type SeriesRecord = {
@@ -128,11 +129,7 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
           ))}
         </FilterChipGroup>
         {/* Top N */}
-        <FilterChipGroup>
-          {([null, 5, 20] as (number|null)[]).map(n => (
-            <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
-          ))}
-        </FilterChipGroup>
+        <TopNFilter value={topN} onChange={setTopN} options={[null, 5, 20]} />
         {/* Team search */}
         <input
           type="text" placeholder="Filter by team…" value={teamSearch}

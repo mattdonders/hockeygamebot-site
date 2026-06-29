@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import HGBTable, { type HGBColumnDef, pwhlLogoSrc, TEAM_LOGO_STYLE } from './HGBTable';
-import { FilterChip, FilterChipGroup, FilterLabel, SEMI } from './FilterPrimitives';
+import { FilterLabel, SEMI } from './FilterPrimitives';
+import PositionFilter, { type PosFilter } from './PositionFilter';
 import type { PwhlPlayer } from '../../lib/stats-loader';
 
 const fmt1 = (v: number) => v.toFixed(1);
@@ -9,11 +10,11 @@ const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
 type Props = { data: PwhlPlayer[] };
 
 export default function PwhlSkaterTable({ data }: Props) {
-  const [posFilter, setPosFilter] = useState<'ALL' | 'F' | 'D'>('ALL');
+  const [posFilter, setPosFilter] = useState<PosFilter>('all');
   const [minGP, setMinGP] = useState(1);
 
   const filtered = data.filter(r => {
-    if (posFilter !== 'ALL' && r.pos !== posFilter) return false;
+    if (posFilter !== 'all' && r.pos !== posFilter) return false;
     if (r.gp < minGP) return false;
     return true;
   });
@@ -112,12 +113,7 @@ export default function PwhlSkaterTable({ data }: Props) {
     <div>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }}>
         <div>
-          <FilterLabel text="Position" />
-          <FilterChipGroup>
-            {(['ALL', 'F', 'D'] as const).map(p => (
-              <FilterChip key={p} active={posFilter === p} label={p} onClick={() => setPosFilter(p)} />
-            ))}
-          </FilterChipGroup>
+          <PositionFilter value={posFilter} onChange={setPosFilter} />
         </div>
         <div>
           <FilterLabel text="Min GP" />

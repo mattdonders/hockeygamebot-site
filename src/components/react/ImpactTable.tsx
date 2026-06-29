@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
 import { FilterChip, FilterChipGroup } from './FilterPrimitives';
+import PositionFilter from './PositionFilter';
 
 export type ImpactRow = {
   id: number; slug: string;
@@ -89,11 +90,9 @@ export default function ImpactTable({ rows, statsDate }: Props) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <FilterChipGroup>
-          <FilterChip active={pos === 'all'} label="All"  onClick={() => setPos('all')} />
-          <FilterChip active={pos === 'F'}   label="Fwds" onClick={() => setPos('F')} />
-          <FilterChip active={pos === 'D'}   label="Def"  onClick={() => setPos('D')} />
-        </FilterChipGroup>
+        <div>
+          <PositionFilter value={pos} onChange={setPos} />
+        </div>
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
           {filtered.length} skaters{statsDate ? ` · updated ${statsDate}` : ''}
         </span>

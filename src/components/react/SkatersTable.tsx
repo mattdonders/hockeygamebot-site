@@ -4,6 +4,9 @@ import { fmtSeasonShort } from '../../lib/format-season';
 import { aggregateSeasons, availableSeasons, type SlimData, type AggRow } from '../../lib/aggregate-seasons';
 import { getSessionToken, getPrefs, putPrefs, mergeLocalPresets } from '../../lib/auth-client';
 import { MONO, SEMI, useIsDark, FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
+import GameTypeFilter from './GameTypeFilter';
+import PositionFilter from './PositionFilter';
+import TopNFilter from './TopNFilter';
 
 // "20252026" → "2025-26"; passes through if already dashed
 function normSeason(s: string): string {
@@ -800,11 +803,10 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
       {filtersOpen && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 12 }}>
           <div>
-            <FilterLabel text="Game Type" />
-            <FilterChipGroup>
-              <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => setGameType('regular')} />
-              <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => { setGameType('playoffs'); setDisplay('totals'); if (tab !== 'counting') setTab('counting'); }} />
-            </FilterChipGroup>
+            <GameTypeFilter
+              value={gameType}
+              onChange={v => { setGameType(v); if (v === 'playoffs') { setDisplay('totals'); if (tab !== 'counting') setTab('counting'); } }}
+            />
           </div>
           <div>
             <FilterLabel text="Season Range" />
@@ -827,12 +829,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             </div>
           </div>
           <div>
-            <FilterLabel text="Position" />
-            <FilterChipGroup>
-              <FilterChip active={pos === 'all'} label="All"  onClick={() => setPos('all')} />
-              <FilterChip active={pos === 'F'}   label="Fwds" onClick={() => setPos('F')} />
-              <FilterChip active={pos === 'D'}   label="Def"  onClick={() => setPos('D')} />
-            </FilterChipGroup>
+            <PositionFilter value={pos} onChange={setPos} />
           </div>
           <div>
             <FilterLabel text="Strength" />
@@ -865,11 +862,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                   style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
                 <span style={{ color: 'rgba(13,13,20,0.32)' }}>min</span>
               </label>
-              <FilterChipGroup>
-                {([null,10,20,50] as (number|null)[]).map(n =>
-                  <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
-                )}
-              </FilterChipGroup>
+              <TopNFilter value={topN} onChange={setTopN} />
             </div>
           </div>
 

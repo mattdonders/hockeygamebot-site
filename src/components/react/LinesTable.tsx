@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { FilterChip, FilterChipGroup, SEMI } from './FilterPrimitives';
+import GameTypeFilter from './GameTypeFilter';
 import { toLineSlug } from '../../lib/line-slug';
 import type { LineData } from '../../lib/stats-loader';
 import { fmtSeasonShort } from '../../lib/format-season';
@@ -112,10 +113,10 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
     <div>
       {/* Row 1: primary filters */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        <FilterChipGroup>
-          <FilterChip active={gameType === '2'} label="Reg Season" onClick={() => setGameType('2')} />
-          <FilterChip active={gameType === '3'} label="Playoffs"   onClick={() => setGameType('3')} />
-        </FilterChipGroup>
+        <GameTypeFilter
+          value={gameType === '2' ? 'regular' : 'playoffs'}
+          onChange={v => setGameType(v === 'regular' ? '2' : '3')}
+        />
         <FilterChipGroup>
           <FilterChip active={lineType === 'all'} label="All"  onClick={() => setLineType('all')} />
           <FilterChip active={lineType === 'F'}   label="Fwds" onClick={() => setLineType('F')} />

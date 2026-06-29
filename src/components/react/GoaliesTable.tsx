@@ -2,6 +2,8 @@ import React, { useState, useMemo, useRef, useCallback } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, teamLogoSrc } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
 import { MONO, SEMI, useIsDark, FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
+import GameTypeFilter from './GameTypeFilter';
+import TopNFilter from './TopNFilter';
 
 export type GoalieRow = {
   goalie_id:   number;
@@ -225,10 +227,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     <div>
       {/* Zone 1 — game type + count + exports + filter toggle */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
-        <FilterChipGroup>
-          <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => switchGameType('regular')} />
-          <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => switchGameType('playoffs')} />
-        </FilterChipGroup>
+        <GameTypeFilter value={gameType} onChange={switchGameType} />
         <div style={{ flex: 1 }} />
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
           {filteredRows.length} goalies
@@ -309,11 +308,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
                   <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
                     style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
                 </label>
-                <FilterChipGroup>
-                  {([null, 10, 20, 50] as (number | null)[]).map(n =>
-                    <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
-                  )}
-                </FilterChipGroup>
+                <TopNFilter value={topN} onChange={setTopN} />
               </div>
             </div>
 
