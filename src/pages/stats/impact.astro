@@ -1,11 +1,8 @@
 ---
-import Nav from '../../components/Nav.astro';
-import StatsSubnav from '../../components/StatsSubnav.astro';
-import ThemeScript from '../../components/ThemeScript.astro';
-import Fonts from '../../components/Fonts.astro';
+import StatsLayout from '../../layouts/StatsLayout.astro';
+import StatsMasthead from '../../components/StatsMasthead.astro';
 import ImpactTable from '../../components/react/ImpactTable';
 import { loadPlayers, loadMeta, loadPlayerGames } from '../../lib/stats-loader';
-import { cardFooterText, SITE_DISCLAIMER } from '../../lib/card-footer';
 
 const allPlayers = loadPlayers().filter(p => p.gp >= 20);
 const _meta = loadMeta();
@@ -34,159 +31,20 @@ const tableRows: ImpactRow[] = allPlayers.map(p => {
     worst: allGs.length ? +Math.min(...allGs).toFixed(2) : 0,
   };
 });
-
-// Column schema for <Table>. Sparklines (`l10`) render as inline SVG —
-// we pass them through Table.astro by rendering rows client-side and
-// dispatching tbl:rows-changed; SSR keeps an empty/loading state.
-const columns = [
-  { key: '_rank', label: '#',          type: 'rank' as const, sortable: false },
-  { key: 'name',  label: 'Player',     type: 'player' as const, sub: (r: any) => `${r.team} · ${r.pos}` },
-  { key: 'pos',   label: 'Pos',        type: 'position' as const, sortable: true },
-  { key: 'gp',    label: 'GP',         type: 'number' as const },
-  { key: 'avg',   label: 'Avg Impact', type: 'number' as const, bold: true },
-  { key: 'l10a',  label: 'L10 Avg',    type: 'number' as const },
-  { key: 'l10',   label: 'L10 Trend',  type: 'label' as const, sortable: false },
-  { key: 'best',  label: 'Best',       type: 'number' as const },
-  { key: 'worst', label: 'Worst',      type: 'number' as const },
-];
 ---
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <ThemeScript />
-  <Fonts />
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HGB Impact — Player Leaderboard — HockeyGameBot</title>
-  <meta name="description" content="HGB Impact per-player leaderboard — per-game blend of goals, assists, xG, and two-way play with last-10-game trend sparklines. 2025–26 season." />
-  <style is:global>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg:       #EFEEE8;
-      --ink:      #0d0d14;
-      --red:      #E8002D;
-      --green:    #1a7a3e;
-      --surface:  #FFFFFF;
-      --grid-line: rgba(13,13,20,0.04);
-      --ink-04:   rgba(13,13,20,0.04);
-      --ink-06:   rgba(13,13,20,0.06);
-      --ink-10:   rgba(13,13,20,0.10);
-      --ink-14:   rgba(13,13,20,0.14);
-      --ink-20:   rgba(13,13,20,0.20);
-      --ink-32:   rgba(13,13,20,0.32);
-      --ink-48:   rgba(13,13,20,0.48);
-      --ink-72:   rgba(13,13,20,0.72);
-      --display:  'Barlow Condensed', sans-serif;
-      --body:     'Barlow', sans-serif;
-      --mono:     'JetBrains Mono', monospace;
-      --stats-pos: #166534;
-      --stats-neg: #991b1b;
-    }
-    html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+<StatsLayout
+  title="HGB Impact — Player Leaderboard — HockeyGameBot"
+  description="HGB Impact per-player leaderboard — per-game blend of goals, assists, xG, and two-way play with last-10-game trend sparklines. 2025–26 season."
+  ogImage="/og/skaters.png"
+  currentPath={Astro.url.pathname}
+  footerExtra="HGB Impact v2"
+>
 
-    .mast { position: relative; border-bottom: 2px solid var(--ink); background-color: var(--bg);
-      background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
-        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-      background-size: 96px 96px; }
-    .mast-corners { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
-    .mast-corners .corner { position: absolute; width: 16px; height: 16px; }
-    .mast-corners .tl { top: 16px; left: 16px; border-top: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
-    .mast-corners .tr { top: 16px; right: 16px; border-top: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
-    .mast-corners .bl { bottom: 16px; left: 16px; border-bottom: 1px solid var(--ink-20); border-left: 1px solid var(--ink-20); }
-    .mast-corners .br { bottom: 16px; right: 16px; border-bottom: 1px solid var(--ink-20); border-right: 1px solid var(--ink-20); }
-    .mast-inner { position: relative; z-index: 2; max-width: 1200px; margin: 0 auto; padding: 36px 32px; }
-    .mast-top { display: flex; align-items: baseline; justify-content: space-between; gap: 24px;
-      margin-bottom: 20px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-48); }
-    .mast-eyebrow { font-family: var(--display); font-weight: 700; font-size: 11px; letter-spacing: 0.22em;
-      text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; }
-    .mast-eyebrow .pip { width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
-    .mast-card { background: var(--surface); border: 1px solid var(--ink); padding: 28px 32px 24px; }
-    .mast-headline { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 5.5vw, 64px);
-      text-transform: uppercase; line-height: 1.0; letter-spacing: -0.005em; color: var(--ink); margin-bottom: 14px; }
-    .mast-headline em { color: var(--red); font-style: normal; }
-    .mast-lede { font-size: 13.5px; line-height: 1.6; color: var(--ink-48); max-width: 640px; }
-    .mast-lede .mono { font-family: var(--mono); font-size: 12px; color: var(--ink-72); }
+<StatsMasthead eyebrow="HGB Stats · Impact" statLine={`${tableRows.length} skaters · min 20 GP · 2025–26`}>
+  <Fragment slot="headline">HGB <em>Impact</em></Fragment>
+  <Fragment slot="lede">Per-game blend of goals, assists, shots, individual xG, and on-ice 5v5 xG differential — rate-adjusted per 60 minutes. <span class="mono">L10</span> sparkline shows trajectory over the last 10 games. 0 = league average for position group.</Fragment>
+</StatsMasthead>
 
-    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
-
-    .lb-section { padding: 40px 0 0; }
-    .lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px;
-      margin-bottom: 16px; flex-wrap: wrap; }
-    .lb-title { font-family: var(--display); font-weight: 800; font-size: 22px;
-      text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
-    .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
-
-    .lb-filters { display: flex; align-items: center; gap: 6px; }
-    .lb-tab {
-      font-family: var(--display); font-weight: 700; font-size: 10.5px;
-      letter-spacing: 0.18em; text-transform: uppercase;
-      padding: 5px 12px; border: 1px solid var(--ink-14);
-      background: transparent; color: var(--ink-48); cursor: pointer; transition: all 0.1s;
-    }
-    .lb-tab:hover { background: var(--ink-06); color: var(--ink); }
-    .lb-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-
-    /* Sparkline cell — leaves the standard cell padding/alignment but
-       overrides text-align so the SVG sits flush-left. */
-    .td-spark { padding: 4px 12px !important; vertical-align: middle; text-align: left !important; }
-
-    /* Impact +/- color helpers (legacy, scoped to impact table) */
-    .sv { font-weight: 700; }
-    .sv.pos { color: var(--stats-pos); }
-    .sv.neg { color: var(--stats-neg); }
-
-    .lb-method { padding: 28px 0 0; }
-    .lb-method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
-    .lb-method-card { padding: 16px 20px; border: 1px solid var(--ink-14); margin: -1px 0 0 -1px; }
-    .lb-method-card .k { font-family: var(--mono); font-size: 10px; font-weight: 700;
-      letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink); margin-bottom: 6px; }
-    .lb-method-card .v { font-size: 12px; line-height: 1.5; color: var(--ink-48); }
-    .badge { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
-      text-transform: uppercase; padding: 1px 5px; border-radius: 2px; margin-left: 6px; }
-    .badge-core { background: var(--ink); color: var(--bg); }
-
-    .lb-footer { max-width: 1200px; margin: 0 auto; padding: 20px 32px;
-      font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
-      text-transform: uppercase; color: rgba(13,13,20,0.55); }
-    .lb-disclaimer { max-width: 1200px; margin: 0 auto; padding: 0 32px 20px;
-      font-family: var(--mono); font-size: 9px; line-height: 1.5; letter-spacing: 0.04em; color: rgba(13,13,20,0.55); }
-
-    @media (max-width: 768px) {
-      .wrap, .mast-inner { padding-left: 16px; padding-right: 16px; }
-      .mast-top { font-size: 10px; }
-    }
-  </style>
-<script src="/js/table-export.js" defer></script>
-
-  <meta property="og:title" content="HGB Impact Leaderboard · HockeyGameBot" />
-  <meta property="og:description" content="Game-by-game impact ranking — HGB GameScore v2 percentile for all NHL skaters." />
-  <meta property="og:image" content="https://hockeygamebot.com/og/skaters.png" />
-  <meta property="og:image:width" content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:image" content="https://hockeygamebot.com/og/skaters.png" />
-</head>
-<body>
-
-<Nav currentPath="/stats/impact" />
-
-<header class="mast">
-  <div class="mast-corners">
-    <div class="corner tl"></div><div class="corner tr"></div>
-    <div class="corner bl"></div><div class="corner br"></div>
-  </div>
-  <div class="mast-inner">
-    <div class="mast-top">
-      <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · Impact</div>
-      <span>{tableRows.length} skaters · min 20 GP · 2025–26</span>
-    </div>
-    <div class="mast-card">
-      <h1 class="mast-headline">HGB <em>Impact</em></h1>
-      <p class="mast-lede">Per-game blend of goals, assists, shots, individual xG, and on-ice 5v5 xG differential — rate-adjusted per 60 minutes. <span class="mono">L10</span> sparkline shows trajectory over the last 10 games. 0 = league average for position group.</p>
-    </div>
-  </div>
-</header>
-<StatsSubnav currentPath={Astro.url.pathname} />
 <main class="wrap">
   <section class="lb-section">
     <div class="lb-head">
@@ -214,9 +72,35 @@ const columns = [
   </section>
 </main>
 
-<footer class="lb-footer">{cardFooterText({ extra: 'HGB Impact v2' })}</footer>
-<div class="lb-disclaimer">{SITE_DISCLAIMER}</div>
+</StatsLayout>
 
+<style is:global>
+  .lb-section { padding: 40px 0 0; }
+  .lb-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+  .lb-title { font-family: var(--display); font-weight: 800; font-size: 22px; text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
+  .lb-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-32); letter-spacing: 0.06em; }
 
-</body>
-</html>
+  .lb-filters { display: flex; align-items: center; gap: 6px; }
+  .lb-tab {
+    font-family: var(--display); font-weight: 700; font-size: 10.5px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 5px 12px; border: 1px solid var(--ink-14);
+    background: transparent; color: var(--ink-48); cursor: pointer; transition: all 0.1s;
+  }
+  .lb-tab:hover { background: var(--ink-06); color: var(--ink); }
+  .lb-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+  .td-spark { padding: 4px 12px !important; vertical-align: middle; text-align: left !important; }
+
+  .sv { font-weight: 700; }
+  .sv.pos { color: var(--stats-pos); }
+  .sv.neg { color: var(--stats-neg); }
+
+  .lb-method { padding: 28px 0 0; }
+  .lb-method-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; }
+  .lb-method-card { padding: 16px 20px; border: 1px solid var(--ink-14); margin: -1px 0 0 -1px; }
+  .lb-method-card .k { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ink); margin-bottom: 6px; }
+  .lb-method-card .v { font-size: 12px; line-height: 1.5; color: var(--ink-48); }
+  .badge { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; padding: 1px 5px; border-radius: 2px; margin-left: 6px; }
+  .badge-core { background: var(--ink); color: var(--bg); }
+</style>
