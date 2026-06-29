@@ -4,11 +4,12 @@ import ChipGroup from '../../../components/ChipGroup.astro';
 import PlayerCareerTable from '../../../components/react/PlayerCareerTable';
 import PlayerGameLogTable from '../../../components/react/PlayerGameLogTable';
 import { EntitySignals } from '../../../components/react/DashboardPersonalized';
-import { loadPlayers, loadPlayerGames, loadPlayerShots, loadMeta, loadPlayerSeasonStats, type GameLogEntry, type PlayerSummary, type PlayerShot, type PlayerSeasonStats } from '../../../lib/stats-loader';
+import { loadPlayers, loadGoalies, loadPlayerGames, loadPlayerShots, loadMeta, loadPlayerSeasonStats, type GameLogEntry, type PlayerSummary, type PlayerShot, type PlayerSeasonStats } from '../../../lib/stats-loader';
 import { buildPlayerShotMapSVG } from '../../../lib/rink-svg';
 import { pickTeamColor, pickTeamColorRgb } from '../../../lib/team-colors';
 import EdgePanel from '../../../components/EdgePanel.astro';
 import { cardFooterText } from '../../../lib/card-footer';
+import GlobalPlayerSearch, { type PlayerSearchItem } from '../../../components/react/GlobalPlayerSearch';
 
 export async function getStaticPaths() {
   const players = loadPlayers();
@@ -118,6 +119,24 @@ interface Props {
 }
 
 const { player, playerGames, rankInfo, rapmRank, peers, peersRating, warPct, playerSeasonStats } = Astro.props;
+
+const _allPlayers  = loadPlayers();
+const _allGoalies  = loadGoalies();
+const playerSearchIndex: PlayerSearchItem[] = [
+  ..._allPlayers.map(p => ({
+    display_name: p.display_name, first_name: p.first_name, last_name: p.last_name,
+    team_abbrev: p.team_abbrev, pos: p.pos, gp: p.gp, slug: p.slug,
+    search_text: `${p.first_name} ${p.last_name} ${p.display_name} ${p.team_abbrev}`.toLowerCase(),
+    type: 'skater' as const,
+  })),
+  ..._allGoalies.map(g => ({
+    display_name: g.name, first_name: g.first_name, last_name: g.last_name,
+    team_abbrev: g.team_abbrev, pos: 'G', gp: g.gp ?? 0,
+    slug: g.slug || `goalie-${g.goalie_id}`,
+    search_text: `${g.first_name} ${g.last_name} ${g.name} ${g.team_abbrev} goalie g`.toLowerCase(),
+    type: 'goalie' as const,
+  })),
+];
 
 function fmtToi(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -407,6 +426,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
     /* Layout */
     .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+    .mast-search { max-width: 480px; margin-top: 14px; }
 
     /* Masthead — full-bleed grid (matches Teams/Home/Stats pattern) */
     .mast {
@@ -716,6 +736,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
           </div>
         </div>
       </div>
+    </div>
+    <div class="mast-search">
+      <GlobalPlayerSearch players={playerSearchIndex} client:load />
     </div>
   </div>
 </section>
