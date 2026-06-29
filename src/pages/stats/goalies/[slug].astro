@@ -489,11 +489,22 @@ const cardData = {
     .page-sidebar { grid-column: 2; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 20px; align-self: start; }
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
     .cta-card { background: var(--ink); padding: 22px 18px; }
-    .cta-btn { display: block; width: 100%; background: var(--red); color: #fff; font-family: var(--body); font-weight: 700; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; padding: 12px 16px; border: none; cursor: pointer; text-align: center; margin-bottom: 8px; }
     .cta-note { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: rgba(255,255,255,0.24); margin-top: 8px; text-align: center; }
+    .cta-section-label { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.35); margin-bottom: 10px; }
+    .cta-btn-primary { display: block; width: 100%; font-family: var(--body); font-weight: 800; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; padding: 13px 16px; border: none; cursor: pointer; text-align: center; margin-bottom: 8px; }
+    .cta-btn-secondary { display: block; width: 100%; font-family: var(--body); font-weight: 700; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.22); color: rgba(255,255,255,0.85); cursor: pointer; text-align: center; margin-bottom: 6px; transition: background 0.12s, border-color 0.12s; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cta-btn-secondary:hover { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.40); }
+    .cta-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 16px 0; }
+    .related-links { display: flex; flex-direction: column; gap: 4px; }
+    .related-link { display: flex; align-items: center; justify-content: space-between; font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; color: rgba(255,255,255,0.72); text-decoration: none; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.14); transition: background 0.1s, color 0.1s, border-color 0.1s; }
+    .related-link:hover { background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.28); }
+    .related-link-arrow { color: rgba(255,255,255,0.38); flex-shrink: 0; margin-left: 8px; }
+    .content-side { display: flex; flex-direction: column; gap: 16px; }
     @media (max-width: 768px) {
       .content { grid-template-columns: 1fr; padding: 20px 0 60px; }
-      .page-sidebar { grid-column: 1; position: static; }
+      .page-sidebar { display: contents; }
+      .cta-card     { grid-column: 1; order: 1; }
+      .content-side { grid-column: 1; order: 3; min-width: 0; overflow: hidden; }
       .two-col { grid-template-columns: 1fr; }
     }
 
@@ -938,45 +949,58 @@ const cardData = {
 
 <!-- ── Sidebar ── -->
 <div class="page-sidebar">
+
+  <!-- ARTIFACT ACTION BLOCK -->
   <div class="cta-card">
-    <button id="dl-goalie-card" type="button" class="cta-btn" style={`background:${teamColor}`}>
-      2025–26 Goalie Card →
+    <div class="cta-section-label">Shareable Artifacts</div>
+    <button id="dl-goalie-card" type="button" class="cta-btn-primary" style={`background:${teamColor};color:#ffffff;`}>
+      {currentSeasonNorm} Goalie Card →
     </button>
+    {goalie.sa >= 500 && (
+      <button id="dl-goalie-kde" type="button" class="cta-btn-secondary">
+        Shot Zone Map Card
+      </button>
+    )}
     <div class="cta-note" id="goalie-card-status" style="display:none"></div>
+    <div class="cta-note" id="goalie-kde-status" style="display:none"></div>
+
+    <div class="cta-divider"></div>
+    <div class="cta-section-label">Related Analysis</div>
+    <div class="related-links">
+      <a href="/stats/goalies" class="related-link">
+        Goalie Leaderboard
+        <span class="related-link-arrow">→</span>
+      </a>
+    </div>
   </div>
 
-  {goalie.sa >= 500 && (
-    <div class="cta-card" style="margin-top:8px">
-      <button id="dl-goalie-kde" type="button" class="cta-btn" style={`background:${teamColor}`}>
-        Shot Zone Map Card →
-      </button>
-      <div class="cta-note" id="goalie-kde-status" style="display:none"></div>
-    </div>
+  <!-- SIMILAR GOALIES -->
+  {similarGoalies.length > 0 && (
+    <aside class="content-side">
+      <div class="sec-card">
+        <div class="sec-head">
+          <div class="sec-title">Similar <span style={`color:${teamColor}`}>Goalies</span></div>
+          <div class="sec-sub">By GSAx · qualified starters</div>
+        </div>
+        <div class="peer-strip">
+          {similarGoalies.map(g => {
+            const sign = g.gsax >= 0 ? '+' : '';
+            const peerSlug = g.slug && g.slug.length > 0 ? g.slug : `goalie-${g.goalie_id}`;
+            return (
+              <a href={`/stats/goalies/${peerSlug}`} class="peer-row">
+                <div style="flex:1">
+                  <div class="peer-name">{g.first_name && g.last_name ? `${g.first_name} ${g.last_name}` : g.name}</div>
+                  <div class="peer-meta">{g.team_abbrev} · {g.sa.toLocaleString()} SA</div>
+                </div>
+                <span class={`peer-gsax ${g.gsax >= 0 ? 'pos' : 'neg'}`}>{sign}{g.gsax.toFixed(2)}</span>
+              </a>
+            );
+          })}
+        </div>
+      </div>
+    </aside>
   )}
 
-  {similarGoalies.length > 0 && (
-    <div class="sec-card">
-      <div class="sec-head">
-        <div class="sec-title">Similar <span style={`color:${teamColor}`}>Goalies</span></div>
-        <div class="sec-sub">By GSAx · qualified starters</div>
-      </div>
-      <div class="peer-strip">
-        {similarGoalies.map(g => {
-          const sign = g.gsax >= 0 ? '+' : '';
-          const peerSlug = g.slug && g.slug.length > 0 ? g.slug : `goalie-${g.goalie_id}`;
-          return (
-            <a href={`/stats/goalies/${peerSlug}`} class="peer-row">
-              <div style="flex:1">
-                <div class="peer-name">{g.first_name && g.last_name ? `${g.first_name} ${g.last_name}` : g.name}</div>
-                <div class="peer-meta">{g.team_abbrev} · {g.sa.toLocaleString()} SA</div>
-              </div>
-              <span class={`peer-gsax ${g.gsax >= 0 ? 'pos' : 'neg'}`}>{sign}{g.gsax.toFixed(2)}</span>
-            </a>
-          );
-        })}
-      </div>
-    </div>
-  )}
 </div><!-- /page-sidebar -->
 
 </div><!-- /content -->
