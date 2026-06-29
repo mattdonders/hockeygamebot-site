@@ -40,7 +40,7 @@ export default function StatsSearchModal({ players }: Props) {
       onClick={(e) => { if (e.target === overlayRef.current) closeModal(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
-        background: 'rgba(13,13,20,0.55)',
+        background: 'rgba(0,0,0,0.75)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
         paddingTop: '15vh',
       }}
