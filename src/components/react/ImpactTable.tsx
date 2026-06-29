@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
+import { FilterChip, FilterChipGroup } from './FilterPrimitives';
 
 export type ImpactRow = {
   id: number; slug: string;
@@ -85,20 +86,14 @@ export default function ImpactTable({ rows, statsDate }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [isDark]);
 
-  const chip = (active: boolean, label: string, onClick: () => void) => (
-    <button onClick={onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: 'pointer', background: active ? '#0d0d14' : 'transparent', color: active ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
-      {label}
-    </button>
-  );
-
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>
-          {chip(pos === 'all', 'All',  () => setPos('all'))}
-          {chip(pos === 'F',   'Fwds', () => setPos('F'))}
-          {chip(pos === 'D',   'Def',  () => setPos('D'))}
-        </div>
+        <FilterChipGroup>
+          <FilterChip active={pos === 'all'} label="All"  onClick={() => setPos('all')} />
+          <FilterChip active={pos === 'F'}   label="Fwds" onClick={() => setPos('F')} />
+          <FilterChip active={pos === 'D'}   label="Def"  onClick={() => setPos('D')} />
+        </FilterChipGroup>
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
           {filtered.length} skaters{statsDate ? ` · updated ${statsDate}` : ''}
         </span>

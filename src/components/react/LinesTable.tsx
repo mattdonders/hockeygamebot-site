@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
+import { FilterChip, FilterChipGroup, SEMI } from './FilterPrimitives';
 import { toLineSlug } from '../../lib/line-slug';
 import type { LineData } from '../../lib/stats-loader';
 import { fmtSeasonShort } from '../../lib/format-season';
@@ -100,17 +101,9 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
   const addTeam = (t: string) => { if (t && !selectedTeams.includes(t) && selectedTeams.length < MAX_TEAMS) setSelectedTeams(p => [...p, t]); };
   const removeTeam = (t: string) => setSelectedTeams(p => p.filter(x => x !== t));
 
-  const chip = (active: boolean, label: string, onClick: () => void) => (
-    <button onClick={onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: 'pointer', background: active ? '#0d0d14' : 'transparent', color: active ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
-      {label}
-    </button>
-  );
-  const group = (children: React.ReactNode) => (
-    <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>{children}</div>
-  );
   const sel = (value: string, onChange: (v: string) => void, opts: { label: string; value: string }[]) => (
     <select value={value} onChange={e => onChange(e.target.value)}
-      style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: '#0d0d14', cursor: 'pointer' }}>
+      style={{ ...SEMI, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: '#0d0d14', cursor: 'pointer' }}>
       {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   );
@@ -119,15 +112,15 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
     <div>
       {/* Row 1: primary filters */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        {group(<>
-          {chip(gameType === '2', 'Reg Season', () => setGameType('2'))}
-          {chip(gameType === '3', 'Playoffs',   () => setGameType('3'))}
-        </>)}
-        {group(<>
-          {chip(lineType === 'all', 'All',  () => setLineType('all'))}
-          {chip(lineType === 'F',   'Fwds', () => setLineType('F'))}
-          {chip(lineType === 'D',   'Def',  () => setLineType('D'))}
-        </>)}
+        <FilterChipGroup>
+          <FilterChip active={gameType === '2'} label="Reg Season" onClick={() => setGameType('2')} />
+          <FilterChip active={gameType === '3'} label="Playoffs"   onClick={() => setGameType('3')} />
+        </FilterChipGroup>
+        <FilterChipGroup>
+          <FilterChip active={lineType === 'all'} label="All"  onClick={() => setLineType('all')} />
+          <FilterChip active={lineType === 'F'}   label="Fwds" onClick={() => setLineType('F')} />
+          <FilterChip active={lineType === 'D'}   label="Def"  onClick={() => setLineType('D')} />
+        </FilterChipGroup>
         {sel(season, setSeason, allSeasons.map(s => ({ value: s, label: s === 'all' ? 'All Seasons' : fmtSeasonShort(s) })))}
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'center' }}>
           {filtered.length} lines{statsDate ? ` · updated ${statsDate}` : ''}

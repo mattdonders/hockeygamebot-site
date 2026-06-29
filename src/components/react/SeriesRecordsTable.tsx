@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
+import { FilterChip, FilterChipGroup } from './FilterPrimitives';
 import { fmtSeasonShort } from '../../lib/format-season';
 
 export type SeriesRecord = {
@@ -116,28 +117,22 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
     { id: 'ga', header: 'GA', accessor: r => r.ga, width: 44 },
   ];
 
-  const chip = (active: boolean, label: string, onClick: () => void) => (
-    <button onClick={onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: active ? '#0d0d14' : '#fff', color: active ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
-      {label}
-    </button>
-  );
-
   return (
     <div>
       {/* Toolbar */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         {/* Round filter */}
-        <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>
+        <FilterChipGroup>
           {['all', ...ROUND_OPTIONS].map(r => (
-            <span key={r}>{chip(roundFilter === r, r === 'all' ? 'All Rounds' : r, () => setRoundFilter(r))}</span>
+            <FilterChip key={r} active={roundFilter === r} label={r === 'all' ? 'All Rounds' : r} onClick={() => setRoundFilter(r)} />
           ))}
-        </div>
+        </FilterChipGroup>
         {/* Top N */}
-        <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>
+        <FilterChipGroup>
           {([null, 5, 20] as (number|null)[]).map(n => (
-            <span key={String(n)}>{chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))}</span>
+            <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
           ))}
-        </div>
+        </FilterChipGroup>
         {/* Team search */}
         <input
           type="text" placeholder="Filter by team…" value={teamSearch}

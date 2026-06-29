@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import HGBTable, { type HGBColumnDef, pwhlLogoSrc, TEAM_LOGO_STYLE } from './HGBTable';
+import { FilterChip, FilterChipGroup, FilterLabel, SEMI } from './FilterPrimitives';
 import type { PwhlPlayer } from '../../lib/stats-loader';
 
 const fmt1 = (v: number) => v.toFixed(1);
@@ -109,38 +110,25 @@ export default function PwhlSkaterTable({ data }: Props) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 13, fontFamily: "'Barlow Semi-Condensed', sans-serif", color: '#666' }}>
-          Position:
-        </span>
-        {(['ALL', 'F', 'D'] as const).map(p => (
-          <button
-            key={p}
-            onClick={() => setPosFilter(p)}
-            style={{
-              padding: '3px 10px',
-              borderRadius: 4,
-              border: '1px solid #ccc',
-              background: posFilter === p ? '#0d0d14' : '#fff',
-              color: posFilter === p ? '#fff' : '#333',
-              cursor: 'pointer',
-              fontSize: 13,
-              fontFamily: "'Barlow Semi-Condensed', sans-serif",
-            }}
-          >
-            {p}
-          </button>
-        ))}
-        <span style={{ fontSize: 13, fontFamily: "'Barlow Semi-Condensed', sans-serif", color: '#666', marginLeft: 8 }}>
-          Min GP:
-        </span>
-        <input
-          type="number"
-          min={1}
-          value={minGP}
-          onChange={e => setMinGP(Math.max(1, parseInt(e.target.value) || 1))}
-          style={{ width: 52, padding: '3px 6px', border: '1px solid #ccc', borderRadius: 4, fontSize: 13 }}
-        />
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }}>
+        <div>
+          <FilterLabel text="Position" />
+          <FilterChipGroup>
+            {(['ALL', 'F', 'D'] as const).map(p => (
+              <FilterChip key={p} active={posFilter === p} label={p} onClick={() => setPosFilter(p)} />
+            ))}
+          </FilterChipGroup>
+        </div>
+        <div>
+          <FilterLabel text="Min GP" />
+          <input
+            type="number"
+            min={1}
+            value={minGP}
+            onChange={e => setMinGP(Math.max(1, parseInt(e.target.value) || 1))}
+            style={{ ...SEMI, width: 52, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', fontSize: 11, background: 'transparent', color: '#0d0d14' }}
+          />
+        </div>
       </div>
       <HGBTable
         data={filtered}
