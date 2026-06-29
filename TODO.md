@@ -104,6 +104,10 @@ Full plan: `docs/plans/stats-redesign.md`
 - [ ] Teams page (`/stats/teams`)
 - [ ] xG recalibration (apply 1.46× stopgap → xG v2 rebuild is longer project)
 
+## Table Reconciliation — Remaining
+
+- [ ] **`/games/index.astro` table font standardization** — 5 raw HTML tables (`.goals`, `.ps`, `.cg-table`, `.lc`) built via JS string templates; can't just add `.hgb-t` class. Needs either: (a) CSS targeting those class names directly in `table-tokens.css`, or (b) refactoring the JS template strings. Low urgency — offseason.
+
 ## Season String Hardcodes — Remaining (low priority)
 
 Three literals intentionally deferred from the Jun 2026 cohesion-pass cleanup:
