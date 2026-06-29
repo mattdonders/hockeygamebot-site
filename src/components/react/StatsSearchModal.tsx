@@ -9,8 +9,18 @@ export default function StatsSearchModal({ players }: Props) {
   const [open, setOpen] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
+  const modalRef = useRef<HTMLDivElement>(null);
+
   const openModal  = useCallback(() => setOpen(true), []);
   const closeModal = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => {
+        modalRef.current?.querySelector('input')?.focus();
+      });
+    }
+  }, [open]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -40,12 +50,12 @@ export default function StatsSearchModal({ players }: Props) {
       onClick={(e) => { if (e.target === overlayRef.current) closeModal(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
-        background: 'rgba(0,0,0,0.75)',
+        background: 'rgba(0,0,0,0.82)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
         paddingTop: '15vh',
       }}
     >
-      <div style={{
+      <div ref={modalRef} style={{
         width: '100%', maxWidth: '560px', margin: '0 16px',
         background: 'var(--surface, #fff)',
         border: '2px solid var(--ink, #0d0d14)',
