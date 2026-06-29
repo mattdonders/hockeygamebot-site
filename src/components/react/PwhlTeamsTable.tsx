@@ -14,7 +14,7 @@ export default function PwhlTeamsTable({ data }: Props) {
       accessor: r => `${r.city} ${r.team_abbrev}`,
       cell: (_v, row) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src={pwhlLogoSrc(row.team_abbrev)} style={{ ...TEAM_LOGO_STYLE, width: 24, height: 24 }} alt="" />
+          <img src={pwhlLogoSrc(row.team_abbrev)} width={20} height={20} style={TEAM_LOGO_STYLE} alt="" />
           <span>{row.city}</span>
         </div>
       ),

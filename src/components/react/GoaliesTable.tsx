@@ -154,13 +154,8 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       {
         id: 'name', header: 'Goalie', accessor: r => r.name, align: 'left', width: 180,
         cell: (_v, row) => (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
-              style={TEAM_LOGO_STYLE} alt={row.team}
-              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-              {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
-            </div>
+          <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
           </div>
         ),
         exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
@@ -173,7 +168,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 70,
         cell: (_v, row) => (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
-            <img src={teamLogoSrc(row.team, isDark)} style={TEAM_LOGO_STYLE} alt="" />
+            <img src={teamLogoSrc(row.team, isDark)} width={20} height={20} style={TEAM_LOGO_STYLE} alt="" />
             <span>{row.team}</span>
           </div>
         ),

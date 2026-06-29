@@ -51,13 +51,8 @@ export default function ImpactTable({ rows, statsDate }: Props) {
     {
       id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 200,
       cell: (_v, row) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
-            style={TEAM_LOGO_STYLE} alt={row.team}
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
-          </div>
+        <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
         </div>
       ),
       exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
@@ -66,7 +61,7 @@ export default function ImpactTable({ rows, statsDate }: Props) {
     { id: 'team', header: 'Team', accessor: r => r.team, width: 70,
       cell: (_v, row) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
-          <img src={teamLogoSrc(row.team, isDark)} style={TEAM_LOGO_STYLE} alt="" />
+          <img src={teamLogoSrc(row.team, isDark)} width={20} height={20} style={TEAM_LOGO_STYLE} alt="" />
           <span>{row.team}</span>
         </div>
       ),
