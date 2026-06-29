@@ -86,8 +86,9 @@ function fmtSvPct(v: number | null | undefined): string {
 
 function fmtDsv(v: number | null | undefined): string {
   if (v == null) return '—';
-  const s = v >= 0 ? '+' : '';
-  return `${s}${v.toFixed(4).slice(v < 0 ? 0 : 1)}`;
+  const pct = v * 100;
+  const s = pct >= 0 ? '+' : '';
+  return `${s}${pct.toFixed(2)}%`;
 }
 
 function gsaxPctColor(v: number | null): string {
@@ -237,8 +238,8 @@ export default function GoalieCareerTable({
         const abbr = info.getValue<string>();
         return (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <img src={teamLogoSrc(abbr)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE} style={TEAM_LOGO_STYLE} alt={abbr} />
-            <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr}</span>
+            {abbr ? <img src={teamLogoSrc(abbr)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE} style={TEAM_LOGO_STYLE} alt={abbr} /> : null}
+            <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr || '—'}</span>
           </div>
         );
       },
@@ -274,7 +275,7 @@ export default function GoalieCareerTable({
       accessorFn: (r) => r.dsv_pct ?? -999,
       cell: (info) => {
         const v = info.row.original.dsv_pct;
-        const color = v == null ? 'rgba(13,13,20,0.32)' : v > 0.0005 ? '#137333' : v < -0.0005 ? '#991b1b' : undefined;
+        const color = v == null ? 'rgba(13,13,20,0.32)' : v > 0.0001 ? '#137333' : v < -0.0001 ? '#991b1b' : undefined;
         return <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'rgba(13,13,20,0.72)' }}>{fmtDsv(v)}</span>;
       },
     },
@@ -338,8 +339,8 @@ export default function GoalieCareerTable({
         const abbr = info.getValue<string>();
         return (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <img src={teamLogoSrc(abbr)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE} style={TEAM_LOGO_STYLE} alt={abbr} />
-            <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr}</span>
+            {abbr ? <img src={teamLogoSrc(abbr)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE} style={TEAM_LOGO_STYLE} alt={abbr} /> : null}
+            <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr || '—'}</span>
           </div>
         );
       },
@@ -375,7 +376,7 @@ export default function GoalieCareerTable({
       accessorFn: (r) => r.dsv_pct ?? -999,
       cell: (info) => {
         const v = info.row.original.dsv_pct;
-        const color = v == null ? 'rgba(13,13,20,0.32)' : v > 0.0005 ? '#137333' : v < -0.0005 ? '#991b1b' : undefined;
+        const color = v == null ? 'rgba(13,13,20,0.32)' : v > 0.0001 ? '#137333' : v < -0.0001 ? '#991b1b' : undefined;
         return <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'rgba(13,13,20,0.72)' }}>{fmtDsv(v)}</span>;
       },
     },
