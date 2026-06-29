@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import HGBTable, { type HGBColumnDef } from './HGBTable';
+import HGBTable, { type HGBColumnDef, pwhlLogoSrc, TEAM_LOGO_STYLE } from './HGBTable';
 import type { PwhlPlayer } from '../../lib/stats-loader';
 
 const fmt1 = (v: number) => v.toFixed(1);
@@ -29,8 +29,16 @@ export default function PwhlSkaterTable({ data }: Props) {
       id: 'team_abbrev',
       header: 'Team',
       accessor: r => r.team_abbrev,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+          <img src={pwhlLogoSrc(row.team_abbrev)} style={{ ...TEAM_LOGO_STYLE, width: 20, height: 20 }} alt="" />
+          <span>{row.team_abbrev}</span>
+        </div>
+      ),
+      exportText: (_v, row) => row.team_abbrev,
       align: 'center',
       sortType: 'string',
+      width: 70,
     },
     {
       id: 'pos',

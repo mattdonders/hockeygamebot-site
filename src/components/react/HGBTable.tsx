@@ -104,6 +104,10 @@ export const TEAM_LOGO_SIZE = 32;
 export function teamLogoSrc(abbr: string, isDark = false): string {
   return `/logos/nhl/${abbr}_${isDark ? 'dark' : 'light'}.svg`;
 }
+/** Returns the local logo path for a PWHL team. */
+export function pwhlLogoSrc(abbr: string): string {
+  return `/logos/pwhl/${abbr}.png`;
+}
 export const TEAM_LOGO_STYLE: React.CSSProperties = {
   flexShrink: 0,
   objectFit: 'contain',
