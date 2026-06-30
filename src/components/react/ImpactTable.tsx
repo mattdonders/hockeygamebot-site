@@ -13,7 +13,7 @@ export type ImpactRow = {
 
 type Props = { rows: ImpactRow[]; statsDate: string | null };
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const POS = '#166534'; const NEG = '#991b1b';
 
 function Sparkline({ values }: { values: number[] }) {
@@ -53,7 +53,7 @@ export default function ImpactTable({ rows, statsDate }: Props) {
     {
       id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 200,
       cell: (_v, row) => (
-        <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+        <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
           {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
         </div>
       ),

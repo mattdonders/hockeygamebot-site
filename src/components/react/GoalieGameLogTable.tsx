@@ -12,7 +12,7 @@ import type { GoalieGame } from '../../lib/stats-schemas';
 
 // ── Style constants ──────────────────────────────────────────────────────────
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const POS = '#137333';
 const NEG = '#991b1b';
 const MUTED = 'rgba(13,13,20,0.48)';

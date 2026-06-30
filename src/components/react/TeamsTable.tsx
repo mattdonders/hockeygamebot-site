@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
+import { FilterChip, FilterChipGroup, FilterLabel, MONO } from './FilterPrimitives';
+import GameTypeFilter from './GameTypeFilter';
 import { fmtSeasonShort } from '../../lib/format-season';
 
 export interface TeamRow {
@@ -48,8 +50,6 @@ type Props = {
   availableSeasons: string[];
   isPlayoffSeason?: boolean;
 };
-
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 
 const fmtSeason = fmtSeasonShort;
 function fmtPct(v: number | null) {
@@ -173,41 +173,34 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
     ] : []),
   ], [isDark, strength, display, gfLabel, gaLabel, xgfLabel, xgaLabel]);
 
-  const toggleBtn = (active: boolean, label: string, onClick: () => void) => (
-    <button onClick={onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: 'pointer', background: active ? '#0d0d14' : 'transparent', color: active ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
-      {label}
-    </button>
-  );
-  const toggleGroup = (children: React.ReactNode) => (
-    <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>{children}</div>
-  );
-
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-        {/* Game type */}
-        {toggleGroup(<>
-          {toggleBtn(gameType === 'regular',  'Regular Season', () => setGameType('regular'))}
-          {toggleBtn(gameType === 'playoffs', 'Playoffs',       () => setGameType('playoffs'))}
-        </>)}
-        {/* Strength */}
-        {toggleGroup(<>
-          {toggleBtn(strength === '5v5', '5v5',    () => setStrength('5v5'))}
-          {toggleBtn(strength === 'all', 'All Sit', () => setStrength('all'))}
-        </>)}
-        {/* Display */}
-        {toggleGroup(<>
-          {toggleBtn(display === 'totals', 'Totals', () => setDisplay('totals'))}
-          {toggleBtn(display === 'per60',  'Per 60', () => setDisplay('per60'))}
-        </>)}
-        {/* Season selector */}
-        <select value={season} onChange={e => setSeason(e.target.value)}
-          style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: '#0d0d14', cursor: 'pointer' }}>
-          {sortedSeasons.map(s => (
-            <option key={s} value={s}>{fmtSeason(s)}</option>
-          ))}
-        </select>
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 12 }}>
+        <GameTypeFilter value={gameType} onChange={setGameType} />
+        <div>
+          <FilterLabel text="Strength" />
+          <FilterChipGroup>
+            <FilterChip active={strength === '5v5'} label="5v5"     onClick={() => setStrength('5v5')} />
+            <FilterChip active={strength === 'all'} label="All Sit" onClick={() => setStrength('all')} />
+          </FilterChipGroup>
+        </div>
+        <div>
+          <FilterLabel text="Display" />
+          <FilterChipGroup>
+            <FilterChip active={display === 'totals'} label="Totals" onClick={() => setDisplay('totals')} />
+            <FilterChip active={display === 'per60'}  label="Per 60" onClick={() => setDisplay('per60')} />
+          </FilterChipGroup>
+        </div>
+        <div>
+          <FilterLabel text="Season" />
+          <select value={season} onChange={e => setSeason(e.target.value)}
+            style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', cursor: 'pointer' }}>
+            {sortedSeasons.map(s => (
+              <option key={s} value={s}>{fmtSeason(s)}</option>
+            ))}
+          </select>
+        </div>
+        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
           {rows.length} teams{statsDate ? ` · updated ${statsDate}` : ''}
         </span>
       </div>

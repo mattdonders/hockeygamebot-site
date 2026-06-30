@@ -136,8 +136,8 @@ const BORDER = '1px solid rgba(13,13,20,0.14)';
 const MUTED = 'rgba(13,13,20,0.48)';
 const GRID = 'rgba(13,13,20,0.07)';
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
-const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
+const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 const DISPLAY: React.CSSProperties = { fontFamily: "'Barlow Condensed', sans-serif" };
 
 // Dot colors: forward=HGB blue, defense=warm gold
@@ -631,7 +631,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
                 y={cy + 4}
                 textAnchor="end"
                 style={{
-                  fontFamily: "'JetBrains Mono', monospace",
+                  fontFamily: 'var(--mono)',
                   fontSize: 9,
                   fill: 'rgba(13,13,20,0.45)',
                 }}
@@ -667,7 +667,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
                 y={plotBottom + 16}
                 textAnchor="middle"
                 style={{
-                  fontFamily: "'JetBrains Mono', monospace",
+                  fontFamily: 'var(--mono)',
                   fontSize: 9,
                   fill: 'rgba(13,13,20,0.45)',
                 }}
@@ -826,7 +826,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
       </svg>
       <span
         style={{
-          fontFamily: "'JetBrains Mono', monospace",
+          fontFamily: 'var(--mono)',
           fontSize: 9,
           letterSpacing: '0.1em',
           textTransform: 'uppercase',
@@ -842,7 +842,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 // ── Shared input styles ────────────────────────────────────────────────────────
 
 const selectStyle: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono', monospace",
+  fontFamily: 'var(--mono)',
   fontSize: 11,
   padding: '5px 8px',
   border: '1px solid rgba(13,13,20,0.2)',
@@ -853,7 +853,7 @@ const selectStyle: React.CSSProperties = {
 };
 
 const numberInputStyle: React.CSSProperties = {
-  fontFamily: "'JetBrains Mono', monospace",
+  fontFamily: 'var(--mono)',
   fontSize: 11,
   width: 50,
   padding: '4px 6px',

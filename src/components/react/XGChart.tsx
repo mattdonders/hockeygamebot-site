@@ -95,7 +95,7 @@ function XGTooltip({
   const row = payload[0]?.payload as ChartRow | undefined;
   if (!row) return null;
 
-  const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace", fontSize: 11 };
+  const mono: React.CSSProperties = { fontFamily: 'var(--mono)', fontSize: 11 };
 
   return (
     <div style={{
@@ -212,7 +212,7 @@ export default function XGChart({
     return (
       <div style={{
         padding: '24px 0', textAlign: 'center',
-        fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+        fontFamily: 'var(--mono)', fontSize: 12,
         color: 'rgba(13,13,20,0.32)', letterSpacing: '0.06em',
       }}>
         xG data not available.
@@ -239,7 +239,7 @@ export default function XGChart({
         />
         <YAxis
           domain={[0, yMax]} ticks={yTicks}
-          tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fill: 'rgba(13,13,20,0.35)' }}
+          tick={{ fontFamily: 'var(--mono)', fontSize: 9, fill: 'rgba(13,13,20,0.35)' }}
           axisLine={false} tickLine={false} width={28}
         />
 

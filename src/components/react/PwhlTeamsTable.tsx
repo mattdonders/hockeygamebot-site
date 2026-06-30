@@ -131,7 +131,7 @@ export default function PwhlTeamsTable({ data }: Props) {
         exportTitle="PWHL Team Stats"
         emptyMessage="No team data available."
       />
-      <p style={{ fontSize: 11, color: '#888', marginTop: 8, fontFamily: "'Barlow', sans-serif" }}>
+      <p style={{ fontSize: 11, color: '#888', marginTop: 8, fontFamily: 'var(--body)' }}>
         xGF% (est.) = expected goals percentage, estimated from shot location using uncalibrated coefficients.
       </p>
     </div>

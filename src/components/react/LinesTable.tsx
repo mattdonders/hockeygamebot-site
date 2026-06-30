@@ -10,7 +10,7 @@ export type LineRow = LineData;
 
 type Props = { rows: LineRow[]; statsDate: string | null; isPlayoffSeason?: boolean };
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const POS = '#166534'; const NEG = '#991b1b';
 
 function fmtPct(v: number | null) { return v != null ? `${Number(v).toFixed(1)}%` : '—'; }
@@ -39,7 +39,7 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
     exportText: (_v, row) => lastNames(row.players),
     sortType: 'string',
   },
-  { id: 'type',   header: 'Type',    accessor: r => r.type,   width: 48,  cell: v => <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, border: '1px solid rgba(13,13,20,0.2)', padding: '1px 5px' }}>{v as string}</span> },
+  { id: 'type',   header: 'Type',    accessor: r => r.type,   width: 48,  cell: v => <span style={{ fontFamily: 'var(--mono)', fontSize: 10, border: '1px solid rgba(13,13,20,0.2)', padding: '1px 5px' }}>{v as string}</span> },
   { id: 'team',   header: 'Team',    accessor: r => r.team,   width: 70,
     cell: (_v, row) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>

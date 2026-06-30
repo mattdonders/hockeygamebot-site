@@ -64,7 +64,7 @@ type Status = 'loading' | 'error' | 'ready';
 const GAME_ID = '2025030315';
 const FLOW_URL = `https://api.hockeygamebot.com/v1/games/${GAME_ID}/flow`;
 
-const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const mono: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 export default function ChartsPOC() {
   const [status, setStatus] = useState<Status>('loading');

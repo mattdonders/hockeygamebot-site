@@ -100,7 +100,7 @@ function WPTooltip({
   const hPct = (wp * 100).toFixed(1);
   const aPct = ((1 - wp) * 100).toFixed(1);
 
-  const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace", fontSize: 11 };
+  const mono: React.CSSProperties = { fontFamily: 'var(--mono)', fontSize: 11 };
 
   return (
     <div style={{
@@ -187,7 +187,7 @@ export default function WPChart({
     return (
       <div style={{
         padding: '24px 0', textAlign: 'center',
-        fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+        fontFamily: 'var(--mono)', fontSize: 12,
         color: 'rgba(13,13,20,0.32)', letterSpacing: '0.06em',
       }}>
         Win probability not available.
@@ -240,7 +240,7 @@ export default function WPChart({
         <YAxis
           domain={[0, 1]} ticks={[0, 0.25, 0.5, 0.75, 1.0]}
           tickFormatter={v => `${Math.round((v as number) * 100)}%`}
-          tick={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fill: 'rgba(13,13,20,0.35)' }}
+          tick={{ fontFamily: 'var(--mono)', fontSize: 9, fill: 'rgba(13,13,20,0.35)' }}
           axisLine={false} tickLine={false} width={28}
         />
 

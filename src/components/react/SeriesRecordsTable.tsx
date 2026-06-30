@@ -28,8 +28,8 @@ type Props = {
   totalSeries: number;
 };
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
-const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
+const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 const POS = '#166534', NEG = '#991b1b';
 
 const ROUND_MAP: Record<number, string> = { 1: 'R1', 2: 'R2', 3: 'R3', 4: 'SCF' };

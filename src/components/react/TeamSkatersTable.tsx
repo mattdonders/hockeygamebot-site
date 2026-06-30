@@ -29,7 +29,7 @@ type Props = {
 const POS = '#166534';
 const NEG = '#991b1b';
 const MUTED = 'rgba(13,13,20,0.48)';
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 const sgn = (v: number) => v >= 0 ? '+' : '';
 

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import ShotMapKDE, { type RawShot } from './ShotMapKDE';
 
 const API = 'https://api.hockeygamebot.com';
-const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const mono: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 const SERIES = [
   { id: 'car-mtl', teamFor: 'CAR', teamAgainst: 'MTL', label: 'CAR vs MTL · ECF' },
