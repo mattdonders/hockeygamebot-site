@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
-import { FilterChip, FilterChipGroup, SEMI } from './FilterPrimitives';
+import { FilterChip, FilterChipGroup, FilterLabel, SEMI } from './FilterPrimitives';
 import GameTypeFilter from './GameTypeFilter';
 import { toLineSlug } from '../../lib/line-slug';
 import type { LineData } from '../../lib/stats-loader';
@@ -129,7 +129,7 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
       </div>
 
       {/* Row 2: team filter + min TOI */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-start', marginBottom: 12 }}>
         {selectedTeams.length < MAX_TEAMS && (
           <select value="" onChange={e => { addTeam(e.target.value); e.target.value = ''; }}
             style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: '#0d0d14', cursor: 'pointer' }}>
@@ -143,12 +143,14 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
             {t} ×
           </button>
         ))}
-        <label style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 6 }}>
-          Min TOI
-          <input type="range" min={20} max={400} step={10} value={minToi} onChange={e => setMinToi(Number(e.target.value))}
-            style={{ width: 100, accentColor: '#E8002D' }} />
-          <span style={{ minWidth: 32 }}>{minToi}m</span>
-        </label>
+        <div>
+          <FilterLabel text="Min TOI" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="range" min={20} max={400} step={10} value={minToi} onChange={e => setMinToi(Number(e.target.value))}
+              style={{ width: 100, accentColor: '#E8002D' }} />
+            <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.48)', minWidth: 32 }}>{minToi}m</span>
+          </div>
+        </div>
       </div>
 
       <HGBTable

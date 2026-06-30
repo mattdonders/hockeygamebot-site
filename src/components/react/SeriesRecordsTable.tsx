@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
-import { FilterChip, FilterChipGroup } from './FilterPrimitives';
+import { FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
 import TopNFilter from './TopNFilter';
 import { fmtSeasonShort } from '../../lib/format-season';
 
@@ -121,7 +121,7 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
   return (
     <div>
       {/* Toolbar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8, marginBottom: 12 }}>
         {/* Round filter */}
         <FilterChipGroup>
           {['all', ...ROUND_OPTIONS].map(r => (
@@ -131,11 +131,14 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
         {/* Top N */}
         <TopNFilter value={topN} onChange={setTopN} options={[null, 5, 20]} />
         {/* Team search */}
-        <input
-          type="text" placeholder="Filter by team…" value={teamSearch}
-          onChange={e => setTeamSearch(e.target.value)}
-          style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', outline: 'none', width: 160 }}
-        />
+        <div>
+          <FilterLabel text="Team" />
+          <input
+            type="text" placeholder="Filter by team…" value={teamSearch}
+            onChange={e => setTeamSearch(e.target.value)}
+            style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', outline: 'none', width: 160, display: 'block' }}
+          />
+        </div>
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
           {filtered.length} of {totalSeries} series · rank is global
         </span>
