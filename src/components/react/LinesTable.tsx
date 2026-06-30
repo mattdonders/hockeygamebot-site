@@ -111,44 +111,57 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
 
   return (
     <div>
-      {/* Row 1: primary filters */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        <GameTypeFilter
-          value={gameType === '2' ? 'regular' : 'playoffs'}
-          onChange={v => setGameType(v === 'regular' ? '2' : '3')}
-        />
-        <FilterChipGroup>
-          <FilterChip active={lineType === 'all'} label="All"  onClick={() => setLineType('all')} />
-          <FilterChip active={lineType === 'F'}   label="Fwds" onClick={() => setLineType('F')} />
-          <FilterChip active={lineType === 'D'}   label="Def"  onClick={() => setLineType('D')} />
-        </FilterChipGroup>
-        {sel(season, setSeason, allSeasons.map(s => ({ value: s, label: s === 'all' ? 'All Seasons' : fmtSeasonShort(s) })))}
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'center' }}>
-          {filtered.length} lines{statsDate ? ` · updated ${statsDate}` : ''}
-        </span>
-      </div>
-
-      {/* Row 2: team filter + min TOI */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-start', marginBottom: 12 }}>
-        {selectedTeams.length < MAX_TEAMS && (
-          <select value="" onChange={e => { addTeam(e.target.value); e.target.value = ''; }}
-            style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: '#0d0d14', cursor: 'pointer' }}>
-            <option value="">Add team…</option>
-            {allTeams.filter(t => !selectedTeams.includes(t)).map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        )}
-        {selectedTeams.map(t => (
-          <button key={t} onClick={() => removeTeam(t)}
-            style={{ ...MONO, fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', padding: '4px 10px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
-            {t} ×
-          </button>
-        ))}
-        <div>
-          <FilterLabel text="Min TOI" />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="range" min={20} max={400} step={10} value={minToi} onChange={e => setMinToi(Number(e.target.value))}
-              style={{ width: 100, accentColor: '#E8002D' }} />
-            <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.48)', minWidth: 32 }}>{minToi}m</span>
+      {/* Filters — 2-row column layout */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+        {/* Row 1: Game Type · Line Type · Season */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start' }}>
+          <GameTypeFilter
+            value={gameType === '2' ? 'regular' : 'playoffs'}
+            onChange={v => setGameType(v === 'regular' ? '2' : '3')}
+          />
+          <div>
+            <FilterLabel text="Line Type" />
+            <FilterChipGroup>
+              <FilterChip active={lineType === 'all'} label="All"  onClick={() => setLineType('all')} />
+              <FilterChip active={lineType === 'F'}   label="Fwds" onClick={() => setLineType('F')} />
+              <FilterChip active={lineType === 'D'}   label="Def"  onClick={() => setLineType('D')} />
+            </FilterChipGroup>
+          </div>
+          <div>
+            <FilterLabel text="Season" />
+            {sel(season, setSeason, allSeasons.map(s => ({ value: s, label: s === 'all' ? 'All Seasons' : fmtSeasonShort(s) })))}
+          </div>
+          <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
+            {filtered.length} lines{statsDate ? ` · updated ${statsDate}` : ''}
+          </span>
+        </div>
+        {/* Row 2: Team · Min TOI */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start' }}>
+          <div>
+            <FilterLabel text="Team" />
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+              {selectedTeams.map(t => (
+                <button key={t} onClick={() => removeTeam(t)}
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                  {t} ×
+                </button>
+              ))}
+              {selectedTeams.length < MAX_TEAMS && (
+                <select value="" onChange={e => { addTeam(e.target.value); e.target.value = ''; }}
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                  <option value="">Add team…</option>
+                  {allTeams.filter(t => !selectedTeams.includes(t)).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              )}
+            </div>
+          </div>
+          <div>
+            <FilterLabel text="Min TOI" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="range" min={20} max={400} step={10} value={minToi} onChange={e => setMinToi(Number(e.target.value))}
+                style={{ width: 100, accentColor: '#E8002D' }} />
+              <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.48)', minWidth: 32 }}>{minToi}m</span>
+            </div>
           </div>
         </div>
       </div>

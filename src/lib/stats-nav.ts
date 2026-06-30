@@ -27,7 +27,7 @@ export const STATS_NAV_ITEMS: StatsNavItem[] = [
 
   { href: '/cards', label: 'Cards', group: 'studio', activePaths: ['/cards'], showInSubnav: false },
 
-  { href: '/stats/pwhl', label: 'Players', group: 'pwhl', activePaths: ['/stats/pwhl'] },
+  { href: '/stats/pwhl', label: 'Players', group: 'pwhl', activePaths: ['/stats/pwhl'], exact: true },
   { href: '/stats/pwhl/teams', label: 'Teams', group: 'pwhl' },
 ];
 

@@ -111,7 +111,7 @@ export default function PwhlSkaterTable({ data }: Props) {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', marginBottom: 12, flexWrap: 'wrap' }}>
         <div>
           <PositionFilter value={posFilter} onChange={setPosFilter} />
         </div>
@@ -138,7 +138,7 @@ export default function PwhlSkaterTable({ data }: Props) {
         virtualize
         emptyMessage="No players match the selected filters."
       />
-      <p style={{ fontSize: 11, color: '#888', marginTop: 8, fontFamily: "'Barlow', sans-serif" }}>
+      <p style={{ fontSize: 11, color: 'rgba(13,13,20,0.48)', marginTop: 8, fontFamily: 'var(--mono)' }}>
         iXG (est.) = individual expected goals, estimated from shot location using uncalibrated coefficients. GP approximated from on-ice goal events.
       </p>
     </div>
