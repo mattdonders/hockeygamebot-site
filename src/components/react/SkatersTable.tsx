@@ -4,6 +4,9 @@ import { fmtSeasonShort } from '../../lib/format-season';
 import { aggregateSeasons, availableSeasons, type SlimData, type AggRow } from '../../lib/aggregate-seasons';
 import { getSessionToken, getPrefs, putPrefs, mergeLocalPresets } from '../../lib/auth-client';
 import { MONO, SEMI, useIsDark, FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
+import GameTypeFilter from './GameTypeFilter';
+import PositionFilter from './PositionFilter';
+import TopNFilter from './TopNFilter';
 
 // "20252026" → "2025-26"; passes through if already dashed
 function normSeason(s: string): string {
@@ -130,13 +133,8 @@ function buildColumns(
     {
       id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 190,
       cell: (_v, row) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
-            style={TEAM_LOGO_STYLE} alt={row.team}
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
-          </div>
+        <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
         </div>
       ),
       exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
@@ -144,7 +142,15 @@ function buildColumns(
     },
     { id: 'season', header: 'Season', accessor: r => r.season ?? currentSeason, width: 68, mobileHidden: true,
       cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')) },
-    { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
+    { id: 'team', header: 'Team', accessor: r => r.team, width: 70,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+          <img src={teamLogoSrc(row.team, isDark)} width={28} height={28} style={TEAM_LOGO_STYLE} alt="" />
+          <span>{row.team}</span>
+        </div>
+      ),
+      exportText: (_v, row) => row.team,
+    },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp', header: 'GP', accessor: r => isPlayoff ? r.po_gp : r.gp, width: 48, cell: v => v != null ? String(v) : '—' },
   ];
@@ -356,14 +362,9 @@ function buildAggColumns(
     {
       id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 200,
       cell: (_v, row) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
-            style={TEAM_LOGO_STYLE} alt={row.team}
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-            {row.name}
-            {row.multiTeam && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)', marginLeft: 6 }}>multi</span>}
-          </div>
+        <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          {row.name}
+          {row.multiTeam && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)', marginLeft: 6 }}>multi</span>}
         </div>
       ),
       exportText: (_v, row) => row.name,
@@ -371,7 +372,15 @@ function buildAggColumns(
     },
     { id: 'season', header: 'Seasons', accessor: () => rangeLabel, width: 116, mobileHidden: true,
       cell: () => <span style={{ ...MONO, fontSize: 13, whiteSpace: 'nowrap' }}>{rangeLabel}</span>, exportText: () => rangeLabel },
-    { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
+    { id: 'team', header: 'Team', accessor: r => r.team, width: 70,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+          <img src={teamLogoSrc(row.team, isDark)} width={28} height={28} style={TEAM_LOGO_STYLE} alt="" />
+          <span>{row.team}</span>
+        </div>
+      ),
+      exportText: (_v, row) => row.team,
+    },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp', header: 'GP', accessor: r => r.gp, width: 52 },
   ];
@@ -792,80 +801,68 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
 
       {/* Zone 2 — collapsible filter panel */}
       {filtersOpen && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start', marginBottom: 12 }}>
-          <div>
-            <FilterLabel text="Game Type" />
-            <FilterChipGroup>
-              <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => setGameType('regular')} />
-              <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => { setGameType('playoffs'); setDisplay('totals'); if (tab !== 'counting') setTab('counting'); }} />
-            </FilterChipGroup>
-          </div>
-          <div>
-            <FilterLabel text="Season Range" />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <select value={fromSeason} onChange={e => setFromSeason(e.target.value)}
-                style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
-                {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
-              </select>
-              <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.32)' }}>to</span>
-              <select value={toSeason} onChange={e => setToSeason(e.target.value)}
-                style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
-                {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
-              </select>
-              {seasonOptions.length > 1 && (
-                <button onClick={() => { setFromSeason(seasonOptions[seasonOptions.length - 1]); setToSeason(seasonOptions[0]); }}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
-                  All time
-                </button>
-              )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+          {/* Row 1 — Game Type · Season Range · Position · Strength · Display */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start' }}>
+            <GameTypeFilter
+              value={gameType}
+              onChange={v => { setGameType(v); if (v === 'playoffs') { setDisplay('totals'); if (tab !== 'counting') setTab('counting'); } }}
+            />
+            <div>
+              <FilterLabel text="Season Range" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <select value={fromSeason} onChange={e => setFromSeason(e.target.value)}
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                  {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
+                </select>
+                <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.32)' }}>to</span>
+                <select value={toSeason} onChange={e => setToSeason(e.target.value)}
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                  {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
+                </select>
+                {seasonOptions.length > 1 && (
+                  <button onClick={() => { setFromSeason(seasonOptions[seasonOptions.length - 1]); setToSeason(seasonOptions[0]); }}
+                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                    All time
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-          <div>
-            <FilterLabel text="Position" />
-            <FilterChipGroup>
-              <FilterChip active={pos === 'all'} label="All"  onClick={() => setPos('all')} />
-              <FilterChip active={pos === 'F'}   label="Fwds" onClick={() => setPos('F')} />
-              <FilterChip active={pos === 'D'}   label="Def"  onClick={() => setPos('D')} />
-            </FilterChipGroup>
-          </div>
-          <div>
-            <FilterLabel text="Strength" />
-            <FilterChipGroup>
-              {(['all','5v5','pp','pk'] as Strength[]).map(s =>
-                <FilterChip key={s} active={strength === s} label={{ all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s]} onClick={() => setStrength(s)} disabled={strDisabled(s)} />
-              )}
-            </FilterChipGroup>
-          </div>
-          {tab !== 'rates' && (
-          <div>
-            <FilterLabel text="Display" />
-            <FilterChipGroup>
-              <FilterChip active={display === 'totals'} label="Totals" onClick={() => setDisplay('totals')} />
-              <FilterChip active={display === 'per60'}  label="Per 60" onClick={() => setDisplay('per60')} disabled={gameType === 'playoffs'} />
-            </FilterChipGroup>
-          </div>
-          )}
-          <div>
-            <FilterLabel text="Scope" />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <label style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                Min GP
-                <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-                  style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
-              </label>
-              <label style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                Min TOI
-                <input type="number" value={minToi} min={0} max={9999} step={100} onChange={e => setMinToi(Number(e.target.value))}
-                  style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
-                <span style={{ color: 'rgba(13,13,20,0.32)' }}>min</span>
-              </label>
+            <PositionFilter value={pos} onChange={setPos} />
+            <div>
+              <FilterLabel text="Strength" />
               <FilterChipGroup>
-                {([null,10,20,50] as (number|null)[]).map(n =>
-                  <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
+                {(['all','5v5','pp','pk'] as Strength[]).map(s =>
+                  <FilterChip key={s} active={strength === s} label={{ all: 'All', '5v5': '5v5', pp: 'PP', pk: 'PK' }[s]} onClick={() => setStrength(s)} disabled={strDisabled(s)} />
                 )}
               </FilterChipGroup>
             </div>
+            {tab !== 'rates' && (
+            <div>
+              <FilterLabel text="Display" />
+              <FilterChipGroup>
+                <FilterChip active={display === 'totals'} label="Totals" onClick={() => setDisplay('totals')} />
+                <FilterChip active={display === 'per60'}  label="Per 60" onClick={() => setDisplay('per60')} disabled={gameType === 'playoffs'} />
+              </FilterChipGroup>
+            </div>
+            )}
           </div>
+          {/* Row 2 — Min GP · Min TOI · Top N · Players · Find Player · Team */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start' }}>
+            <div>
+              <FilterLabel text="Min GP" />
+              <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
+                style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff', display: 'block' }} />
+            </div>
+            <div>
+              <FilterLabel text="Min TOI" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <input type="number" value={minToi} min={0} max={9999} step={100} onChange={e => setMinToi(Number(e.target.value))}
+                  style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+                <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.32)' }}>min</span>
+              </div>
+            </div>
+            <TopNFilter value={topN} onChange={setTopN} />
 
           {/* PLAYERS — search-to-add multi-select */}
           <div style={{ position: 'relative' }}>
@@ -953,8 +950,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Clear</button>
               )}
             </div>
-          </div>
-        </div>
+          </div>{/* end row 2 */}
+        </div>{/* end row 2 */}
+      </div>
       )}
 
       {/* ── Saved filter presets bar ─────────────────────────────────────── */}

@@ -83,7 +83,7 @@ interface TooltipState {
   clientY: number;
 }
 
-const MONO = { fontFamily: "'JetBrains Mono', monospace" } as const;
+const MONO = { fontFamily: 'var(--mono)' } as const;
 const FMT_PCT = (v: number | null) => v != null ? (v * 100).toFixed(1) + '%' : '—';
 const FMT_DELTA = (v: number | null, lg: number | null) => {
   if (v == null || lg == null) return '—';

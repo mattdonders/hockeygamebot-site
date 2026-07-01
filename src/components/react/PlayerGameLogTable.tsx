@@ -12,7 +12,7 @@ import type { GameLogEntry } from '../../lib/stats-loader';
 
 // ── Style constants ──────────────────────────────────────────────────────────
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const POS = '#137333';
 const NEG = '#991b1b';
 const INK = '#0d0d14';

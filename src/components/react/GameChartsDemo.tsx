@@ -12,7 +12,7 @@ type FlowPoint = { t: number; wp: number | null; xg_home: number | null; xg_away
 type Goal      = { t: number; is_home: boolean; scorer: string | null; score: string };
 
 const API = 'https://api.hockeygamebot.com';
-const mono = { fontFamily: "'JetBrains Mono', monospace" } as const;
+const mono = { fontFamily: 'var(--mono)' } as const;
 const disp = { fontFamily: "'Barlow Condensed', sans-serif" } as const;
 
 export default function GameChartsDemo() {

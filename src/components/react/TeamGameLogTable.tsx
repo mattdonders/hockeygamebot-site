@@ -34,7 +34,7 @@ function fmtDate(d: string): string {
 const POS = '#166534';
 const NEG = '#991b1b';
 const MUTED = 'rgba(13,13,20,0.48)';
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 export default function TeamGameLogTable({ rows, teamNames, initialOpp = '' }: Props) {
   const [isDark, setIsDark] = useState(false);

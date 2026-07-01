@@ -179,7 +179,7 @@ export default function ShotMapKDE({ shots, teamFor, teamAgainst }: ShotMapKDEPr
     setTooltip(null);
   };
 
-  const mono = { fontFamily: "'JetBrains Mono', monospace" } as const;
+  const mono = { fontFamily: 'var(--mono)' } as const;
 
   return (
     <div>

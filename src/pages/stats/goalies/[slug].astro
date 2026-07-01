@@ -1,13 +1,12 @@
 ---
-import Nav from '../../../components/Nav.astro';
-import ThemeScript from '../../../components/ThemeScript.astro';
-import Fonts from '../../../components/Fonts.astro';
 import Table from '../../../components/Table.astro';
+import StatsLayout from '../../../layouts/StatsLayout.astro';
 import GoalieCareerTable from '../../../components/react/GoalieCareerTable';
+import GoalieGameLogTable from '../../../components/react/GoalieGameLogTable';
 import { loadGoalies, loadMeta } from '../../../lib/stats-loader';
 import { pickTeamColor } from '../../../lib/team-colors';
 import type { GoalieRecord } from '../../../lib/stats-schemas';
-import { cardFooterText, SITE_DISCLAIMER } from '../../../lib/card-footer';
+import { cardFooterText } from '../../../lib/card-footer';
 
 export async function getStaticPaths() {
   const SA_QUAL = 500; // minimum shots against to be "qualified" for ranking
@@ -224,46 +223,6 @@ const shotTypeColumns = [
     color: signedColor },
 ];
 
-// ── Game log table ─────────────────────────────────────────────────────────
-function secToTOI(sec: number | null | undefined): string {
-  if (sec == null) return '—';
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-const gameLogRows = [...goalie.games]
-  .sort((a, b) => b.game_date.localeCompare(a.game_date))
-  .map(g => ({
-    date_fmt: g.game_date.slice(5).replace('-', '/'),
-    opp:      g.opp_abbrev ?? '—',
-    decision: g.decision ?? '—',
-    type_lbl: g.game_type === 3 ? 'PO' : 'RS',
-    toi_fmt:  secToTOI(g.toi_sec),
-    sa:       g.sa,
-    ga:       g.ga,
-    sv_pct:   g.sv_pct,
-    xga:      g.xga,
-    gsax:     g.gsax,
-  }));
-
-const gameLogColumns = [
-  { key: 'date_fmt', label: 'Date',  type: 'label' as const },
-  { key: 'opp',     label: 'Opp',   type: 'label' as const, bold: true },
-  { key: 'decision',label: 'Dec',   type: 'label' as const },
-  { key: 'type_lbl',label: 'Type',  type: 'label' as const },
-  { key: 'toi_fmt', label: 'TOI',   type: 'number' as const },
-  { key: 'sa',      label: 'SA',    type: 'number' as const },
-  { key: 'ga',      label: 'GA',    type: 'number' as const },
-  { key: 'sv_pct',  label: 'SV%',   type: 'number' as const,
-    format: (v: any) => v == null ? '—' : Number(v).toFixed(3) },
-  { key: 'xga',     label: 'xGA',   type: 'number' as const,
-    format: (v: any) => v == null ? '—' : Number(v).toFixed(2) },
-  { key: 'gsax',    label: 'GSAx',  type: 'number' as const, bold: true,
-    format: (v: any) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(2),
-    color: signedColor },
-];
-
 // ── Season overview stats table ────────────────────────────────────────────
 const statsRow = {
   gp:       goalie.gp ?? goalie.games.filter(g => (g as any).game_type !== 3).length,
@@ -371,36 +330,12 @@ const cardData = {
   },
 };
 ---
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <ThemeScript />
-  <Fonts />
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{firstName} {displayLast} — HGB Stats</title>
-  <meta name="description" content={`${goalie.name} (${goalie.team_abbrev}) — GSAx ${gsaxSign}${goalie.gsax.toFixed(2)}, SV% ${goalie.sv_pct != null ? (goalie.sv_pct * 100).toFixed(2) : '—'}%. HGB xG-model goalie analysis, 2025–26.`} />
-  <style is:global>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg:       #EFEEE8;
-      --ink:      #0d0d14;
-      --red:      #E8002D;
-      --green:    #1a7a3e;
-      --surface:  #FFFFFF;
-      --grid-line: rgba(13,13,20,0.04);
-      --ink-04:   rgba(13,13,20,0.04);
-      --ink-06:   rgba(13,13,20,0.06);
-      --ink-10:   rgba(13,13,20,0.10);
-      --ink-14:   rgba(13,13,20,0.14);
-      --ink-20:   rgba(13,13,20,0.20);
-      --ink-32:   rgba(13,13,20,0.32);
-      --ink-48:   rgba(13,13,20,0.48);
-      --ink-72:   rgba(13,13,20,0.72);
-      --display:  'Barlow Condensed', sans-serif;
-      --body:     'Barlow', sans-serif;
-      --mono:     'JetBrains Mono', monospace;
-    }
+<StatsLayout
+  title={`${firstName} ${displayLast} — HGB Stats`}
+  description={`${goalie.name} (${goalie.team_abbrev}) — GSAx ${gsaxSign}${goalie.gsax.toFixed(2)}, SV% ${goalie.sv_pct != null ? (goalie.sv_pct * 100).toFixed(2) : '—'}%. HGB xG-model goalie analysis, 2025–26.`}
+  currentPath={Astro.url.pathname}
+>
+<style is:global>
     html, body { background: var(--bg); color: var(--ink); font-family: var(--body); -webkit-font-smoothing: antialiased; min-height: 100vh; }
 
     /* ── Masthead ── */
@@ -592,11 +527,7 @@ const cardData = {
       .zone-stats { grid-template-columns: 1fr; }
     }
   </style>
-</head>
-<body>
-
-<Nav currentPath="/stats/goalies" />
-
+<Fragment slot="mast">
 <!-- ── Masthead ── -->
 <header class="mast">
   <div class="mast-corners">
@@ -666,6 +597,7 @@ const cardData = {
 
   </div>
 </header>
+</Fragment>
 
 <main class="wrap">
 <div class="content">
@@ -932,19 +864,14 @@ const cardData = {
 
 
   <!-- ── Game Log Table ── -->
-  {gameLogRows.length > 0 && (
+  {goalie.games.length > 0 && (
     <div class="sec-card">
       <div class="sec-head">
         <div class="sec-title">Game Log</div>
-        <div class="sec-sub">{gameLogRows.length} games · most recent first · RS = regular season · PO = playoffs</div>
+        <div class="sec-sub">{goalie.games.length} games · most recent first · RS = regular season · PO = playoffs</div>
       </div>
       <div class="sec-body" style="padding:0">
-        <Table
-          columns={gameLogColumns}
-          rows={gameLogRows}
-          sticky={true}
-          ariaLabel="Game log"
-        />
+        <GoalieGameLogTable games={goalie.games} client:load />
       </div>
     </div>
   )}
@@ -1010,12 +937,6 @@ const cardData = {
 </div><!-- /content -->
 </main>
 
-<footer style="max-width:1100px;margin:0 auto;padding:20px 32px;font-family:var(--mono);font-size:9px;letter-spacing:0.12em;color:rgba(13,13,20,0.55)">
-  <div>{cardFooterText({ domain: 'lower' })}</div>
-  <div style="margin-top:8px;letter-spacing:0.04em;line-height:1.5">{SITE_DISCLAIMER}</div>
-</footer>
-
-<script is:inline src="/js/table-export.js"></script>
 
 <!-- Floating tooltip for cumulative chart -->
 <div id="cum-tip" style="position:fixed;display:none;pointer-events:none;background:#0d0d14;color:#EFEEE8;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;border-radius:2px;z-index:200;white-space:nowrap">
@@ -1918,5 +1839,4 @@ const cardData = {
   })();
 </script>
 
-</body>
-</html>
+</StatsLayout>

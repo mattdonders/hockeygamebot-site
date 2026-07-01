@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
+import { FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
+import TopNFilter from './TopNFilter';
 import { fmtSeasonShort } from '../../lib/format-season';
 
 export type SeriesRecord = {
@@ -26,8 +28,8 @@ type Props = {
   totalSeries: number;
 };
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
-const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
+const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 const POS = '#166534', NEG = '#991b1b';
 
 const ROUND_MAP: Record<number, string> = { 1: 'R1', 2: 'R2', 3: 'R3', 4: 'SCF' };
@@ -116,34 +118,27 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
     { id: 'ga', header: 'GA', accessor: r => r.ga, width: 44 },
   ];
 
-  const chip = (active: boolean, label: string, onClick: () => void) => (
-    <button onClick={onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: active ? '#0d0d14' : '#fff', color: active ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
-      {label}
-    </button>
-  );
-
   return (
     <div>
       {/* Toolbar */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8, marginBottom: 12 }}>
         {/* Round filter */}
-        <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>
+        <FilterChipGroup>
           {['all', ...ROUND_OPTIONS].map(r => (
-            <span key={r}>{chip(roundFilter === r, r === 'all' ? 'All Rounds' : r, () => setRoundFilter(r))}</span>
+            <FilterChip key={r} active={roundFilter === r} label={r === 'all' ? 'All Rounds' : r} onClick={() => setRoundFilter(r)} />
           ))}
-        </div>
+        </FilterChipGroup>
         {/* Top N */}
-        <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>
-          {([null, 5, 20] as (number|null)[]).map(n => (
-            <span key={String(n)}>{chip(topN === n, n ? `Top ${n}` : 'All', () => setTopN(n))}</span>
-          ))}
-        </div>
+        <TopNFilter value={topN} onChange={setTopN} options={[null, 5, 20]} />
         {/* Team search */}
-        <input
-          type="text" placeholder="Filter by team…" value={teamSearch}
-          onChange={e => setTeamSearch(e.target.value)}
-          style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', outline: 'none', width: 160 }}
-        />
+        <div>
+          <FilterLabel text="Team" />
+          <input
+            type="text" placeholder="Filter by team…" value={teamSearch}
+            onChange={e => setTeamSearch(e.target.value)}
+            style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', outline: 'none', width: 160, display: 'block' }}
+          />
+        </div>
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
           {filtered.length} of {totalSeries} series · rank is global
         </span>

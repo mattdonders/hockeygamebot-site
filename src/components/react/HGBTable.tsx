@@ -96,13 +96,17 @@ export type HGBTableProps<T> = {
 
 // ── Style constants ──────────────────────────────────────────────────────────
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
-const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
-export const SEMI: React.CSSProperties = { fontFamily: "'Barlow Semi-Condensed', sans-serif" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
+const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
+export const SEMI: React.CSSProperties = { fontFamily: 'var(--semi)' };
 export const TEAM_LOGO_SIZE = 32;
 /** Returns the local logo path for a team, respecting current color scheme. */
 export function teamLogoSrc(abbr: string, isDark = false): string {
   return `/logos/nhl/${abbr}_${isDark ? 'dark' : 'light'}.svg`;
+}
+/** Returns the local logo path for a PWHL team. */
+export function pwhlLogoSrc(abbr: string): string {
+  return `/logos/pwhl/${abbr}.png`;
 }
 export const TEAM_LOGO_STYLE: React.CSSProperties = {
   flexShrink: 0,

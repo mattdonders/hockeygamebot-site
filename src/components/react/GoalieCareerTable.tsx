@@ -59,8 +59,8 @@ type Props = {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
-const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
+const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 const CELL_FONT_SIZE = 14;
 const INK_LIGHT = '#0d0d14';
 const INK_DARK  = '#EFEEE8';

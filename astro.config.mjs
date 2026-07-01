@@ -34,6 +34,10 @@ const devOnlyRoutes = {
           pattern: '/stats/dev/data',
           entrypoint: './src/_dev/stats/data.astro',
         });
+        injectRoute({
+          pattern: '/_internal/stats-redesign-demo',
+          entrypoint: './src/pages/_internal/stats-redesign-demo.astro',
+        });
       }
 
       // Production-visible-but-noindex dev gallery — for Cloudflare Pages

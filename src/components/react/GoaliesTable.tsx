@@ -2,6 +2,8 @@ import React, { useState, useMemo, useRef, useCallback } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, NAME_FONT_SIZE, teamLogoSrc } from './HGBTable';
 import { fmtSeasonShort } from '../../lib/format-season';
 import { MONO, SEMI, useIsDark, FilterChip, FilterChipGroup, FilterLabel } from './FilterPrimitives';
+import GameTypeFilter from './GameTypeFilter';
+import TopNFilter from './TopNFilter';
 
 export type GoalieRow = {
   goalie_id:   number;
@@ -154,13 +156,8 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       {
         id: 'name', header: 'Goalie', accessor: r => r.name, align: 'left', width: 180,
         cell: (_v, row) => (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
-              style={TEAM_LOGO_STYLE} alt={row.team}
-              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-              {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
-            </div>
+          <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
           </div>
         ),
         exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
@@ -170,7 +167,15 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
         id: 'season', header: 'Season', accessor: r => r.season, align: 'center', width: 72, mobileHidden: true,
         cell: v => fmtSeasonShort(v as string), exportText: v => fmtSeasonShort(String(v ?? '')),
       },
-      { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 52 },
+      { id: 'team', header: 'Team', accessor: r => r.team, align: 'center', width: 70,
+        cell: (_v, row) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+            <img src={teamLogoSrc(row.team, isDark)} width={28} height={28} style={TEAM_LOGO_STYLE} alt="" />
+            <span>{row.team}</span>
+          </div>
+        ),
+        exportText: (_v, row) => row.team,
+      },
       { id: 'gp',   header: 'GP',   accessor: r => r.gp,  align: 'center', width: 48, cell: v => v != null ? String(v) : '—' },
       {
         id: 'toi', header: 'TOI', accessor: r => is5v5 ? r.toi_5v5_sec : r.toi_sec, align: 'center', width: 72, mobileHidden: true,
@@ -222,10 +227,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
     <div>
       {/* Zone 1 — game type + count + exports + filter toggle */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
-        <FilterChipGroup>
-          <FilterChip active={gameType === 'regular'}  label="Reg Season" onClick={() => switchGameType('regular')} />
-          <FilterChip active={gameType === 'playoffs'} label="Playoffs"   onClick={() => switchGameType('playoffs')} />
-        </FilterChipGroup>
+        <GameTypeFilter value={gameType} onChange={switchGameType} />
         <div style={{ flex: 1 }} />
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
           {filteredRows.length} goalies
@@ -299,20 +301,11 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
           {/* Row 2 — Scope | Find Goalie | Team */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px 24px', alignItems: 'flex-start' }}>
             <div>
-              <FilterLabel text="Scope" />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <label style={{ ...SEMI, fontSize: 11, fontWeight: 600, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  Min GP
-                  <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-                    style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
-                </label>
-                <FilterChipGroup>
-                  {([null, 10, 20, 50] as (number | null)[]).map(n =>
-                    <FilterChip key={String(n)} active={topN === n} label={n ? `Top ${n}` : 'All'} onClick={() => setTopN(n)} />
-                  )}
-                </FilterChipGroup>
-              </div>
+              <FilterLabel text="Min GP" />
+              <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
+                style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff', display: 'block' }} />
             </div>
+            <TopNFilter value={topN} onChange={setTopN} />
 
             <div>
               <FilterLabel text="Find Goalie" />

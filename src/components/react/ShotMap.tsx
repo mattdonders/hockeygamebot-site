@@ -185,7 +185,7 @@ type TooltipData = {
 
 function ShotTooltip({ data }: { data: TooltipData }) {
   const [sx, sy, isGoal, shotType, teamAbbrev, gameNum] = data.shot;
-  const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace", fontSize: 11 };
+  const mono: React.CSSProperties = { fontFamily: 'var(--mono)', fontSize: 11 };
 
   return (
     <div style={{
@@ -450,7 +450,7 @@ function Chip({
     <button
       onClick={onClick}
       style={{
-        fontFamily: "'JetBrains Mono', monospace",
+        fontFamily: 'var(--mono)',
         fontSize: 10,
         letterSpacing: '0.12em',
         textTransform: 'uppercase' as const,
@@ -514,7 +514,7 @@ export default function ShotMap({
     } catch { /* silent — export unavailable */ }
   }, [teamA, teamB]);
 
-  const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+  const mono: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
   return (
     <div style={{ width: '100%' }}>
@@ -666,11 +666,11 @@ export default function ShotMap({
             <img src={modalUrl} alt={modalFile}
               style={{ width: '100%', height: 'auto', display: 'block', border: '1px solid rgba(255,255,255,0.12)' }} />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 12 }}>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.06em' }}>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.06em' }}>
                 {modalFile}
               </span>
               <a href={modalUrl} download={modalFile}
-                style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', padding: '6px 14px', background: '#fff', color: '#0d0d14', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', padding: '6px 14px', background: '#fff', color: '#0d0d14', textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 ↓ Download
               </a>
             </div>

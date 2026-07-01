@@ -15,8 +15,8 @@ type Props = {
 const INK    = '#0d0d14';
 const MUTED  = 'rgba(13,13,20,0.48)';
 const BORDER = '1px solid rgba(13,13,20,0.14)';
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
-const BODY: React.CSSProperties = { fontFamily: "'Barlow', sans-serif" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
+const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 
 export default function PlayerSearchMulti({ players, maxResults = 8 }: Props) {
   const [selected, setSelected] = useState<PlayerSearchItem[]>([]);

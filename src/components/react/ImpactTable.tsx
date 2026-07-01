@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import HGBTable, { type HGBColumnDef, TEAM_LOGO_SIZE, TEAM_LOGO_STYLE, teamLogoSrc, NAME_FONT_SIZE } from './HGBTable';
+import { FilterChip, FilterChipGroup } from './FilterPrimitives';
+import PositionFilter from './PositionFilter';
 
 export type ImpactRow = {
   id: number; slug: string;
@@ -11,7 +13,7 @@ export type ImpactRow = {
 
 type Props = { rows: ImpactRow[]; statsDate: string | null };
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const POS = '#166534'; const NEG = '#991b1b';
 
 function Sparkline({ values }: { values: number[] }) {
@@ -51,19 +53,22 @@ export default function ImpactTable({ rows, statsDate }: Props) {
     {
       id: 'name', header: 'Player', accessor: r => r.name, align: 'left', width: 200,
       cell: (_v, row) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src={teamLogoSrc(row.team, isDark)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE}
-            style={TEAM_LOGO_STYLE} alt={row.team}
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-          <div style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
-            {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
-          </div>
+        <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+          {row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name}
         </div>
       ),
       exportText: (_v, row) => row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.name,
       sortType: 'string',
     },
-    { id: 'team', header: 'Team', accessor: r => r.team, width: 52 },
+    { id: 'team', header: 'Team', accessor: r => r.team, width: 70,
+      cell: (_v, row) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
+          <img src={teamLogoSrc(row.team, isDark)} width={28} height={28} style={TEAM_LOGO_STYLE} alt="" />
+          <span>{row.team}</span>
+        </div>
+      ),
+      exportText: (_v, row) => row.team,
+    },
     { id: 'pos',  header: 'Pos',  accessor: r => r.pos,  width: 44 },
     { id: 'gp',   header: 'GP',   accessor: r => r.gp,   width: 48 },
     {
@@ -82,19 +87,11 @@ export default function ImpactTable({ rows, statsDate }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [isDark]);
 
-  const chip = (active: boolean, label: string, onClick: () => void) => (
-    <button onClick={onClick} style={{ ...MONO, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', borderRight: 'none', cursor: 'pointer', background: active ? '#0d0d14' : 'transparent', color: active ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
-      {label}
-    </button>
-  );
-
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>
-          {chip(pos === 'all', 'All',  () => setPos('all'))}
-          {chip(pos === 'F',   'Fwds', () => setPos('F'))}
-          {chip(pos === 'D',   'Def',  () => setPos('D'))}
+        <div>
+          <PositionFilter value={pos} onChange={setPos} />
         </div>
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
           {filtered.length} skaters{statsDate ? ` · updated ${statsDate}` : ''}

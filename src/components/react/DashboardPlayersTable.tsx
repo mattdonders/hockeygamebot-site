@@ -91,7 +91,7 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
           style={{ flexShrink: 0, objectFit: 'contain' }}
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
-        <span style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+        <span style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
           {r.name}
         </span>
       </div>
@@ -103,7 +103,7 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
     accessor: r => r.team,
     align: 'center',
     cell: (v) => (
-      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>
         {v}
       </span>
     ),
@@ -115,7 +115,7 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
     accessor: r => r.pos,
     align: 'center',
     cell: (v) => (
-      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: CELL_FONT_SIZE, color: 'rgba(13,13,20,0.32)' }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'rgba(13,13,20,0.32)' }}>
         {v}
       </span>
     ),
@@ -201,7 +201,7 @@ const topImpactCols: HGBColumnDef<TopImpactRow>[] = [
           style={{ flexShrink: 0, objectFit: 'contain' }}
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
-        <span style={{ fontFamily: "'Barlow', sans-serif", fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
+        <span style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
           {r.display_name}
         </span>
       </div>
@@ -213,7 +213,7 @@ const topImpactCols: HGBColumnDef<TopImpactRow>[] = [
     accessor: r => r.team_abbrev,
     align: 'center',
     cell: (v) => (
-      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>
         {v}
       </span>
     ),
@@ -225,7 +225,7 @@ const topImpactCols: HGBColumnDef<TopImpactRow>[] = [
     accessor: r => r.pos,
     align: 'center',
     cell: (v) => (
-      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: CELL_FONT_SIZE, color: 'rgba(13,13,20,0.32)' }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'rgba(13,13,20,0.32)' }}>
         {v}
       </span>
     ),

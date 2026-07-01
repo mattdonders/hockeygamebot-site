@@ -7,6 +7,9 @@ import {
   LinesSchema,
   StatsMetaSchema,
   PlayerShotsSchema,
+  PwhlPlayersSchema,
+  PwhlGoaliesSchema,
+  PwhlTeamsSchema,
   parseOrThrow,
   type PlayerRecord,
   type LeaderboardEntry as ZLeaderboardEntry,
@@ -16,6 +19,9 @@ import {
   type LineRecord,
   type StatsMeta,
   type PlayerShot,
+  type PwhlPlayer,
+  type PwhlGoalie,
+  type PwhlTeam,
 } from './stats-schemas';
 
 const _BASE = 'https://api.hockeygamebot.com/v1/stats';
@@ -58,6 +64,16 @@ const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsDa
   _fetchJSON('series-records').catch(() => ({ series: [], total_series: 0 })),
   _fetchJSON('player-season-stats').catch(() => ({})),
 ]);
+
+// PWHL stats — separate Promise.all to avoid widening the existing tuple type
+const [pwhlPlayersRaw, pwhlGoaliesRaw, pwhlTeamsRaw] = await Promise.all([
+  _safeFetchJSON('pwhl/players', []),
+  _safeFetchJSON('pwhl/goalies', []),
+  _safeFetchJSON('pwhl/teams',   []),
+]);
+const PWHL_PLAYERS = parseOrThrow(PwhlPlayersSchema, pwhlPlayersRaw, 'pwhl-players');
+const PWHL_GOALIES = parseOrThrow(PwhlGoaliesSchema, pwhlGoaliesRaw, 'pwhl-goalies');
+const PWHL_TEAMS   = parseOrThrow(PwhlTeamsSchema,   pwhlTeamsRaw,   'pwhl-teams');
 
 // career_seasons is embedded in players.json by the exporter; player_career.json
 // stays in R2 for future retired-player pages (client-side fetch on demand).
@@ -312,6 +328,14 @@ export function loadPlayerSeasonStatsAll(): Record<string, PlayerSeasonStats> {
 export function loadSeriesRecords(): { series: any[]; total_series: number; scope?: string; generated_at?: string } {
   return (seriesRecordsData as any) ?? { series: [], total_series: 0 };
 }
+
+// ── PWHL loaders ─────────────────────────────────────────────────────────────
+
+export function loadPwhlPlayers(): PwhlPlayer[] { return PWHL_PLAYERS; }
+export function loadPwhlGoalies(): PwhlGoalie[] { return PWHL_GOALIES; }
+export function loadPwhlTeams():   PwhlTeam[]   { return PWHL_TEAMS; }
+
+export type { PwhlPlayer, PwhlGoalie, PwhlTeam };
 
 /** Returns true when enough players have playoff data to indicate playoffs are active.
  *  Used to default table game-type toggles to 'playoffs' during postseason. */

@@ -46,7 +46,7 @@ type Props = {
   defaultRight?: string;
 };
 
-const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 // "win" lookups: maps a metric key → which side has the higher value.
 type WinMap = Record<string, 'L' | 'R' | null>;
