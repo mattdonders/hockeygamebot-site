@@ -447,6 +447,26 @@ export const GoalieRecordSchema = z.object({
       ga_pct:           z.number().nullable(),
     })).optional().default([]),
   }).nullable().optional(),
+
+  // Goalie WAR/Talent percentiles (build_goalie_war_export.py → goalies.json).
+  // Present only on qualified goalies (≥500 FA); the ~27 below the gate omit
+  // these keys, so all are nullable+optional. Percentiles are 1–100 (talent_pct)
+  // or 0–100 (gp_pct_*). See docs/plans/goalie-war-fields.md.
+  war_pct:        z.number().nullable().optional(),
+  war_pct_y1:     z.number().nullable().optional(),
+  war_pct_y2:     z.number().nullable().optional(),
+  talent_pct:     z.number().nullable().optional(),
+  gp_pct_season:  z.number().nullable().optional(),
+  gp_pct_3yr:     z.number().nullable().optional(),
+  workload_pct:   z.number().nullable().optional(),
+  talent_war_pct: z.number().nullable().optional(),
+  shot_type_3yr: z.array(z.object({
+    shot_type:     z.string(),
+    sa:            z.number(),
+    gsax:          z.number(),
+    sv_pct:        z.number(),
+    league_sv_pct: z.number(),
+  })).nullable().optional(),
 });
 
 export const GoaliesSchema = z.array(GoalieRecordSchema);
