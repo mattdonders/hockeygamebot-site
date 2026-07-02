@@ -1917,12 +1917,13 @@ const cardData = {
       const _startYr = parseInt(String(G.season).slice(0, 4), 10);
       const fmtSzn = (yr) => Number.isNaN(yr) ? '' : String(yr).slice(2) + '-' + String(yr + 1).slice(2);
 
-      // Hero region to the right of the headshot: TALENT | PAST WAR (Y-2/Y-1/Y-0) | GP%.
+      // Hero region right of the headshot: split evenly into TALENT | GAMES PLAYED.
+      // (PAST SINGLE-SEASON WAR moved down into the strip row so the two hero numbers
+      // each get real room — no more cramped 3-up hero.)
       const heroX = HS_CX + R + 18;
       const heroW = L_W - heroX - PAD2;
-      const talentW = heroW * 0.28;
-      const warW    = heroW * 0.50;
-      const gpW     = heroW * 0.22;
+      const talentW = heroW * 0.5;
+      const gpW     = heroW * 0.5;
 
       // TALENT (big %)
       {
@@ -1930,54 +1931,28 @@ const cardData = {
         ctx.font = '700 10px "JetBrains Mono", monospace';
         ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         ctx.fillText('HGB TALENT', tcx, y + 14);
-        ctx.font = '900 56px "Barlow Condensed", sans-serif';
+        ctx.font = '900 58px "Barlow Condensed", sans-serif';
         ctx.fillStyle = G.talentPct != null ? TEAM_C : INK32;
         ctx.fillText(G.talentPct != null ? Math.round(G.talentPct) + '%' : '—', tcx, y + 28);
         ctx.font = '700 9px "JetBrains Mono", monospace';
         ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
-        ctx.fillText('3YR BLENDED RATE', tcx, y + 92);
+        ctx.fillText('3YR BLENDED RATE', tcx, y + 96);
       }
 
-      // PAST SINGLE-SEASON WAR — Y-2 / Y-1 / Y-0 (oldest → newest)
+      // GAMES PLAYED (3YR) — availability, same prominence as Talent
       {
-        const L_WAR = heroX + talentW;
-        ctx.fillStyle = INK10; ctx.fillRect(L_WAR, y + 18, 1, ID_H - 36);
-        const rcx = L_WAR + warW / 2;
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('PAST SINGLE-SEASON WAR', rcx, y + 14);
-
-        const warCols = [
-          { szn: fmtSzn(_startYr - 2), pct: G.warPctY2 },
-          { szn: fmtSzn(_startYr - 1), pct: G.warPctY1 },
-          { szn: fmtSzn(_startYr),     pct: G.warPct   },
-        ];
-        const PAD_INNER = 12;
-        const usable = warW - PAD_INNER * 2;
-        const SZN_Y = y + 38, NUM_Y = y + 50;
-        warCols.forEach((c, i) => {
-          const ccx = L_WAR + PAD_INNER + usable * (i + 0.5) / warCols.length;
-          ctx.font = '700 9px "Barlow", sans-serif';
-          ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-          ctx.fillText(c.szn, ccx, SZN_Y);
-          ctx.font = '800 26px "Barlow Condensed", sans-serif';
-          ctx.fillStyle = c.pct != null ? INK : INK32;
-          ctx.fillText(c.pct != null ? Math.round(c.pct) + '%' : '—', ccx, NUM_Y);
-        });
-      }
-
-      // GAMES PLAYED (3YR) workload
-      {
-        const L_GP = heroX + talentW + warW;
+        const L_GP = heroX + talentW;
         ctx.fillStyle = INK10; ctx.fillRect(L_GP, y + 18, 1, ID_H - 36);
         const gcx = L_GP + gpW / 2;
-        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.font = '700 10px "JetBrains Mono", monospace';
         ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('GAMES', gcx, y + 20);
-        ctx.fillText('PLAYED · 3YR', gcx, y + 32);
-        ctx.font = '900 34px "Barlow Condensed", sans-serif';
+        ctx.fillText('GAMES PLAYED · 3YR', gcx, y + 14);
+        ctx.font = '900 50px "Barlow Condensed", sans-serif';
         ctx.fillStyle = G.gpPct3yr != null ? TEAM_C : INK32; ctx.textBaseline = 'top';
-        ctx.fillText(G.gpPct3yr != null ? Math.round(G.gpPct3yr) + '%' : '—', gcx, y + 50);
+        ctx.fillText(G.gpPct3yr != null ? Math.round(G.gpPct3yr) + '%' : '—', gcx, y + 32);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
+        ctx.fillText('AVAILABILITY', gcx, y + 96);
       }
       y += ID_H;
 
@@ -1990,25 +1965,31 @@ const cardData = {
       const c3bars = Array.isArray(c3.bars) ? c3.bars : [];
       const fmtSvPct = (v) => v != null ? v.toFixed(3).replace(/^0/, '') : '—';
 
-      // ── Boxscore strip: SA | GA | SV% | GP (3-year totals) ─────────────────
+      // ── PAST SINGLE-SEASON WAR strip: row-label + Y-2 / Y-1 / Y-0 seasons ──
+      // Given the whole strip width, the three season %s finally get real spacing.
       ctx.fillStyle = SURFACE2; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
-      const countCols = [
-        { label: 'SA',  val: c3.sa != null ? String(c3.sa) : '—',    color: INK },
-        { label: 'GA',  val: c3.ga != null ? String(c3.ga) : '—',    color: INK },
-        { label: 'SV%', val: fmtSvPct(c3.sv_pct),                     color: TEAM_C },
-        { label: 'GP',  val: c3.gp != null ? String(c3.gp) : '—',    color: INK },
-      ];
-      const cColW = (L_W - PAD2 * 2) / countCols.length;
-      for (let ci = 0; ci < countCols.length; ci++) {
-        const cc = countCols[ci];
-        const ccx = PAD2 + ci * cColW + cColW / 2;
-        if (ci > 0) { ctx.fillStyle = INK06; ctx.fillRect(PAD2 + ci * cColW, y + 10, 1, COUNTS_H_S - 20); }
-        ctx.font = '800 32px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = cc.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-        ctx.fillText(cc.val, ccx, y + COUNTS_H_S / 2 - 8);
-        ctx.font = '700 9px "JetBrains Mono", monospace';
-        ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
-        ctx.fillText(cc.label, ccx, y + COUNTS_H_S / 2 + 16);
+      {
+        // one-line section title spanning the strip (no awkward wrapping)
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText('PAST SINGLE-SEASON WAR', L_W / 2, y + 9);
+
+        const warCols = [
+          { szn: fmtSzn(_startYr - 2), pct: G.warPctY2 },
+          { szn: fmtSzn(_startYr - 1), pct: G.warPctY1 },
+          { szn: fmtSzn(_startYr),     pct: G.warPct   },
+        ];
+        const colsX = PAD2, colsW = L_W - PAD2 * 2;
+        warCols.forEach((c, i) => {
+          const ccx = colsX + colsW * (i + 0.5) / warCols.length;
+          if (i > 0) { ctx.fillStyle = INK06; ctx.fillRect(colsX + colsW * i / warCols.length, y + 28, 1, COUNTS_H_S - 36); }
+          ctx.font = '800 28px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = c.pct != null ? INK : INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+          ctx.fillText(c.pct != null ? Math.round(c.pct) + '%' : '—', ccx, y + 50);
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+          ctx.fillText(c.szn, ccx, y + 54);
+        });
       }
       y += COUNTS_H_S;
 

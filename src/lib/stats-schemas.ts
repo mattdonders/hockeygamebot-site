@@ -467,6 +467,19 @@ export const GoalieRecordSchema = z.object({
     sv_pct:        z.number(),
     league_sv_pct: z.number(),
   })).nullable().optional(),
+  // 3-year "season card" metrics (boxscore + percentile bars) — Talent card body.
+  card_3yr: z.object({
+    sa:     z.number(),
+    ga:     z.number(),
+    gp:     z.number(),
+    sv_pct: z.number(),
+    bars: z.array(z.object({
+      label: z.string(),
+      value: z.number().nullable(),
+      pct:   z.number().nullable(),
+      fmt:   z.string(),
+    })),
+  }).nullable().optional(),
 });
 
 export const GoaliesSchema = z.array(GoalieRecordSchema);
