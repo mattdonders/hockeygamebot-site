@@ -74,6 +74,8 @@ export const PlayerRecordSchema = z.object({
   gp: z.number().int().nonnegative(),
   goals: z.number().int().nonnegative(),
   assists: z.number().int().nonnegative(),
+  shots: z.number().int().nonnegative().optional(),
+  ixg: z.number().nonnegative().optional(),
   toi_avg_sec: z.number(),
   avg_gs_display: z.number(),
   avg_gs_centered: z.number(),
