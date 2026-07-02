@@ -336,14 +336,19 @@ const cardData = {
   season:       currentSeasonNorm,
   // ── Goalie Talent card fields (docs/plans/goalie-war-cards-spec-2026-07-01 §5).
   // 3-year blended Talent% hero + Y-2/Y-1/Y-0 single-season WAR% boxes + 3yr GP%
-  // workload, plus the flat-3yr shot-type panel. All null on below-gate goalies
-  // (<500 FA); the Talent card button is hidden for those (talent_pct == null).
+  // workload. `card3yr` supplies the boxscore strip + calibrated percentile bars.
+  // (shotType3yr retired from the Talent card but kept on the record.) All null on
+  // below-gate goalies (<500 FA); the Talent button is hidden then (talent_pct == null).
   talentPct:    goalie.talent_pct ?? null,
   warPct:       goalie.war_pct ?? null,
   warPctY1:     goalie.war_pct_y1 ?? null,
   warPctY2:     goalie.war_pct_y2 ?? null,
   gpPct3yr:     goalie.gp_pct_3yr ?? null,
   shotType3yr:  goalie.shot_type_3yr ?? [],
+  // 3-year boxscore totals + season-card-style percentile bars (calibrated GSAx
+  // scale, so consistent with the Talent hero — unlike the retired raw shot-type
+  // GSAx panel). Rendered by drawGoalieTalentCard's left panel.
+  card3yr:      goalie.card_3yr ?? null,
   // Card footer strings (single source of truth: src/lib/card-footer.ts).
   // NHL Edge attribution only when the card actually renders Edge goalie tracking.
   footers: {
@@ -1819,9 +1824,10 @@ const cardData = {
     // First-pass sibling to the Season card (spec §5). Same 1040-wide two-panel
     // shell (header/chips/footer). Hero = HGB TALENT % (3yr blended rate) +
     // Y-2/Y-1/Y-0 past single-season WAR% boxes + 3yr Games-Played %. Left =
-    // flat-3yr GSAx-by-shot-type panel (raw GSAx + SV% + LG SV%). Right = 3yr
-    // shotmap PNG ({id}_3yr.png). Canvas-drawn — positions are a first pass and
-    // will be refined on a local dev server by the maintainer.
+    // 3yr boxscore strip (SA/GA/SV%/GP) + 6 season-card-style percentile bars
+    // (gray track, colored fill/label by percentile) from G.card3yr — calibrated
+    // GSAx scale, consistent with the Talent hero. Right = 3yr shotmap PNG
+    // ({id}_3yr.png). Canvas-drawn — refined on a local dev server by the maintainer.
     async function drawGoalieTalentCard() {
       const BG2 = '#EFEEE8', SURFACE2 = '#FFFFFF';
       const SCALE = 2;
@@ -1887,7 +1893,7 @@ const cardData = {
       // Panel divider
       ctx.fillStyle = INK14; ctx.fillRect(L_W, HDR_H + CHIP_H, 1, CONTENT_H);
 
-      // ── LEFT PANEL — hero (Talent) + 3yr shot-type table ──────────────────
+      // ── LEFT PANEL — hero (Talent) + 3yr boxscore + percentile bars ───────
       let y = HDR_H + CHIP_H + 6;
 
       // Headshot circle
@@ -1914,8 +1920,8 @@ const cardData = {
       // Hero region to the right of the headshot: TALENT | PAST WAR (Y-2/Y-1/Y-0) | GP%.
       const heroX = HS_CX + R + 18;
       const heroW = L_W - heroX - PAD2;
-      const talentW = heroW * 0.30;
-      const warW    = heroW * 0.48;
+      const talentW = heroW * 0.28;
+      const warW    = heroW * 0.50;
       const gpW     = heroW * 0.22;
 
       // TALENT (big %)
@@ -1954,7 +1960,7 @@ const cardData = {
           ctx.font = '700 9px "Barlow", sans-serif';
           ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
           ctx.fillText(c.szn, ccx, SZN_Y);
-          ctx.font = '800 30px "Barlow Condensed", sans-serif';
+          ctx.font = '800 26px "Barlow Condensed", sans-serif';
           ctx.fillStyle = c.pct != null ? INK : INK32;
           ctx.fillText(c.pct != null ? Math.round(c.pct) + '%' : '—', ccx, NUM_Y);
         });
@@ -1969,76 +1975,114 @@ const cardData = {
         ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         ctx.fillText('GAMES', gcx, y + 20);
         ctx.fillText('PLAYED · 3YR', gcx, y + 32);
-        ctx.font = '900 40px "Barlow Condensed", sans-serif';
+        ctx.font = '900 34px "Barlow Condensed", sans-serif';
         ctx.fillStyle = G.gpPct3yr != null ? TEAM_C : INK32; ctx.textBaseline = 'top';
         ctx.fillText(G.gpPct3yr != null ? Math.round(G.gpPct3yr) + '%' : '—', gcx, y + 50);
       }
       y += ID_H;
 
-      // ── 3-year GSAx by Shot Type panel ────────────────────────────────────
-      const stTypes = Array.isArray(G.shotType3yr) ? G.shotType3yr : [];
-      const stPanelX = 4, stPanelW = L_W - 4;
-      const stPanelY = y + 8;
-      const stPanelBottom = HDR_H + CHIP_H + CONTENT_H - 12;
-      const stH = stPanelBottom - stPanelY;
-      ctx.fillStyle = SURFACE2; ctx.beginPath(); ctx.roundRect(stPanelX, stPanelY, stPanelW - PAD2 + 20, stH, 4); ctx.fill();
-      ctx.strokeStyle = INK10; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(stPanelX, stPanelY, stPanelW - PAD2 + 20, stH, 4); ctx.stroke();
+      // 3-year data source. `card3yr` carries the calibrated boxscore totals + the
+      // 6 season-card-style percentile bars (see stats-schemas.ts card_3yr). Bars use
+      // the CALIBRATED GSAx percentile — consistent with the Talent hero — so we no
+      // longer render the retired raw shot-type GSAx panel (which was on an
+      // inconsistent xG scale and could contradict the hero, e.g. Andersen).
+      const c3 = G.card3yr || {};
+      const c3bars = Array.isArray(c3.bars) ? c3.bars : [];
+      const fmtSvPct = (v) => v != null ? v.toFixed(3).replace(/^0/, '') : '—';
 
-      // Panel header
-      ctx.font = '700 10px "JetBrains Mono", monospace'; ctx.fillStyle = INK45;
-      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText('GSAx BY SHOT TYPE', PAD2, stPanelY + 12);
-      const stHdrW = ctx.measureText('GSAx BY SHOT TYPE').width;
-      ctx.fillStyle = RED; ctx.fillText('  3-YEAR', PAD2 + stHdrW, stPanelY + 12);
-
-      // Column layout: TYPE (left) + SA / GSAx / SV% / LG SV% (right-aligned)
-      const stLabelW = 150;
-      const stNumCols = 4;
-      const stNumColW = (L_W - PAD2 * 2 - stLabelW) / stNumCols;
-      const stColRight = (i) => PAD2 + stLabelW + (i + 1) * stNumColW;
-      const stHeaders = ['SA', 'GSAx', 'SV%', 'LG SV%'];
-      const stColHdrY = stPanelY + 32;
-      ctx.font = '700 9px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
-      ctx.textBaseline = 'top';
-      for (let i = 0; i < stNumCols; i++) {
-        ctx.textAlign = 'right';
-        ctx.fillText(stHeaders[i], stColRight(i), stColHdrY);
+      // ── Boxscore strip: SA | GA | SV% | GP (3-year totals) ─────────────────
+      ctx.fillStyle = SURFACE2; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
+      const countCols = [
+        { label: 'SA',  val: c3.sa != null ? String(c3.sa) : '—',    color: INK },
+        { label: 'GA',  val: c3.ga != null ? String(c3.ga) : '—',    color: INK },
+        { label: 'SV%', val: fmtSvPct(c3.sv_pct),                     color: TEAM_C },
+        { label: 'GP',  val: c3.gp != null ? String(c3.gp) : '—',    color: INK },
+      ];
+      const cColW = (L_W - PAD2 * 2) / countCols.length;
+      for (let ci = 0; ci < countCols.length; ci++) {
+        const cc = countCols[ci];
+        const ccx = PAD2 + ci * cColW + cColW / 2;
+        if (ci > 0) { ctx.fillStyle = INK06; ctx.fillRect(PAD2 + ci * cColW, y + 10, 1, COUNTS_H_S - 20); }
+        ctx.font = '800 32px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = cc.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillText(cc.val, ccx, y + COUNTS_H_S / 2 - 8);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
+        ctx.fillText(cc.label, ccx, y + COUNTS_H_S / 2 + 16);
       }
-      ctx.textAlign = 'left';
-      ctx.fillText('TYPE', PAD2, stColHdrY);
+      y += COUNTS_H_S;
 
-      // Rows
-      const stRowTop = stColHdrY + 18;
-      const stRowsAvail = stPanelBottom - stRowTop - 10;
-      const stRowN = Math.min(stTypes.length, 6);
-      const stRowH = stRowN > 0 ? Math.min(30, stRowsAvail / stRowN) : 0;
-      for (let i = 0; i < stRowN; i++) {
-        const t = stTypes[i];
-        const ry = stRowTop + i * stRowH;
-        const rmy = ry + stRowH / 2;
-        if (i > 0) { ctx.fillStyle = INK06; ctx.fillRect(PAD2, ry, L_W - PAD2 * 2, 1); }
-        // Type label
-        ctx.font = '700 12px "Barlow", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(String(t.shot_type || '—'), PAD2, rmy);
-        // SA
-        ctx.font = '700 11px "JetBrains Mono", monospace'; ctx.fillStyle = INK; ctx.textAlign = 'right';
-        ctx.fillText(t.sa != null ? String(t.sa) : '—', stColRight(0), rmy);
-        // GSAx (raw, signed + colored)
-        const gv = t.gsax;
-        ctx.fillStyle = gv == null ? INK32 : (gv >= 0 ? GREEN : RED);
-        ctx.fillText(gv != null ? (gv >= 0 ? '+' : '') + gv.toFixed(1) : '—', stColRight(1), rmy);
-        // SV%
-        ctx.fillStyle = INK;
-        ctx.fillText(svStr(t.sv_pct), stColRight(2), rmy);
-        // LG SV%
-        ctx.fillStyle = INK32;
-        ctx.fillText(svStr(t.league_sv_pct), stColRight(3), rmy);
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, L_W, 1); y += 1 + 20;
+
+      // Section header
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      ctx.fillText('3-YEAR PERCENTILES', PAD2, y);
+      const sHdrW = ctx.measureText('3-YEAR PERCENTILES').width;
+      ctx.fillStyle = RED;
+      ctx.fillText('  VS. NHL GOALIES', PAD2 + sHdrW, y);
+      y += 12;
+
+      // ── 6 percentile bars — season-card gray-track style ──────────────────
+      // pct (1–100) drives BOTH the fill width AND the fill color; value is
+      // formatted per the bar's `fmt` (see spec). Same tier colors as drawGoalieCard.
+      function barFillG(v) {
+        if (v == null) return 'rgba(13,13,20,0.20)';
+        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+        if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373';
+        return '#E8002D';
       }
-      if (stRowN === 0) {
-        ctx.font = '700 10px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
-        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-        ctx.fillText('Shot-type breakdown available after next pipeline run.', PAD2, stRowTop);
+      function pctColorG(v) {
+        if (v == null) return 'rgba(13,13,20,0.35)';
+        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+        if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
+        return '#E8002D';
+      }
+      function fmtBarValue(fmt, v) {
+        if (v == null) return null;
+        switch (fmt) {
+          case 'gsax':   return (v >= 0 ? '+' : '') + v.toFixed(1);
+          case 'rate2':  return (v >= 0 ? '+' : '') + v.toFixed(2);
+          case 'svpct':  return v.toFixed(3).replace(/^0/, '');
+          case 'dsvpct': return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+          case 'gaa':    return v.toFixed(2);
+          default:       return String(v);
+        }
+      }
+      // Green/red on signed formats (gsax, rate2, dsvpct); neutral ink otherwise.
+      const signedFmts = { gsax: 1, rate2: 1, dsvpct: 1 };
+      const BAR_H_PX = 11, BAR_LABEL_W = 124, BAR_RANK_W = 44;
+      const BAR_AVAIL = L_W - PAD2 * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
+      for (let bi = 0; bi < 6; bi++) {
+        const b = c3bars[bi] || {};
+        const pct = b.pct != null ? b.pct : null;
+        const raw = fmtBarValue(b.fmt, b.value);
+        const rowY = y + bi * BAR_ROW_H;
+        const bmy = rowY + BAR_ROW_H / 2;
+        const bby = bmy - BAR_H_PX / 2;
+        const bx = PAD2 + BAR_LABEL_W;
+        // Label left, raw value right-aligned to bar's left edge
+        ctx.textBaseline = 'middle';
+        ctx.font = '600 10px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textAlign = 'left';
+        ctx.fillText(b.label || '—', PAD2, bmy);
+        if (raw != null) {
+          const rawColor = signedFmts[b.fmt] ? (b.value >= 0 ? GREEN : RED) : INK;
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = rawColor; ctx.textAlign = 'right';
+          ctx.fillText(raw, bx - 8, bmy);
+        }
+        // Gray track + colored fill
+        rrect(ctx, bx, bby, BAR_AVAIL, BAR_H_PX, 3); ctx.fillStyle = INK10; ctx.fill();
+        if (pct != null) {
+          rrect(ctx, bx, bby, Math.max(6, (pct / 100) * BAR_AVAIL), BAR_H_PX, 3);
+          ctx.fillStyle = barFillG(pct); ctx.fill();
+        }
+        // Percentile label
+        ctx.font = '800 14px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = pct == null ? 'rgba(13,13,20,0.32)' : pctColorG(pct);
+        ctx.fillText(pct == null ? '—' : Math.round(pct) + '%', L_W - PAD2, bmy);
       }
 
       // ── RIGHT PANEL — 3-year shotmap PNG ──────────────────────────────────
