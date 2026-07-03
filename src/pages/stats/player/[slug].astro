@@ -7,6 +7,7 @@ import { EntitySignals } from '../../../components/react/DashboardPersonalized';
 import { loadPlayers, loadPlayerGames, loadPlayerShots, loadMeta, loadPlayerSeasonStats, type GameLogEntry, type PlayerSummary, type PlayerShot, type PlayerSeasonStats } from '../../../lib/stats-loader';
 import { buildPlayerShotMapSVG } from '../../../lib/rink-svg';
 import { pickTeamColor, pickTeamColorRgb } from '../../../lib/team-colors';
+import { ageFromBirthDate } from '../../../lib/age';
 import EdgePanel from '../../../components/EdgePanel.astro';
 import { cardFooterText } from '../../../lib/card-footer';
 
@@ -209,13 +210,8 @@ const _cardFooters = {
 const _meta      = loadMeta();
 const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
 
-// Age at Oct 1 of the current season — derived from _meta.season (e.g. "20252026" → 2025)
-const _birthDate    = player.birth_date ? new Date(player.birth_date) : null;
-const _seasonYear   = parseInt(_meta.season.slice(0, 4), 10) || new Date().getFullYear();
-const _seasonStart  = new Date(_seasonYear, 9, 1); // Oct 1 of season start year
-const _ageAtSeason  = _birthDate
-  ? Math.floor((_seasonStart.getTime() - _birthDate.getTime()) / (365.25 * 24 * 3.6e6))
-  : null;
+// Current age as of today (centralized in src/lib/age.ts). Was Oct-1-of-season before.
+const _ageAtSeason  = ageFromBirthDate(player.birth_date);
 
 // ── Shot map data ──────────────────────────────────────────────────────────
 const playerShots = loadPlayerShots(player.player_id);
@@ -1667,7 +1663,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // Age at Oct 1 of the displayed season (heroSeason = "2022-23" → yr 2022)
       const _sznYr = heroSeason ? parseInt(heroSeason.slice(0, 4)) : null;
       const _sznAge = (D.birthDate && _sznYr)
-        ? Math.floor((new Date(_sznYr, 9, 1) - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6))
+        ? Math.floor((new Date() - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6))
         : null;
       const _numSzn  = D.sweaterNumber != null ? [`#${D.sweaterNumber}`] : [];
       const _scSzn   = D.shootsCatches ? [`SHOOTS: ${D.shootsCatches}`] : [];
@@ -1979,7 +1975,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const TEAM_NAMES_SM = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
       const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
       const _sznYr = heroSeason ? parseInt(heroSeason.slice(0, 4)) : null;
-      const _sznAge = (D.birthDate && _sznYr) ? Math.floor((new Date(_sznYr, 9, 1) - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6)) : null;
+      const _sznAge = (D.birthDate && _sznYr) ? Math.floor((new Date() - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6)) : null;
       const _numSzn  = D.sweaterNumber != null ? [`#${D.sweaterNumber}`] : [];
       const _scSzn   = D.shootsCatches ? [`SHOOTS: ${D.shootsCatches}`] : [];
       const chips = [..._numSzn, (TEAM_NAMES_SM[seasonTeam] || seasonTeam), D.posLabel.toUpperCase(), heroSeason, ...(_sznAge != null ? [`AGE: ${_sznAge}`] : []), ..._scSzn];
@@ -2250,7 +2246,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const TEAM_NAMES_TS = { ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS' };
       const chipH = 18, chipY0 = HDR_H + (CHIP_H - chipH) / 2;
       const _sznYr = heroSeason ? parseInt(heroSeason.slice(0, 4)) : null;
-      const _sznAge = (D.birthDate && _sznYr) ? Math.floor((new Date(_sznYr, 9, 1) - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6)) : null;
+      const _sznAge = (D.birthDate && _sznYr) ? Math.floor((new Date() - new Date(D.birthDate)) / (365.25 * 24 * 3.6e6)) : null;
       const _numSzn  = D.sweaterNumber != null ? [`#${D.sweaterNumber}`] : [];
       const _scSzn   = D.shootsCatches ? [`SHOOTS: ${D.shootsCatches}`] : [];
       const chips = [..._numSzn, (TEAM_NAMES_TS[seasonTeam] || seasonTeam), D.posLabel.toUpperCase(), heroSeason, ...(_sznAge != null ? [`AGE: ${_sznAge}`] : []), ..._scSzn];
