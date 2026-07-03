@@ -973,18 +973,13 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     <div class="cta-card">
       <div class="cta-section-label">Shareable Artifacts</div>
       <!-- Primary: Season Card -->
+      <!-- Player Card carousel: Season (Edge) + Shotmap -->
       <button id="download-season-card-btn" class="cta-btn-primary" style={`background:${teamColor};color:#ffffff;`}>
         {currentSeasonNorm} Player Card →
       </button>
-      <!-- Full-width secondary buttons -->
-      <button id="download-shotmap-card-btn" class="cta-btn-secondary">
-        {currentSeasonNorm} Shotmap Card
-      </button>
-      <button id="download-rating-card-btn" class="cta-btn-secondary">
-        Talent Card
-      </button>
-      <button id="download-talent-shotmap-card-btn" class="cta-btn-secondary">
-        Talent + Shotmap Card
+      <!-- Player Talent Card carousel: Talent+Shotmap + Talent (5×2 grid) -->
+      <button id="download-rating-card-btn" class="cta-btn-primary" style={`background:${teamColor};color:#ffffff;`}>
+        Player Talent Card →
       </button>
       <!-- Mini 2-col row: History + RAPM -->
       <div class="cta-mini-group">
@@ -1221,6 +1216,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       }
       return out;
     })(),
+    // NOTE: skaters don't have a precomputed gp_pct_3yr like goalies, so the
+    // Talent card's availability hero is computed client-side from these
+    // regular-season career rows (shape {season, team, gp, ...}, no game_type).
+    careerSeasons: player.career_seasons ?? [],
   }
 }}>
   // ── Player card download ────────────────────────────────────────────────
@@ -2287,22 +2286,42 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
 
-      // Talent hero — single big percentile centered in the space right of the
-      // headshot. NOTE: the existing horizontal Talent card's "secondary" hero is
-      // the WAR history, which this card relocates into the white strip below, so
-      // there is no separate secondary number to carry here.
+      // Talent hero — split 50/50 into TALENT | AVAILABILITY, mirroring the
+      // goalie Talent card's dual hero (vertical divider between the halves,
+      // eyebrow / big team-color % / sublabel per half).
       const heroTalentPct = D.hgb_rating_percentile != null ? Math.round(D.hgb_rating_percentile) : null;
+      // NOTE: skaters lack a precomputed gp_pct_3yr, so compute availability
+      // client-side from career_seasons over the blend window (current + 3
+      // priors): 2025-26, 2024-25, 2023-24, 2022-23. Formula =
+      // round(100 * ΣGP / (82 × #seasons-with-gp>0)). Guards missing/null gp.
+      const availPct = (() => {
+        const windowSeasons = ['2025-26', '2024-25', '2023-24', '2022-23'];
+        const rows = (D.careerSeasons || []).filter(cs =>
+          cs && windowSeasons.includes(cs.season) && cs.gp != null && cs.gp > 0);
+        if (rows.length === 0) return null;
+        const totalGp = rows.reduce((sum, cs) => sum + cs.gp, 0);
+        return Math.round(100 * totalGp / (82 * rows.length));
+      })();
       const heroX = HS_CX + R + 18;
-      const heroMid = heroX + (L_W - heroX - PAD) / 2;
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-      ctx.fillText('HGB TALENT · MULTI-YEAR', heroMid, y + 18);
-      ctx.font = '900 58px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = heroTalentPct != null ? TEAM_C : INK32;
-      ctx.fillText(heroTalentPct != null ? heroTalentPct + '%' : '—', heroMid, y + 34);
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
-      ctx.fillText('MULTI-YEAR BLENDED WAR', heroMid, y + 98);
+      const heroW = (L_W - heroX - PAD) / 2;
+      const heroCells = [
+        { eyebrow: 'HGB TALENT · MULTI-YEAR', pct: heroTalentPct, sub: 'MULTI-YEAR BLENDED WAR' },
+        { eyebrow: 'GAMES PLAYED · MULTI-YEAR', pct: availPct,   sub: 'AVAILABILITY' },
+      ];
+      for (let hi = 0; hi < heroCells.length; hi++) {
+        const hc = heroCells[hi];
+        const hcx = heroX + hi * heroW + heroW / 2;
+        if (hi > 0) { ctx.fillStyle = INK10; ctx.fillRect(heroX + hi * heroW, y + 18, 1, ID_H - 36); }
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(hc.eyebrow, hcx, y + 18);
+        ctx.font = '900 58px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = hc.pct != null ? TEAM_C : INK32;
+        ctx.fillText(hc.pct != null ? hc.pct + '%' : '—', hcx, y + 34);
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
+        ctx.fillText(hc.sub, hcx, y + 98);
+      }
       y += ID_H;
 
       // ── WHITE STRIP — PAST SINGLE-SEASON WAR history ───────────────────────
@@ -3341,62 +3360,38 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
               document.fonts.load('600 1px "Barlow"'),
             ]);
           }
-          const canvas = await drawSeasonCard(_selectedSeason);
-          downloadCanvas(canvas, `hgb_season_${D.slug}_${_selectedSeason}.png`);
-          if (status) { status.textContent = 'Downloaded ✓'; setTimeout(function() { if (status) status.style.display = 'none'; }, 3000); }
+          // Player Card carousel: Season (Edge) + Shotmap in one modal.
+          const [seasonCanvas, shotmapCanvas] = await Promise.all([
+            drawSeasonCard(_selectedSeason),
+            drawShotmapCard(),
+          ]);
+          window.HGB_Export.showCardModal([
+            { canvas: seasonCanvas,  filename: `hgb_season_${D.slug}_${_selectedSeason}.png`,          label: 'Season Card'  },
+            { canvas: shotmapCanvas, filename: `hgb_shotmap_${D.slug}_${D.currentSeason || '2025-26'}.png`, label: 'Shotmap Card' },
+          ]);
+          if (status) { status.style.display = 'none'; }
         } catch(err) { console.error(err); if (status) status.textContent = 'Error — try again'; }
         finally { btn.textContent = label; btn.disabled = false; }
       });
     })();
 
-    // ── Shotmap card button ────────────────────────────────────────────────
-    (function() {
-      const btn = document.getElementById('download-shotmap-card-btn');
-      const status = document.getElementById('card-status');
-      if (btn) btn.addEventListener('click', async function() {
-        const label = btn.textContent ?? '';
-        btn.textContent = 'Generating…'; btn.disabled = true;
-        if (status) { status.textContent = ''; status.style.display = 'block'; }
-        try {
-          if (document.fonts) {
-            await document.fonts.ready;
-            await Promise.all([
-              document.fonts.load('900 1px "Barlow Condensed"'),
-              document.fonts.load('700 1px "JetBrains Mono"'),
-            ]);
-          }
-          const canvas = await drawShotmapCard();
-          downloadCanvas(canvas, `hgb_shotmap_${D.slug}_${D.currentSeason || '2025-26'}.png`);
-          if (status) { status.textContent = 'Downloaded ✓'; setTimeout(function() { if (status) status.style.display = 'none'; }, 3000); }
-        } catch(err) { console.error(err); if (status) { status.textContent = 'Error — try again'; status.style.display = 'block'; } }
-        finally { btn.textContent = label; btn.disabled = false; }
-      });
-    })();
-
-    // ── Talent card — portrait + social carousel in the modal ──────────────
+    // ── Player Talent Card carousel — Talent+Shotmap (new) + Talent 5×2 grid ─
     bindCardBtn(
       'download-rating-card-btn',
-      'Talent Card →',
+      'Player Talent Card →',
       async function() {
-        // Draw portrait + horizontal V3; modal gets arrow carousel automatically
-        const [portrait, socialV3] = await Promise.all([drawRatingCardPortrait(), drawRatingCardHorizontal()]);
+        // Draw the horizontal Talent+Shotmap card + the 5×2 social grid; modal
+        // gets the arrow carousel automatically. Portrait card intentionally dropped.
+        const [talentShotmap, socialV3] = await Promise.all([drawTalentShotmapCard(), drawRatingCardHorizontal()]);
         window.HGB_Export.showCardModal([
-          { canvas: socialV3,  filename: `hgb_social_${D.slug}_25-26.png`,    label: 'Social 1200×680'     },
-          { canvas: portrait,  filename: `hgb_talent_${D.slug}_25-26.png`,    label: 'Portrait 520×720'    },
+          { canvas: talentShotmap, filename: `hgb_talent_shotmap_${D.slug}_25-26.png`, label: 'Talent + Shotmap' },
+          { canvas: socialV3,      filename: `hgb_social_${D.slug}_25-26.png`,         label: 'Social 1200×680' },
         ]);
         // Return null so bindCardBtn skips its own modal call
         return null;
       },
       null,
-      '520×720 + 1200×628 · 2× retina PNG'
-    );
-    // ── Talent + Shotmap card — horizontal Talent bars + 3-year shot map ───
-    bindCardBtn(
-      'download-talent-shotmap-card-btn',
-      'Talent + Shotmap Card →',
-      drawTalentShotmapCard,
-      `hgb_talent_shotmap_${D.slug}_25-26.png`,
-      '1040×auto · 3-year · 2× retina PNG'
+      '1040×auto + 1200×628 · 2× retina PNG'
     );
     bindCardBtn('download-rapm-card-btn',   'RAPM Card →',     drawRapmCard,          `hgb_rapm_${D.slug}_25-26.png`,   '760px · 2× retina PNG');
     bindCardBtn('download-history-card-btn','History Card →',  drawHistoryCard,       `hgb_history_${D.slug}.png`,      '560×auto · 2× retina PNG');
@@ -3838,9 +3833,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       if (!season) return;
       const btn = document.getElementById('download-season-card-btn');
       if (btn) btn.textContent = `${season} Player Card →`;
-      const smBtn = document.getElementById('download-shotmap-card-btn');
+      // NOTE: the standalone shotmap button was folded into the Player Card
+      // carousel; only the availability note remains season-reactive.
       const smNote = document.getElementById('shotmap-availability-note');
-      if (smBtn) smBtn.textContent = `${season} Shotmap Card →`;
       if (smNote) {
         const [startYr, endSuffix] = season.split(/[-–]/);
         const seasonRaw = startYr + startYr.slice(0, 2) + endSuffix.padStart(2, '0');
