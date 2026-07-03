@@ -9,6 +9,7 @@
 
 ## Pending Action Items
 
+- [ ] **Mathematical hero alignment (card centering)** — replace the hardcoded y-offsets in the player Talent+Shotmap hero (and ideally all card heroes) with measured centering: `ctx.measureText().actualBoundingBoxAscent/Descent` → sum `eyebrow + gap + number + gap + sublabel`, center that stack in the hero region. Auto-centers for any value (95% / 100% / —). First attempt (commit `4d5bcd3`) mis-positioned the big number OVER the eyebrow on the LIVE card and was reverted (`ecd2595`) — likely font-not-loaded-when-measured or a descent-handling bug. Redo carefully and **render-test before shipping** (await `document.fonts`, verify across 1/2/3-char values). Target: week of 2026-07-07.
 - [ ] **Add 4am ET cron on hgb-prod**: `0 8 * * * /Users/hgb/.virtualenvs/hockeygamebot/bin/python /Users/hgb/hockeygamebot/scripts/playoff_morning_predictions.py >> /Users/hgb/hockeygamebot/logs/playoff_morning.log 2>&1` (server TZ is UTC, 08:00 UTC = 04:00 ET)
 - [ ] **Smoke test the full playoff data flow** end-to-end after a real playoff game: GAME_END piggyback fires → D1 upsert visible at `GET /v1/playoffs/round/1` → site modal reflects new WP within seconds
 - [ ] **Commit the GAME_END piggyback in `generate_playoff_series_card.py`** (Python bot) — staged locally but not committed with session's other changes because the file had pre-existing uncommitted Discord webhook WIP mixed in. User needs to resolve the webhook (either commit it consciously or remove) before pushing the piggyback.
