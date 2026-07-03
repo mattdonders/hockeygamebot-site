@@ -2291,16 +2291,25 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // eyebrow / big team-color % / sublabel per half).
       const heroTalentPct = D.hgb_rating_percentile != null ? Math.round(D.hgb_rating_percentile) : null;
       // NOTE: skaters lack a precomputed gp_pct_3yr, so compute availability
-      // client-side from career_seasons over the blend window (current + 3
-      // priors): 2025-26, 2024-25, 2023-24, 2022-23. Formula =
-      // round(100 * ΣGP / (82 × #seasons-with-gp>0)). Guards missing/null gp.
+      // client-side from career_seasons over the blend window (current + 3 priors:
+      // 2025-26, 2024-25, 2023-24, 2022-23). RECENCY-WEIGHTED with the same weights
+      // as the Talent blend (renormalized for partial history) — so a stale old
+      // injury is discounted vs recent full seasons, and the number stays consistent
+      // with the rest of the MULTI-YEAR blend. GP is aggregated per season first so
+      // mid-season trades (multiple career rows for one season) count once.
       const availPct = (() => {
-        const windowSeasons = ['2025-26', '2024-25', '2023-24', '2022-23'];
-        const rows = (D.careerSeasons || []).filter(cs =>
-          cs && windowSeasons.includes(cs.season) && cs.gp != null && cs.gp > 0);
-        if (rows.length === 0) return null;
-        const totalGp = rows.reduce((sum, cs) => sum + cs.gp, 0);
-        return Math.round(100 * totalGp / (82 * rows.length));
+        const windowSeasons = ['2025-26', '2024-25', '2023-24', '2022-23']; // current → oldest
+        const WEIGHTS = { 1: [1.0], 2: [0.643, 0.357], 3: [0.529, 0.294, 0.176], 4: [0.45, 0.25, 0.15, 0.15] };
+        const bySeason = new Map();
+        for (const cs of (D.careerSeasons || [])) {
+          if (cs && cs.season && cs.gp != null && cs.gp > 0)
+            bySeason.set(cs.season, (bySeason.get(cs.season) || 0) + cs.gp);
+        }
+        const present = windowSeasons.map(s => bySeason.get(s)).filter(gp => gp != null); // recency order
+        if (present.length === 0) return null;
+        const w = WEIGHTS[present.length] || WEIGHTS[4];
+        const avail = present.reduce((sum, gp, i) => sum + w[i] * Math.min(gp, 82) / 82, 0);
+        return Math.round(100 * avail);
       })();
       const heroX = HS_CX + R + 18;
       const heroW = (L_W - heroX - PAD) / 2;
