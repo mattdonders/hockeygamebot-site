@@ -49,6 +49,24 @@ async function _safeFetchJSON(path: string, fallback: unknown): Promise<unknown>
   }
 }
 
+// DEV-only override: read goalies from a local file (.dev-stats/goalies.json) so we can
+// iterate on merged fields (e.g. card_3yr) without publishing to production R2. Prod builds
+// (import.meta.env.DEV === false) always go to R2 — this path is never taken in CI/Pages.
+async function _fetchGoalies(): Promise<unknown> {
+  if (import.meta.env.DEV) {
+    try {
+      const fs = await import('node:fs/promises');
+      const url = new URL('../../.dev-stats/goalies.json', import.meta.url);
+      const txt = await fs.readFile(url, 'utf-8');
+      console.warn('[stats-loader] DEV: using local .dev-stats/goalies.json override (not R2)');
+      return JSON.parse(txt);
+    } catch {
+      /* no local override — fall back to R2 */
+    }
+  }
+  return _fetchJSON('goalies');
+}
+
 // Fetch all stats data once at build time. Astro runs this module once
 // during the build and shares the resolved values across all pages.
 const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsData, goaliesData, linesData, playerShotsData, seriesStatsData, seriesRecordsData, playerSeasonStatsData] = await Promise.all([
@@ -57,7 +75,7 @@ const [playersData, leaderboardsData, playerGamesData, metaData, teamGameStatsDa
   _safeFetchJSON('player-games', {}),  // non-critical: game log panel only
   _fetchJSON('meta'),
   _fetchJSON('team-game-stats').catch(() => ({})),
-  _fetchJSON('goalies').catch(() => []),
+  _fetchGoalies().catch(() => []),
   _fetchJSON('lines').catch(() => []),
   _fetchJSON('player-shots').catch(() => ({})),
   _fetchJSON('series-stats').catch(() => ({ series: [], rounds: [] })),

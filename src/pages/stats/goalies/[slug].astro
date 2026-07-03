@@ -116,7 +116,10 @@ const dsvPctPct = dsvPctRank != null && dsvPctQualCount > 1
   ? Math.round((dsvPctQualCount - dsvPctRank) / (dsvPctQualCount - 1) * 100)
   : null;
 
-const currentSeasonNorm = loadMeta().season; // "2025-26" — source of truth
+const _meta = loadMeta();
+const currentSeasonNorm = _meta.season; // "2025-26" — source of truth
+// "updated {date}" token for the hero sub-line — matches the skater player page.
+const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
 
 function ordinal(n: number): string {
   const m10 = n % 10, m100 = n % 100;
@@ -127,6 +130,15 @@ function ordinal(n: number): string {
   return `${n}th`;
 }
 const headshotUrl = `https://api.hockeygamebot.com/v1/proxy/headshot/${goalie.team_abbrev}/${goalie.goalie_id}`;
+
+// Hero percentile boxes — mirror the skater page hero (Talent / WAR / GP).
+// Only qualified goalies (≥500 FA) carry these fields; the rest are null →
+// each box falls back to "—" rather than crashing/rendering NaN. Values are
+// 1–100 percentiles; display rounded as "NN%".
+const talentPct = goalie.talent_pct != null ? Math.round(goalie.talent_pct) : null;
+const warPct    = goalie.war_pct != null ? Math.round(goalie.war_pct) : null;
+const gpPct     = goalie.gp_pct_season != null ? Math.round(goalie.gp_pct_season) : null;
+
 const hasPlayoffs  = (goalie.playoff_games ?? 0) > 0 && goalie.playoff_gsax != null;
 const poSvPct      = hasPlayoffs && goalie.playoff_sa != null && goalie.playoff_sa > 0 && goalie.playoff_ga != null
   ? +(1 - goalie.playoff_ga / goalie.playoff_sa).toFixed(3)
@@ -322,11 +334,28 @@ const cardData = {
   sweaterNumber: goalie.sweater_number ?? null,
   edge: goalie.edge ?? null,
   season:       currentSeasonNorm,
+  // ── Goalie Talent card fields (docs/plans/goalie-war-cards-spec-2026-07-01 §5).
+  // 3-year blended Talent% hero + Y-2/Y-1/Y-0 single-season WAR% boxes + 3yr GP%
+  // workload. `card3yr` supplies the boxscore strip + calibrated percentile bars.
+  // (shotType3yr retired from the Talent card but kept on the record.) All null on
+  // below-gate goalies (<500 FA); the Talent button is hidden then (talent_pct == null).
+  talentPct:    goalie.talent_pct ?? null,
+  warPct:       goalie.war_pct ?? null,
+  warPctY1:     goalie.war_pct_y1 ?? null,
+  warPctY2:     goalie.war_pct_y2 ?? null,
+  gpPct3yr:     goalie.gp_pct_3yr ?? null,
+  shotType3yr:  goalie.shot_type_3yr ?? [],
+  // 3-year boxscore totals + season-card-style percentile bars (calibrated GSAx
+  // scale, so consistent with the Talent hero — unlike the retired raw shot-type
+  // GSAx panel). Rendered by drawGoalieTalentCard's left panel.
+  card3yr:      goalie.card_3yr ?? null,
   // Card footer strings (single source of truth: src/lib/card-footer.ts).
   // NHL Edge attribution only when the card actually renders Edge goalie tracking.
   footers: {
     withEdge: cardFooterText({ edgeData: true, hgbStats: false }),
     noEdge:   cardFooterText({ hgbStats: false }),
+    // Talent card is PBP/xG-derived — NO Edge attribution.
+    talent:   cardFooterText({ extra: 'TALENT · 3-YEAR BLEND' }),
   },
 };
 ---
@@ -362,6 +391,10 @@ const cardData = {
     /* ── Hero card (matches player page) ── */
     .mast-top a { color: var(--ink-48); text-decoration: none; }
     .mast-top a:hover { color: var(--ink); }
+    /* Breadcrumb — matches skater player page (HGB Stats / Goalies / {Name}) */
+    .breadcrumb { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; color: var(--ink-32); margin-bottom: 14px; }
+    .breadcrumb a { color: var(--ink-48); text-decoration: none; }
+    .breadcrumb a:hover { color: var(--ink); }
     .mast-card {
       background: var(--surface); border: 1px solid var(--ink-14);
       border-left: 6px solid currentColor; padding: 28px 32px;
@@ -390,13 +423,13 @@ const cardData = {
       background: var(--bg); border: 1px solid var(--ink-14);
       padding: 16px 10px; text-align: center; min-width: 150px; flex: 1;
     }
-    .tile-label { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); margin-bottom: 6px; }
+    .tile-label { font-family: var(--body); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(13, 13, 20, 0.72); margin-bottom: 6px; }
     .tile-big { font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1; letter-spacing: -0.02em; }
     .tile-sub { font-family: var(--mono); font-size: 10px; color: var(--ink-48); margin-top: 4px; }
     .tile-row { display: flex; gap: 12px; }
     .po-tile-combined {
       background: var(--bg); border: 1px solid var(--ink-14);
-      padding: 8px 14px; display: flex; align-items: center; gap: 16px;
+      padding: 8px 14px; display: flex; align-items: center; justify-content: center; gap: 16px;
       align-self: stretch; box-sizing: border-box;
     }
     .po-tile-combined .po-label {
@@ -412,13 +445,21 @@ const cardData = {
     }
 
     @media (max-width: 768px) {
-      .mast-card { flex-wrap: wrap; gap: 16px; padding: 16px; }
-      .mast-right { margin-left: 0; width: 100%; }
+      /* Stack left (headshot+name) above right (tiles) — matches skater page */
+      .mast-card { flex-direction: column; align-items: stretch; padding: 16px 18px 14px; gap: 14px; }
+      .mast-left { gap: 16px; }
+      .headshot-circle { width: 72px; height: 72px; }
+      .player-name { font-size: clamp(28px, 7vw, 44px); }
+      .mast-right { margin-left: 0; width: 100%; gap: 8px; }
       .tile-row { width: 100%; }
-      .hero-tile { flex: 1 1 0; min-width: 0; }
+      .hero-tile { flex: 1 1 0; min-width: 0; padding: 10px 8px; }
+      .tile-big { font-size: 28px; }
+      .tile-label { font-size: 10px; margin-bottom: 4px; }
+      .tile-sub { font-size: 10px; }
     }
     @media (max-width: 480px) {
-      .headshot-circle { width: 80px; height: 80px; }
+      .headshot-circle { width: 64px; height: 64px; }
+      .player-name { font-size: clamp(24px, 7.5vw, 38px); }
     }
 
     /* ── Layout ── */
@@ -535,9 +576,8 @@ const cardData = {
     <div class="corner bl"></div><div class="corner br"></div>
   </div>
   <div class="mast-inner">
-    <div class="mast-top">
-      <div><a href="/stats/goalies">← Goalies</a></div>
-      <div>{goalie.team_abbrev} · G · {goalie.sa.toLocaleString()} SA · 2025–26</div>
+    <div class="breadcrumb">
+      <a href="/stats">HGB Stats</a> / <a href="/stats/goalies">Goalies</a> / {firstName} {displayLast}
     </div>
 
     <div class="mast-card" style={`border-left-color:${teamColor}; color:${teamColor}; --team-c:${teamColor}`}>
@@ -552,7 +592,7 @@ const cardData = {
         <div class="identity-text">
           <div class="player-name">{firstName}<br/>{displayLast}</div>
           <div class="player-meta">
-            {goalie.team_abbrev} · G · {goalie.gp ?? goalie.games.length} GP · {goalie.sa.toLocaleString()} SA · 2025–26
+            {goalie.team_abbrev} · G · {goalie.gp ?? goalie.games.length} GP · {goalie.sa.toLocaleString()} SA · {currentSeasonNorm}{_statsDate ? ` · updated ${_statsDate}` : ''}
           </div>
           {hasPlayoffs && (
             <div class="player-meta" style={`color:${teamColor}; margin-top:3px`}>
@@ -568,14 +608,16 @@ const cardData = {
       <div class="mast-right">
         <div class="tile-row">
           <div class="hero-tile">
-            <div class="tile-label">GSAx · All Sit.</div>
-            <div class="tile-big" style={`color:${teamColor}`}>{gsaxSign}{goalie.gsax.toFixed(2)}</div>
-            <div class="tile-sub">{gsaxPct != null ? `reg szn · ${ordinal(gsaxPct)} pct` : 'reg szn'}</div>
+            <div class="tile-label">Talent</div>
+            <div class="tile-big" style={`color:${teamColor}`}>{talentPct != null ? `${talentPct}%` : '—'}</div>
           </div>
           <div class="hero-tile">
-            <div class="tile-label">SV%</div>
-            <div class="tile-big" style={`color:${teamColor}`}>{goalie.sv_pct != null ? goalie.sv_pct.toFixed(3) : '—'}</div>
-            <div class="tile-sub">{svPctEdgePct != null ? `reg szn · ${ordinal(svPctEdgePct)} pct` : 'reg szn'}</div>
+            <div class="tile-label">{currentSeasonNorm} WAR</div>
+            <div class="tile-big" style={`color:${teamColor}`}>{warPct != null ? `${warPct}%` : '—'}</div>
+          </div>
+          <div class="hero-tile">
+            <div class="tile-label">{currentSeasonNorm} Games</div>
+            <div class="tile-big" style={`color:${teamColor}`}>{gpPct != null ? `${gpPct}%` : '—'}</div>
           </div>
         </div>
         {hasPlayoffs && (
@@ -887,13 +929,13 @@ const cardData = {
     <button id="dl-goalie-card" type="button" class="cta-btn-primary" style={`background:${teamColor};color:#ffffff;`}>
       {currentSeasonNorm} Goalie Card →
     </button>
-    {goalie.sa >= 500 && (
-      <button id="dl-goalie-kde" type="button" class="cta-btn-secondary">
-        Shot Zone Map Card
+    {goalie.talent_pct != null && (
+      <button id="dl-goalie-talent" type="button" class="cta-btn-primary" style={`background:${teamColor};color:#ffffff;`}>
+        Goalie Talent Card →
       </button>
     )}
     <div class="cta-note" id="goalie-card-status" style="display:none"></div>
-    <div class="cta-note" id="goalie-kde-status" style="display:none"></div>
+    <div class="cta-note" id="goalie-talent-status" style="display:none"></div>
 
     <div class="cta-divider"></div>
     <div class="cta-section-label">Related Analysis</div>
@@ -1083,6 +1125,7 @@ const cardData = {
     const INK10   = 'rgba(13,13,20,0.10)';
     const INK06   = 'rgba(13,13,20,0.06)';
     const TEAM_C  = G.hasTeam ? (G.teamColor || INK) : '#8a8a8a';
+    const PCT_VALUE_FONT = '800 19px "Barlow Condensed", sans-serif';  // shared percentile-bar VALUE size (matches skater cards)
     let _selectedSeason = G.season;
 
     const TEAM_NAMES = {
@@ -1414,7 +1457,7 @@ const cardData = {
           rrect(ctx, bx, bby, Math.max(6, (b.val / 100) * BAR_AVAIL), BAR_H_PX, 3);
           ctx.fillStyle = barFillG(b.val); ctx.fill();
         }
-        ctx.font = '800 14px "Barlow Condensed", sans-serif';
+        ctx.font = PCT_VALUE_FONT;
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
         ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorG(b.val);
         ctx.fillText(b.val == null ? '—' : Math.round(b.val) + '%', L_W - PAD2, bmy);
@@ -1713,7 +1756,7 @@ const cardData = {
           rrect(ctx, bx, bby, Math.max(6, (b.val / 100) * BAR_AVAIL), BAR_H_PX, 3);
           ctx.fillStyle = barFillG2(b.val); ctx.fill();
         }
-        ctx.font = '800 14px "Barlow Condensed", sans-serif';
+        ctx.font = PCT_VALUE_FONT;
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
         ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorG2(b.val);
         ctx.fillText(b.val == null ? '—' : Math.round(b.val) + '%', L_W - PAD2, bmy);
@@ -1772,14 +1815,310 @@ const cardData = {
       return canvas;
     }
 
-    // ── wire KDE button ────────────────────────────────────────────────────
-    const kdeBtn = document.getElementById('dl-goalie-kde');
-    const kdeStatus = document.getElementById('goalie-kde-status');
-    if (kdeBtn) {
-      kdeBtn.addEventListener('click', async () => {
-        const label = kdeBtn.textContent;
-        kdeBtn.textContent = 'Generating…'; kdeBtn.disabled = true;
-        if (kdeStatus) { kdeStatus.style.display = 'block'; kdeStatus.textContent = 'Loading map…'; }
+    // ── Goalie Talent Card ────────────────────────────────────────────────
+    // First-pass sibling to the Season card (spec §5). Same 1040-wide two-panel
+    // shell (header/chips/footer). Hero = HGB TALENT % (3yr blended rate) +
+    // Y-2/Y-1/Y-0 past single-season WAR% boxes + 3yr Games-Played %. Left =
+    // 3yr boxscore strip (SA/GA/SV%/GP) + 6 season-card-style percentile bars
+    // (gray track, colored fill/label by percentile) from G.card3yr — calibrated
+    // GSAx scale, consistent with the Talent hero. Right = 3yr shotmap PNG
+    // ({id}_3yr.png). Canvas-drawn — refined on a local dev server by the maintainer.
+    async function drawGoalieTalentCard() {
+      const BG2 = '#EFEEE8', SURFACE2 = '#FFFFFF';
+      const SCALE = 2;
+      const L_W = 520, R_W = 520, PAD2 = 24, R_PAD = 20;
+      const W = L_W + R_W;
+
+      const HDR_H = 52, CHIP_H = 34;
+      const ID_H = 122, BAR_ROW_H = 28, BAR_ROWS = 6;
+      const COUNTS_H_S = 68;
+      // Match the Season/KDE card height so this reads as a sibling card.
+      const L_CONTENT_H = 6 + ID_H + COUNTS_H_S + 1 + 20 + 12 + BAR_ROWS * BAR_ROW_H + 12;
+      const CONTENT_H = L_CONTENT_H;
+      const FOOT_H = 36;
+      const H = HDR_H + CHIP_H + CONTENT_H + FOOT_H;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W * SCALE; canvas.height = H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+
+      // Background + left accent bar
+      ctx.fillStyle = BG2; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = TEAM_C; ctx.fillRect(0, 0, 4, H);
+
+      // Header (white band)
+      ctx.fillStyle = SURFACE2; ctx.fillRect(0, 0, W, HDR_H + CHIP_H);
+      ctx.fillStyle = INK14; ctx.fillRect(0, HDR_H + CHIP_H - 1, W, 1);
+
+      ctx.font = '800 24px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = INK; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText((G.firstName + ' ' + G.lastName).toUpperCase(), PAD2, HDR_H / 2);
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = TEAM_C; ctx.textAlign = 'right';
+      ctx.fillText('GOALIE TALENT CARD · 3-YEAR BLEND', W - PAD2, HDR_H / 2);
+
+      // Chips
+      const chipH2 = 18, chipY0 = HDR_H + (CHIP_H - chipH2) / 2;
+      const teamFull = TEAM_NAMES[G.team] || G.team || 'FREE AGENT';
+      const chipLabels = [
+        ...(G.sweaterNumber != null ? [`#${G.sweaterNumber}`] : []),
+        teamFull, 'GOALIE', G.season,
+        ...(G.age != null ? [`AGE: ${G.age}`] : []),
+        ...(G.shoots ? [`CATCHES: ${G.shoots}`] : []),
+      ];
+      const teamColorChips = 1 + (G.sweaterNumber != null ? 1 : 0);
+      let cx2 = PAD2;
+      ctx.font = '700 9px "Barlow Condensed", sans-serif';
+      for (let ci = 0; ci < chipLabels.length; ci++) {
+        const cw = ctx.measureText(chipLabels[ci]).width + 18;
+        rrect(ctx, cx2, chipY0, cw, chipH2, 3);
+        ctx.fillStyle = ci < teamColorChips ? TEAM_C : INK; ctx.fill();
+        ctx.fillStyle = BG2; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        ctx.fillText(chipLabels[ci], cx2 + 9, chipY0 + chipH2 / 2);
+        cx2 += cw + 8;
+      }
+      const brand2 = 'HOCKEYGAMEBOT';
+      const bcw2 = ctx.measureText(brand2).width + 18;
+      rrect(ctx, W - PAD2 - bcw2, chipY0, bcw2, chipH2, 3);
+      ctx.fillStyle = RED; ctx.fill();
+      ctx.fillStyle = BG2; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(brand2, W - PAD2 - bcw2 + 9, chipY0 + chipH2 / 2);
+
+      // Panel divider
+      ctx.fillStyle = INK14; ctx.fillRect(L_W, HDR_H + CHIP_H, 1, CONTENT_H);
+
+      // ── LEFT PANEL — hero (Talent) + 3yr boxscore + percentile bars ───────
+      let y = HDR_H + CHIP_H + 6;
+
+      // Headshot circle
+      const R = 36, HS_CX = PAD2 + R, HS_CY = y + ID_H / 2;
+      const hsImg = await loadImg(G.headshotUrl);
+      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = INK10; ctx.fillRect(HS_CX - R, HS_CY - R, R * 2, R * 2);
+      if (hsImg) {
+        ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
+      } else {
+        const initials = ((G.firstName || '')[0] || '') + ((G.lastName || '')[0] || '');
+        ctx.font = '700 28px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.25)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(initials.toUpperCase(), HS_CX, HS_CY);
+      }
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
+      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+      // Short season labels for the WAR boxes, derived from G.season ("2025-26").
+      const _startYr = parseInt(String(G.season).slice(0, 4), 10);
+      const fmtSzn = (yr) => Number.isNaN(yr) ? '' : String(yr).slice(2) + '-' + String(yr + 1).slice(2);
+
+      // Hero region right of the headshot: split evenly into TALENT | GAMES PLAYED.
+      // (PAST SINGLE-SEASON WAR moved down into the strip row so the two hero numbers
+      // each get real room — no more cramped 3-up hero.)
+      const heroX = HS_CX + R + 18;
+      const heroW = L_W - heroX - PAD2;
+      const talentW = heroW * 0.5;
+      const gpW     = heroW * 0.5;
+
+      // TALENT (big %)
+      {
+        const tcx = heroX + talentW / 2;
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('HGB TALENT', tcx, y + 14);
+        ctx.font = '900 58px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = G.talentPct != null ? TEAM_C : INK32;
+        ctx.fillText(G.talentPct != null ? Math.round(G.talentPct) + '%' : '—', tcx, y + 28);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
+        ctx.fillText('3YR BLENDED RATE', tcx, y + 96);
+      }
+
+      // GAMES PLAYED (3YR) — availability, same prominence as Talent
+      {
+        const L_GP = heroX + talentW;
+        ctx.fillStyle = INK10; ctx.fillRect(L_GP, y + 18, 1, ID_H - 36);
+        const gcx = L_GP + gpW / 2;
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('GAMES PLAYED · 3YR', gcx, y + 14);
+        ctx.font = '900 50px "Barlow Condensed", sans-serif';
+        ctx.fillStyle = G.gpPct3yr != null ? TEAM_C : INK32; ctx.textBaseline = 'top';
+        ctx.fillText(G.gpPct3yr != null ? Math.round(G.gpPct3yr) + '%' : '—', gcx, y + 32);
+        ctx.font = '700 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
+        ctx.fillText('AVAILABILITY', gcx, y + 96);
+      }
+      y += ID_H;
+
+      // 3-year data source. `card3yr` carries the calibrated boxscore totals + the
+      // 6 season-card-style percentile bars (see stats-schemas.ts card_3yr). Bars use
+      // the CALIBRATED GSAx percentile — consistent with the Talent hero — so we no
+      // longer render the retired raw shot-type GSAx panel (which was on an
+      // inconsistent xG scale and could contradict the hero, e.g. Andersen).
+      const c3 = G.card3yr || {};
+      const c3bars = Array.isArray(c3.bars) ? c3.bars : [];
+      const fmtSvPct = (v) => v != null ? v.toFixed(3).replace(/^0/, '') : '—';
+
+      // ── PAST SINGLE-SEASON WAR strip: row-label + Y-2 / Y-1 / Y-0 seasons ──
+      // Given the whole strip width, the three season %s finally get real spacing.
+      ctx.fillStyle = SURFACE2; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
+      {
+        // one-line section title spanning the strip (no awkward wrapping)
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText('PAST SINGLE-SEASON WAR', L_W / 2, y + 9);
+
+        const warCols = [
+          { szn: fmtSzn(_startYr - 2), pct: G.warPctY2 },
+          { szn: fmtSzn(_startYr - 1), pct: G.warPctY1 },
+          { szn: fmtSzn(_startYr),     pct: G.warPct   },
+        ];
+        const colsX = PAD2, colsW = L_W - PAD2 * 2;
+        warCols.forEach((c, i) => {
+          const ccx = colsX + colsW * (i + 0.5) / warCols.length;
+          if (i > 0) { ctx.fillStyle = INK06; ctx.fillRect(colsX + colsW * i / warCols.length, y + 28, 1, COUNTS_H_S - 36); }
+          ctx.font = '800 28px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = c.pct != null ? INK : INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+          ctx.fillText(c.pct != null ? Math.round(c.pct) + '%' : '—', ccx, y + 50);
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = INK32; ctx.textBaseline = 'top';
+          ctx.fillText(c.szn, ccx, y + 54);
+        });
+      }
+      y += COUNTS_H_S;
+
+      ctx.fillStyle = INK14; ctx.fillRect(0, y, L_W, 1); y += 1 + 20;
+
+      // Section header
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+      ctx.fillText('3-YEAR PERCENTILES', PAD2, y);
+      const sHdrW = ctx.measureText('3-YEAR PERCENTILES').width;
+      ctx.fillStyle = RED;
+      ctx.fillText('  VS. NHL GOALIES', PAD2 + sHdrW, y);
+      y += 12;
+
+      // ── 6 percentile bars — season-card gray-track style ──────────────────
+      // pct (1–100) drives BOTH the fill width AND the fill color; value is
+      // formatted per the bar's `fmt` (see spec). Same tier colors as drawGoalieCard.
+      function barFillG(v) {
+        if (v == null) return 'rgba(13,13,20,0.20)';
+        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+        if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373';
+        return '#E8002D';
+      }
+      function pctColorG(v) {
+        if (v == null) return 'rgba(13,13,20,0.35)';
+        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
+        if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
+        return '#E8002D';
+      }
+      function fmtBarValue(fmt, v) {
+        if (v == null) return null;
+        switch (fmt) {
+          case 'gsax':   return (v >= 0 ? '+' : '') + v.toFixed(1);
+          case 'rate2':  return (v >= 0 ? '+' : '') + v.toFixed(2);
+          case 'svpct':  return v.toFixed(3).replace(/^0/, '');
+          case 'dsvpct': return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+          case 'gaa':    return v.toFixed(2);
+          default:       return String(v);
+        }
+      }
+      // Green/red on signed formats (gsax, rate2, dsvpct); neutral ink otherwise.
+      const signedFmts = { gsax: 1, rate2: 1, dsvpct: 1 };
+      const BAR_H_PX = 11, BAR_LABEL_W = 124, BAR_RANK_W = 44;
+      const BAR_AVAIL = L_W - PAD2 * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
+      for (let bi = 0; bi < 6; bi++) {
+        const b = c3bars[bi] || {};
+        const pct = b.pct != null ? b.pct : null;
+        const raw = fmtBarValue(b.fmt, b.value);
+        const rowY = y + bi * BAR_ROW_H;
+        const bmy = rowY + BAR_ROW_H / 2;
+        const bby = bmy - BAR_H_PX / 2;
+        const bx = PAD2 + BAR_LABEL_W;
+        // Label left, raw value right-aligned to bar's left edge
+        ctx.textBaseline = 'middle';
+        ctx.font = '600 10px "Barlow", sans-serif';
+        ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textAlign = 'left';
+        ctx.fillText(b.label || '—', PAD2, bmy);
+        if (raw != null) {
+          const rawColor = signedFmts[b.fmt] ? (b.value >= 0 ? GREEN : RED) : INK;
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = rawColor; ctx.textAlign = 'right';
+          ctx.fillText(raw, bx - 8, bmy);
+        }
+        // Gray track + colored fill
+        rrect(ctx, bx, bby, BAR_AVAIL, BAR_H_PX, 3); ctx.fillStyle = INK10; ctx.fill();
+        if (pct != null) {
+          rrect(ctx, bx, bby, Math.max(6, (pct / 100) * BAR_AVAIL), BAR_H_PX, 3);
+          ctx.fillStyle = barFillG(pct); ctx.fill();
+        }
+        // Percentile label
+        ctx.font = PCT_VALUE_FONT;
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = pct == null ? 'rgba(13,13,20,0.32)' : pctColorG(pct);
+        ctx.fillText(pct == null ? '—' : Math.round(pct) + '%', L_W - PAD2, bmy);
+      }
+
+      // ── RIGHT PANEL — 3-year shotmap PNG ──────────────────────────────────
+      const RX = L_W + 1;
+      const mapUrl = `https://media.hockeygamebot.com/stats/goalie-cards/${G.goalieId}_3yr.png`;
+      const mapImg = await loadImg(mapUrl);
+
+      const MAP_HDR_H = 36;
+      ctx.fillStyle = INK14; ctx.fillRect(RX, HDR_H + CHIP_H + MAP_HDR_H - 1, R_W, 1);
+      ctx.font = '800 13px "Barlow Condensed", sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = INK;
+      ctx.fillText('SHOT LOCATION MAP · 3-YEAR', RX + R_PAD, HDR_H + CHIP_H + MAP_HDR_H / 2);
+
+      if (mapImg) {
+        const MAP_TOP = HDR_H + CHIP_H + MAP_HDR_H + 12;
+        const MAP_BOT = H - FOOT_H - 20;
+        const availH = MAP_BOT - MAP_TOP;
+        const availW = R_W - R_PAD * 2;
+        const imgAspect = mapImg.naturalWidth / mapImg.naturalHeight;
+        let drawW = availW, drawH = availW / imgAspect;
+        if (drawH > availH) { drawH = availH; drawW = availH * imgAspect; }
+        const drawX = RX + R_PAD + (availW - drawW) / 2;
+        const drawY = MAP_TOP + (availH - drawH) / 2;
+        ctx.drawImage(mapImg, drawX, drawY, drawW, drawH);
+
+        // Legend
+        const LX = RX + R_PAD, LY = H - FOOT_H - 16;
+        const gradW = 80, gradH = 5;
+        const grad = ctx.createLinearGradient(LX, 0, LX + gradW, 0);
+        grad.addColorStop(0, '#b91c1c'); grad.addColorStop(0.5, '#ffffff'); grad.addColorStop(1, '#1d4ed8');
+        ctx.fillStyle = grad; ctx.fillRect(LX, LY, gradW, gradH);
+        ctx.font = '700 8px "JetBrains Mono", monospace'; ctx.fillStyle = INK32;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText('WORSE', LX, LY - 6);
+        ctx.textAlign = 'right';
+        ctx.fillText('BETTER', LX + gradW, LY - 6);
+      } else {
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('3-YEAR SHOT MAP UNAVAILABLE', RX + R_W / 2, HDR_H + CHIP_H + CONTENT_H / 2);
+      }
+
+      // Footer
+      ctx.fillStyle = INK10; ctx.fillRect(0, H - FOOT_H, W, FOOT_H);
+      ctx.font = '700 11px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      ctx.fillText(G.footers.talent, W / 2, H - FOOT_H / 2);
+
+      return canvas;
+    }
+
+    // ── wire Talent button ─────────────────────────────────────────────────
+    // Only present for qualified goalies (talent_pct != null → button rendered).
+    const talentBtn = document.getElementById('dl-goalie-talent');
+    const talentStatus = document.getElementById('goalie-talent-status');
+    if (talentBtn) {
+      talentBtn.addEventListener('click', async () => {
+        const label = talentBtn.textContent;
+        talentBtn.textContent = 'Generating…'; talentBtn.disabled = true;
+        if (talentStatus) { talentStatus.style.display = 'block'; talentStatus.textContent = 'Drawing…'; }
         try {
           if (document.fonts) {
             await document.fonts.ready;
@@ -1789,15 +2128,15 @@ const cardData = {
               document.fonts.load('600 1px "Barlow"'),
             ]);
           }
-          const canvas = await drawGoalieKDE();
+          const canvas = await drawGoalieTalentCard();
           const slug = G.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-          window.HGB_Export.showCardModal(canvas, `hgb_goalie_kde_${slug}_25-26.png`);
-          if (kdeStatus) { kdeStatus.textContent = 'Done ✓'; setTimeout(() => { if (kdeStatus) kdeStatus.style.display = 'none'; }, 3000); }
+          window.HGB_Export.showCardModal(canvas, `hgb_goalie_talent_${slug}_25-26.png`);
+          if (talentStatus) { talentStatus.textContent = 'Done ✓'; setTimeout(() => { if (talentStatus) talentStatus.style.display = 'none'; }, 3000); }
         } catch (e) {
           console.error(e);
-          if (kdeStatus) kdeStatus.textContent = 'Error — try again';
+          if (talentStatus) talentStatus.textContent = 'Error — try again';
         } finally {
-          kdeBtn.textContent = label; kdeBtn.disabled = false;
+          talentBtn.textContent = label; talentBtn.disabled = false;
         }
       });
     }
@@ -1824,10 +2163,18 @@ const cardData = {
             document.fonts.load('600 1px "Barlow"'),
           ]);
         }
-        const canvas = await drawGoalieCard(_selectedSeason);
         const slug = G.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         const seasonSlug = (_selectedSeason || G.season).replace(/[-–]/g, '-');
-        window.HGB_Export.showCardModal(canvas, `hgb_goalie_${slug}_${seasonSlug}.png`);
+        // Carousel: (1) Edge season card, (2) zone/shot-location map card
+        const edgeCanvas = await drawGoalieCard(_selectedSeason);
+        const cards = [{ canvas: edgeCanvas, filename: `hgb_goalie_${slug}_${seasonSlug}.png`, label: 'Edge Card' }];
+        try {
+          const kdeCanvas = await drawGoalieKDE();
+          cards.push({ canvas: kdeCanvas, filename: `hgb_goalie_kde_${slug}_25-26.png`, label: 'Zone Map' });
+        } catch (kdeErr) {
+          console.error('KDE zone map render failed; showing Edge card only', kdeErr);
+        }
+        window.HGB_Export.showCardModal(cards);
         if (status) { status.textContent = 'Done ✓'; setTimeout(() => { if (status) status.style.display = 'none'; }, 3000); }
       } catch (e) {
         console.error(e);
