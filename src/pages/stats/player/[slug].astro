@@ -2286,51 +2286,21 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
 
-      // Talent hero — split 50/50 into TALENT | AVAILABILITY, mirroring the
-      // goalie Talent card's dual hero (vertical divider between the halves,
-      // eyebrow / big team-color % / sublabel per half).
+      // Talent hero — single centered HGB TALENT % (multi-year blended WAR
+      // percentile). A second AVAILABILITY box was tried, but a games-played RATE
+      // reads ambiguously next to a percentile RANK, so it's one confident number.
       const heroTalentPct = D.hgb_rating_percentile != null ? Math.round(D.hgb_rating_percentile) : null;
-      // NOTE: skaters lack a precomputed gp_pct_3yr, so compute availability
-      // client-side from career_seasons over the blend window (current + 3 priors:
-      // 2025-26, 2024-25, 2023-24, 2022-23). RECENCY-WEIGHTED with the same weights
-      // as the Talent blend (renormalized for partial history) — so a stale old
-      // injury is discounted vs recent full seasons, and the number stays consistent
-      // with the rest of the MULTI-YEAR blend. GP is aggregated per season first so
-      // mid-season trades (multiple career rows for one season) count once.
-      const availPct = (() => {
-        const windowSeasons = ['2025-26', '2024-25', '2023-24', '2022-23']; // current → oldest
-        const WEIGHTS = { 1: [1.0], 2: [0.643, 0.357], 3: [0.529, 0.294, 0.176], 4: [0.45, 0.25, 0.15, 0.15] };
-        const bySeason = new Map();
-        for (const cs of (D.careerSeasons || [])) {
-          if (cs && cs.season && cs.gp != null && cs.gp > 0)
-            bySeason.set(cs.season, (bySeason.get(cs.season) || 0) + cs.gp);
-        }
-        const present = windowSeasons.map(s => bySeason.get(s)).filter(gp => gp != null); // recency order
-        if (present.length === 0) return null;
-        const w = WEIGHTS[present.length] || WEIGHTS[4];
-        const avail = present.reduce((sum, gp, i) => sum + w[i] * Math.min(gp, 82) / 82, 0);
-        return Math.round(100 * avail);
-      })();
       const heroX = HS_CX + R + 18;
-      const heroW = (L_W - heroX - PAD) / 2;
-      const heroCells = [
-        { eyebrow: 'HGB TALENT · MULTI-YEAR', pct: heroTalentPct, sub: 'MULTI-YEAR BLENDED WAR' },
-        { eyebrow: 'GAMES PLAYED · MULTI-YEAR', pct: availPct,   sub: 'AVAILABILITY' },
-      ];
-      for (let hi = 0; hi < heroCells.length; hi++) {
-        const hc = heroCells[hi];
-        const hcx = heroX + hi * heroW + heroW / 2;
-        if (hi > 0) { ctx.fillStyle = INK10; ctx.fillRect(heroX + hi * heroW, y + 18, 1, ID_H - 36); }
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText(hc.eyebrow, hcx, y + 18);
-        ctx.font = '900 58px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = hc.pct != null ? TEAM_C : INK32;
-        ctx.fillText(hc.pct != null ? hc.pct + '%' : '—', hcx, y + 34);
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
-        ctx.fillText(hc.sub, hcx, y + 98);
-      }
+      const heroCX = heroX + (L_W - heroX - PAD) / 2;   // centered across the full hero width
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+      ctx.fillText('HGB TALENT · MULTI-YEAR', heroCX, y + 18);
+      ctx.font = '900 68px "Barlow Condensed", sans-serif';
+      ctx.fillStyle = heroTalentPct != null ? TEAM_C : INK32;
+      ctx.fillText(heroTalentPct != null ? heroTalentPct + '%' : '—', heroCX, y + 32);
+      ctx.font = '700 10px "JetBrains Mono", monospace';
+      ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
+      ctx.fillText('MULTI-YEAR BLENDED WAR', heroCX, y + 98);
       y += ID_H;
 
       // ── WHITE STRIP — PAST SINGLE-SEASON WAR history ───────────────────────
