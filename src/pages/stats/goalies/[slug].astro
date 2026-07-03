@@ -929,18 +929,12 @@ const cardData = {
     <button id="dl-goalie-card" type="button" class="cta-btn-primary" style={`background:${teamColor};color:#ffffff;`}>
       {currentSeasonNorm} Goalie Card →
     </button>
-    {goalie.sa >= 500 && (
-      <button id="dl-goalie-kde" type="button" class="cta-btn-secondary">
-        Shot Zone Map Card
-      </button>
-    )}
     {goalie.talent_pct != null && (
-      <button id="dl-goalie-talent" type="button" class="cta-btn-secondary">
-        Talent Card
+      <button id="dl-goalie-talent" type="button" class="cta-btn-primary" style={`background:${teamColor};color:#ffffff;`}>
+        Talent Card →
       </button>
     )}
     <div class="cta-note" id="goalie-card-status" style="display:none"></div>
-    <div class="cta-note" id="goalie-kde-status" style="display:none"></div>
     <div class="cta-note" id="goalie-talent-status" style="display:none"></div>
 
     <div class="cta-divider"></div>
@@ -1131,6 +1125,7 @@ const cardData = {
     const INK10   = 'rgba(13,13,20,0.10)';
     const INK06   = 'rgba(13,13,20,0.06)';
     const TEAM_C  = G.hasTeam ? (G.teamColor || INK) : '#8a8a8a';
+    const PCT_VALUE_FONT = '800 19px "Barlow Condensed", sans-serif';  // shared percentile-bar VALUE size (matches skater cards)
     let _selectedSeason = G.season;
 
     const TEAM_NAMES = {
@@ -1462,7 +1457,7 @@ const cardData = {
           rrect(ctx, bx, bby, Math.max(6, (b.val / 100) * BAR_AVAIL), BAR_H_PX, 3);
           ctx.fillStyle = barFillG(b.val); ctx.fill();
         }
-        ctx.font = '800 14px "Barlow Condensed", sans-serif';
+        ctx.font = PCT_VALUE_FONT;
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
         ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorG(b.val);
         ctx.fillText(b.val == null ? '—' : Math.round(b.val) + '%', L_W - PAD2, bmy);
@@ -1761,7 +1756,7 @@ const cardData = {
           rrect(ctx, bx, bby, Math.max(6, (b.val / 100) * BAR_AVAIL), BAR_H_PX, 3);
           ctx.fillStyle = barFillG2(b.val); ctx.fill();
         }
-        ctx.font = '800 14px "Barlow Condensed", sans-serif';
+        ctx.font = PCT_VALUE_FONT;
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
         ctx.fillStyle = b.val == null ? 'rgba(13,13,20,0.32)' : pctColorG2(b.val);
         ctx.fillText(b.val == null ? '—' : Math.round(b.val) + '%', L_W - PAD2, bmy);
@@ -2060,7 +2055,7 @@ const cardData = {
           ctx.fillStyle = barFillG(pct); ctx.fill();
         }
         // Percentile label
-        ctx.font = '800 14px "Barlow Condensed", sans-serif';
+        ctx.font = PCT_VALUE_FONT;
         ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
         ctx.fillStyle = pct == null ? 'rgba(13,13,20,0.32)' : pctColorG(pct);
         ctx.fillText(pct == null ? '—' : Math.round(pct) + '%', L_W - PAD2, bmy);
@@ -2113,36 +2108,6 @@ const cardData = {
       ctx.fillText(G.footers.talent, W / 2, H - FOOT_H / 2);
 
       return canvas;
-    }
-
-    // ── wire KDE button ────────────────────────────────────────────────────
-    const kdeBtn = document.getElementById('dl-goalie-kde');
-    const kdeStatus = document.getElementById('goalie-kde-status');
-    if (kdeBtn) {
-      kdeBtn.addEventListener('click', async () => {
-        const label = kdeBtn.textContent;
-        kdeBtn.textContent = 'Generating…'; kdeBtn.disabled = true;
-        if (kdeStatus) { kdeStatus.style.display = 'block'; kdeStatus.textContent = 'Loading map…'; }
-        try {
-          if (document.fonts) {
-            await document.fonts.ready;
-            await Promise.all([
-              document.fonts.load('900 1px "Barlow Condensed"'),
-              document.fonts.load('700 1px "JetBrains Mono"'),
-              document.fonts.load('600 1px "Barlow"'),
-            ]);
-          }
-          const canvas = await drawGoalieKDE();
-          const slug = G.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-          window.HGB_Export.showCardModal(canvas, `hgb_goalie_kde_${slug}_25-26.png`);
-          if (kdeStatus) { kdeStatus.textContent = 'Done ✓'; setTimeout(() => { if (kdeStatus) kdeStatus.style.display = 'none'; }, 3000); }
-        } catch (e) {
-          console.error(e);
-          if (kdeStatus) kdeStatus.textContent = 'Error — try again';
-        } finally {
-          kdeBtn.textContent = label; kdeBtn.disabled = false;
-        }
-      });
     }
 
     // ── wire Talent button ─────────────────────────────────────────────────
@@ -2198,10 +2163,18 @@ const cardData = {
             document.fonts.load('600 1px "Barlow"'),
           ]);
         }
-        const canvas = await drawGoalieCard(_selectedSeason);
         const slug = G.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         const seasonSlug = (_selectedSeason || G.season).replace(/[-–]/g, '-');
-        window.HGB_Export.showCardModal(canvas, `hgb_goalie_${slug}_${seasonSlug}.png`);
+        // Carousel: (1) Edge season card, (2) zone/shot-location map card
+        const edgeCanvas = await drawGoalieCard(_selectedSeason);
+        const cards = [{ canvas: edgeCanvas, filename: `hgb_goalie_${slug}_${seasonSlug}.png`, label: 'Edge Card' }];
+        try {
+          const kdeCanvas = await drawGoalieKDE();
+          cards.push({ canvas: kdeCanvas, filename: `hgb_goalie_kde_${slug}_25-26.png`, label: 'Zone Map' });
+        } catch (kdeErr) {
+          console.error('KDE zone map render failed; showing Edge card only', kdeErr);
+        }
+        window.HGB_Export.showCardModal(cards);
         if (status) { status.textContent = 'Done ✓'; setTimeout(() => { if (status) status.style.display = 'none'; }, 3000); }
       } catch (e) {
         console.error(e);
