@@ -250,6 +250,8 @@ img { display: block; max-width: 100%; }
 /* ── LIVE REFRESH INDICATOR ── */
 .refresh-bar { display: flex; align-items: center; gap: 8px; font-family: var(--body); font-size: 10px; color: var(--ink-32); letter-spacing: 0.08em; }
 .refresh-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse-dot 1.5s ease-in-out infinite; }
+.refresh-dot.stale { background: var(--red); animation: none; }
+.refresh-bar.stale { color: var(--red); }
 
 /* ── GOAL LOG ── */
 .goals-table-wrap { background: var(--surface); border: 1px solid var(--ink-14); overflow-x: auto; }
@@ -870,6 +872,12 @@ table.lc tbody tr:hover { background: var(--ink-04); }
 
   const HGB_API = 'https://api.hockeygamebot.com';
   const LIVE_REFRESH_MS = 30_000;
+  const LIVE_REFRESH_MAX_MS = 120_000; // backoff cap after repeated failures
+  let _liveRefreshTimer = null;
+  let _liveRefreshFailures = 0;
+  let _liveRefreshPaused = false;
+  let _liveRefreshGameId = null;
+  let _liveRefreshTick = null; // the poll function, re-invoked on visibility resume
 
   // Jersey number lookup: { gameSec → sweaterNumber } — built in renderGame, used by chart functions
   let _jerseyMap = {};
@@ -3128,6 +3136,43 @@ table.lc tbody tr:hover { background: var(--ink-04); }
     return { boxscore, flow, eventsData, onIce, linesData };
   }
 
+  function setStaleIndicator(isStale) {
+    const bar = document.getElementById('refresh-indicator');
+    const dot = bar?.querySelector('.refresh-dot');
+    const label = document.getElementById('refresh-label');
+    if (!bar || !label) return;
+    bar.classList.toggle('stale', isStale);
+    dot?.classList.toggle('stale', isStale);
+    label.textContent = isStale ? 'Data may be stale · retrying' : 'Live · updating';
+  }
+
+  function liveRefreshDelay() {
+    // Exponential backoff after consecutive failures, capped so we don't fall
+    // silent forever (was: fixed 30s retry with silently-swallowed errors).
+    if (_liveRefreshFailures === 0) return LIVE_REFRESH_MS;
+    const backoff = LIVE_REFRESH_MS * Math.pow(2, _liveRefreshFailures);
+    return Math.min(backoff, LIVE_REFRESH_MAX_MS);
+  }
+
+  function scheduleLiveRefresh() {
+    clearTimeout(_liveRefreshTimer);
+    if (_liveRefreshPaused || !_liveRefreshTick) return;
+    _liveRefreshTimer = setTimeout(_liveRefreshTick, liveRefreshDelay());
+  }
+
+  // Pause polling while the tab isn't visible; resume (with an immediate poll)
+  // when it comes back, so a backgrounded tab doesn't keep hammering the API
+  // or silently show frozen data once you return to it.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      _liveRefreshPaused = true;
+      clearTimeout(_liveRefreshTimer);
+    } else if (_liveRefreshTick) {
+      _liveRefreshPaused = false;
+      _liveRefreshTick();
+    }
+  });
+
   async function init() {
     const parts  = window.location.pathname.split('/').filter(Boolean);
     const gameId = new URLSearchParams(window.location.search).get('id')
@@ -3154,17 +3199,27 @@ table.lc tbody tr:hover { background: var(--ink-04); }
       document.getElementById('game-content').style.display = 'block';
 
       if (state === 'live') {
-        const interval = setInterval(async () => {
+        _liveRefreshGameId = gameId;
+        _liveRefreshFailures = 0;
+        _liveRefreshTick = async () => {
           try {
             const { boxscore: bs, flow: fl, eventsData: ev, onIce: oi, linesData: ld } = await fetchAll(gameId);
             const newState = gameState(bs.gameState);
             renderGame(bs, fl, ev, newState, oi, ld);
+            _liveRefreshFailures = 0;
+            setStaleIndicator(false);
             if (newState !== 'live') {
-              clearInterval(interval);
+              _liveRefreshTick = null;
               document.getElementById('refresh-indicator').style.display = 'none';
+              return;
             }
-          } catch (_) { /* silent — stale data OK */ }
-        }, LIVE_REFRESH_MS);
+          } catch (_) {
+            _liveRefreshFailures += 1;
+            setStaleIndicator(true);
+          }
+          scheduleLiveRefresh();
+        };
+        scheduleLiveRefresh();
       }
 
     } catch (err) {
