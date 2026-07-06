@@ -579,8 +579,24 @@ const initialOpp = '';
 </html>
 
 <script is:inline src="/js/table-export.js"></script>
+
+<!-- Bridge the shared hgb-api-client onto window so the (untyped, define:vars)
+     client script below can use it without ESM imports. -->
+<script>
+import { getGamesToday } from '../../lib/hgb-api-client';
+(window as any).__hgbApi = { getGamesToday };
+</script>
+
 <script define:vars={{ teamGames, teamAbbr: abbr, teamName: name, TEAM_NAMES,
   initXgf: allXgf, initXga: allXga, teamPlayersCount: teamPlayers.length }}>
+
+// Wait for the hgb-api-client bridge (a deferred module) to attach.
+async function _getHgbApi() {
+  for (let i = 0; i < 50 && !window.__hgbApi; i++) {
+    await new Promise(r => setTimeout(r, 20));
+  }
+  return window.__hgbApi;
+}
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -695,9 +711,9 @@ sel.addEventListener('change', () => {
 async function loadTonightGame() {
   const el = document.getElementById('tonight-content');
   try {
-    const res = await fetch('https://api.hockeygamebot.com/v1/games/today');
-    if (!res.ok) { el.textContent = 'No game tonight'; return; }
-    const data = await res.json();
+    const api = await _getHgbApi();
+    const data = api ? await api.getGamesToday() : null;
+    if (!data) { el.textContent = 'No game tonight'; return; }
     const games = data.games ?? [];
     const abbr = teamAbbr.toUpperCase();
     const game = games.find(g => g.homeTeam?.abbrev === abbr || g.awayTeam?.abbrev === abbr);
