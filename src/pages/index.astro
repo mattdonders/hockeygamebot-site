@@ -9,9 +9,7 @@ import StatusPill from '../components/StatusPill.astro';
 import Badge from '../components/Badge.astro';
 import GlobalPlayerSearch, { type PlayerSearchItem } from '../components/react/GlobalPlayerSearch';
 import { loadPlayers, loadGoalies } from '../lib/stats-loader';
-
-const SCORE_URL = 'https://api.hockeygamebot.com/v1/scoreboard';
-const FLOW_URL  = 'https://api.hockeygamebot.com/v1/games';
+import { getScoreboard, getGameFlow } from '../lib/hgb-api-client';
 
 // Combined skater + goalie index (mirrors StatsLayout's Cmd+K omni-box so the
 // home-page search matches it — goalies were previously missing here).
@@ -68,7 +66,7 @@ const gsl = (g: SBGame) => { const s = g.game_state; if (s === 'live') return 'l
 // ── Fetch scoreboard ──────────────────────────────────────────────────────────
 
 let sb: Scoreboard | null = null;
-try { const r = await fetch(SCORE_URL); if (r.ok) sb = await r.json(); } catch {}
+sb = (await getScoreboard()) as Scoreboard | null;
 
 const todayGames = sb?.games ?? [];
 const prevGames  = sb?.previous_day?.games ?? [];
@@ -113,7 +111,7 @@ if (pool.length > 0) {
 
 let flowData: FlowData | null = null;
 if (featGame) {
-  try { const r = await fetch(`${FLOW_URL}/${featGame.game_id}/flow`); if (r.ok) flowData = await r.json(); } catch {}
+  flowData = (await getGameFlow(featGame.game_id)) as FlowData | null;
 }
 
 // ── WP chart computation ──────────────────────────────────────────────────────
@@ -1220,8 +1218,24 @@ import { getPrefs, getSessionToken } from '../lib/auth-client';
 (window as any).__hgbAuth = { getPrefs, getSessionToken };
 </script>
 
+<!-- Bridge the shared hgb-api-client onto window for the same reason. -->
+<script>
+import { getGoals, getGameSeries, getTeamHistory } from '../lib/hgb-api-client';
+(window as any).__hgbApi = { getGoals, getGameSeries, getTeamHistory };
+</script>
+
 <script is:inline>
 (function () {
+  // ── hgb-api-client bridge ─────────────────────────────────────────────────────
+  // Waits for the deferred `__hgbApi` module bridge (see the <script> block
+  // above) to attach onto window — mirrors the existing __hgbAuth wait pattern.
+  async function _getHgbApi() {
+    for (let i = 0; i < 50 && !window.__hgbApi; i++) {
+      await new Promise(r => setTimeout(r, 20));
+    }
+    return window.__hgbApi;
+  }
+
   // ── Team colors ─────────────────────────────────────────────────────────────
   const TC = {
     ANA:['#F47A38','#B09862'], BOS:['#FFB81C','#000000'], BUF:['#002654','#FDBB30'],
@@ -1712,7 +1726,6 @@ import { getPrefs, getSessionToken } from '../lib/auth-client';
 
   async function fetchSeriesInfo(g) {
     if (g.series) return g.series;
-    const HGB_API = 'https://api.hockeygamebot.com';
 
     function parseSS(ss, awayAbbrev) {
       if (!ss?.gameNumberOfSeries) return null;
@@ -1726,14 +1739,14 @@ import { getPrefs, getSessionToken } from '../lib/auth-client';
     }
 
     // Primary: HGB API series proxy (server-side fetch, no CORS)
-    try {
-      const r = await fetch(`${HGB_API}/v1/games/${g.game_id}/series`, { signal: AbortSignal.timeout(5000) });
-      if (r.ok) {
-        const d = await r.json();
-        const result = parseSS(d?.seriesStatus, g.away_team?.abbrev);
+    const api = await _getHgbApi();
+    if (api) {
+      const d = await api.getGameSeries(g.game_id);
+      if (d) {
+        const result = parseSS(d.seriesStatus, g.away_team?.abbrev);
         if (result) return result;
       }
-    } catch {}
+    }
 
     // Fallback: direct NHL schedule (may be blocked in some browsers)
     try {
@@ -2108,22 +2121,16 @@ import { getPrefs, getSessionToken } from '../lib/auth-client';
   let _lastGoalsTickerHtml = '';
 
   async function fetchGoals() {
-    const HGB_API = 'https://api.hockeygamebot.com';
-    try {
-      const r = await fetch(`${HGB_API}/v1/goals`, { cache: 'no-store' });
-      if (r.ok) {
-        const data = await r.json();
-        const todayGoals = (data.goals ?? []).filter(g => g.period && g.period <= 5);
-        if (todayGoals.length) { _goalsCache = todayGoals; renderGoalsTicker(); return; }
-      }
-    } catch {}
+    const api = await _getHgbApi();
+    if (!api) return;
+    const data = await api.getGoals();
+    const todayGoals = (data?.goals ?? []).filter(g => g.period && g.period <= 5);
+    if (todayGoals.length) { _goalsCache = todayGoals; renderGoalsTicker(); return; }
     // Fall back to yesterday
-    try {
-      const yest = new Date(); yest.setDate(yest.getDate() - 1);
-      const yd = yest.toISOString().slice(0, 10);
-      const r = await fetch(`${HGB_API}/v1/goals?date=${yd}`, { cache: 'no-store' });
-      if (r.ok) { const data = await r.json(); _goalsCache = data.goals ?? []; renderGoalsTicker(); }
-    } catch {}
+    const yest = new Date(); yest.setDate(yest.getDate() - 1);
+    const yd = yest.toISOString().slice(0, 10);
+    const yData = await api.getGoals(yd);
+    if (yData) { _goalsCache = yData.goals ?? []; renderGoalsTicker(); }
   }
 
   function renderGoalsTicker() {
@@ -2591,8 +2598,6 @@ import { getPrefs, getSessionToken } from '../lib/auth-client';
 
   // ── Prefs + tracked teams (all users — prefs improve YG section; results for logged-in) ──
   (async function loadPrefsAndTrackedTeams() {
-    const HGB_API = 'https://api.hockeygamebot.com';
-
     // Wait for the auth-client bridge (a deferred module) to attach.
     async function getAuth() {
       for (let i = 0; i < 50 && !window.__hgbAuth; i++) {
@@ -2620,11 +2625,8 @@ import { getPrefs, getSessionToken } from '../lib/auth-client';
     const teamIds = trackedAbbrevs.map(a => A2I[a]).filter(Boolean);
     if (!teamIds.length) return;
 
-    let histData = null;
-    try {
-      const r = await fetch(`${HGB_API}/v1/games/team-history?team_ids=${teamIds.join(',')}&limit=20`);
-      if (r.ok) histData = await r.json();
-    } catch {}
+    const api = await _getHgbApi();
+    const histData = api ? await api.getTeamHistory(teamIds, 20) : null;
 
     const allGames = (histData?.games ?? []).filter(g => g.status === 'final');
     if (!allGames.length) return;

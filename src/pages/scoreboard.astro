@@ -7,6 +7,7 @@ import Fonts from '../components/Fonts.astro';
 import GameModal from '../components/GameModal.astro';
 import StatusPill from '../components/StatusPill.astro';
 import Badge from '../components/Badge.astro';
+import { getPlayoffRound } from '../lib/hgb-api-client';
 
 type PlayoffSnap = {
   series_id: string;
@@ -18,10 +19,9 @@ type PlayoffSnap = {
 let playoffNext: { snap: PlayoffSnap; gameDateISO: string } | null = null;
 let playoffActive = false;
 try {
-  const res = await fetch('https://api.hockeygamebot.com/v1/playoffs/round/1');
-  if (res.ok) {
-    const data = await res.json();
-    const active: PlayoffSnap[] = (data.series ?? []).filter((s: PlayoffSnap) => !s.is_complete);
+  const data = await getPlayoffRound(1);
+  if (data) {
+    const active: PlayoffSnap[] = ((data.series ?? []) as PlayoffSnap[]).filter((s: PlayoffSnap) => !s.is_complete);
     playoffActive = active.length > 0;
     const withTime = active.filter(s => s.next_game_utc);
     withTime.sort((a, b) => a.next_game_utc! < b.next_game_utc! ? -1 : 1);
@@ -475,6 +475,8 @@ img { display: block; max-width: 100%; }
 </body>
 </html>
 <script>
+import { getGamesToday, getGoals } from '../lib/hgb-api-client';
+
 // Playoff banner: hydrate the next-game datetime into browser-local time.
 // Server-side rendered the ISO string into data-iso on .playoff-strip__time.
 (function hydratePlayoffStrip() {
@@ -492,7 +494,6 @@ img { display: block; max-width: 100%; }
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
-const API_BASE = 'https://api.hockeygamebot.com';
 const POLL_INTERVAL = 10000;
 const LOGO_BASE = '/logos';
 // ─────────────────────────────────────────────────────────────────────────────
@@ -570,17 +571,13 @@ function _generateMockGames(n, mode) {
 
 async function fetchGames() {
   if (_mockN > 0) return { games: _generateMockGames(_mockN, _mockMode) };
-  const resp = await fetch(`${API_BASE}/v1/games/today`, { cache: 'no-store' });
-  if (!resp.ok) throw new Error(`API ${resp.status}`);
-  return resp.json();
+  return getGamesToday(undefined, { throwOnHttpError: true });
 }
 
 async function fetchYesterdayData() {
   const yesterday = _yesterdayDateStr(); // already exists in file
   try {
-    const resp = await fetch(`${API_BASE}/v1/games/today?date=${yesterday}`, { cache: 'no-store' });
-    if (!resp.ok) return null;
-    return resp.json();
+    return await getGamesToday(yesterday);
   } catch { return null; }
 }
 
@@ -1160,9 +1157,8 @@ function _yesterdayDateStr() {
 
 async function fetchGoals() {
   try {
-    const resp = await fetch(`${API_BASE}/v1/goals`, { cache: 'no-store' });
-    if (!resp.ok) return;
-    const data = await resp.json();
+    const data = await getGoals();
+    if (!data) return;
     const todayGoals = data.goals || [];
     if (todayGoals.length > 0) {
       // Today has goals — switch/stay in live mode
@@ -1183,9 +1179,8 @@ async function fetchGoals() {
 async function fetchYesterdayGoals() {
   try {
     const yesterday = _yesterdayDateStr();
-    const resp = await fetch(`${API_BASE}/v1/goals?date=${yesterday}`, { cache: 'no-store' });
-    if (!resp.ok) return;
-    const data = await resp.json();
+    const data = await getGoals(yesterday);
+    if (!data) return;
     if ((data.goals || []).length > 0) {
       _goalsCache = data.goals;
       _tickerMode = 'recap';

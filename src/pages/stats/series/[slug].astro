@@ -8,6 +8,7 @@ import { toLineSlug } from '../../../lib/line-slug';
 import { buildSeriesShotMapSVG, type FullRinkShot } from '../../../lib/rink-svg';
 import { pickTeamColor } from '../../../lib/team-colors';
 import StatsLayout from '../../../layouts/StatsLayout.astro';
+import { getPlayoffRound } from '../../../lib/hgb-api-client';
 
 type SeriesData = {
   series_id:  string;
@@ -25,17 +26,10 @@ type SeriesData = {
 };
 
 export async function getStaticPaths() {
-  const _API = 'https://api.hockeygamebot.com';
   const _roundCode = (r: number) => r === 4 ? 'scf' : `r${r}`;
   const _slug = (s: SeriesData) => `${s.season.slice(4)}-${_roundCode(s.round)}-${s.series_id}`;
 
-  const rounds = await Promise.all(
-    [1, 2, 3, 4].map(n =>
-      fetch(`${_API}/v1/playoffs/round/${n}`)
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null)
-    )
-  );
+  const rounds = await Promise.all([1, 2, 3, 4].map(n => getPlayoffRound(n)));
 
   const seen  = new Set<string>();
   const paths = [];
@@ -559,6 +553,14 @@ const clientTeamB    = series.team_b;
 </div>
 
 <script is:inline src="/js/table-export.js"></script>
+
+<!-- Bridge the shared hgb-api-client onto window so the (untyped, define:vars)
+     client script below can use it without ESM imports. -->
+<script>
+import { getSeriesPlayers, getSeriesLines } from '../../../lib/hgb-api-client';
+(window as any).__hgbApi = { getSeriesPlayers, getSeriesLines };
+</script>
+
 <script define:vars={{
   clientSeriesId, clientTeamA, clientTeamB, playoffLineMap, playerSlugMap,
   colorA, colorB, winsA, winsB, roundLabel, seasonLabel, gamesPlayed,
@@ -586,19 +588,29 @@ function xgfCls(v) { return (v ?? 50) >= 55 ? 'xgf-pos' : (v ?? 50) <= 45 ? 'xgf
 let _cardPlayers = null;
 let _cardLines   = null;
 
+// Wait for the hgb-api-client bridge (a deferred module) to attach.
+async function _getHgbApi() {
+  for (let i = 0; i < 50 && !window.__hgbApi; i++) {
+    await new Promise(r => setTimeout(r, 20));
+  }
+  return window.__hgbApi;
+}
+
 // ── Series fetch + DOM render ────────────────────────────────────────────────
 (async () => {
   if (!clientSeriesId) return;
-  const API = 'https://api.hockeygamebot.com';
+  const api = await _getHgbApi();
 
-  const [playersRes, linesRes] = await Promise.all([
-    fetch(`${API}/v1/series/${clientSeriesId}/players`).catch(() => null),
-    fetch(`${API}/v1/series/${clientSeriesId}/lines`).catch(() => null),
-  ]);
+  const [playersData, linesData] = api
+    ? await Promise.all([
+        api.getSeriesPlayers(clientSeriesId),
+        api.getSeriesLines(clientSeriesId),
+      ])
+    : [null, null];
 
   // ── Top Skaters ────────────────────────────────────────────────────────────
-  if (playersRes?.ok) {
-    const data = await playersRes.json();
+  if (playersData) {
+    const data = playersData;
     const players = data.players ?? [];
     _cardPlayers = players;
     if (players.length) {
@@ -629,8 +641,8 @@ let _cardLines   = null;
   }
 
   // ── Forward Lines + Defensive Pairs ───────────────────────────────────────
-  if (linesRes?.ok) {
-    const data = await linesRes.json();
+  if (linesData) {
+    const data = linesData;
     const lines = data.lines ?? [];
     _cardLines = lines;
     if (lines.length) {
@@ -1018,6 +1030,7 @@ document.getElementById('dl-series-card')?.addEventListener('click', async () =>
 
 <script>
 import { buildSeriesShotMapSVG, type FullRinkShot } from '../../../lib/rink-svg';
+import { getSeriesShots } from '../../../lib/hgb-api-client';
 
 // Load shot map client-side — kept out of Astro build to avoid D1 reads per deploy
 (async () => {
@@ -1031,10 +1044,8 @@ import { buildSeriesShotMapSVG, type FullRinkShot } from '../../../lib/rink-svg'
   const colorBv = section.dataset.colorB;
   if (!seriesId || !teamA) return;
   try {
-    const res = await fetch(`https://api.hockeygamebot.com/v1/series/${seriesId}/shots`);
-    if (!res.ok) { container.textContent = ''; return; }
-    const data = await res.json();
-    if (!data.shots?.length) { container.textContent = ''; return; }
+    const data = await getSeriesShots(seriesId);
+    if (!data || !data.shots?.length) { container.textContent = ''; return; }
     // Split into for (team A) / against (team B), fold to one end via abs(x), and
     // render with the proper full-rink builder. NOTE: the series shots endpoint has
     // no per-shot xG, so xg is passed as 0 — goals still render larger, but dot-size-

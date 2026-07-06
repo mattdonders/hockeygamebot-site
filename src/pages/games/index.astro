@@ -864,6 +864,18 @@ table.lc tbody tr:hover { background: var(--ink-04); }
 </script>
 
 <script is:inline src="/js/table-export.js"></script>
+
+<!-- Bridge the shared hgb-api-client onto window so the (untyped, is:inline)
+     client script below can use it without ESM imports. -->
+<script>
+import {
+  getGamePregame, getGameBoxscore, getGameFlow, getGameEvents, getGameOnIce, getGameLines,
+} from '../../lib/hgb-api-client';
+(window as any).__hgbApi = {
+  getGamePregame, getGameBoxscore, getGameFlow, getGameEvents, getGameOnIce, getGameLines,
+};
+</script>
+
 <script is:inline>
 (function () {
   'use strict';
@@ -872,7 +884,13 @@ table.lc tbody tr:hover { background: var(--ink-04); }
   const _r = sessionStorage.getItem('hgb_game_redirect');
   if (_r) { sessionStorage.removeItem('hgb_game_redirect'); history.replaceState(null, '', _r); }
 
-  const HGB_API = 'https://api.hockeygamebot.com';
+  // Wait for the hgb-api-client bridge (a deferred module) to attach.
+  async function _getHgbApi() {
+    for (let i = 0; i < 50 && !window.__hgbApi; i++) {
+      await new Promise(r => setTimeout(r, 20));
+    }
+    return window.__hgbApi;
+  }
   const LIVE_REFRESH_MS = 30_000;
   const LIVE_REFRESH_MAX_MS = 120_000; // backoff cap after repeated failures
   let _liveRefreshTimer = null;
@@ -1086,11 +1104,8 @@ table.lc tbody tr:hover { background: var(--ink-04); }
 
   async function renderPregame(boxscore, gameId) {
     // Try live pregame endpoint; show unavailable state if it fails
-    let pg = null;
-    try {
-      const r = await fetch(`${HGB_API}/v1/games/${gameId}/pregame`);
-      if (r.ok) pg = await r.json();
-    } catch (_) {}
+    const api = await _getHgbApi();
+    let pg = api ? await api.getGamePregame(gameId) : null;
     if (!pg) {
       // Build a minimal stub from boxscore so teams/colors are real
       const awayTeam = boxscore.awayTeam || {};
@@ -3117,24 +3132,15 @@ table.lc tbody tr:hover { background: var(--ink-04); }
 
   async function fetchAll(gameId) {
     const EMPTY_FLOW = { points: [], goals: [], three_stars: null };
-    let boxscoreRes;
-    try {
-      boxscoreRes = await fetch(`${HGB_API}/v1/games/${gameId}/boxscore`);
-    } catch (e) {
-      throw new Error(`Boxscore unreachable: ${e.message}`);
-    }
-    if (!boxscoreRes.ok) throw new Error(`Game ${gameId} not found (HTTP ${boxscoreRes.status})`);
-    const boxscore = await boxscoreRes.json();
-    const [flowRes, eventsRes, onIceRes, linesRes] = await Promise.all([
-      fetch(`${HGB_API}/v1/games/${gameId}/flow`).catch(() => null),
-      fetch(`${HGB_API}/v1/games/${gameId}/events?sort=asc`).catch(() => null),
-      fetch(`${HGB_API}/v1/games/${gameId}/on-ice`).catch(() => null),
-      fetch(`${HGB_API}/v1/games/${gameId}/lines`).catch(() => null),
+    const api = await _getHgbApi();
+    if (!api) throw new Error('Boxscore unreachable: hgb-api-client bridge failed to load');
+    const boxscore = await api.getGameBoxscore(gameId);
+    const [flow, eventsData, onIce, linesData] = await Promise.all([
+      api.getGameFlow(gameId, EMPTY_FLOW),
+      api.getGameEvents(gameId, null),
+      api.getGameOnIce(gameId, null),
+      api.getGameLines(gameId, null),
     ]);
-    const flow = flowRes?.ok ? await flowRes.json().catch(() => EMPTY_FLOW) : EMPTY_FLOW;
-    const eventsData = eventsRes?.ok ? await eventsRes.json().catch(() => null) : null;
-    const onIce = onIceRes?.ok ? await onIceRes.json().catch(() => null) : null;
-    const linesData = linesRes?.ok ? await linesRes.json().catch(() => null) : null;
     return { boxscore, flow, eventsData, onIce, linesData };
   }
 
