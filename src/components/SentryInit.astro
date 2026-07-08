@@ -3,11 +3,26 @@
 
   const dsn = import.meta.env.PUBLIC_SENTRY_DSN;
   if (dsn) {
+    // Browser extensions / injected scripts throw errors we don't own and can't
+    // fix (Safari masks their URLs as `webkit-masked-url://`, Chrome/FF as
+    // `*-extension://`). They were spamming the Discord Sentry alerts. Drop any
+    // event whose stack has NO first-party frame — real site errors always have
+    // one, so those still come through.
+    const NON_FIRST_PARTY = /^(webkit-masked-url:|safari-web-extension:|chrome-extension:|moz-extension:|chrome:)|extension:\/\//;
     Sentry.init({
       dsn,
       environment: import.meta.env.PUBLIC_SENTRY_ENV || (import.meta.env.DEV ? 'dev' : 'production'),
       release: import.meta.env.PUBLIC_COMMIT_SHA,
       tracesSampleRate: 0,
+      beforeSend(event) {
+        const frames = (event.exception?.values ?? [])
+          .flatMap((v) => v.stacktrace?.frames ?? []);
+        if (frames.length === 0) return event; // no stack → keep (could be real)
+        const hasFirstParty = frames.some(
+          (f) => f.filename && !NON_FIRST_PARTY.test(f.filename),
+        );
+        return hasFirstParty ? event : null; // all frames extension/masked → drop
+      },
     });
     Sentry.setTag('service', 'hgb-site');
   }
