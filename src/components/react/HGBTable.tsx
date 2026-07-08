@@ -9,6 +9,9 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef, useDeferredValue } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+// Reuse the canonical segmented filter chips (same component the /stats filter
+// panels use) so HGBTable's built-in `filters` chips match the rest of the site.
+import { FilterChip, FilterChipGroup } from './FilterPrimitives';
 import {
   useReactTable,
   getCoreRowModel,
@@ -255,27 +258,16 @@ function ChipGroup({
 }) {
   const allOptions = [{ label: 'All', value: 'all' }, ...options];
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+    <FilterChipGroup>
       {allOptions.map(opt => (
-        <button
+        <FilterChip
           key={opt.value}
+          active={value === opt.value}
+          label={opt.label}
           onClick={() => onChange(opt.value)}
-          style={{
-            ...MONO,
-            fontSize: 10,
-            letterSpacing: '0.14em',
-            textTransform: 'uppercase',
-            padding: '5px 10px',
-            border: '1px solid rgba(13,13,20,0.2)',
-            background: value === opt.value ? INK : 'transparent',
-            color: value === opt.value ? BG : MUTED,
-            cursor: 'pointer',
-          }}
-        >
-          {opt.label}
-        </button>
+        />
       ))}
-    </div>
+    </FilterChipGroup>
   );
 }
 
@@ -700,12 +692,12 @@ export default function HGBTable<T extends object>({
         {!isMobile && ((showToolbarCsv && exportFilename) || (showToolbarPng && exportTitle)) && (
           <div style={{ display: 'flex', gap: 4 }}>
             {showToolbarCsv && exportFilename && (
-              <button onClick={handleExport} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+              <button onClick={handleExport} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
                 ↓ CSV
               </button>
             )}
             {showToolbarPng && exportTitle && (
-              <button onClick={handleExportPng} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+              <button onClick={handleExportPng} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
                 ↓ PNG
               </button>
             )}
