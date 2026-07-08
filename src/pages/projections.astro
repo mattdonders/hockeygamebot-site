@@ -1,0 +1,111 @@
+---
+/**
+ * Season Projections — live NHL wins-prediction product (hgb-spar-wins).
+ *
+ * The ProjectionsTable island fetches GET ${API_BASE}/v1/projections?season=…
+ * client-side on mount (the site is output:'static'). Until that endpoint ships
+ * it 404s and the island shows a graceful "unavailable" state; the masthead
+ * badge reads "Awaiting …" until the API returns projected:true.
+ *
+ * Conventions matched:
+ *   - StatsLayout shell + <StatsMasthead slot="mast">, same as /stats/skaters.
+ *   - Canonical HGBTable (via ProjectionsTable wrapper) — real sorting,
+ *     conference chips filter, CSV/PNG export, slate heat shading.
+ *   - Canonical light team logos via teamLogoSrc (/logos/nhl/{abbr}_light.svg).
+ *   - Slate single-hue sequential heat ramp on odds cells only; endpoints are
+ *     --heat-lo / --heat-hi below.
+ */
+import StatsLayout from '../layouts/StatsLayout.astro';
+import StatsMasthead from '../components/StatsMasthead.astro';
+import ProjectionsTable from '../components/react/ProjectionsTable';
+
+const SEASON = '20262027';
+const seasonLabel = `${SEASON.slice(0, 4)}-${SEASON.slice(6)}`; // 20262027 -> 2026-27
+---
+<StatsLayout
+  title={`${seasonLabel} Season Projections — HGB Model — HockeyGameBot`}
+  description="Projected NHL standings and playoff odds for every team — points, playoff %, round-by-round and Stanley Cup odds from a Monte Carlo simulation."
+  ogImage="/og/default.png"
+  currentPath={Astro.url.pathname}
+>
+
+<StatsMasthead slot="mast" eyebrow="HGB Model · Season Projections" ghost="ODDS">
+  <Fragment slot="headline">{seasonLabel} projections.<br /><em>Every team.</em></Fragment>
+  <Fragment slot="lede">Projected final standings and playoff odds for all 32 teams.</Fragment>
+  {/* Status badge — top-right of the hero card (default slot, not inline in the
+      lede). Shown by default (loading/seed/error); the island hides it once the
+      API returns projected:true (real data). */}
+  <span id="proj-badge" class="proj-badge">Awaiting {seasonLabel} projections</span>
+</StatsMasthead>
+
+<main class="wrap">
+
+  <!-- ── TABLE ── -->
+  <section class="lb-section">
+    <div class="proj-table-wrap">
+      <ProjectionsTable season={SEASON} client:load />
+    </div>
+    <p class="foot-note">
+      <strong>xPTS</strong> = projected final points. Percentages are the share of simulated seasons in which a team
+      reaches each round; each odds column is shaded relative to the league leader in that column.
+    </p>
+  </section>
+
+</main>
+
+</StatsLayout>
+
+<style is:global>
+  /* Heat color LOCKED to Slate. Single-hue sequential ramp for the odds cells,
+     read via color-mix() in ProjectionsTable. Dark endpoint keeps ~7.9:1
+     contrast with ink so cell text never flips to white. */
+  :root {
+    --heat-lo: #EEF1F4;
+    --heat-hi: #8FA8C2;
+  }
+
+  /* ── Status badge (seed / loading / awaiting-API) ── */
+  .proj-badge {
+    display: inline-block;
+    font-family: var(--body); font-weight: 700; font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--red);
+    border: 1px solid var(--red); border-radius: 999px; padding: 3px 10px;
+  }
+  /* Pin it to the hero card's top-right corner. Scoped via :has() so only the
+     projections masthead is positioned — other stats mastheads are untouched. */
+  .mast-card:has(#proj-badge) { position: relative; }
+  #proj-badge { position: absolute; top: 22px; right: 24px; }
+  /* On narrow screens the big headline can reach the right edge — drop the pill
+     onto its own line under the subtitle instead of overlapping. */
+  @media (max-width: 600px) {
+    #proj-badge { position: static; margin-top: 12px; }
+  }
+
+  /* ── Loading / unavailable / empty state ── */
+  .proj-state {
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    min-height: 160px; padding: 32px 24px;
+    background: var(--surface); border: 1px solid var(--ink-10); border-radius: 14px;
+    font-family: var(--body); font-weight: 500; font-size: 14px; color: var(--ink-56);
+  }
+
+  /* Full team name (locked). Ellipsis guard so long names can't widen the
+     column; the flex row (align-items:center on .proj-team) keeps the division
+     chip vertically centered against the 14px name. */
+  .proj-team .proj-team-name { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Page-local toolbar override (item 2): filter chips LEFT, export buttons
+     RIGHT. HGBTable's toolbar is an inline-styled flex row; we select it by its
+     distinctive inline style and make it space-between (2 children → chips left,
+     export right). A cleaner fix would be an HGBTable `toolbar.exportAlign`
+     prop — flagged to the team, kept page-local here to avoid touching all
+     stats tables. Matches the padding value fragment "10px 14px" (unique to the
+     toolbar here and stable across SSR vs. hydrated space-normalization). */
+  .proj-table-wrap [style*="10px 14px"][style*="border-bottom"] {
+    justify-content: space-between !important;
+  }
+
+  .lb-section { padding: 0; }
+  .foot-note { margin: 14px 0 0; font-family: var(--body); font-size: 12px; line-height: 1.6; color: var(--ink-48); }
+  .foot-note strong { color: var(--ink-72); font-weight: 700; }
+</style>

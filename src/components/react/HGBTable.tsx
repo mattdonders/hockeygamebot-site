@@ -34,6 +34,9 @@ export type HGBColumnDef<T> = {
   width?: number;
   mobileHidden?: boolean;
   defaultHidden?: boolean;
+  /** Include this column in CSV/PNG export. Defaults to true. Set false to keep
+   *  a column visible on-screen but omit it from exported output. */
+  exportInclude?: boolean;
 };
 
 // Stable empty array so `filters = []` default doesn't create a new ref every render
@@ -190,9 +193,11 @@ function exportCSV<T>(
   filename: string,
 ) {
   const base = filename.replace(/\.[^.]+$/, ''); // strip any extension
-  const headers = columns.map(c => csvCell(c.header)).join(',');
+  // Columns opt out of export with exportInclude:false; default (undefined) exports.
+  const cols = columns.filter(c => c.exportInclude !== false);
+  const headers = cols.map(c => csvCell(c.header)).join(',');
   const body = rows.map(row =>
-    columns.map(c => csvCell(c.accessor(row))).join(',')
+    cols.map(c => csvCell(c.accessor(row))).join(',')
   ).join('\n');
 
   const blob = new Blob([`${headers}\n${body}`], { type: 'text/csv;charset=utf-8;' });
@@ -522,7 +527,11 @@ export default function HGBTable<T extends object>({
       console.warn('HGB_Export not loaded — add <script src="/js/table-export.js"> to the page.');
       return;
     }
-    const visibleCols = table.getVisibleLeafColumns();
+    // On-screen columns minus any that opt out of export (exportInclude:false).
+    const visibleCols = table.getVisibleLeafColumns().filter(col => {
+      const def = columnDefs.find(c => c.id === col.id);
+      return def ? def.exportInclude !== false : true;
+    });
     // Pre-format rows as plain string objects keyed by column id
     const rows = tableRows.map(row =>
       Object.fromEntries(

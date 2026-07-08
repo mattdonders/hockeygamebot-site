@@ -362,7 +362,10 @@
     }
 
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'position:relative;max-width:min(90vw,900px);width:100%;';
+    // Shrink-to-fit the (clamped) image so the modal stays centered and never
+    // overflows — width AND height are clamped on the <img> below, so a narrow/
+    // tall card (e.g. a column-trimmed export) scales down instead of spilling.
+    wrap.style.cssText = 'position:relative;max-width:min(90vw,900px);';
 
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '×';
@@ -379,7 +382,11 @@
 
     const img = document.createElement('img');
     img.alt = cards[0].filename;
-    img.style.cssText = 'width:100%;height:auto;display:block;border:1px solid rgba(255,255,255,0.12);';
+    // Clamp BOTH dimensions (aspect-ratio preserved by width/height:auto): the
+    // image scales down to fit whichever of max-width / max-height binds, so wide
+    // tables stay width-bound (unchanged) and narrow/tall ones become height-bound
+    // instead of overflowing the viewport. Downloaded PNG is full-res (canvas).
+    img.style.cssText = 'max-width:min(90vw,900px);max-height:74vh;width:auto;height:auto;display:block;border:1px solid rgba(255,255,255,0.12);';
     wrap.appendChild(img);
 
     // Dots indicator + label row
