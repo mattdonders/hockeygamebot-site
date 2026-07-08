@@ -692,12 +692,12 @@ export default function HGBTable<T extends object>({
         {!isMobile && ((showToolbarCsv && exportFilename) || (showToolbarPng && exportTitle)) && (
           <div style={{ display: 'flex', gap: 4 }}>
             {showToolbarCsv && exportFilename && (
-              <button onClick={handleExport} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+              <button onClick={handleExport} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
                 ↓ CSV
               </button>
             )}
             {showToolbarPng && exportTitle && (
-              <button onClick={handleExportPng} style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+              <button onClick={handleExportPng} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
                 ↓ PNG
               </button>
             )}
