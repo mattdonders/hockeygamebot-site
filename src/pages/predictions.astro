@@ -8,22 +8,20 @@
  * predict_wins.py `slate` output — shape mirrored in MOCK below) client-side
  * on mount, exactly like /projections.
  *
- * Date navigation: the page is output:'static', so `?date=` cannot be read
- * per-request at build time. The prev/next arrows are plain links that adjust
- * the query param; a tiny inline enhancement script reads the param on load,
- * updates the visible date header, and recomputes the arrow hrefs so the
- * mechanism feels real. The mock games array is the same regardless of date.
+ * Visual style mirrors /results: clean horizontal `.game-row` cards with a
+ * single day-by-day header + prev/next-day nav. The model WIN % takes the
+ * SCORE's slot (away% — home%, favorite = winner ink, underdog = muted ink),
+ * and the bottom `.xg-bar` is driven by the win-prob split. There is NO
+ * separate giant number — the score-slot % IS the prediction.
  *
- * Conventions matched:
- *   - StatsLayout shell + <StatsMasthead slot="mast">, same as /projections.
- *   - "design preview · mock data" badge pinned top-right of the hero card.
- *   - Canonical light team logos via /logos/nhl/{abbr}_light.svg.
- *   - pickTeamColor() for per-team accent stripes.
- *   - Brand red (var(--red), #E8002D) for the featured favorite win %.
+ * Date navigation: the page is output:'static', so `?date=` cannot be read
+ * per-request at build time. The prev/next arrows are plain `?date=` links; a
+ * tiny inline enhancement script reads the param on load, updates the visible
+ * date header, and recomputes the arrow hrefs so the mechanism feels real. The
+ * mock games array is the same regardless of date.
  */
 import StatsLayout from '../layouts/StatsLayout.astro';
 import StatsMasthead from '../components/StatsMasthead.astro';
-import { pickTeamColor } from '../lib/team-colors';
 
 // ── Mock slate (predict_wins.py `slate` output shape) ─────────────────────
 const DEFAULT_DATE = '2026-10-15';
@@ -56,23 +54,39 @@ const fmtTime = (iso: string) =>
     timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit',
   });
 
+// City = full team name minus the nickname. Small lookup so cards can show a
+// city eyebrow like /results without a data feed. Falls back to the abbr.
+const CITY: Record<string, string> = {
+  CAR: 'Carolina', BUF: 'Buffalo', TOR: 'Toronto', MTL: 'Montréal',
+  NYR: 'New York', NJD: 'New Jersey', TBL: 'Tampa Bay', FLA: 'Florida',
+  BOS: 'Boston', PIT: 'Pittsburgh', WSH: 'Washington', CBJ: 'Columbus',
+  WPG: 'Winnipeg', MIN: 'Minnesota', COL: 'Colorado', DAL: 'Dallas',
+  NSH: 'Nashville', STL: 'St. Louis', EDM: 'Edmonton', CGY: 'Calgary',
+  VGK: 'Vegas', SJS: 'San Jose', LAK: 'Los Angeles', SEA: 'Seattle',
+};
+const NICK: Record<string, string> = {
+  CAR: 'Hurricanes', BUF: 'Sabres', TOR: 'Maple Leafs', MTL: 'Canadiens',
+  NYR: 'Rangers', NJD: 'Devils', TBL: 'Lightning', FLA: 'Panthers',
+  BOS: 'Bruins', PIT: 'Penguins', WSH: 'Capitals', CBJ: 'Blue Jackets',
+  WPG: 'Jets', MIN: 'Wild', COL: 'Avalanche', DAL: 'Stars',
+  NSH: 'Predators', STL: 'Blues', EDM: 'Oilers', CGY: 'Flames',
+  VGK: 'Golden Knights', SJS: 'Sharks', LAK: 'Kings', SEA: 'Kraken',
+};
+
 const games = MOCK.games.map((g) => {
   const homeFav = g.home_win_prob >= g.away_win_prob;
-  const favProb = Math.max(g.home_win_prob, g.away_win_prob);
   const tossUp = Math.abs(g.home_win_prob - 0.5) <= TOSS_UP_BAND;
   return {
     ...g,
     startEt: fmtTime(g.start_time_utc),
     homeFav,
-    favAbbr: homeFav ? g.home : g.away,
-    favProb,
-    favPct: Math.round(favProb * 100),
-    dogPct: Math.round((1 - favProb) * 100),
+    tossUp,
     awayPct: Math.round(g.away_win_prob * 100),
     homePct: Math.round(g.home_win_prob * 100),
-    tossUp,
-    awayColor: pickTeamColor(g.away),
-    homeColor: pickTeamColor(g.home),
+    awayCity: CITY[g.away] ?? g.away,
+    homeCity: CITY[g.home] ?? g.home,
+    awayNick: NICK[g.away] ?? g.away,
+    homeNick: NICK[g.home] ?? g.home,
   };
 });
 
@@ -81,8 +95,11 @@ const gameCount = games.length;
 // Human date header for the default date, computed at build time. The inline
 // script re-derives this from `?date=` on the client.
 const dateLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-US', {
-  timeZone: 'UTC', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-});
+  timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+}).toUpperCase();
+const rangeLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-US', {
+  timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
+}).toUpperCase();
 ---
 <StatsLayout
   title="Game Predictions — HGB Model — HockeyGameBot"
@@ -99,96 +116,80 @@ const dateLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-U
 
 <main class="wrap">
 
-  <!-- ── DATE NAVIGATION ── -->
-  <nav class="date-nav" aria-label="Slate date">
-    <a class="date-arrow" id="date-prev" href={`/predictions?date=${DEFAULT_DATE}`} aria-label="Previous day" rel="prev">‹</a>
-    <div class="date-center">
-      <div class="date-label" id="date-label">{dateLabel}</div>
-      <div class="date-count"><span id="date-count">{gameCount}</span> games</div>
+  <!-- ── DATE NAVIGATION (day-by-day) ── -->
+  <div class="date-nav">
+    <span class="date-nav-range" id="date-range">{rangeLabel}</span>
+    <div class="date-nav-btns">
+      <a class="date-btn" id="btn-prev" href={`/predictions?date=${DEFAULT_DATE}`} rel="prev">← Prev Day</a>
+      <a class="date-btn" id="btn-next" href={`/predictions?date=${DEFAULT_DATE}`} rel="next">Next Day →</a>
     </div>
-    <a class="date-arrow" id="date-next" href={`/predictions?date=${DEFAULT_DATE}`} aria-label="Next day" rel="next">›</a>
-  </nav>
+  </div>
 
-  <!-- ── GAMES GRID ── -->
-  {gameCount === 0 ? (
-    <section class="empty-state">
-      <div class="empty-mark">—</div>
-      <h2 class="empty-title">No games scheduled</h2>
-      <p class="empty-sub">There are no NHL games on this date. Use the arrows above to jump to another day.</p>
-    </section>
-  ) : (
-    <section class="games-grid">
-      {games.map((g) => (
-        <article
-          class:list={["game-card", { 'is-tossup': g.tossUp }]}
-          style={`--away-color:${g.awayColor}; --home-color:${g.homeColor};`}
-        >
-          <div class="card-accent"><span class="acc-away"></span><span class="acc-home"></span></div>
+  <div class="results-body">
+    {gameCount === 0 ? (
+      <div class="state-msg">No games scheduled on this date</div>
+    ) : (
+      <div class="day-group">
+        <div class="day-header">
+          <span class="day-label" id="day-label">{dateLabel}</span>
+          <span class="day-count"><span id="day-count">{gameCount}</span> GAMES</span>
+        </div>
 
-          <div class="card-top">
-            <span class="card-time">{g.startEt} ET</span>
-            <span class="card-state">{g.tossUp ? 'Toss-up' : 'Pre'}</span>
-          </div>
+        <div class="games-list">
+          {games.map((g) => {
+            const awayCls = g.awayPct >= g.homePct ? 'score-winner' : 'score-loser';
+            const homeCls = g.homePct >= g.awayPct ? 'score-winner' : 'score-loser';
+            return (
+              <div class="game-row" style="display:grid">
+                <div class="team-side away">
+                  <img class="team-logo-sm" src={`/logos/nhl/${g.away}_light.svg`} alt={g.away} loading="lazy" />
+                  <div>
+                    <div class="team-city">{g.awayCity}</div>
+                    <div class="team-nickname">
+                      {g.awayNick}
+                      {g.b2b_away && <span class="b2b-tag" title="Playing a back-to-back">B2B</span>}
+                    </div>
+                    <div class="team-goalie">◇ {g.away_goalie}</div>
+                  </div>
+                </div>
 
-          <div class="matchup">
-            {/* AWAY */}
-            <div class:list={["team", "team-away", { fav: !g.homeFav && !g.tossUp }]}>
-              <img class="team-logo-img" src={`/logos/nhl/${g.away}_light.svg`} width="40" height="40" alt={`${g.away} logo`} loading="lazy" />
-              <div class="team-abbr">
-                {g.away}
-                {g.b2b_away && <span class="b2b-tag" title="Playing a back-to-back">B2B</span>}
+                <div class="score-block">
+                  <div class="score-line">
+                    <span class={awayCls}>{g.awayPct}<span class="pct-sign">%</span></span>
+                    <span class="score-sep">—</span>
+                    <span class={homeCls}>{g.homePct}<span class="pct-sign">%</span></span>
+                  </div>
+                  <div class="score-status">{g.startEt} ET{g.tossUp && ' · TOSS-UP'}</div>
+                </div>
+
+                <div class="team-side home">
+                  <img class="team-logo-sm" src={`/logos/nhl/${g.home}_light.svg`} alt={g.home} loading="lazy" />
+                  <div>
+                    <div class="team-city">{g.homeCity}</div>
+                    <div class="team-nickname">
+                      {g.homeNick}
+                      {g.b2b_home && <span class="b2b-tag" title="Playing a back-to-back">B2B</span>}
+                    </div>
+                    <div class="team-goalie">◇ {g.home_goalie}</div>
+                  </div>
+                </div>
+
+                <div class="xg-bar" style="grid-column:1/-1">
+                  <div class="xg-away" style={`width:${g.awayPct}%`}></div>
+                  <div class="xg-home" style={`width:${g.homePct}%`}></div>
+                </div>
               </div>
-              <div class="team-pct">{g.awayPct}<span class="pct-sign">%</span></div>
-            </div>
-
-            <div class="at-sep">@</div>
-
-            {/* HOME */}
-            <div class:list={["team", "team-home", { fav: g.homeFav && !g.tossUp }]}>
-              <img class="team-logo-img" src={`/logos/nhl/${g.home}_light.svg`} width="40" height="40" alt={`${g.home} logo`} loading="lazy" />
-              <div class="team-abbr">
-                {g.home}
-                {g.b2b_home && <span class="b2b-tag" title="Playing a back-to-back">B2B</span>}
-              </div>
-              <div class="team-pct">{g.homePct}<span class="pct-sign">%</span></div>
-            </div>
-          </div>
-
-          {/* SPLIT BAR */}
-          <div class="split-bar" role="img" aria-label={`${g.away} ${g.awayPct}% to ${g.home} ${g.homePct}%`}>
-            <span class="split-away" style={`width:${g.awayPct}%`}></span>
-            <span class="split-home" style={`width:${g.homePct}%`}></span>
-          </div>
-
-          {/* PREDICTION — the big number */}
-          <div class="prediction">
-            {g.tossUp ? (
-              <div class="pred-tossup">
-                <span class="pred-tossup-num">50<span class="pred-sign">/</span>50</span>
-                <span class="pred-label">Coin flip — no clear edge</span>
-              </div>
-            ) : (
-              <div class="pred-fav">
-                <span class="pred-big">{g.favPct}<span class="pred-sign">%</span></span>
-                <span class="pred-label"><strong>{g.favAbbr}</strong> to win</span>
-              </div>
-            )}
-          </div>
-
-          {/* GOALIES */}
-          <div class="goalies">
-            <span class="goalie"><span class="gm">◇</span>{g.away_goalie}</span>
-            <span class="goalie goalie-home"><span class="gm">◇</span>{g.home_goalie}</span>
-          </div>
-        </article>
-      ))}
-    </section>
-  )}
+            );
+          })}
+        </div>
+      </div>
+    )}
+  </div>
 
   <p class="foot-note">
-    <strong>Win %</strong> is the model's probability that each team wins the game — favorite highlighted.
-    <strong>B2B</strong> flags a team playing the second half of a back-to-back. Projected starters are
-    subject to change on game day.
+    <strong>Win %</strong> is the model's probability that each team wins the game — the favorite
+    is inked, the underdog muted, and the bar below shows the split. <strong>B2B</strong> flags a
+    team playing the second half of a back-to-back. Projected starters are subject to change on game day.
   </p>
 
 </main>
@@ -211,20 +212,21 @@ const dateLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-U
         String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
         String(d.getUTCDate()).padStart(2, '0');
     }
-    var params = new URLSearchParams(window.location.search);
-    var iso = params.get('date');
-    var base = parseISO(iso) || parseISO(DEFAULT);
-
-    var labelEl = document.getElementById('date-label');
-    if (labelEl) {
-      labelEl.textContent = base.toLocaleDateString('en-US', {
-        timeZone: 'UTC', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-      });
+    function fmt(d, opts) {
+      return d.toLocaleDateString('en-US', Object.assign({ timeZone: 'UTC' }, opts)).toUpperCase();
     }
+    var params = new URLSearchParams(window.location.search);
+    var base = parseISO(params.get('date')) || parseISO(DEFAULT);
+
+    var rangeEl = document.getElementById('date-range');
+    if (rangeEl) rangeEl.textContent = fmt(base, { weekday: 'short', month: 'short', day: 'numeric' });
+    var dayEl = document.getElementById('day-label');
+    if (dayEl) dayEl.textContent = fmt(base, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+
     var prev = new Date(base); prev.setUTCDate(prev.getUTCDate() - 1);
     var next = new Date(base); next.setUTCDate(next.getUTCDate() + 1);
-    var prevEl = document.getElementById('date-prev');
-    var nextEl = document.getElementById('date-next');
+    var prevEl = document.getElementById('btn-prev');
+    var nextEl = document.getElementById('btn-next');
     if (prevEl) prevEl.setAttribute('href', '/predictions?date=' + toISO(prev));
     if (nextEl) nextEl.setAttribute('href', '/predictions?date=' + toISO(next));
   })();
@@ -244,163 +246,118 @@ const dateLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-U
     #pred-badge { position: static; margin-top: 12px; }
   }
 
-  /* ── Date navigation ── */
+  /* ── DATE NAV (mirrors /results) ── */
   .date-nav {
-    display: flex; align-items: center; justify-content: center; gap: 20px;
-    margin: 0 0 24px;
-    padding: 12px 16px;
-    background: var(--surface); border: 1px solid var(--ink-10); border-radius: 14px;
-  }
-  .date-center { text-align: center; min-width: 240px; }
-  .date-label {
-    font-family: var(--display); font-weight: 800; font-size: clamp(19px, 3vw, 26px);
-    text-transform: uppercase; letter-spacing: 0.01em; line-height: 1.05; color: var(--ink);
-  }
-  .date-count {
-    font-family: var(--body); font-weight: 600; font-size: 11px; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--ink-48); margin-top: 3px;
-  }
-  .date-count #date-count { font-family: var(--mono); font-weight: 500; color: var(--ink-72); }
-  .date-arrow {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 40px; height: 40px; flex-shrink: 0;
-    font-family: var(--body); font-size: 26px; line-height: 1; font-weight: 400;
-    color: var(--ink-56); text-decoration: none;
-    background: var(--bg); border: 1px solid var(--ink-10); border-radius: 10px;
-    transition: color .12s, border-color .12s, background .12s;
-  }
-  .date-arrow:hover { color: var(--ink); border-color: var(--ink-32); background: var(--surface); }
-
-  /* ── Games grid ── */
-  .games-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 16px;
-  }
-
-  /* ── Game card ── */
-  .game-card {
-    position: relative; overflow: hidden;
-    background: var(--surface); border: 1px solid var(--ink-10); border-radius: 14px;
-    padding: 16px 18px 14px;
-    display: flex; flex-direction: column;
-    transition: border-color .12s, box-shadow .12s, transform .12s;
-  }
-  .game-card:hover { border-color: var(--ink-20); box-shadow: 0 6px 20px var(--ink-06); transform: translateY(-2px); }
-
-  /* Two-tone team accent stripe across the top */
-  .card-accent { position: absolute; top: 0; left: 0; right: 0; height: 4px; display: flex; }
-  .card-accent .acc-away { flex: 1; background: var(--away-color); }
-  .card-accent .acc-home { flex: 1; background: var(--home-color); }
-
-  .card-top {
     display: flex; align-items: center; justify-content: space-between;
-    margin: 2px 0 12px;
+    padding: 20px 0 4px;
+    border-bottom: 1px solid var(--ink-14);
+    margin-bottom: 0;
   }
-  .card-time { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--ink-72); }
-  .card-state {
-    font-family: var(--body); font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em;
+  .date-nav-range {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-56);
+  }
+  .date-nav-btns { display: flex; gap: 8px; }
+  .date-btn {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-48);
+    background: none; border: 1px solid var(--ink-14); padding: 6px 14px;
+    cursor: pointer; text-decoration: none;
+    transition: color .15s, border-color .15s;
+  }
+  .date-btn:hover { color: var(--ink); border-color: var(--ink); }
+
+  /* ── CONTENT ── */
+  .results-body { padding: 0 0 64px; }
+  .state-msg {
+    display: flex; align-items: center; justify-content: center; padding: 80px 0;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em;
     text-transform: uppercase; color: var(--ink-32);
-    border: 1px solid var(--ink-10); border-radius: 999px; padding: 2px 8px;
   }
-  .is-tossup .card-state { color: var(--red); border-color: var(--red); }
 
-  /* Matchup row: away | @ | home */
-  .matchup {
-    display: grid; grid-template-columns: 1fr auto 1fr; align-items: start;
-    gap: 8px; margin-bottom: 12px;
+  /* Day group */
+  .day-group { border-bottom: 1px solid var(--ink-10); }
+  .day-header { display: flex; align-items: baseline; gap: 12px; padding: 22px 0 12px; }
+  .day-label {
+    font-family: var(--display); font-weight: 800; font-size: 19px;
+    letter-spacing: 0.04em; text-transform: uppercase;
   }
-  .team { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; }
-  .team-logo-img { width: 40px; height: 40px; object-fit: contain; }
-  .team-abbr {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: 0.01em;
-    text-transform: uppercase; color: var(--ink);
+  .day-count {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-32);
   }
-  .team-pct { font-family: var(--mono); font-weight: 500; font-size: 15px; color: var(--ink-48); }
-  .team-pct .pct-sign { font-size: 11px; color: var(--ink-32); margin-left: 1px; }
-  /* Favorite side gets a stronger read */
-  .team.fav .team-abbr { color: var(--ink); }
-  .team.fav .team-pct { color: var(--ink-86); font-weight: 500; }
 
+  /* Game rows */
+  .games-list { display: flex; flex-direction: column; gap: 6px; padding-bottom: 16px; }
+  .game-row {
+    display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; gap: 0;
+    background: var(--surface); border: 1px solid var(--ink-10);
+    color: inherit; transition: border-color .15s, background .15s;
+  }
+  .game-row:hover { border-color: var(--ink-32); background: var(--bg-2); }
+
+  /* Team side (away on left, home on right) */
+  .team-side { display: flex; align-items: center; gap: 10px; padding: 12px 16px; }
+  .team-side.home { flex-direction: row-reverse; text-align: right; }
+  .team-logo-sm { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
+  .team-nickname {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--display); font-weight: 800; font-size: 20px;
+    letter-spacing: 0.02em; line-height: 1.1; color: var(--ink);
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .team-side.home .team-nickname { flex-direction: row-reverse; }
+  .team-city {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-48); white-space: nowrap;
+  }
+  .team-goalie {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+    letter-spacing: 0.04em; color: var(--ink-32); white-space: nowrap; margin-top: 3px;
+  }
   .b2b-tag {
     font-family: var(--body); font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em;
     text-transform: uppercase; color: #fff; background: var(--ink-72);
     border-radius: 4px; padding: 1px 4px; line-height: 1.3;
   }
-  .at-sep {
-    align-self: center;
-    font-family: var(--body); font-size: 12px; font-weight: 600; color: var(--ink-32);
-    padding-top: 34px;
+
+  /* Score block — win% sits in the score slot */
+  .score-block {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 10px 20px; min-width: 130px;
+  }
+  .score-line {
+    display: flex; align-items: baseline; gap: 12px;
+    font-family: var(--display); font-weight: 800; font-size: 30px; line-height: 1;
+    letter-spacing: 0.01em; font-variant-numeric: tabular-nums;
+  }
+  .score-line .pct-sign {
+    font-family: var(--display); font-weight: 800; font-size: 15px; margin-left: 1px;
+  }
+  .score-sep { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--ink-32); align-self: center; }
+  .score-winner { color: var(--ink); }
+  .score-loser  { color: var(--ink-32); }
+  .score-status {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-48); white-space: nowrap;
   }
 
-  /* Split probability bar */
-  .split-bar {
-    display: flex; height: 6px; border-radius: 999px; overflow: hidden;
-    background: var(--ink-06); margin-bottom: 14px;
-  }
-  .split-bar .split-away { background: var(--away-color); }
-  .split-bar .split-home { background: var(--home-color); }
-
-  /* Prediction — the big number */
-  .prediction {
-    display: flex; align-items: baseline; justify-content: center;
-    padding: 4px 0 12px; border-top: 1px solid var(--ink-06); margin-top: auto;
-  }
-  .pred-fav { display: flex; align-items: baseline; gap: 10px; }
-  .pred-big {
-    font-family: var(--display); font-weight: 800; font-size: 52px; line-height: 0.9;
-    letter-spacing: -0.01em; color: var(--red);
-  }
-  .pred-big .pred-sign { font-size: 24px; margin-left: 1px; }
-  .pred-label {
-    font-family: var(--body); font-size: 12.5px; font-weight: 500; color: var(--ink-56);
-    align-self: center;
-  }
-  .pred-label strong { font-weight: 700; color: var(--ink); }
-
-  .pred-tossup { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-top: 6px; }
-  .pred-tossup-num {
-    font-family: var(--display); font-weight: 800; font-size: 40px; line-height: 0.9; color: var(--ink-86);
-  }
-  .pred-tossup-num .pred-sign { color: var(--ink-32); font-size: 26px; margin: 0 1px; }
-  .is-tossup .pred-label { color: var(--ink-56); font-size: 11.5px; }
-
-  /* Goalies */
-  .goalies {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    border-top: 1px solid var(--ink-06); padding-top: 10px;
-  }
-  .goalie {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-family: var(--body); font-size: 11px; font-weight: 500; color: var(--ink-56);
-    min-width: 0;
-  }
-  .goalie .gm { color: var(--ink-32); font-size: 9px; }
-  .goalie-home { text-align: right; }
-
-  /* ── Empty state ── */
-  .empty-state {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    text-align: center; min-height: 240px; padding: 48px 24px;
-    background: var(--surface); border: 1px dashed var(--ink-20); border-radius: 16px;
-  }
-  .empty-mark {
-    font-family: var(--display); font-weight: 800; font-size: 48px; color: var(--ink-20); line-height: 1;
-  }
-  .empty-title {
-    font-family: var(--display); font-weight: 700; font-size: 24px; text-transform: uppercase;
-    color: var(--ink); margin: 10px 0 6px;
-  }
-  .empty-sub { font-family: var(--body); font-size: 13px; color: var(--ink-48); max-width: 360px; line-height: 1.5; }
+  /* Win-prob split bar (mirrors /results .xg-bar) */
+  .xg-bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 0; height: 3px; background: var(--ink-06); }
+  .xg-away, .xg-home { height: 100%; transition: width .3s; }
+  .xg-away { background: var(--ink-56); }
+  .xg-home { background: var(--ink-32); }
 
   .foot-note { margin: 22px 0 0; font-family: var(--body); font-size: 12px; line-height: 1.6; color: var(--ink-48); }
   .foot-note strong { color: var(--ink-72); font-weight: 700; }
 
-  /* ── Responsive ── */
-  @media (max-width: 480px) {
-    .games-grid { grid-template-columns: 1fr; }
-    .date-center { min-width: 0; }
-    .pred-big { font-size: 46px; }
+  @media (max-width: 600px) {
+    .team-city { display: none; }
+    .team-nickname { font-size: 16px; }
+    .score-line { font-size: 24px; gap: 8px; }
+    .score-line .pct-sign { font-size: 12px; }
+    .score-block { padding: 8px 10px; min-width: 104px; }
+    .team-side { padding: 10px 12px; gap: 8px; }
+    .team-goalie { font-size: 9px; }
   }
 </style>
