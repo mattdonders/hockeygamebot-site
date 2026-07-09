@@ -2,11 +2,13 @@
 /**
  * Game Predictions — daily model win-probability slate (hgb-spar-wins).
  *
- * DESIGN PREVIEW / MOCK DATA. This page renders a hardcoded slate so the
- * owner can preview the game-day surface before the API is wired. The real
- * product will fetch GET ${API_BASE}/v1/predictions?date=YYYY-MM-DD (the
- * predict_wins.py `slate` output — shape mirrored in MOCK below) client-side
- * on mount, exactly like /projections.
+ * LIVE DATA. The slate is fetched client-side on mount from
+ * GET ${API_BASE}/v1/predictions?date=YYYY-MM-DD (the seed_game_predictions /
+ * predict_wins.py output), exactly like /projections and /results. The page is
+ * output:'static', so there is no per-request build; the browser reads the
+ * `?date=` query param, fetches that date, and renders the cards. The API
+ * currently returns model="mock-preview" (12 seeded games for 2026-10-15), so
+ * the "design preview · mock data" badge stays visible until a real model ships.
  *
  * Visual style mirrors /results: clean horizontal `.game-row` cards with a
  * single day-by-day header + prev/next-day nav. The model WIN % takes the
@@ -14,89 +16,21 @@
  * and the bottom `.xg-bar` is driven by the win-prob split. There is NO
  * separate giant number — the score-slot % IS the prediction.
  *
- * Date navigation: the page is output:'static', so `?date=` cannot be read
- * per-request at build time. The prev/next arrows are plain `?date=` links; a
- * tiny inline enhancement script reads the param on load, updates the visible
- * date header, and recomputes the arrow hrefs so the mechanism feels real. The
- * mock games array is the same regardless of date.
+ * Rendering: the SSR skeleton paints a loading state (so first paint isn't
+ * blank); the bundled module script below fetches the slate, then builds the
+ * same day-group / game-row markup the mock array used to render at build time.
+ * States: loading → games → empty ("No games scheduled") on 404/empty →
+ * error ("Predictions unavailable") on network failure.
  */
 import StatsLayout from '../layouts/StatsLayout.astro';
 import StatsMasthead from '../components/StatsMasthead.astro';
 
-// ── Mock slate (predict_wins.py `slate` output shape) ─────────────────────
+// Default to the seeded mock date so the page shows data out of the box. The
+// client script reads `?date=` and overrides this when present.
 const DEFAULT_DATE = '2026-10-15';
 
-const MOCK = {
-  product: 'slate',
-  date: DEFAULT_DATE,
-  model: { name: 'hgb-spar-wins', version: 'v1' },
-  games: [
-    { game_id: '2026020120', start_time_utc: '2026-10-15T23:00:00Z', away: 'CAR', home: 'BUF', away_win_prob: 0.61, home_win_prob: 0.39, b2b_away: false, b2b_home: true,  away_goalie: 'F. Andersen',  home_goalie: 'U. Luukkonen', state: 'pre' },
-    { game_id: '2026020121', start_time_utc: '2026-10-15T23:00:00Z', away: 'TOR', home: 'MTL', away_win_prob: 0.66, home_win_prob: 0.34, b2b_away: false, b2b_home: false, away_goalie: 'J. Woll',       home_goalie: 'S. Montembeault', state: 'pre' },
-    { game_id: '2026020122', start_time_utc: '2026-10-15T23:00:00Z', away: 'NYR', home: 'NJD', away_win_prob: 0.52, home_win_prob: 0.48, b2b_away: false, b2b_home: false, away_goalie: 'I. Shesterkin', home_goalie: 'J. Markstrom',   state: 'pre' },
-    { game_id: '2026020123', start_time_utc: '2026-10-15T23:30:00Z', away: 'TBL', home: 'FLA', away_win_prob: 0.44, home_win_prob: 0.56, b2b_away: true,  b2b_home: false, away_goalie: 'A. Vasilevskiy',home_goalie: 'S. Bobrovsky',  state: 'pre' },
-    { game_id: '2026020124', start_time_utc: '2026-10-15T23:30:00Z', away: 'BOS', home: 'PIT', away_win_prob: 0.63, home_win_prob: 0.37, b2b_away: false, b2b_home: false, away_goalie: 'J. Swayman',   home_goalie: 'T. Jarry',      state: 'pre' },
-    { game_id: '2026020125', start_time_utc: '2026-10-16T00:00:00Z', away: 'WSH', home: 'CBJ', away_win_prob: 0.68, home_win_prob: 0.32, b2b_away: false, b2b_home: false, away_goalie: 'L. Thompson',  home_goalie: 'E. Merzlikins',  state: 'pre' },
-    { game_id: '2026020126', start_time_utc: '2026-10-16T00:00:00Z', away: 'WPG', home: 'MIN', away_win_prob: 0.55, home_win_prob: 0.45, b2b_away: false, b2b_home: false, away_goalie: 'C. Hellebuyck', home_goalie: 'F. Gustavsson', state: 'pre' },
-    { game_id: '2026020127', start_time_utc: '2026-10-16T00:30:00Z', away: 'COL', home: 'DAL', away_win_prob: 0.49, home_win_prob: 0.51, b2b_away: false, b2b_home: false, away_goalie: 'M. Blackwood',  home_goalie: 'J. Oettinger',  state: 'pre' },
-    { game_id: '2026020128', start_time_utc: '2026-10-16T00:30:00Z', away: 'NSH', home: 'STL', away_win_prob: 0.47, home_win_prob: 0.53, b2b_away: false, b2b_home: false, away_goalie: 'J. Saros',     home_goalie: 'J. Binnington', state: 'pre' },
-    { game_id: '2026020129', start_time_utc: '2026-10-16T01:00:00Z', away: 'EDM', home: 'CGY', away_win_prob: 0.58, home_win_prob: 0.42, b2b_away: false, b2b_home: false, away_goalie: 'S. Skinner',   home_goalie: 'D. Wolf',       state: 'pre' },
-    { game_id: '2026020130', start_time_utc: '2026-10-16T02:00:00Z', away: 'VGK', home: 'SJS', away_win_prob: 0.72, home_win_prob: 0.28, b2b_away: false, b2b_home: true,  away_goalie: 'A. Hill',      home_goalie: 'M. Blackwood',  state: 'pre' },
-    { game_id: '2026020131', start_time_utc: '2026-10-16T02:30:00Z', away: 'LAK', home: 'SEA', away_win_prob: 0.51, home_win_prob: 0.49, b2b_away: false, b2b_home: false, away_goalie: 'D. Kuemper',   home_goalie: 'J. Daccord',    state: 'pre' },
-  ],
-};
-
-// ── Derived view model ────────────────────────────────────────────────────
-const TOSS_UP_BAND = 0.04; // |p - 0.5| within this => toss-up
-
-const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('en-US', {
-    timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit',
-  });
-
-// City = full team name minus the nickname. Small lookup so cards can show a
-// city eyebrow like /results without a data feed. Falls back to the abbr.
-const CITY: Record<string, string> = {
-  CAR: 'Carolina', BUF: 'Buffalo', TOR: 'Toronto', MTL: 'Montréal',
-  NYR: 'New York', NJD: 'New Jersey', TBL: 'Tampa Bay', FLA: 'Florida',
-  BOS: 'Boston', PIT: 'Pittsburgh', WSH: 'Washington', CBJ: 'Columbus',
-  WPG: 'Winnipeg', MIN: 'Minnesota', COL: 'Colorado', DAL: 'Dallas',
-  NSH: 'Nashville', STL: 'St. Louis', EDM: 'Edmonton', CGY: 'Calgary',
-  VGK: 'Vegas', SJS: 'San Jose', LAK: 'Los Angeles', SEA: 'Seattle',
-};
-const NICK: Record<string, string> = {
-  CAR: 'Hurricanes', BUF: 'Sabres', TOR: 'Maple Leafs', MTL: 'Canadiens',
-  NYR: 'Rangers', NJD: 'Devils', TBL: 'Lightning', FLA: 'Panthers',
-  BOS: 'Bruins', PIT: 'Penguins', WSH: 'Capitals', CBJ: 'Blue Jackets',
-  WPG: 'Jets', MIN: 'Wild', COL: 'Avalanche', DAL: 'Stars',
-  NSH: 'Predators', STL: 'Blues', EDM: 'Oilers', CGY: 'Flames',
-  VGK: 'Golden Knights', SJS: 'Sharks', LAK: 'Kings', SEA: 'Kraken',
-};
-
-const games = MOCK.games.map((g) => {
-  const homeFav = g.home_win_prob >= g.away_win_prob;
-  const tossUp = Math.abs(g.home_win_prob - 0.5) <= TOSS_UP_BAND;
-  return {
-    ...g,
-    startEt: fmtTime(g.start_time_utc),
-    homeFav,
-    tossUp,
-    awayPct: Math.round(g.away_win_prob * 100),
-    homePct: Math.round(g.home_win_prob * 100),
-    awayCity: CITY[g.away] ?? g.away,
-    homeCity: CITY[g.home] ?? g.home,
-    awayNick: NICK[g.away] ?? g.away,
-    homeNick: NICK[g.home] ?? g.home,
-  };
-});
-
-const gameCount = games.length;
-
-// Human date header for the default date, computed at build time. The inline
-// script re-derives this from `?date=` on the client.
-const dateLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-US', {
-  timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-}).toUpperCase();
+// SSR nav label for the default date. The client script re-derives this from
+// the resolved `?date=` on load so the nav reflects the fetched slate.
 const rangeLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-US', {
   timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
 }).toUpperCase();
@@ -126,64 +60,14 @@ const rangeLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-
   </div>
 
   <div class="results-body">
-    {gameCount === 0 ? (
-      <div class="state-msg">No games scheduled on this date</div>
-    ) : (
-      <div class="day-group">
-        <div class="day-header">
-          <span class="day-label" id="day-label">{dateLabel}</span>
-          <span class="day-count"><span id="day-count">{gameCount}</span> GAMES</span>
-        </div>
-
-        <div class="games-list">
-          {games.map((g) => {
-            const awayCls = g.awayPct >= g.homePct ? 'score-winner' : 'score-loser';
-            const homeCls = g.homePct >= g.awayPct ? 'score-winner' : 'score-loser';
-            return (
-              <div class="game-row" style="display:grid">
-                <div class="team-side away">
-                  <img class="team-logo-sm" src={`/logos/nhl/${g.away}_light.svg`} alt={g.away} loading="lazy" />
-                  <div>
-                    <div class="team-city">{g.awayCity}</div>
-                    <div class="team-nickname">
-                      {g.awayNick}
-                      {g.b2b_away && <span class="b2b-tag" title="Playing a back-to-back">B2B</span>}
-                    </div>
-                    <div class="team-goalie">◇ {g.away_goalie}</div>
-                  </div>
-                </div>
-
-                <div class="score-block">
-                  <div class="score-line">
-                    <span class={awayCls}>{g.awayPct}<span class="pct-sign">%</span></span>
-                    <span class="score-sep">—</span>
-                    <span class={homeCls}>{g.homePct}<span class="pct-sign">%</span></span>
-                  </div>
-                  <div class="score-status">{g.startEt} ET{g.tossUp && ' · TOSS-UP'}</div>
-                </div>
-
-                <div class="team-side home">
-                  <img class="team-logo-sm" src={`/logos/nhl/${g.home}_light.svg`} alt={g.home} loading="lazy" />
-                  <div>
-                    <div class="team-city">{g.homeCity}</div>
-                    <div class="team-nickname">
-                      {g.homeNick}
-                      {g.b2b_home && <span class="b2b-tag" title="Playing a back-to-back">B2B</span>}
-                    </div>
-                    <div class="team-goalie">◇ {g.home_goalie}</div>
-                  </div>
-                </div>
-
-                <div class="xg-bar" style="grid-column:1/-1">
-                  <div class="xg-away" style={`width:${g.awayPct}%`}></div>
-                  <div class="xg-home" style={`width:${g.homePct}%`}></div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    )}
+    <!-- Loading state (SSR default so first paint isn't blank) -->
+    <div class="state-msg" id="pred-loading">Loading predictions…</div>
+    <!-- Empty state (404 / no games on this date) -->
+    <div class="state-msg" id="pred-empty" style="display:none">No games scheduled on this date</div>
+    <!-- Error state (network / unexpected failure) -->
+    <div class="state-msg" id="pred-error" style="display:none">Predictions unavailable — check back soon</div>
+    <!-- Slate container — filled client-side from the live API -->
+    <div id="pred-container"></div>
   </div>
 
   <p class="foot-note">
@@ -196,40 +80,197 @@ const rangeLabel = new Date(`${DEFAULT_DATE}T12:00:00Z`).toLocaleDateString('en-
 
 </StatsLayout>
 
-{/* Progressive enhancement: reflect ?date= in the header + arrow links.
-    Mock data is unchanged across dates; this only wires the navigation UX. */}
-<script is:inline>
-  (function () {
-    var DEFAULT = '2026-10-15';
-    function parseISO(s) {
-      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
-      if (!m) return null;
-      var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12, 0, 0));
-      return isNaN(d.getTime()) ? null : d;
-    }
-    function toISO(d) {
-      return d.getUTCFullYear() + '-' +
-        String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
-        String(d.getUTCDate()).padStart(2, '0');
-    }
-    function fmt(d, opts) {
-      return d.toLocaleDateString('en-US', Object.assign({ timeZone: 'UTC' }, opts)).toUpperCase();
-    }
-    var params = new URLSearchParams(window.location.search);
-    var base = parseISO(params.get('date')) || parseISO(DEFAULT);
+{/* Live data: fetch the slate for `?date=` (default the seeded mock date) and
+    render the same day-group / game-row markup the mock array used to render at
+    build time. Bundled module (not is:inline) so it can import API_BASE. */}
+<script>
+  import { API_BASE } from '../lib/auth-client';
 
-    var rangeEl = document.getElementById('date-range');
-    if (rangeEl) rangeEl.textContent = fmt(base, { weekday: 'short', month: 'short', day: 'numeric' });
-    var dayEl = document.getElementById('day-label');
-    if (dayEl) dayEl.textContent = fmt(base, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const DEFAULT_DATE = '2026-10-15';
+  const TOSS_UP_BAND = 0.04; // |p - 0.5| within this => toss-up
 
-    var prev = new Date(base); prev.setUTCDate(prev.getUTCDate() - 1);
-    var next = new Date(base); next.setUTCDate(next.getUTCDate() + 1);
-    var prevEl = document.getElementById('btn-prev');
-    var nextEl = document.getElementById('btn-next');
+  // City = full team name minus the nickname. Small lookup so cards can show a
+  // city eyebrow like /results without a data feed. Falls back to the abbr.
+  const CITY: Record<string, string> = {
+    CAR: 'Carolina', BUF: 'Buffalo', TOR: 'Toronto', MTL: 'Montréal',
+    NYR: 'New York', NJD: 'New Jersey', TBL: 'Tampa Bay', FLA: 'Florida',
+    BOS: 'Boston', PIT: 'Pittsburgh', WSH: 'Washington', CBJ: 'Columbus',
+    WPG: 'Winnipeg', MIN: 'Minnesota', COL: 'Colorado', DAL: 'Dallas',
+    NSH: 'Nashville', STL: 'St. Louis', EDM: 'Edmonton', CGY: 'Calgary',
+    VGK: 'Vegas', SJS: 'San Jose', LAK: 'Los Angeles', SEA: 'Seattle',
+  };
+  const NICK: Record<string, string> = {
+    CAR: 'Hurricanes', BUF: 'Sabres', TOR: 'Maple Leafs', MTL: 'Canadiens',
+    NYR: 'Rangers', NJD: 'Devils', TBL: 'Lightning', FLA: 'Panthers',
+    BOS: 'Bruins', PIT: 'Penguins', WSH: 'Capitals', CBJ: 'Blue Jackets',
+    WPG: 'Jets', MIN: 'Wild', COL: 'Avalanche', DAL: 'Stars',
+    NSH: 'Predators', STL: 'Blues', EDM: 'Oilers', CGY: 'Flames',
+    VGK: 'Golden Knights', SJS: 'Sharks', LAK: 'Kings', SEA: 'Kraken',
+  };
+
+  type Game = {
+    game_id: string; away: string; home: string; start_time_utc: string;
+    away_win_prob: number; home_win_prob: number;
+    b2b_away: boolean; b2b_home: boolean;
+    away_goalie: string | null; home_goalie: string | null;
+    goalie_confirmed?: boolean; state?: string; actual_winner?: string | null;
+  };
+  type Slate = { date: string; season?: string; model?: string; predicted?: boolean; games: Game[] };
+
+  // ── date helpers (UTC-noon anchored, matches build-time labels) ──
+  function parseISO(s: string): Date | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+    if (!m) return null;
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12, 0, 0));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function toISO(d: Date): string {
+    return d.getUTCFullYear() + '-' +
+      String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getUTCDate()).padStart(2, '0');
+  }
+  function fmtDate(d: Date, opts: Intl.DateTimeFormatOptions): string {
+    return d.toLocaleDateString('en-US', Object.assign({ timeZone: 'UTC' }, opts)).toUpperCase();
+  }
+  function fmtTime(iso: string): string {
+    try {
+      return new Date(iso).toLocaleTimeString('en-US', {
+        timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit',
+      });
+    } catch { return ''; }
+  }
+  function esc(s: string): string {
+    return String(s).replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  }
+
+  // ── render one game-row (identical markup to the former SSR template) ──
+  function renderGame(g: Game): string {
+    const awayPct = Math.round(g.away_win_prob * 100);
+    const homePct = Math.round(g.home_win_prob * 100);
+    const tossUp = Math.abs(g.home_win_prob - 0.5) <= TOSS_UP_BAND;
+    const awayCls = awayPct >= homePct ? 'score-winner' : 'score-loser';
+    const homeCls = homePct >= awayPct ? 'score-winner' : 'score-loser';
+    const awayCity = CITY[g.away] ?? g.away;
+    const homeCity = CITY[g.home] ?? g.home;
+    const awayNick = NICK[g.away] ?? g.away;
+    const homeNick = NICK[g.home] ?? g.home;
+    const startEt = fmtTime(g.start_time_utc);
+    const status = `${startEt ? startEt + ' ET' : ''}${tossUp ? (startEt ? ' · ' : '') + 'TOSS-UP' : ''}`;
+    const b2bTag = '<span class="b2b-tag" title="Playing a back-to-back">B2B</span>';
+    const awayGoalie = g.away_goalie ? `<div class="team-goalie">◇ ${esc(g.away_goalie)}</div>` : '';
+    const homeGoalie = g.home_goalie ? `<div class="team-goalie">◇ ${esc(g.home_goalie)}</div>` : '';
+
+    return `<div class="game-row" style="display:grid">
+      <div class="team-side away">
+        <img class="team-logo-sm" src="/logos/nhl/${esc(g.away)}_light.svg" alt="${esc(g.away)}" loading="lazy" onerror="this.style.visibility='hidden'" />
+        <div>
+          <div class="team-city">${esc(awayCity)}</div>
+          <div class="team-nickname">${esc(awayNick)}${g.b2b_away ? b2bTag : ''}</div>
+          ${awayGoalie}
+        </div>
+      </div>
+      <div class="score-block">
+        <div class="score-line">
+          <span class="${awayCls}">${awayPct}<span class="pct-sign">%</span></span>
+          <span class="score-sep">—</span>
+          <span class="${homeCls}">${homePct}<span class="pct-sign">%</span></span>
+        </div>
+        <div class="score-status">${status}</div>
+      </div>
+      <div class="team-side home">
+        <img class="team-logo-sm" src="/logos/nhl/${esc(g.home)}_light.svg" alt="${esc(g.home)}" loading="lazy" onerror="this.style.visibility='hidden'" />
+        <div>
+          <div class="team-city">${esc(homeCity)}</div>
+          <div class="team-nickname">${esc(homeNick)}${g.b2b_home ? b2bTag : ''}</div>
+          ${homeGoalie}
+        </div>
+      </div>
+      <div class="xg-bar" style="grid-column:1/-1">
+        <div class="xg-away" style="width:${awayPct}%"></div>
+        <div class="xg-home" style="width:${homePct}%"></div>
+      </div>
+    </div>`;
+  }
+
+  function renderSlate(base: Date, slate: Slate): string {
+    const dateLabel = fmtDate(base, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    const count = slate.games.length;
+    const gamesHtml = slate.games.map(renderGame).join('');
+    return `<div class="day-group">
+      <div class="day-header">
+        <span class="day-label" id="day-label">${dateLabel}</span>
+        <span class="day-count"><span id="day-count">${count}</span> GAMES</span>
+      </div>
+      <div class="games-list">${gamesHtml}</div>
+    </div>`;
+  }
+
+  // ── state toggles ──
+  const el = (id: string) => document.getElementById(id)!;
+  function showOnly(which: 'loading' | 'empty' | 'error' | 'games') {
+    el('pred-loading').style.display = which === 'loading' ? 'flex' : 'none';
+    el('pred-empty').style.display = which === 'empty' ? 'flex' : 'none';
+    el('pred-error').style.display = which === 'error' ? 'flex' : 'none';
+    el('pred-container').innerHTML = which === 'games' ? el('pred-container').innerHTML : '';
+  }
+
+  // Keep the badge only while the model is the mock preview.
+  function syncBadge(slate: Slate | null) {
+    const badge = document.getElementById('pred-badge');
+    if (!badge) return;
+    const isMock = !slate || slate.model === 'mock-preview' || slate.predicted === false;
+    badge.style.display = isMock ? '' : 'none';
+  }
+
+  // ── nav labels + arrow hrefs for a given date ──
+  function syncNav(base: Date) {
+    const rangeEl = document.getElementById('date-range');
+    if (rangeEl) rangeEl.textContent = fmtDate(base, { weekday: 'short', month: 'short', day: 'numeric' });
+    const prev = new Date(base); prev.setUTCDate(prev.getUTCDate() - 1);
+    const next = new Date(base); next.setUTCDate(next.getUTCDate() + 1);
+    const prevEl = document.getElementById('btn-prev');
+    const nextEl = document.getElementById('btn-next');
     if (prevEl) prevEl.setAttribute('href', '/predictions?date=' + toISO(prev));
     if (nextEl) nextEl.setAttribute('href', '/predictions?date=' + toISO(next));
-  })();
+  }
+
+  // ── main ──
+  async function load() {
+    const params = new URLSearchParams(window.location.search);
+    const base = parseISO(params.get('date') || '') || parseISO(DEFAULT_DATE)!;
+    const dateStr = toISO(base);
+    syncNav(base);
+    showOnly('loading');
+
+    let slate: Slate | null = null;
+    try {
+      const res = await fetch(`${API_BASE}/v1/predictions?date=${dateStr}`);
+      if (res.status === 404) {
+        syncBadge(null);
+        showOnly('empty');
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      slate = await res.json();
+    } catch (err) {
+      console.error('predictions fetch failed', err);
+      syncBadge(null);
+      showOnly('error');
+      return;
+    }
+
+    syncBadge(slate);
+    const games = slate && Array.isArray(slate.games) ? slate.games : [];
+    if (games.length === 0) {
+      showOnly('empty');
+      return;
+    }
+    el('pred-container').innerHTML = renderSlate(base, slate as Slate);
+    showOnly('games');
+  }
+
+  load();
 </script>
 
 <style is:global>
