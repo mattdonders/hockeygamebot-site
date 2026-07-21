@@ -109,8 +109,11 @@ const columns = [
 
       <div id="wowy-result" class="wowy-result">
         <div class="wowy-header">
-          <div class="wowy-title" id="wowy-title"></div>
-          <div class="wowy-subtitle" id="wowy-subtitle"></div>
+          <div class="wowy-header-text">
+            <div class="wowy-title" id="wowy-title"></div>
+            <div class="wowy-subtitle" id="wowy-subtitle"></div>
+          </div>
+          <button class="wowy-dl-btn" id="wowy-dl-btn">↓ PNG</button>
         </div>
 
         <Table
@@ -285,6 +288,44 @@ const columns = [
       tbody.innerHTML = rows.join('');
       wrap.dispatchEvent(new CustomEvent('tbl:rows-changed'));
     }
+
+    setupExport(nameA, nameB, teams, seasons, segs);
+  }
+
+  function setupExport(nameA, nameB, teams, seasons, segs) {
+    const dlBtn = document.getElementById('wowy-dl-btn');
+    if (!dlBtn) return;
+
+    const exportRows = [
+      { segment: `${nameA} & ${nameB} (Together)`, ...segs.with },
+      { segment: `${nameA} (without ${nameB})`,     ...segs.a_wo_b },
+      { segment: `${nameB} (without ${nameA})`,     ...segs.b_wo_a },
+      { segment: `${teams} (without either)`,       ...segs.neither },
+    ];
+
+    dlBtn.onclick = async function () {
+      if (!window.HGB_Export) return;
+      const safe = s => s.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+      await window.HGB_Export.downloadTablePng({
+        title: `${nameA} & ${nameB} — WOWY`,
+        filterChips: [teams, seasons, '5v5'],
+        rows: exportRows,
+        columns: [
+          { label: 'Segment', key: 'segment', width: 220, align: 'left', fontFamily: 'body', bold: true },
+          { label: 'TOI',     key: 'toi_min', width: 60, align: 'center', format: v => fmt1(v) },
+          { label: 'Games',   key: 'games',   width: 56, align: 'center', format: v => v != null ? v : '—' },
+          { label: 'xGF%',    key: 'xgf_pct', width: 66, align: 'center',
+            format: v => v != null ? v.toFixed(1) + '%' : '—',
+            color:  (v, row, tok) => v == null ? null : v >= 55 ? tok.pos : v <= 45 ? tok.neg : null,
+            bold: true },
+          { label: 'xGF',     key: 'xgf',     width: 78, align: 'center', format: v => fmt2(v) },
+          { label: 'xGA',     key: 'xga',     width: 78, align: 'center', format: v => fmt2(v) },
+          { label: 'xGF/60',  key: 'xgf_60',  width: 66, align: 'center', format: v => fmt2(v) },
+          { label: 'xGA/60',  key: 'xga_60',  width: 66, align: 'center', format: v => fmt2(v) },
+        ],
+        filename: `wowy_${safe(nameA)}_${safe(nameB)}.png`,
+      });
+    };
   }
 
   async function init() {
@@ -377,9 +418,11 @@ const columns = [
   /* WOWY result chrome */
   .wowy-result { display: none; }
   .wowy-result.visible { display: block; }
-  .wowy-header { margin-bottom: 16px; }
+  .wowy-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
   .wowy-title { font-family: var(--display); font-weight: 800; font-size: 22px; text-transform: uppercase; letter-spacing: 0.01em; color: var(--ink); }
   .wowy-subtitle { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; margin-top: 4px; }
+  .wowy-dl-btn { font-family: var(--body); font-weight: 700; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--ink-20); border-radius: 3px; background: transparent; color: var(--ink-48); cursor: pointer; transition: background 0.12s, color 0.12s; flex-shrink: 0; margin-top: 2px; }
+  .wowy-dl-btn:hover { border-color: var(--ink-48); color: var(--ink); }
 
   .wowy-no-data { padding: 32px; background: var(--surface); border: 1px solid var(--ink-14); font-family: var(--mono); font-size: 13px; color: var(--ink-48); text-align: center; display: none; }
   .wowy-no-data.visible { display: block; }
