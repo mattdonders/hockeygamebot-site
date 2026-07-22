@@ -224,7 +224,7 @@ function DenseTable({ rows }: { rows: DenseRow[] }) {
     <div className="cc-ptable-wrap">
       <table className="cc-ptable">
         <thead>
-          <tr><th>Player</th><th className="cc-ga-col">G</th><th className="cc-ga-col">A</th><th>P</th><th className="cc-pct-col">TALENT%</th><th className="cc-pct-col">WAR%</th><th className="cc-pct-col">IMPACT%</th></tr>
+          <tr><th>Player</th><th className="cc-ga-col">G</th><th className="cc-ga-col">A</th><th className="cc-p-col">P</th><th className="cc-pct-col">TALENT%</th><th className="cc-pct-col">WAR%</th><th className="cc-pct-col">IMPACT%</th></tr>
         </thead>
         <tbody>
           {rows.map(r => (
@@ -234,7 +234,7 @@ function DenseTable({ rows }: { rows: DenseRow[] }) {
               </td>
               <td className="cc-ga-col">{r.g}</td>
               <td className="cc-ga-col">{r.a}</td>
-              <td>{r.p}</td>
+              <td className="cc-p-col">{r.p}</td>
               <td className="cc-pct-col" style={{ color: pctColor(r.talentP) }}>{r.talentP ?? '—'}</td>
               <td className="cc-pct-col" style={{ color: pctColor(r.warP) }}>{r.warP ?? '—'}</td>
               <td className="cc-pct-col" style={{ color: pctColor(r.impP), fontWeight: 700 }}>{r.impP ?? '—'}</td>
