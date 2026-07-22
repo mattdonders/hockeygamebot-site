@@ -44,7 +44,7 @@ function teamLabel(rank: number | null): { text: string; color: string } {
   return              { text: 'Full Rebuild',         color: 'rgba(13,13,20,0.40)' };
 }
 
-async function fetchPrefs(): Promise<{ tracked_teams: string[]; tracked_players: number[] }> {
+export async function fetchPrefs(): Promise<{ tracked_teams: string[]; tracked_players: number[] }> {
   const prefs = await getPrefs();
   return {
     tracked_teams: prefs?.tracked_teams ?? [],
@@ -268,7 +268,7 @@ export function EntitySignals({ entityId, entityType, limit = 3 }: EntitySignals
 
 // ── Model Signals (dashboard) ─────────────────────────────────────────────────
 
-interface Signal {
+export interface Signal {
   entity_type: string;
   entity_id: string;
   rule_id: string;
@@ -279,16 +279,17 @@ interface Signal {
   cta_href: string | null;
 }
 
-const SEVERITY_BORDER: Record<string, string> = {
+export const SEVERITY_BORDER: Record<string, string> = {
   positive: '#166534',
   warning:  '#991b1b',
   negative: '#991b1b',
 };
 
 // Shared signals fetch — memoized so every consumer (each EntitySignals instance
-// + DashboardModelSignals) reuses a single network request for the payload.
+// + DashboardModelSignals + CommandCenterSignals) reuses a single network request
+// for the payload.
 let _signalsPromise: Promise<Signal[]> | null = null;
-function loadAllSignals(): Promise<Signal[]> {
+export function loadAllSignals(): Promise<Signal[]> {
   if (!_signalsPromise) {
     _signalsPromise = fetch(`${API}/v1/stats/signals`)
       .then(r => (r.ok ? r.json() : {}))
@@ -298,12 +299,12 @@ function loadAllSignals(): Promise<Signal[]> {
   return _signalsPromise;
 }
 
-function formatRuleHeader(s: Signal): string {
+export function formatRuleHeader(s: Signal): string {
   const type = s.entity_type === 'team' ? 'TEAM' : s.entity_type === 'player' ? 'PLAYER' : s.entity_type.toUpperCase();
   return `${type} SIGNAL · ${s.category.toUpperCase()}`;
 }
 
-async function fetchSignals(prefs: { tracked_teams: string[]; tracked_players: number[] }): Promise<Signal[]> {
+export async function fetchSignals(prefs: { tracked_teams: string[]; tracked_players: number[] }): Promise<Signal[]> {
   const all = await loadAllSignals();
 
   const teamSet = new Set(prefs.tracked_teams);

@@ -94,8 +94,28 @@ export async function getMe(): Promise<{ id: string; email: string } | null> {
   }
 }
 
+// ── Dev-only prefs override ───────────────────────────────────────────────────
+// Local dev / screenshot workflow: `?devprefs=1` forces a fixed set of tracked
+// teams/players without touching a real account. Gated on import.meta.env.DEV
+// so this can never activate in a production build regardless of query string.
+const DEV_PREFS: Prefs = {
+  tracked_teams: ['NJD', 'SJS'],
+  tracked_players: [8484801, 8478460, 8481559, 8480800, 8480002], // Celebrini, Werenski, J. Hughes, Q. Hughes, Hischier
+  filter_presets: [],
+};
+
+function devPrefsRequested(): boolean {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return false;
+  try {
+    return new URLSearchParams(window.location.search).get('devprefs') === '1';
+  } catch {
+    return false;
+  }
+}
+
 /** GET /v1/account/prefs — returns Prefs, or null on 401/error. */
 export async function getPrefs(): Promise<Prefs | null> {
+  if (devPrefsRequested()) return DEV_PREFS;
   try {
     const r = await apiFetch(`${API_BASE}/v1/account/prefs`);
     if (!r.ok) return null;
