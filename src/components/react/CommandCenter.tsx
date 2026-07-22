@@ -177,7 +177,7 @@ export function CommandCenterTonight({ mode }: { mode: 'personal' | 'public' }) 
 
 // ── Players ───────────────────────────────────────────────────────────────────
 
-type DenseRow = { name: string; slug: string; team: string; p: number; warP: number | null; impP: number | null };
+type DenseRow = { name: string; slug: string; team: string; g: number; a: number; p: number; talentP: number | null; warP: number | null; impP: number | null };
 
 function computeWarPct(all: any[], player: any): number | null {
   const grp = player.pos_group;
@@ -198,7 +198,10 @@ async function fetchTrackedPlayerRows(): Promise<DenseRow[]> {
       name: `${p.first_name} ${p.last_name}`,
       slug: p.slug ?? '',
       team: p.team_abbrev ?? '',
+      g: p.goals ?? 0,
+      a: p.assists ?? 0,
       p: (p.goals ?? 0) + (p.assists ?? 0),
+      talentP: p.talent_context?.talent_pct != null ? Math.round(p.talent_context.talent_pct) : null,
       warP: computeWarPct(all, p),
       impP: p.gs_pct != null ? Math.round(p.gs_pct) : null,
     }))
@@ -221,15 +224,18 @@ function DenseTable({ rows }: { rows: DenseRow[] }) {
     <div className="cc-ptable-wrap">
       <table className="cc-ptable">
         <thead>
-          <tr><th>Player</th><th>P</th><th>WAR%</th><th>IMP%</th></tr>
+          <tr><th>Player</th><th className="cc-ga-col">G</th><th className="cc-ga-col">A</th><th>P</th><th>TALENT%</th><th>WAR%</th><th>IMP%</th></tr>
         </thead>
         <tbody>
           {rows.map(r => (
             <tr key={r.slug || r.name} onClick={() => { if (r.slug) window.location.href = `/stats/player/${r.slug}`; }}>
               <td className="cc-name-cell">
-                <a href={r.slug ? `/stats/player/${r.slug}` : '#'}>{r.name}<span className="cc-tm">{r.team}</span></a>
+                <a href={r.slug ? `/stats/player/${r.slug}` : '#'}>{r.name}<span className="cc-tm">{r.team}<span className="cc-tm-ga"> · {r.g}G {r.a}A</span></span></a>
               </td>
+              <td className="cc-ga-col">{r.g}</td>
+              <td className="cc-ga-col">{r.a}</td>
               <td>{r.p}</td>
+              <td style={{ color: pctColor(r.talentP) }}>{r.talentP ?? '—'}</td>
               <td style={{ color: pctColor(r.warP) }}>{r.warP ?? '—'}</td>
               <td style={{ color: pctColor(r.impP), fontWeight: 700 }}>{r.impP ?? '—'}</td>
             </tr>
