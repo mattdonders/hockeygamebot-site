@@ -312,7 +312,8 @@ export function filterRelevantSignals(all: Signal[], prefs: { tracked_teams: str
   const playerSet = new Set(prefs.tracked_players.map(String));
 
   return all
-    .filter(s => s.category !== 'Milestone')
+    // Milestones included per owner decision 2026-07-22 (matches iOS) — the
+    // per-category dedupe in fetchSignals keeps them from dominating the top 3.
     .filter(s => s.entity_type === 'team' ? teamSet.has(s.entity_id) : playerSet.has(s.entity_id))
     .sort((a, b) => b.priority - a.priority);
 }
