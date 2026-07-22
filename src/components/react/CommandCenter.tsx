@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { fetchPrefs, loadAllSignals, fetchSignals, formatRuleHeader, SEVERITY_BORDER, type Signal } from './DashboardPersonalized';
+import { fetchPrefs, loadAllSignals, fetchSignals, filterRelevantSignals, formatRuleHeader, SEVERITY_BORDER, type Signal } from './DashboardPersonalized';
 import type { TopImpactRow } from './DashboardPlayersTable';
 
 const API = 'https://api.hockeygamebot.com';
@@ -280,9 +280,12 @@ export function CommandCenterSignals() {
 
   useEffect(() => {
     fetchPrefs().then(async prefs => {
-      const relevant = await fetchSignals(prefs);
-      setTotal(relevant.length);
-      setSignals(relevant.slice(0, 3));
+      // Total ("N of M") must reflect the relevant count BEFORE fetchSignals'
+      // per-category dedup + hard cap at 5, or it can never read above "3 of 5".
+      const all = await loadAllSignals();
+      setTotal(filterRelevantSignals(all, prefs).length);
+      const deduped = await fetchSignals(prefs);
+      setSignals(deduped.slice(0, 3));
     }).catch(() => setSignals([]));
   }, []);
 

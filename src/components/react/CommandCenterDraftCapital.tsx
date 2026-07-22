@@ -4,13 +4,17 @@
  * Replaces the old /stats page's build-time draft-picks fetch (duplicated
  * client-side too) plus its ~140-line duplicated JSX for the two
  * "draftCapitalFirst" true/false branches. Single component, one client
- * fetch, gated entirely by isDraftCapitalWindowActive() — callers should
- * check the gate before rendering the island at all so it doesn't even
- * hydrate outside the window.
+ * fetch.
+ *
+ * The date gate is checked INSIDE this component (render-time, client-side)
+ * rather than in the page's Astro frontmatter — this site builds statically,
+ * so a frontmatter check would bake the gate's result into the HTML at
+ * `astro build` time and it would never change again until the next deploy.
  */
 
 import React, { useState, useEffect } from 'react';
 import { fetchPrefs } from './DashboardPersonalized';
+import { isDraftCapitalWindowActive } from '../../lib/draft-capital-window';
 
 const API = 'https://api.hockeygamebot.com';
 
@@ -39,30 +43,40 @@ async function fetchDraftPicks(teams: string[]): Promise<DraftPick[]> {
 
 export function CommandCenterDraftCapital() {
   const [picks, setPicks] = useState<DraftPick[] | null>(null);
+  const [active] = useState(() => isDraftCapitalWindowActive());
 
   useEffect(() => {
+    if (!active) return;
     fetchPrefs()
       .then(prefs => fetchDraftPicks(prefs.tracked_teams))
       .then(setPicks)
       .catch(() => setPicks([]));
-  }, []);
+  }, [active]);
 
-  if (picks === null) return <div className="cc-idle">Loading…</div>;
-  if (!picks.length) return <div className="cc-idle">No draft capital tracked for your teams.</div>;
+  if (!active) return null;
 
   return (
-    <div className="cc-draft-stack">
-      {picks.map(p => (
-        <div key={p.overall} className="cc-draft-row">
-          <span className="cc-draft-overall">#{p.overall}</span>
-          <span className="cc-draft-team">{p.team_name}</span>
-          <span className="cc-draft-meta">
-            Rd {p.round} · Pick {p.pick_in_round}
-            {p.is_traded && p.original_team ? ` · via ${p.original_team}` : ''}
-            {p.protected ? ' · Protected' : ''}
-          </span>
+    <div className="cc-section">
+      <div className="cc-head"><span className="cc-title">Draft Capital</span></div>
+      {picks === null ? (
+        <div className="cc-idle">Loading…</div>
+      ) : !picks.length ? (
+        <div className="cc-idle">No draft capital tracked for your teams.</div>
+      ) : (
+        <div className="cc-draft-stack">
+          {picks.map(p => (
+            <div key={p.overall} className="cc-draft-row">
+              <span className="cc-draft-overall">#{p.overall}</span>
+              <span className="cc-draft-team">{p.team_name}</span>
+              <span className="cc-draft-meta">
+                Rd {p.round} · Pick {p.pick_in_round}
+                {p.is_traded && p.original_team ? ` · via ${p.original_team}` : ''}
+                {p.protected ? ' · Protected' : ''}
+              </span>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }

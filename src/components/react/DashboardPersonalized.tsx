@@ -304,16 +304,22 @@ export function formatRuleHeader(s: Signal): string {
   return `${type} SIGNAL · ${s.category.toUpperCase()}`;
 }
 
-export async function fetchSignals(prefs: { tracked_teams: string[]; tracked_players: number[] }): Promise<Signal[]> {
-  const all = await loadAllSignals();
-
+// Team/player relevance filter, shared by fetchSignals (below, deduped+capped
+// for display) and any consumer needing the true relevant count before that
+// cap — e.g. CommandCenterSignals' "N of M" total.
+export function filterRelevantSignals(all: Signal[], prefs: { tracked_teams: string[]; tracked_players: number[] }): Signal[] {
   const teamSet = new Set(prefs.tracked_teams);
   const playerSet = new Set(prefs.tracked_players.map(String));
 
-  const relevant = all
+  return all
     .filter(s => s.category !== 'Milestone')
     .filter(s => s.entity_type === 'team' ? teamSet.has(s.entity_id) : playerSet.has(s.entity_id))
     .sort((a, b) => b.priority - a.priority);
+}
+
+export async function fetchSignals(prefs: { tracked_teams: string[]; tracked_players: number[] }): Promise<Signal[]> {
+  const all = await loadAllSignals();
+  const relevant = filterRelevantSignals(all, prefs);
 
   // Max 1 signal per category for variety
   const seen = new Set<string>();
