@@ -4,6 +4,8 @@ import ThemeScript from '../components/ThemeScript.astro';
 import SentryInit from '../components/SentryInit.astro';
 import Fonts from '../components/Fonts.astro';
 import { loadAllTeamGames } from '../lib/stats-loader';
+import { NHL_TEAMS } from '../lib/nhl-teams';
+import { TEAM_COLORS, pickTeamColor } from '../lib/team-colors';
 // HockeyGameBot — /teams page — static bot directory
 
 // Standings fallback: if the live fetch fails at build time, we load the last-known-good
@@ -57,40 +59,7 @@ try {
   for (const [abbr, s] of teamStats) { teamStats.set(abbr, { ...s, clinch: null }); }
 }
 
-const teams = [
-  { abbr: 'ANA', name: 'Anaheim Ducks' },
-  { abbr: 'BOS', name: 'Boston Bruins' },
-  { abbr: 'BUF', name: 'Buffalo Sabres' },
-  { abbr: 'CGY', name: 'Calgary Flames' },
-  { abbr: 'CAR', name: 'Carolina Hurricanes' },
-  { abbr: 'CHI', name: 'Chicago Blackhawks' },
-  { abbr: 'COL', name: 'Colorado Avalanche' },
-  { abbr: 'CBJ', name: 'Columbus Blue Jackets' },
-  { abbr: 'DAL', name: 'Dallas Stars' },
-  { abbr: 'DET', name: 'Detroit Red Wings' },
-  { abbr: 'EDM', name: 'Edmonton Oilers' },
-  { abbr: 'FLA', name: 'Florida Panthers' },
-  { abbr: 'LAK', name: 'Los Angeles Kings' },
-  { abbr: 'MIN', name: 'Minnesota Wild' },
-  { abbr: 'MTL', name: 'Montreal Canadiens' },
-  { abbr: 'NSH', name: 'Nashville Predators' },
-  { abbr: 'NJD', name: 'New Jersey Devils' },
-  { abbr: 'NYI', name: 'New York Islanders' },
-  { abbr: 'NYR', name: 'New York Rangers' },
-  { abbr: 'OTT', name: 'Ottawa Senators' },
-  { abbr: 'PHI', name: 'Philadelphia Flyers' },
-  { abbr: 'PIT', name: 'Pittsburgh Penguins' },
-  { abbr: 'SJS', name: 'San Jose Sharks' },
-  { abbr: 'SEA', name: 'Seattle Kraken' },
-  { abbr: 'STL', name: 'St. Louis Blues' },
-  { abbr: 'TBL', name: 'Tampa Bay Lightning' },
-  { abbr: 'TOR', name: 'Toronto Maple Leafs' },
-  { abbr: 'UTA', name: 'Utah Hockey Club' },
-  { abbr: 'VAN', name: 'Vancouver Canucks' },
-  { abbr: 'VGK', name: 'Vegas Golden Knights', xHandle: 'VGKGameBot_' },
-  { abbr: 'WSH', name: 'Washington Capitals' },
-  { abbr: 'WPG', name: 'Winnipeg Jets' },
-];
+const teams = NHL_TEAMS;
 
 // ── Editorial layout: divisions + per-team enriched data (computed in frontmatter
 // to avoid TS-generic-vs-JSX ambiguity in the template). ──────────────────────
@@ -108,28 +77,10 @@ interface TeamRow {
 }
 interface Division { name: string; conf: string; rows: TeamRow[]; }
 
-const TC: Record<string, [string, string]> = {
-  ANA:['#F47A38','#B09862'], BOS:['#FFB81C','#000000'], BUF:['#002654','#FDBB30'],
-  CAR:['#CC0000','#000000'], CBJ:['#002654','#CE1126'], CGY:['#C8102E','#F1BE48'],
-  CHI:['#CF0A2C','#000000'], COL:['#6F263D','#236192'], DAL:['#006847','#8F8F8C'],
-  DET:['#CE1126','#FFFFFF'], EDM:['#FF4C00','#041E42'], FLA:['#041E42','#C8102E'],
-  LAK:['#111111','#A2AAAD'], MIN:['#154734','#A6192E'], MTL:['#AF1E2D','#00205B'],
-  NSH:['#FFB81C','#041E42'], NJD:['#CE1126','#000000'], NYI:['#00539B','#F47D30'],
-  NYR:['#0038A8','#CE1126'], OTT:['#DA1A32','#000000'], PHI:['#FA4616','#000000'],
-  PIT:['#000000','#FCB514'], SEA:['#001628','#99D9D9'], SJS:['#006D75','#EA7200'],
-  STL:['#002F87','#FDB827'], TBL:['#00205B','#FFFFFF'], TOR:['#00205B','#FFFFFF'],
-  UTA:['#71AFE5','#090909'], VAN:['#00205B','#00843D'], VGK:['#B4975A','#333F48'],
-  WSH:['#041E42','#C8102E'], WPG:['#041E42','#004C97'],
-};
-function pickAbbrColor(abbr: string): string {
-  const palette = TC[abbr] ?? ['#E8002D','#0d0d14'];
-  const primary = palette[0];
-  const r = parseInt(primary.slice(1,3),16)/255;
-  const g = parseInt(primary.slice(3,5),16)/255;
-  const b = parseInt(primary.slice(5,7),16)/255;
-  const lum = (Math.max(r,g,b)+Math.min(r,g,b))/2;
-  return lum < 0.15 ? palette[1] : palette[0];
-}
+// Team colours + abbreviation display colour come from the canonical
+// src/lib/team-colors.ts (TEAM_COLORS = raw [primary, secondary] pair for the
+// card bar; pickTeamColor() applies the L<0.15 primary→secondary swap).
+const TC = TEAM_COLORS;
 
 const allTeamGames = loadAllTeamGames();
 function computeAnalytics(abbr: string): { xgfPct: number | null; last5: string[] } {
@@ -166,7 +117,7 @@ function buildRow(abbr: string): TeamRow | null {
     isEliminated: clinch === 'e',
     paletteA: palette[0],
     paletteB: palette[1],
-    abbrColor: pickAbbrColor(team.abbr),
+    abbrColor: pickTeamColor(team.abbr),
     xgfPct,
     last5,
   };

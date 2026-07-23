@@ -15,6 +15,7 @@ import HGBTable, {
   teamLogoSrc,
 } from './HGBTable';
 import type { TeamGameEntry } from '../../lib/stats-loader';
+import { useIsDark } from './FilterPrimitives';
 
 type Props = {
   rows: TeamGameEntry[];
@@ -37,16 +38,8 @@ const MUTED = 'rgba(13,13,20,0.48)';
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 export default function TeamGameLogTable({ rows, teamNames, initialOpp = '' }: Props) {
-  const [isDark, setIsDark] = useState(false);
+  const isDark = useIsDark();
   const [activeOpp, setActiveOpp] = useState(initialOpp);
-
-  useEffect(() => {
-    const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
-    check();
-    const obs = new MutationObserver(check);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => obs.disconnect();
-  }, []);
 
   // Listen for opponent filter changes from the vanilla dropdown
   useEffect(() => {

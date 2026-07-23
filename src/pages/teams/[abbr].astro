@@ -14,64 +14,57 @@ import GoaliesTable from '../../components/react/GoaliesTable';
 import type { GoalieRow } from '../../components/react/GoaliesTable';
 import { loadPlayers, loadAllTeamGames, loadTeamPlayerGames, loadGoalies, loadMeta } from '../../lib/stats-loader';
 import { pickTeamColor } from '../../lib/team-colors';
+import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
+import { fmtSeasonLong } from '../../lib/format-season';
+
+// Standings fallback: if the live fetch fails at build time, fall back to the
+// last-known-good standings committed in src/data/standings-fallback.json (verbatim
+// NHL API payload) rather than silently rendering '—' for all 32 pages. Mirrors the
+// pattern in src/pages/teams.astro. To refresh:
+//   curl https://api-web.nhle.com/v1/standings/now > src/data/standings-fallback.json
+//   and update fetched_at in standings-fallback.meta.json.
+import fallbackPayload from '../../data/standings-fallback.json';
+import fallbackMeta from '../../data/standings-fallback.meta.json';
+
+// Guard: if the fallback itself is malformed, fail the build loudly rather than silently.
+if (!(fallbackPayload as any)?.standings?.length) {
+  throw new Error('[teams/abbr] standings-fallback.json is missing or malformed — re-fetch before deploying');
+}
 
 export async function getStaticPaths() {
-  const TEAMS = [
-    { abbr: 'ANA', name: 'Anaheim Ducks' },
-    { abbr: 'BOS', name: 'Boston Bruins' },
-    { abbr: 'BUF', name: 'Buffalo Sabres' },
-    { abbr: 'CGY', name: 'Calgary Flames' },
-    { abbr: 'CAR', name: 'Carolina Hurricanes' },
-    { abbr: 'CHI', name: 'Chicago Blackhawks' },
-    { abbr: 'COL', name: 'Colorado Avalanche' },
-    { abbr: 'CBJ', name: 'Columbus Blue Jackets' },
-    { abbr: 'DAL', name: 'Dallas Stars' },
-    { abbr: 'DET', name: 'Detroit Red Wings' },
-    { abbr: 'EDM', name: 'Edmonton Oilers' },
-    { abbr: 'FLA', name: 'Florida Panthers' },
-    { abbr: 'LAK', name: 'Los Angeles Kings' },
-    { abbr: 'MIN', name: 'Minnesota Wild' },
-    { abbr: 'MTL', name: 'Montreal Canadiens' },
-    { abbr: 'NSH', name: 'Nashville Predators' },
-    { abbr: 'NJD', name: 'New Jersey Devils' },
-    { abbr: 'NYI', name: 'New York Islanders' },
-    { abbr: 'NYR', name: 'New York Rangers' },
-    { abbr: 'OTT', name: 'Ottawa Senators' },
-    { abbr: 'PHI', name: 'Philadelphia Flyers' },
-    { abbr: 'PIT', name: 'Pittsburgh Penguins' },
-    { abbr: 'SJS', name: 'San Jose Sharks' },
-    { abbr: 'SEA', name: 'Seattle Kraken' },
-    { abbr: 'STL', name: 'St. Louis Blues' },
-    { abbr: 'TBL', name: 'Tampa Bay Lightning' },
-    { abbr: 'TOR', name: 'Toronto Maple Leafs' },
-    { abbr: 'UTA', name: 'Utah Hockey Club' },
-    { abbr: 'VAN', name: 'Vancouver Canucks' },
-    { abbr: 'VGK', name: 'Vegas Golden Knights', xHandle: 'VGKGameBot_' },
-    { abbr: 'WSH', name: 'Washington Capitals' },
-    { abbr: 'WPG', name: 'Winnipeg Jets' },
-  ];
+  const TEAMS = NHL_TEAMS;
   // Full-name lookup passed as prop for client-side opponent dropdown
-  const TEAM_NAMES: Record<string, string> = Object.fromEntries(TEAMS.map(t => [t.abbr, t.name]));
+  const TEAM_NAMES: Record<string, string> = NHL_TEAM_NAMES;
   const allPlayers   = loadPlayers();
   const allTeamGames = loadAllTeamGames();
   const allGoalies   = loadGoalies();
 
-  // Fetch standings once for all 32 pages
+  // Fetch standings once for all 32 pages. On failure, fall back to the committed
+  // standings-fallback.json (same pattern as teams.astro) instead of leaving every
+  // page's record as '—'. Fallback is mid-season data, so suppress clinch/playoff
+  // styling to avoid stale badges during the offseason.
   const standings = new Map<string, { clinch: string | null; record: string }>();
   let playoffMode = false;
+  function processStandings(rows: any[]) {
+    for (const t of rows) {
+      const a: string = t.teamAbbrev?.default ?? '';
+      const clinch: string | null = t.clinchIndicator ?? null;
+      standings.set(a, { clinch, record: `${t.wins ?? 0}-${t.losses ?? 0}-${t.otLosses ?? 0}` });
+      if (clinch === 'x' || clinch === 'y' || clinch === 'z') playoffMode = true;
+    }
+  }
   try {
     const res = await fetch('https://api-web.nhle.com/v1/standings/now');
     if (res.ok) {
-      const data = await res.json();
-      for (const t of data.standings ?? []) {
-        const a: string = t.teamAbbrev?.default ?? '';
-        const clinch: string | null = t.clinchIndicator ?? null;
-        standings.set(a, { clinch, record: `${t.wins ?? 0}-${t.losses ?? 0}-${t.otLosses ?? 0}` });
-        if (clinch === 'x' || clinch === 'y' || clinch === 'z') playoffMode = true;
-      }
+      processStandings((await res.json()).standings ?? []);
+    } else {
+      throw new Error(`HTTP ${res.status}`);
     }
   } catch (e: any) {
-    console.warn(`[teams/abbr] Standings fetch failed (${e?.message ?? e}), standings will show as null for all teams.`);
+    console.warn(`[teams/abbr] Standings fetch failed (${e?.message ?? e}), using fallback from ${fallbackMeta.fetched_at}`);
+    processStandings((fallbackPayload as any).standings ?? []);
+    playoffMode = false;
+    for (const [a, s] of standings) { standings.set(a, { ...s, clinch: null }); }
   }
 
   return TEAMS.map(team => {
@@ -102,6 +95,7 @@ const { abbr, name, xHandle, stats, playoffMode,
 
 const teamColor  = pickTeamColor(abbr);
 const _meta      = loadMeta();
+const _seasonLong = fmtSeasonLong(_meta.season); // e.g. "2025–26" — sourced, not hardcoded
 const _statsDate = (() => { const d = new Date(_meta.generated_at); return d.getFullYear() >= 2020 ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null; })();
 const logoUrl    = `https://assets.nhle.com/logos/nhl/svg/${abbr}_light.svg`;
 const bskyHandle = `${abbr.toLowerCase()}.hockeygamebot.com`;
@@ -398,7 +392,7 @@ const initialOpp = '';
     <div class="mast-inner">
       <div class="mast-top">
         <div class="mast-eyebrow"><span class="pip"></span> HGB Stats · <a href="/teams">Teams</a> · {abbr}</div>
-        <div>2025–26 regular season</div>
+        <div>{_seasonLong} regular season</div>
       </div>
       <div class="mast-card" style={`border-left: 4px solid ${teamColor}`}>
         <div class="mast-identity">
@@ -449,7 +443,7 @@ const initialOpp = '';
       </div>
       <div class="overview-card">
         <div class="overview-head">
-          <span class="overview-meta" id="overview-meta">5v5 · 2025–26</span>
+          <span class="overview-meta" id="overview-meta">5v5 · {_seasonLong}</span>
         </div>
         <div class="overview-stats" id="overview-stats">
           <div class="ov-cell">
@@ -503,7 +497,7 @@ const initialOpp = '';
     <div class="table-card">
       <div class="table-head">
         <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;Goalies</span>
-        <span class="filter-meta">{teamGoalies.length} goalie{teamGoalies.length !== 1 ? 's' : ''} · 2025–26</span>
+        <span class="filter-meta">{teamGoalies.length} goalie{teamGoalies.length !== 1 ? 's' : ''} · {_seasonLong}</span>
       </div>
       <div class="react-table-wrap">
         {goalieRows.length === 0 ? (
@@ -536,7 +530,7 @@ const initialOpp = '';
     <div class="gl-card">
       <div class="gl-head">
         <span class="table-eyebrow"><span class="accent">{abbr}</span> &nbsp;Game Log</span>
-        <span class="filter-meta">{teamGames.length} games · 2025–26</span>
+        <span class="filter-meta">{teamGames.length} games · {_seasonLong}</span>
       </div>
       <div class="react-table-wrap">
         <TeamGameLogTable
@@ -573,7 +567,7 @@ const initialOpp = '';
   </div>
 </section>
 
-<footer>HOCKEYGAMEBOT.COM · {abbr} · 2025–2026</footer>
+<footer>HOCKEYGAMEBOT.COM · {abbr} · {_seasonLong}</footer>
 
 </body>
 </html>
@@ -588,7 +582,8 @@ import { getGamesToday } from '../../lib/hgb-api-client';
 </script>
 
 <script define:vars={{ teamGames, teamAbbr: abbr, teamName: name, TEAM_NAMES,
-  initXgf: allXgf, initXga: allXga, teamPlayersCount: teamPlayers.length }}>
+  initXgf: allXgf, initXga: allXga, teamPlayersCount: teamPlayers.length,
+  seasonLong: _seasonLong }}>
 
 // Wait for the hgb-api-client bridge (a deferred module) to attach.
 async function _getHgbApi() {
@@ -658,7 +653,7 @@ function updateOverview() {
   document.getElementById('ov-xgfpct').textContent  = xgfPct;
   document.getElementById('overview-accent').textContent = filterLabel;
   document.getElementById('overview-meta').textContent = activeOpp
-    ? `5v5 · ${games.length} games` : '5v5 · 2025–26';
+    ? `5v5 · ${games.length} games` : `5v5 · ${seasonLong}`;
 
   // Track for PNG export
   kpiState = { record, gf, ga, xgf, xga, xgfPct, filterLabel };
