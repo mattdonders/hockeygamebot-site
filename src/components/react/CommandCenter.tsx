@@ -278,6 +278,115 @@ export function CommandCenterTopImpact({ players }: { players: TopImpactRow[] })
   );
 }
 
+// ── Odds Mover ────────────────────────────────────────────────────────────────
+
+type OddsMoverTeam = {
+  team: string;
+  proj_points: number;
+  proj_points_delta: number | null;
+  playoff_pct: number;
+  playoff_pct_delta: number | null;
+  cup_pct: number;
+  cup_pct_delta: number | null;
+};
+
+type OddsMoverResponse = {
+  season: number;
+  updated_at: string;
+  prior_date: string | null;
+  teams: OddsMoverTeam[];
+  biggest_mover?: { team: string; metric: string; delta: number };
+};
+
+// Local dev / screenshot workflow: `?devodds=1` forces fixture mover data so
+// this section is visible without a live /v1/stats/odds-movers deploy. Gated
+// on import.meta.env.DEV exactly like `?devprefs=1` in auth-client.ts — this
+// can never activate in a production build regardless of query string.
+const DEV_ODDS_MOVERS: OddsMoverResponse = {
+  season: 2026,
+  updated_at: new Date().toISOString(),
+  prior_date: '2026-07-21',
+  teams: [
+    { team: 'NJD', proj_points: 101.4, proj_points_delta: 1.2, playoff_pct: 88.0, playoff_pct_delta: 3.0, cup_pct: 6.4, cup_pct_delta: 0.8 },
+    { team: 'SJS', proj_points: 71.8, proj_points_delta: -0.6, playoff_pct: 4.0, playoff_pct_delta: -0.5, cup_pct: 0.1, cup_pct_delta: 0.0 },
+  ],
+  biggest_mover: { team: 'NJD', metric: 'cup_pct', delta: 0.8 },
+};
+
+function devOddsRequested(): boolean {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return false;
+  try {
+    return new URLSearchParams(window.location.search).get('devodds') === '1';
+  } catch {
+    return false;
+  }
+}
+
+async function fetchOddsMovers(): Promise<OddsMoverResponse | null> {
+  if (devOddsRequested()) return DEV_ODDS_MOVERS;
+  const data = await safeJson(fetch(`${API}/v1/stats/odds-movers`));
+  if (!data || !Array.isArray(data.teams) || !data.teams.length) return null;
+  return data as OddsMoverResponse;
+}
+
+function DeltaGlyph({ delta }: { delta: number | null }) {
+  if (delta == null) return null;
+  if (delta > 0) return <span className="cc-odds-delta up">&#9650; {delta.toFixed(1)}</span>;
+  if (delta < 0) return <span className="cc-odds-delta down">&#9660; {Math.abs(delta).toFixed(1)}</span>;
+  return <span className="cc-odds-delta flat">&mdash;</span>;
+}
+
+function OddsMoverCell({ label, value, delta }: { label: string; value: string; delta: number | null }) {
+  return (
+    <div className="cc-odds-cell">
+      <div className="cc-odds-label">{label}</div>
+      <div className="cc-odds-value">{value}<DeltaGlyph delta={delta} /></div>
+    </div>
+  );
+}
+
+function OddsMoverRow({ t }: { t: OddsMoverTeam }) {
+  const isFirstSnapshot = t.cup_pct_delta == null && t.playoff_pct_delta == null && t.proj_points_delta == null;
+  return (
+    <div className="cc-odds-row">
+      <a href={`/teams/${t.team.toLowerCase()}`} className="cc-odds-team">{t.team}</a>
+      <OddsMoverCell label="CUP" value={`${t.cup_pct.toFixed(1)}%`} delta={t.cup_pct_delta} />
+      <OddsMoverCell label="PLAYOFF" value={`${Math.round(t.playoff_pct)}%`} delta={t.playoff_pct_delta} />
+      <OddsMoverCell label="PROJ PTS" value={t.proj_points.toFixed(1)} delta={t.proj_points_delta} />
+      {isFirstSnapshot && <div className="cc-odds-first-note">First snapshot tonight — deltas will appear tomorrow.</div>}
+    </div>
+  );
+}
+
+export function CommandCenterOddsMover() {
+  const [data, setData] = useState<OddsMoverResponse | null | undefined>(undefined);
+  const [teams, setTeams] = useState<string[]>([]);
+
+  useEffect(() => {
+    Promise.all([fetchPrefs(), fetchOddsMovers()]).then(([prefs, resp]) => {
+      setTeams(prefs.tracked_teams);
+      setData(resp);
+    }).catch(() => setData(null));
+  }, []);
+
+  // Undefined = still loading, null = no data/404 — both render nothing
+  // (invisible section) rather than an idle/error box, since a missing
+  // odds-movers feed is the expected pre-first-publish state.
+  if (!data) return null;
+
+  const rows = data.teams.filter(t => teams.includes(t.team));
+  if (!rows.length) return null;
+
+  return (
+    <div className="cc-section">
+      <div className="cc-head"><span className="cc-title">Odds Mover</span></div>
+      <div className="cc-odds-stack">
+        {rows.map(t => <OddsMoverRow key={t.team} t={t} />)}
+      </div>
+    </div>
+  );
+}
+
 // ── Signals ───────────────────────────────────────────────────────────────────
 
 export function CommandCenterSignals() {
