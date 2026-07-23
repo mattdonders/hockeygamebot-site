@@ -1,19 +1,28 @@
 /**
- * AttendedTracker — "Games I've Attended" tracker, Phase 0 (stateless).
+ * AttendedTracker — "Games I've Attended" tracker (Puck Passport).
  *
- * Everything the user "owns" (which games they attended) lives in localStorage
- * under `hgb_attended_games`. There is NO auth and NO server write in Phase 0;
- * this mirrors the logged-out filter-presets pattern (auth-client.ts
- * `mergeLocalPresets`) so a future Phase 1 can merge the local set into D1 on
- * login without a rewrite.
+ * Two data sources, ONE set of UI components (anti-divergence):
  *
- * Everything else on the page is DERIVED from public data:
- *   - Game lookup / add flow  →  GET /v1/games/today?date=YYYY-MM-DD
- *   - Per-game player stats    →  GET /v1/games/{id}/boxscore  (NHL API proxy)
- *   - Players seen (games-seen + goals) → derived from the same box scores
+ *   Logged OUT — the attended LIST lives in localStorage, and every aggregate
+ *   (counters, team records, arenas, players-seen, records, badges) is COMPUTED
+ *   client-side from public data:
+ *     - Game lookup / add flow  →  GET /v1/games/today?date=YYYY-MM-DD
+ *     - Per-game player stats    →  GET /v1/games/{id}/boxscore  (NHL API proxy)
  *
- * House rule — FAIL LOUD: box-score / stats fetch failures are surfaced in an
- * honest banner and per-counter warning markers, never silently shown as 0.
+ *   Logged IN — the list still comes from D1 (GET /v1/account/attended), but the
+ *   dashboard aggregates render FROM the server summary
+ *   (GET /v1/account/attended/summary) rather than recomputing client-side. The
+ *   server owns the numbers so web + iOS + share card can never disagree. The
+ *   summary also carries the Milestones-Witnessed feed the web now surfaces.
+ *   Box scores are NOT fetched in this state (the summary already has Shots +
+ *   Players-Seen) unless the summary fetch FAILS, in which case we fall back to
+ *   the client compute so the dashboard is never blanked.
+ *
+ * Badges (§2) render the FULL catalog either way: earned first (rarest-first)
+ * then unearned "ghost" chips as the collection/chase tease.
+ *
+ * House rule — FAIL LOUD: summary / box-score / stats fetch failures are surfaced
+ * in an honest banner and per-counter warning markers, never silently shown as 0.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -22,10 +31,12 @@ import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import {
-  computeEarnedBadges,
   computeRecords,
+  buildLocalCatalog,
+  sortCatalog,
+  parseOneInN,
   type BadgeBox,
-  type EarnedBadge,
+  type CatalogBadge,
   type GameRecord,
 } from './puck-passport-badges';
 
@@ -95,6 +106,78 @@ type D1AttendedRow = {
 
 /** team_id → abbrev/name, from GET /v1/config. */
 type TeamInfo = { abbrev: string; name: string };
+
+// ── Server summary (logged-in source of truth) ──────────────────────────────────
+// GET /v1/account/attended/summary. When logged in the whole dashboard renders
+// FROM this payload rather than recomputing client-side (anti-divergence): the
+// server owns the aggregates so the web + iOS + share card can never disagree.
+
+/** One server-computed single-game record. `sub` is the context line; `name` is
+ *  pre-resolved server-side (no client "F. Last" upgrade needed). */
+type SummaryRecord = {
+  label: string;
+  value: string;
+  sub: string;
+  game_id?: string;
+  player_id?: number;
+  name?: string;
+} | null;
+
+type SummaryMilestone = {
+  game_id: string;
+  game_date: string;
+  player_id: number;
+  player_name: string;
+  team_id: number;
+  team_abbrev: string;
+  stat: string;
+  target_value: number;
+  label: string;
+  achieved_at: string;
+};
+
+type AttendedSummary = {
+  counters: { games: number; periods: number; goals: number; shots: number; players_seen: number };
+  team_records: { abbrev: string; name: string; w: number; l: number }[];
+  arenas: { visited: number; total: number; list: { venue: string; count: number }[]; unknown: number };
+  players_seen: {
+    player_id: number;
+    name: string | null;
+    team: string;
+    pos: string;
+    games: number;
+    goals: number;
+  }[];
+  records: {
+    longest_game?: SummaryRecord;
+    highest_scoring?: SummaryRecord;
+    lowest_scoring?: SummaryRecord;
+    most_goals?: SummaryRecord;
+    most_points?: SummaryRecord;
+    most_shots?: SummaryRecord;
+  };
+  badges: {
+    earned: { id: string; label: string; family: string; count: number; rarity: string; note?: string }[];
+    catalog: {
+      id: string;
+      label: string;
+      family: string;
+      earned: boolean;
+      count: number;
+      rarity: string;
+      rarity_hint: string;
+      note?: string;
+      total?: number;
+    }[];
+  };
+  milestones: SummaryMilestone[];
+  box_incomplete: boolean;
+  missing_box_game_ids: string[];
+};
+
+/** A single-game record normalized for render — the same shape whether it came
+ *  from the server summary or the client `computeRecords` path. */
+type ViewRecord = { key: string; label: string; value: string; sub: string };
 
 // Raw shapes from /v1/games/today
 type RawTeam = { id: number; abbrev: string; name: string; score: number };
@@ -352,6 +435,50 @@ type SeenPlayerRow = {
   goals: number;
 };
 
+// ── Summary → render-shape mappers (logged-in path) ─────────────────────────────
+
+/** Map a server catalog entry → the shared CatalogBadge shape (§2). */
+function mapSummaryCatalog(c: AttendedSummary['badges']['catalog'][number]): CatalogBadge {
+  const ratio =
+    c.earned && c.count > 0 && c.total ? c.total / c.count : parseOneInN(c.rarity_hint);
+  return {
+    id: c.id,
+    label: c.label,
+    family: c.family,
+    earned: !!c.earned,
+    count: c.count ?? 0,
+    rarity: c.rarity ?? '',
+    rarityHint: c.rarity_hint ?? '',
+    note: c.note,
+    total: c.total,
+    rarityRatio: ratio,
+  };
+}
+
+/** Fixed display order for the summary's keyed records, mapped to the same record
+ *  keys the client path + share card use (so downstream logic is source-agnostic). */
+const SUMMARY_RECORD_ORDER: { field: keyof AttendedSummary['records']; key: string }[] = [
+  { field: 'longest_game', key: 'longest' },
+  { field: 'highest_scoring', key: 'highest' },
+  { field: 'lowest_scoring', key: 'lowest' },
+  { field: 'most_goals', key: 'player-goals' },
+  { field: 'most_points', key: 'player-points' },
+  { field: 'most_shots', key: 'player-shots' },
+];
+
+/** Normalize the summary's keyed records object → an ordered ViewRecord[] (nulls
+ *  dropped). Player records prefix the pre-resolved name onto the context line,
+ *  matching the client path's "Name · matchup" composition. */
+function summaryRecordsToView(recs: AttendedSummary['records']): ViewRecord[] {
+  const out: ViewRecord[] = [];
+  for (const { field, key } of SUMMARY_RECORD_ORDER) {
+    const r = recs[field];
+    if (!r) continue;
+    out.push({ key, label: r.label, value: r.value, sub: r.name ? `${r.name} · ${r.sub}` : r.sub });
+  }
+  return out;
+}
+
 // ── Counter card ─────────────────────────────────────────────────────────────────
 
 function Counter({
@@ -396,6 +523,31 @@ export default function AttendedTracker() {
   const [hydrated, setHydrated] = useState(false);
   const [d1Error, setD1Error] = useState(false); // FAIL LOUD: D1 list failed to load
   const [writeError, setWriteError] = useState<string | null>(null); // add/remove/sync failed
+
+  // Server summary (logged-in source of truth). null + summaryError ⇒ FAIL LOUD:
+  // banner + client-side fallback compute so the dashboard is never blanked.
+  const [summary, setSummary] = useState<AttendedSummary | null>(null);
+  const [summaryError, setSummaryError] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  /** Fetch (or refetch) the authed summary. FAIL LOUD on any failure: clears the
+   *  payload and flags the error so the render falls back to client compute. */
+  const loadSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    try {
+      const r = await apiFetch(`${API}/v1/account/attended/summary`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      if (!data || data.error || !data.counters || !data.badges) throw new Error('bad summary payload');
+      setSummary(data as AttendedSummary);
+      setSummaryError(false);
+    } catch {
+      setSummary(null);
+      setSummaryError(true);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, []);
 
   const commitDetail = useCallback((g: AttendedGame) => {
     detailsRef.current[g.game_id] = g;
@@ -535,6 +687,12 @@ export default function AttendedTracker() {
     };
   }, [isLoggedIn]);
 
+  // ── Load the server summary once logged in (source of truth for aggregates) ──
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    loadSummary();
+  }, [isLoggedIn, loadSummary]);
+
   // ── Reflect sync state in the masthead note (rendered in the Astro page) ─────
   useEffect(() => {
     if (!hydrated || typeof document === 'undefined') return;
@@ -574,8 +732,12 @@ export default function AttendedTracker() {
   }, []);
 
   // ── Fetch box scores for any attended game not yet derived ───────────────────
+  // Logged IN, the server summary already carries Shots + Players Seen + moment
+  // badges, so we skip the NHL-proxy fan-out entirely — UNLESS the summary failed
+  // to load, in which case we fetch boxes to power the client-side fallback.
   useEffect(() => {
     if (!hydrated || games.length === 0) return;
+    if (isLoggedIn && !summaryError) return;
     const missing = games.filter((g) => !boxCacheRef.current[g.game_id]);
     if (missing.length === 0) return;
 
@@ -614,7 +776,7 @@ export default function AttendedTracker() {
     return () => {
       cancelled = true;
     };
-  }, [games, hydrated]);
+  }, [games, hydrated, isLoggedIn, summaryError]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   // Logged-in writes go to D1 (optimistic, rolled back on failure); logged-out
@@ -654,8 +816,10 @@ export default function AttendedTracker() {
           return [row, ...rows];
         });
         postAttended(raw.game_id).then((ok) => {
-          if (ok) setWriteError(null);
-          else {
+          if (ok) {
+            setWriteError(null);
+            loadSummary(); // refetch aggregates from the server (anti-divergence)
+          } else {
             setWriteError('Could not save that game to your account — check your connection and try again.');
             setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
           }
@@ -669,7 +833,7 @@ export default function AttendedTracker() {
         });
       }
     },
-    [isLoggedIn, commitDetail],
+    [isLoggedIn, commitDetail, loadSummary],
   );
 
   const removeGame = useCallback(
@@ -685,6 +849,7 @@ export default function AttendedTracker() {
           .then((r) => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             setWriteError(null);
+            loadSummary(); // refetch aggregates from the server (anti-divergence)
           })
           .catch(() => {
             setWriteError('Could not remove that game from your account — check your connection and try again.');
@@ -698,7 +863,7 @@ export default function AttendedTracker() {
         });
       }
     },
-    [isLoggedIn],
+    [isLoggedIn, loadSummary],
   );
 
   const attendedIds = useMemo(() => new Set(games.map((g) => g.game_id)), [games]);
@@ -841,8 +1006,6 @@ export default function AttendedTracker() {
     return { goals, periods, shots, playersSeen: seen.size, seen, missingBox };
   }, [games, boxDerived]);
 
-  const boxIncomplete = boxErrors.length > 0;
-
   // Team W-L across attended (final) games.
   const teamRecords = useMemo(() => {
     const map = new Map<string, { abbrev: string; name: string; w: number; l: number }>();
@@ -912,16 +1075,10 @@ export default function AttendedTracker() {
       );
   }, [games, boxDerived, nameMap]);
 
-  // ── Badges (§2b) + single-game records (§2c) ────────────────────────────────
-  // All computed from data already in memory: game_results facts,
-  // last_period_type, game_id digits, and the cached box scores. Moment badges
-  // that need a box simply don't fire for un-hydrated games (FAIL-LOUD, not a
-  // silent 0). `boxDerived` (shots + players[]) is structurally a BadgeBox.
-  const earnedBadges = useMemo<EarnedBadge[]>(
-    () => computeEarnedBadges(games, boxDerived as Record<string, BadgeBox | undefined>),
-    [games, boxDerived],
-  );
-
+  // ── Single-game records (§2c), client path ──────────────────────────────────
+  // Computed from data already in memory (game_results facts, last_period_type,
+  // game_id digits, cached box scores). Moment records that need a box simply
+  // don't fire for un-hydrated games (FAIL-LOUD, not a silent 0).
   const records = useMemo<GameRecord[]>(
     () => computeRecords(games, boxDerived as Record<string, BadgeBox | undefined>),
     [games, boxDerived],
@@ -929,10 +1086,82 @@ export default function AttendedTracker() {
 
   // Arenas-Visited N/32 is a collection badge (distinct known venues), computed
   // separately from the per-game predicates. Only games with a known venue count.
-  const arenaBadge = useMemo(
+  const clientArenaBadge = useMemo(
     () => ({ visited: arenas.list.length, total: 32 }),
     [arenas.list.length],
   );
+
+  // ── Unified view layer (anti-divergence) ─────────────────────────────────────
+  // When logged IN and the summary loaded, EVERY aggregate below renders from the
+  // server payload (the source of truth). Logged OUT — or logged-in with a failed
+  // summary — falls back to the client-side compute above. Both feed identical UI.
+  const useSummary = isLoggedIn && summary != null && !summaryError;
+  // Logged-in but the summary hasn't arrived yet (and hasn't failed): box scores
+  // aren't fetched in this state, so box-derived figures show a pending marker
+  // rather than a misleading 0.
+  const summaryPending = isLoggedIn && summary == null && !summaryError;
+
+  const viewCounters = useMemo(() => {
+    if (useSummary && summary) {
+      const c = summary.counters;
+      return { games: c.games, periods: c.periods, goals: c.goals, shots: c.shots, playersSeen: c.players_seen };
+    }
+    return {
+      games: games.length,
+      periods: totals.periods,
+      goals: totals.goals,
+      shots: totals.shots,
+      playersSeen: totals.playersSeen,
+    };
+  }, [useSummary, summary, games.length, totals]);
+
+  const viewBoxIncomplete = useSummary && summary ? summary.box_incomplete : boxErrors.length > 0;
+  const viewMissingBoxCount =
+    useSummary && summary ? summary.missing_box_game_ids?.length ?? 0 : boxErrors.length;
+
+  const viewTeamRecords = useSummary && summary ? summary.team_records : teamRecords;
+
+  const viewArenas = useMemo(
+    () => (useSummary && summary ? { list: summary.arenas.list, unknown: summary.arenas.unknown } : arenas),
+    [useSummary, summary, arenas],
+  );
+  const viewArenaBadge =
+    useSummary && summary
+      ? { visited: summary.arenas.visited, total: summary.arenas.total }
+      : clientArenaBadge;
+
+  const viewSeenPlayers = useMemo<SeenPlayerRow[]>(() => {
+    if (useSummary && summary) {
+      return summary.players_seen.map((p) => ({
+        player_id: p.player_id,
+        name: p.name ?? nameMap?.get(p.player_id) ?? `#${p.player_id}`,
+        team: p.team,
+        pos: p.pos,
+        gamesSeen: p.games,
+        goals: p.goals,
+      }));
+    }
+    return seenPlayers;
+  }, [useSummary, summary, seenPlayers, nameMap]);
+
+  const viewRecords = useMemo<ViewRecord[]>(() => {
+    if (useSummary && summary) return summaryRecordsToView(summary.records);
+    // Client path: resolve player "F. Last" → "First Last" and compose the sub.
+    return records.map((r) => {
+      const name = r.playerId != null ? nameMap?.get(r.playerId) ?? r.playerName : null;
+      return { key: r.key, label: r.label, value: r.value, sub: name ? `${name} · ${r.sub}` : r.sub };
+    });
+  }, [useSummary, summary, records, nameMap]);
+
+  // Full badge catalog (§2): earned first (rarest-first) then ghost/unearned.
+  const catalog = useMemo<CatalogBadge[]>(() => {
+    if (useSummary && summary) return sortCatalog(summary.badges.catalog.map(mapSummaryCatalog));
+    return sortCatalog(buildLocalCatalog(games, boxDerived as Record<string, BadgeBox | undefined>));
+  }, [useSummary, summary, games, boxDerived]);
+  const earnedCount = useMemo(() => catalog.filter((c) => c.earned).length, [catalog]);
+
+  // Milestones Witnessed — server-provided; logged-out has no account, so none.
+  const milestones = useSummary && summary ? summary.milestones : [];
 
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
@@ -1119,24 +1348,35 @@ export default function AttendedTracker() {
         </div>
       ) : null}
       {writeError ? <div className="att-banner att-banner-warn">{writeError}</div> : null}
-      {boxIncomplete ? (
+      {summaryError ? (
         <div className="att-banner att-banner-warn">
-          Couldn't load box scores for {boxErrors.length} game{boxErrors.length === 1 ? '' : 's'} — Shots and Players
-          Seen may be incomplete. Reload to retry.
+          Couldn't load your Passport summary from your account — showing figures computed in this browser instead.
+          Reload to retry.
+        </div>
+      ) : null}
+      {viewBoxIncomplete ? (
+        <div className="att-banner att-banner-warn">
+          Couldn't load box scores for {viewMissingBoxCount} game{viewMissingBoxCount === 1 ? '' : 's'} — Shots and
+          Players Seen may be incomplete. Reload to retry.
         </div>
       ) : null}
 
       {/* Counter row */}
       <div className="att-counters">
-        <Counter label="Games" value={games.length} />
-        <Counter label="Periods" value={totals.periods} />
-        <Counter label="Goals" value={totals.goals} />
-        <Counter label="Shots" value={totals.shots} pending={boxLoading && totals.missingBox} warn={boxIncomplete} />
+        <Counter label="Games" value={viewCounters.games} />
+        <Counter label="Periods" value={viewCounters.periods} />
+        <Counter label="Goals" value={viewCounters.goals} />
+        <Counter
+          label="Shots"
+          value={viewCounters.shots}
+          pending={summaryPending || (boxLoading && totals.missingBox)}
+          warn={viewBoxIncomplete}
+        />
         <Counter
           label="Players Seen"
-          value={totals.playersSeen}
-          pending={boxLoading && totals.missingBox}
-          warn={boxIncomplete}
+          value={viewCounters.playersSeen}
+          pending={summaryPending || (boxLoading && totals.missingBox)}
+          warn={viewBoxIncomplete}
         />
       </div>
 
@@ -1411,74 +1651,99 @@ export default function AttendedTracker() {
         </div>
       ) : (
         <>
-          {/* Badges — earned across the attended set (§2b) */}
+          {/* Badges — full catalog: earned (rarest-first) then ghost/unearned (§2) */}
           <section className="att-section">
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
               <span className="att-section-meta">
-                {earnedBadges.length + (arenaBadge.visited > 0 ? 1 : 0)} earned
-                {boxLoading && totals.missingBox ? ' · scanning box scores…' : ''}
+                {earnedCount + (viewArenaBadge.visited > 0 ? 1 : 0)} earned · {catalog.length} to collect
+                {(summaryPending || (boxLoading && totals.missingBox)) ? ' · scanning box scores…' : ''}
               </span>
             </div>
             <div className="att-badges">
               {/* Arenas-visited collection badge (distinct known venues / 32) */}
-              {arenaBadge.visited > 0 ? (
+              {viewArenaBadge.visited > 0 ? (
                 <div className="att-badge att-badge-collection" data-family="collection">
                   <div className="att-badge-top">
                     <span className="att-badge-label">Arenas Visited</span>
                     <span className="att-badge-count">
-                      {arenaBadge.visited}/{arenaBadge.total}
+                      {viewArenaBadge.visited}/{viewArenaBadge.total}
                     </span>
                   </div>
                   <span className="att-badge-rarity">distinct arenas · collection</span>
                 </div>
               ) : null}
 
-              {earnedBadges.map((b) => (
-                <div className="att-badge" data-family={b.def.family} key={b.def.id}>
-                  <div className="att-badge-top">
-                    <span className="att-badge-label">{b.def.label}</span>
-                    <span className="att-badge-count">×{b.count}</span>
+              {catalog.map((c) =>
+                c.earned ? (
+                  // Earned chip
+                  <div className="att-badge" data-family={c.family} key={c.id}>
+                    <div className="att-badge-top">
+                      <span className="att-badge-label">{c.label}</span>
+                      <span className="att-badge-count">×{c.count}</span>
+                    </div>
+                    <span className="att-badge-rarity">
+                      {c.rarity ? `${c.rarity} games` : c.rarityHint}
+                      <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
+                    </span>
+                    {c.note ? <span className="att-badge-note">{c.note}</span> : null}
                   </div>
-                  <span className="att-badge-rarity">
-                    {b.rarity ? `${b.rarity} games` : b.def.rarityHint}
-                    <span className="att-badge-family"> · {b.def.family === 'game-type' ? 'type' : 'moment'}</span>
-                  </span>
-                  {b.def.note ? <span className="att-badge-note">{b.def.note}</span> : null}
-                </div>
-              ))}
-
-              {earnedBadges.length === 0 && arenaBadge.visited === 0 ? (
-                <div className="att-add-empty">
-                  No badges yet
-                  {boxLoading && totals.missingBox ? ' — box scores still loading.' : '.'}
-                </div>
-              ) : null}
+                ) : (
+                  // Ghost chip — dimmed/locked; the "1 in N" hint is the chase tease
+                  <div className="att-badge att-badge-ghost" data-family={c.family} key={c.id}>
+                    <div className="att-badge-top">
+                      <span className="att-badge-label">{c.label}</span>
+                      <span className="att-badge-ghost-tag">Locked</span>
+                    </div>
+                    <span className="att-badge-rarity">
+                      {c.rarityHint || 'not yet seen'}
+                      <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
+                    </span>
+                  </div>
+                ),
+              )}
             </div>
           </section>
 
           {/* Single-game records — extremes across the attended set (§2c) */}
-          {records.length > 0 ? (
+          {viewRecords.length > 0 ? (
             <section className="att-section">
               <div className="att-section-head">
                 <span className="att-section-label">Single-Game Records</span>
                 <span className="att-section-meta">your personal extremes</span>
               </div>
               <div className="att-records">
-                {records.map((r) => {
-                  // Upgrade box-score "F. Last" → "First Last" for player records
-                  // (same nameMap + graceful fallback as the Players Seen table).
-                  const name =
-                    r.playerId != null ? nameMap?.get(r.playerId) ?? r.playerName : null;
-                  const sub = name ? `${name} · ${r.sub}` : r.sub;
-                  return (
-                    <div className="att-record" key={r.key}>
-                      <div className="att-record-label">{r.label}</div>
-                      <div className="att-record-value">{r.value}</div>
-                      <div className="att-record-sub">{sub}</div>
+                {viewRecords.map((r) => (
+                  <div className="att-record" key={r.key}>
+                    <div className="att-record-label">{r.label}</div>
+                    <div className="att-record-value">{r.value}</div>
+                    <div className="att-record-sub">{r.sub}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {/* Milestones Witnessed — league milestones reached in a game you were at
+              (server-provided; logged-out has no account, so this stays hidden). */}
+          {milestones.length > 0 ? (
+            <section className="att-section">
+              <div className="att-section-head">
+                <span className="att-section-label">Milestones Witnessed</span>
+                <span className="att-section-meta">{milestones.length} in person</span>
+              </div>
+              <div className="att-milestones">
+                {milestones.map((m) => (
+                  <div className="att-milestone" key={`${m.game_id}-${m.player_id}-${m.stat}`}>
+                    <span className="att-milestone-dot" style={{ background: pickTeamColor(m.team_abbrev) }} />
+                    <div className="att-milestone-main">
+                      <span className="att-milestone-label">{m.label}</span>
+                      <span className="att-milestone-sub">
+                        {m.player_name} · {m.team_abbrev} · {m.game_date}
+                      </span>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </section>
           ) : null}
@@ -1504,11 +1769,11 @@ export default function AttendedTracker() {
                 <span className="att-section-label">Team Records</span>
                 <span className="att-section-meta">every team you've seen</span>
               </div>
-              {teamRecords.length === 0 ? (
+              {viewTeamRecords.length === 0 ? (
                 <div className="att-add-empty">No completed games yet.</div>
               ) : (
                 <div className="att-teams">
-                  {teamRecords.map((t) => (
+                  {viewTeamRecords.map((t) => (
                     <div className="att-team-row" key={t.abbrev}>
                       <span className="att-team-dot" style={{ background: pickTeamColor(t.abbrev) }} />
                       <span className="att-team-abbr">{t.abbrev}</span>
@@ -1525,19 +1790,19 @@ export default function AttendedTracker() {
             <section className="att-section">
               <div className="att-section-head">
                 <span className="att-section-label">Arenas Visited</span>
-                <span className="att-section-meta">{arenas.list.length} known</span>
+                <span className="att-section-meta">{viewArenas.list.length} known</span>
               </div>
-              {arenas.list.length === 0 && arenas.unknown === 0 ? (
+              {viewArenas.list.length === 0 && viewArenas.unknown === 0 ? (
                 <div className="att-add-empty">No games yet.</div>
               ) : (
                 <div className="att-arenas">
-                  {arenas.list.map((a) => (
+                  {viewArenas.list.map((a) => (
                     <div className="att-arena-row" key={a.venue}>
                       <span className="att-arena-name">{a.venue}</span>
                       <span className="att-arena-count">{a.count}</span>
                     </div>
                   ))}
-                  {arenas.unknown > 0 ? (
+                  {viewArenas.unknown > 0 ? (
                     <div className="att-arena-row att-arena-unknown">
                       <span className="att-arena-name">Venue unknown</span>
                       <span className="att-arena-count">{arenas.unknown}</span>
@@ -1552,15 +1817,15 @@ export default function AttendedTracker() {
           <section className="att-section">
             <div className="att-section-head">
               <span className="att-section-label">Players Seen</span>
-              <span className="att-section-meta">{seenPlayers.length} logged</span>
+              <span className="att-section-meta">{viewSeenPlayers.length} logged</span>
             </div>
-            {seenPlayers.length === 0 ? (
+            {viewSeenPlayers.length === 0 ? (
               <div className="att-add-empty">
                 No players yet — box scores may still be loading.
               </div>
             ) : (
               <HGBTable
-                data={seenPlayers}
+                data={viewSeenPlayers}
                 columns={seenCols}
                 defaultSort={{ id: 'gamesSeen', desc: true }}
                 toolbar={{ show: false }}

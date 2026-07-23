@@ -184,6 +184,77 @@ export function computeEarnedBadges(
   return earned;
 }
 
+// ── Full catalog: earned + ghost (unearned) badges (Workstream B2, §2) ───────────
+
+/** One entry in the FULL badge catalog — earned or not. Shared render shape for
+ *  both the logged-in (server summary) and logged-out (client-computed) paths so
+ *  the two states render identical chips (anti-divergence). */
+export interface CatalogBadge {
+  id: string;
+  label: string;
+  family: string; // 'game-type' | 'moment' (string: tolerant of server families)
+  earned: boolean;
+  count: number; // attended games satisfying it (0 when unearned)
+  /** Computed "1 in N" over the user's own set (earned only; '' when unearned). */
+  rarity: string;
+  /** Static "1 in N" seed from config — the tease shown on ghost chips. */
+  rarityHint: string;
+  note?: string;
+  total?: number; // rarity denominator (attended count), when known
+  /** Numeric rarity for sorting: earned = total/count (higher ⇒ rarer); unearned
+   *  = the hint's N. Populated by the builders below. */
+  rarityRatio: number;
+}
+
+/** Parse a "1 in N" rarity string → N (a bare number). Falls back to 1 for
+ *  "every game"/empty so it never sorts a real badge to infinity. */
+export function parseOneInN(s: string | undefined | null): number {
+  if (!s) return 1;
+  const m = s.match(/1\s*in\s*([\d.]+)/i);
+  if (m) return Number(m[1]) || 1;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/** Build the FULL catalog (earned + unearned) client-side from BADGES — the
+ *  logged-OUT path. Mirrors the server summary's `badges.catalog` shape so the
+ *  UI is source-agnostic. Rarity is computed over the user's own attended set. */
+export function buildLocalCatalog(
+  games: BadgeGame[],
+  boxByGameId: Record<string, BadgeBox | undefined>,
+): CatalogBadge[] {
+  const total = games.length;
+  return BADGES.map((def) => {
+    let count = 0;
+    for (const g of games) {
+      if (def.earns(g, boxByGameId[g.game_id])) count += 1;
+    }
+    const earned = count > 0;
+    return {
+      id: def.id,
+      label: def.label,
+      family: def.family,
+      earned,
+      count,
+      rarity: earned ? formatRarity(count, total) : '',
+      rarityHint: def.rarityHint,
+      note: def.note,
+      total,
+      rarityRatio: earned && count > 0 ? total / count : parseOneInN(def.rarityHint),
+    };
+  });
+}
+
+/** Sort a catalog for display: EARNED first (rarest ⇒ highest ratio first), then
+ *  UNEARNED ghost chips (most attainable ⇒ lowest hint-N first, as the chase). */
+export function sortCatalog(cat: CatalogBadge[]): CatalogBadge[] {
+  return [...cat].sort((a, b) => {
+    if (a.earned !== b.earned) return a.earned ? -1 : 1;
+    if (a.earned) return b.rarityRatio - a.rarityRatio; // rarest earned first
+    return a.rarityRatio - b.rarityRatio; // attainable ghosts first
+  });
+}
+
 // ── Single-game records (extremes across the attended set — §2c) ────────────────
 
 export interface GameRecord {
