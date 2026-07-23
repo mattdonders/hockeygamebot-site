@@ -331,9 +331,18 @@ async function fetchOddsMovers(): Promise<OddsMoverResponse | null> {
 
 function DeltaGlyph({ delta }: { delta: number | null }) {
   if (delta == null) return null;
-  if (delta > 0) return <span style={{ color: 'var(--stats-pos)' }}>&nbsp;&#9650;{delta.toFixed(1)}</span>;
-  if (delta < 0) return <span style={{ color: 'var(--stats-neg)' }}>&nbsp;&#9660;{Math.abs(delta).toFixed(1)}</span>;
-  return <span style={{ color: 'var(--ink-32)' }}>&nbsp;&mdash;</span>;
+  if (delta > 0) return <span className="cc-odds-delta up">&#9650; {delta.toFixed(1)}</span>;
+  if (delta < 0) return <span className="cc-odds-delta down">&#9660; {Math.abs(delta).toFixed(1)}</span>;
+  return <span className="cc-odds-delta flat">&mdash;</span>;
+}
+
+function OddsMoverCell({ label, value, delta }: { label: string; value: string; delta: number | null }) {
+  return (
+    <div className="cc-odds-cell">
+      <div className="cc-odds-label">{label}</div>
+      <div className="cc-odds-value">{value}<DeltaGlyph delta={delta} /></div>
+    </div>
+  );
 }
 
 function OddsMoverRow({ t }: { t: OddsMoverTeam }) {
@@ -341,13 +350,9 @@ function OddsMoverRow({ t }: { t: OddsMoverTeam }) {
   return (
     <div className="cc-odds-row">
       <a href={`/teams/${t.team.toLowerCase()}`} className="cc-odds-team">{t.team}</a>
-      <div className="cc-odds-metrics">
-        <span className="cc-odds-metric"><span className="cc-odds-label">CUP</span> {t.cup_pct.toFixed(1)}%<DeltaGlyph delta={t.cup_pct_delta} /></span>
-        <span className="cc-odds-sep">&middot;</span>
-        <span className="cc-odds-metric"><span className="cc-odds-label">PLAYOFF</span> {Math.round(t.playoff_pct)}%<DeltaGlyph delta={t.playoff_pct_delta} /></span>
-        <span className="cc-odds-sep">&middot;</span>
-        <span className="cc-odds-metric"><span className="cc-odds-label">PROJ</span> {t.proj_points.toFixed(1)}<DeltaGlyph delta={t.proj_points_delta} /></span>
-      </div>
+      <OddsMoverCell label="CUP" value={`${t.cup_pct.toFixed(1)}%`} delta={t.cup_pct_delta} />
+      <OddsMoverCell label="PLAYOFF" value={`${Math.round(t.playoff_pct)}%`} delta={t.playoff_pct_delta} />
+      <OddsMoverCell label="PROJ PTS" value={t.proj_points.toFixed(1)} delta={t.proj_points_delta} />
       {isFirstSnapshot && <div className="cc-odds-first-note">First snapshot tonight — deltas will appear tomorrow.</div>}
     </div>
   );
