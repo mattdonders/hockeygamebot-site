@@ -20,10 +20,20 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
+import {
+  computeEarnedBadges,
+  computeRecords,
+  type BadgeBox,
+  type EarnedBadge,
+  type GameRecord,
+} from './puck-passport-badges';
 
 const API = 'https://api.hockeygamebot.com';
 const STORAGE_KEY = 'hgb_puck_passport_games';
-const BOX_CACHE_KEY = 'hgb_puck_passport_boxcache_v2';
+// v3: box cache now carries per-player assists/points/pim/sog (needed for the
+// moment badges + player records). Bumping the key forces a clean re-derive so
+// no badge under-fires off a v2 entry missing the new fields (FAIL LOUD).
+const BOX_CACHE_KEY = 'hgb_puck_passport_boxcache_v3';
 // Display snapshot cache (venue, period type, team abbrev/name/score) keyed by
 // game_id. This is what lets the logged-in D1 list — which carries only team
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
@@ -47,8 +57,20 @@ type AttendedGame = {
   added_at: string; // ISO
 };
 
-/** A single player as seen in one game's box score. */
-type BoxPlayer = { id: number; name: string; pos: string; team: string; goals: number };
+/** A single player as seen in one game's box score. Carries the full stat line
+ *  the moment-badges + player records read (assists/points/pim/sog), not just
+ *  goals. */
+type BoxPlayer = {
+  id: number;
+  name: string;
+  pos: string;
+  team: string;
+  goals: number;
+  assists: number;
+  points: number;
+  pim: number;
+  sog: number;
+};
 
 /** Derived-from-boxscore, cached per (final) game_id — finals are immutable. */
 type BoxDerived = { shots: number; players: BoxPlayer[] };
@@ -252,14 +274,21 @@ function deriveFromBoxscore(box: any): BoxDerived {
       const group = Array.isArray(side[groupKey]) ? side[groupKey] : [];
       for (const p of group) {
         if (typeof p?.playerId !== 'number') continue;
+        const goals = typeof p?.goals === 'number' ? p.goals : 0;
+        const assists = typeof p?.assists === 'number' ? p.assists : 0;
+        const sog = typeof p?.sog === 'number' ? p.sog : 0; // goalies have no sog
         players.push({
           id: p.playerId,
           name: playerName(p),
           pos: p?.position ?? '',
           team: abbrevFor[sideKey],
-          goals: typeof p?.goals === 'number' ? p.goals : 0,
+          goals,
+          assists,
+          points: typeof p?.points === 'number' ? p.points : goals + assists,
+          pim: typeof p?.pim === 'number' ? p.pim : 0,
+          sog,
         });
-        if (typeof p?.sog === 'number') shots += p.sog; // goalies have no sog
+        shots += sog;
       }
     }
   }
@@ -737,6 +766,28 @@ export default function AttendedTracker() {
       );
   }, [games, boxDerived, nameMap]);
 
+  // ── Badges (§2b) + single-game records (§2c) ────────────────────────────────
+  // All computed from data already in memory: game_results facts,
+  // last_period_type, game_id digits, and the cached box scores. Moment badges
+  // that need a box simply don't fire for un-hydrated games (FAIL-LOUD, not a
+  // silent 0). `boxDerived` (shots + players[]) is structurally a BadgeBox.
+  const earnedBadges = useMemo<EarnedBadge[]>(
+    () => computeEarnedBadges(games, boxDerived as Record<string, BadgeBox | undefined>),
+    [games, boxDerived],
+  );
+
+  const records = useMemo<GameRecord[]>(
+    () => computeRecords(games, boxDerived as Record<string, BadgeBox | undefined>),
+    [games, boxDerived],
+  );
+
+  // Arenas-Visited N/32 is a collection badge (distinct known venues), computed
+  // separately from the per-game predicates. Only games with a known venue count.
+  const arenaBadge = useMemo(
+    () => ({ visited: arenas.list.length, total: 32 }),
+    [arenas.list.length],
+  );
+
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
     () => [
@@ -1030,6 +1081,78 @@ export default function AttendedTracker() {
         </div>
       ) : (
         <>
+          {/* Badges — earned across the attended set (§2b) */}
+          <section className="att-section">
+            <div className="att-section-head">
+              <span className="att-section-label">Badges</span>
+              <span className="att-section-meta">
+                {earnedBadges.length + (arenaBadge.visited > 0 ? 1 : 0)} earned
+                {boxLoading && totals.missingBox ? ' · scanning box scores…' : ''}
+              </span>
+            </div>
+            <div className="att-badges">
+              {/* Arenas-visited collection badge (distinct known venues / 32) */}
+              {arenaBadge.visited > 0 ? (
+                <div className="att-badge att-badge-collection" data-family="collection">
+                  <div className="att-badge-top">
+                    <span className="att-badge-label">Arenas Visited</span>
+                    <span className="att-badge-count">
+                      {arenaBadge.visited}/{arenaBadge.total}
+                    </span>
+                  </div>
+                  <span className="att-badge-rarity">distinct arenas · collection</span>
+                </div>
+              ) : null}
+
+              {earnedBadges.map((b) => (
+                <div className="att-badge" data-family={b.def.family} key={b.def.id}>
+                  <div className="att-badge-top">
+                    <span className="att-badge-label">{b.def.label}</span>
+                    <span className="att-badge-count">×{b.count}</span>
+                  </div>
+                  <span className="att-badge-rarity">
+                    {b.rarity ? `${b.rarity} games` : b.def.rarityHint}
+                    <span className="att-badge-family"> · {b.def.family === 'game-type' ? 'type' : 'moment'}</span>
+                  </span>
+                  {b.def.note ? <span className="att-badge-note">{b.def.note}</span> : null}
+                </div>
+              ))}
+
+              {earnedBadges.length === 0 && arenaBadge.visited === 0 ? (
+                <div className="att-add-empty">
+                  No badges yet
+                  {boxLoading && totals.missingBox ? ' — box scores still loading.' : '.'}
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          {/* Single-game records — extremes across the attended set (§2c) */}
+          {records.length > 0 ? (
+            <section className="att-section">
+              <div className="att-section-head">
+                <span className="att-section-label">Single-Game Records</span>
+                <span className="att-section-meta">your personal extremes</span>
+              </div>
+              <div className="att-records">
+                {records.map((r) => {
+                  // Upgrade box-score "F. Last" → "First Last" for player records
+                  // (same nameMap + graceful fallback as the Players Seen table).
+                  const name =
+                    r.playerId != null ? nameMap?.get(r.playerId) ?? r.playerName : null;
+                  const sub = name ? `${name} · ${r.sub}` : r.sub;
+                  return (
+                    <div className="att-record" key={r.key}>
+                      <div className="att-record-label">{r.label}</div>
+                      <div className="att-record-value">{r.value}</div>
+                      <div className="att-record-sub">{sub}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
           {/* Games list */}
           <section className="att-section">
             <div className="att-section-head">
