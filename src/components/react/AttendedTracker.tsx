@@ -1298,6 +1298,8 @@ export default function AttendedTracker() {
                               <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
                               <span className="att-add-at">@</span>
                               <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
+                            </span>
+                            <span className="att-add-type">
                               {chip ? <span className="att-chip">{chip}</span> : null}
                             </span>
                             <span className="att-add-score">
