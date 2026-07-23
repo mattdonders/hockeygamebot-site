@@ -19,10 +19,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
+import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 
 const API = 'https://api.hockeygamebot.com';
-const STORAGE_KEY = 'hgb_attended_games';
-const BOX_CACHE_KEY = 'hgb_attended_boxcache_v2';
+const STORAGE_KEY = 'hgb_puck_passport_games';
+const BOX_CACHE_KEY = 'hgb_puck_passport_boxcache_v2';
+// Display snapshot cache (venue, period type, team abbrev/name/score) keyed by
+// game_id. This is what lets the logged-in D1 list — which carries only team
+// *ids* and no venue — still render arenas + OT/SO chips on the device that
+// logged the game. Cross-device games fall back to /v1/config + game_results.
+const DETAILS_KEY = 'hgb_puck_passport_details_v1';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,6 +52,26 @@ type BoxPlayer = { id: number; name: string; pos: string; team: string; goals: n
 
 /** Derived-from-boxscore, cached per (final) game_id — finals are immutable. */
 type BoxDerived = { shots: number; players: BoxPlayer[] };
+
+/** One row from the (now hydrated) GET /v1/account/attended — the attendance
+ *  record LEFT JOINed to game_results. Game facts are null for games with no
+ *  game_results row yet (e.g. older seasons). */
+type D1AttendedRow = {
+  game_id: string;
+  rooted_for: number | null;
+  notes: string | null;
+  source: string;
+  created_at: string;
+  game_date: string | null;
+  home_team_id: number | null;
+  away_team_id: number | null;
+  home_score: number | null;
+  away_score: number | null;
+  is_final: number | null;
+};
+
+/** team_id → abbrev/name, from GET /v1/config. */
+type TeamInfo = { abbrev: string; name: string };
 
 // Raw shapes from /v1/games/today
 type RawTeam = { id: number; abbrev: string; name: string; score: number };
@@ -94,6 +120,85 @@ function writeBoxCache(cache: Record<string, BoxDerived>): void {
   } catch {
     /* ignore */
   }
+}
+
+function readDetails(): Record<string, AttendedGame> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = JSON.parse(localStorage.getItem(DETAILS_KEY) ?? '{}');
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDetails(cache: Record<string, AttendedGame>): void {
+  try {
+    localStorage.setItem(DETAILS_KEY, JSON.stringify(cache));
+  } catch {
+    /* ignore */
+  }
+}
+
+// ── D1 (logged-in) source ─────────────────────────────────────────────────────
+
+/** GET /v1/account/attended → hydrated rows, or null on any failure (FAIL LOUD:
+ *  the caller surfaces a banner rather than rendering an empty list as truth). */
+async function fetchD1Attended(): Promise<D1AttendedRow[] | null> {
+  try {
+    const r = await apiFetch(`${API}/v1/account/attended`);
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data || data.error || !Array.isArray(data.attended)) return null;
+    return data.attended as D1AttendedRow[];
+  } catch {
+    return null;
+  }
+}
+
+/** POST /v1/account/attended (upsert). Returns true on success. */
+async function postAttended(gameId: string): Promise<boolean> {
+  try {
+    const r = await apiFetch(`${API}/v1/account/attended`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ game_id: gameId }),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Map a hydrated D1 row → the render shape. Prefers fresh game_results facts,
+ *  falling back to the local display snapshot (venue, OT/SO, or older games with
+ *  no game_results row) and finally /v1/config for team abbrev/name. */
+function mapD1Row(
+  r: D1AttendedRow,
+  configMap: Map<number, TeamInfo>,
+  details: Record<string, AttendedGame>,
+): AttendedGame {
+  const snap = details[r.game_id];
+  const side = (id: number | null, score: number | null, snapSide?: TeamSide): TeamSide => {
+    const info = id != null ? configMap.get(id) : undefined;
+    return {
+      id: id ?? snapSide?.id ?? 0,
+      abbrev: info?.abbrev ?? snapSide?.abbrev ?? (id != null ? String(id) : '?'),
+      name: info?.name ?? snapSide?.name ?? '',
+      score: score ?? snapSide?.score ?? 0,
+    };
+  };
+  const isFinal = r.is_final != null ? !!r.is_final : snap?.status === 'final';
+  return {
+    game_id: r.game_id,
+    date: r.game_date ?? snap?.date ?? '',
+    home: side(r.home_team_id, r.home_score, snap?.home),
+    away: side(r.away_team_id, r.away_score, snap?.away),
+    venue: snap?.venue ?? null,
+    last_period_type: snap?.last_period_type ?? null,
+    status: isFinal ? 'final' : snap?.status ?? 'scheduled',
+    added_at: r.created_at ?? snap?.added_at ?? '',
+  };
 }
 
 // ── Small derivations ───────────────────────────────────────────────────────────
@@ -203,8 +308,32 @@ function Counter({
 // ── Main component ───────────────────────────────────────────────────────────────
 
 export default function AttendedTracker() {
-  const [games, setGames] = useState<AttendedGame[]>([]);
+  // Source of the attended LIST depends on auth:
+  //   logged-OUT → localGames (localStorage, Phase 0 behavior).
+  //   logged-IN  → d1Rows (GET /v1/account/attended), mapped via config + details.
+  // The derived `games` below is the single render source either way.
+  const [localGames, setLocalGames] = useState<AttendedGame[]>([]);
+  const [d1Rows, setD1Rows] = useState<D1AttendedRow[] | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [configMap, setConfigMap] = useState<Map<number, TeamInfo>>(new Map());
+  const detailsRef = useRef<Record<string, AttendedGame>>({});
+  const [detailsVersion, setDetailsVersion] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const [d1Error, setD1Error] = useState(false); // FAIL LOUD: D1 list failed to load
+  const [writeError, setWriteError] = useState<string | null>(null); // add/remove/sync failed
+
+  const commitDetail = useCallback((g: AttendedGame) => {
+    detailsRef.current[g.game_id] = g;
+    writeDetails(detailsRef.current);
+    setDetailsVersion((v) => v + 1);
+  }, []);
+
+  // Single render source: mapped D1 rows when logged in, else localStorage list.
+  const games = useMemo<AttendedGame[]>(() => {
+    if (isLoggedIn) return (d1Rows ?? []).map((r) => mapD1Row(r, configMap, detailsRef.current));
+    return localGames;
+    // detailsVersion forces a recompute when a display snapshot is written.
+  }, [isLoggedIn, d1Rows, localGames, configMap, detailsVersion]);
 
   // Box-score derived counters
   const boxCacheRef = useRef<Record<string, BoxDerived>>({});
@@ -222,18 +351,106 @@ export default function AttendedTracker() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [matchupFilter, setMatchupFilter] = useState('');
 
-  // ── Hydrate from localStorage on mount ──────────────────────────────────────
+  // ── Hydrate + resolve auth on mount ──────────────────────────────────────────
+  // Logged-out: read the localStorage list (Phase 0). Logged-in: merge any local
+  // games into D1 (mergeLocalPresets pattern), then load the D1 list as source.
   useEffect(() => {
-    setGames(readAttended());
+    detailsRef.current = readDetails();
     boxCacheRef.current = readBoxCache();
     setBoxDerived({ ...boxCacheRef.current });
-    setHydrated(true);
     // Default the date picker to today (local).
     const t = new Date();
     setSearchDate(
       `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`,
     );
+
+    let cancelled = false;
+    (async () => {
+      const token = getSessionToken();
+      const me = token ? await getMe() : null;
+      if (cancelled) return;
+
+      if (!me) {
+        setLocalGames(readAttended());
+        setIsLoggedIn(false);
+        setHydrated(true);
+        return;
+      }
+
+      // ── Merge-on-login (mirrors auth-client mergeLocalPresets) ──────────────
+      const local = readAttended();
+      if (local.length > 0) {
+        // Preserve each local game's display snapshot so venue/OT survive the
+        // switch to the (id-only) D1 source on this device.
+        for (const g of local) detailsRef.current[g.game_id] = g;
+        writeDetails(detailsRef.current);
+        // Upsert each into D1; server dedupes on (user_id, game_id).
+        let allOk = true;
+        for (const g of local) {
+          const ok = await postAttended(g.game_id);
+          if (!ok) allOk = false;
+        }
+        if (cancelled) return;
+        // Only clear the local LIST once every game is safely in D1 (FAIL LOUD:
+        // never drop local data on a partial sync). Box + details caches stay.
+        if (allOk) writeAttended([]);
+        else
+          setWriteError(
+            'Some games saved in this browser could not be synced to your account — they are still on this device. Reload to retry.',
+          );
+      }
+
+      const rows = await fetchD1Attended();
+      if (cancelled) return;
+      if (rows) {
+        setD1Rows(rows);
+        setD1Error(false);
+      } else {
+        setD1Rows([]);
+        setD1Error(true);
+      }
+      setDetailsVersion((v) => v + 1);
+      setIsLoggedIn(true);
+      setHydrated(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // ── team_id → abbrev/name (only needed for the logged-in D1 list) ────────────
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/v1/config`);
+        if (!r.ok) return;
+        const data = await r.json();
+        const m = new Map<number, TeamInfo>();
+        for (const team of data.teams ?? []) {
+          if (typeof team.id === 'number') m.set(team.id, { abbrev: team.abbrev, name: team.name });
+        }
+        if (!cancelled) setConfigMap(m);
+      } catch {
+        /* non-fatal: mapD1Row falls back to the local snapshot / numeric id */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
+
+  // ── Reflect sync state in the masthead note (rendered in the Astro page) ─────
+  useEffect(() => {
+    if (!hydrated || typeof document === 'undefined') return;
+    const el = document.getElementById('att-mast-note');
+    if (el)
+      el.textContent = isLoggedIn
+        ? '// Synced to your account — your games follow you across devices.'
+        : '// Saved in this browser only. Sign in to sync across devices.';
+  }, [hydrated, isLoggedIn]);
 
   // ── Name upgrade: First Last from players.json (HGB never shows "F. Last") ────
   // Box scores only carry the abbreviated `name.default` ("F. Last"). players.json
@@ -307,34 +524,89 @@ export default function AttendedTracker() {
   }, [games, hydrated]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
-  const addGame = useCallback((raw: RawGame) => {
-    setGames((prev) => {
-      if (prev.some((g) => g.game_id === raw.game_id)) return prev;
-      const next: AttendedGame[] = [
-        ...prev,
-        {
-          game_id: raw.game_id,
-          date: raw.date,
-          home: raw.home_team,
-          away: raw.away_team,
-          venue: raw.venue ?? null,
-          last_period_type: raw.last_period_type ?? null,
-          status: raw.status,
-          added_at: new Date().toISOString(),
-        },
-      ];
-      writeAttended(next);
-      return next;
-    });
-  }, []);
+  // Logged-in writes go to D1 (optimistic, rolled back on failure); logged-out
+  // writes stay in localStorage. A display snapshot is always cached so the
+  // logged-in (id-only) source can still render venue/OT on this device.
+  const addGame = useCallback(
+    (raw: RawGame) => {
+      const snap: AttendedGame = {
+        game_id: raw.game_id,
+        date: raw.date,
+        home: raw.home_team,
+        away: raw.away_team,
+        venue: raw.venue ?? null,
+        last_period_type: raw.last_period_type ?? null,
+        status: raw.status,
+        added_at: new Date().toISOString(),
+      };
+      commitDetail(snap);
 
-  const removeGame = useCallback((gameId: string) => {
-    setGames((prev) => {
-      const next = prev.filter((g) => g.game_id !== gameId);
-      writeAttended(next);
-      return next;
-    });
-  }, []);
+      if (isLoggedIn) {
+        setD1Rows((prev) => {
+          const rows = prev ?? [];
+          if (rows.some((r) => r.game_id === raw.game_id)) return rows;
+          const row: D1AttendedRow = {
+            game_id: raw.game_id,
+            rooted_for: null,
+            notes: null,
+            source: 'manual',
+            created_at: snap.added_at,
+            game_date: raw.date,
+            home_team_id: raw.home_team.id,
+            away_team_id: raw.away_team.id,
+            home_score: raw.home_team.score,
+            away_score: raw.away_team.score,
+            is_final: raw.status === 'final' ? 1 : 0,
+          };
+          return [row, ...rows];
+        });
+        postAttended(raw.game_id).then((ok) => {
+          if (ok) setWriteError(null);
+          else {
+            setWriteError('Could not save that game to your account — check your connection and try again.');
+            setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
+          }
+        });
+      } else {
+        setLocalGames((prev) => {
+          if (prev.some((g) => g.game_id === raw.game_id)) return prev;
+          const next = [...prev, snap];
+          writeAttended(next);
+          return next;
+        });
+      }
+    },
+    [isLoggedIn, commitDetail],
+  );
+
+  const removeGame = useCallback(
+    (gameId: string) => {
+      if (isLoggedIn) {
+        let removed: D1AttendedRow | undefined;
+        setD1Rows((prev) => {
+          const rows = prev ?? [];
+          removed = rows.find((r) => r.game_id === gameId);
+          return rows.filter((r) => r.game_id !== gameId);
+        });
+        apiFetch(`${API}/v1/account/attended/${gameId}`, { method: 'DELETE' })
+          .then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            setWriteError(null);
+          })
+          .catch(() => {
+            setWriteError('Could not remove that game from your account — check your connection and try again.');
+            if (removed) setD1Rows((prev) => [removed as D1AttendedRow, ...(prev ?? [])]);
+          });
+      } else {
+        setLocalGames((prev) => {
+          const next = prev.filter((g) => g.game_id !== gameId);
+          writeAttended(next);
+          return next;
+        });
+      }
+    },
+    [isLoggedIn],
+  );
 
   const attendedIds = useMemo(() => new Set(games.map((g) => g.game_id)), [games]);
 
@@ -644,6 +916,12 @@ export default function AttendedTracker() {
   return (
     <div className="att-root">
       {/* FAIL-LOUD banners */}
+      {d1Error ? (
+        <div className="att-banner att-banner-warn">
+          Couldn't load your saved games from your account — this list may be incomplete. Reload to try again.
+        </div>
+      ) : null}
+      {writeError ? <div className="att-banner att-banner-warn">{writeError}</div> : null}
       {boxIncomplete ? (
         <div className="att-banner att-banner-warn">
           Couldn't load box scores for {boxErrors.length} game{boxErrors.length === 1 ? '' : 's'} — Shots and Players
@@ -746,7 +1024,8 @@ export default function AttendedTracker() {
         <div className="att-empty">
           <div className="att-empty-title">No games yet</div>
           <div className="att-empty-sub">
-            Use "Add Games" above to log the first game you attended. Your list is saved in this browser.
+            Use "Add Games" above to log the first game you attended.{' '}
+            {isLoggedIn ? 'Your list is synced to your account.' : 'Your list is saved in this browser.'}
           </div>
         </div>
       ) : (
