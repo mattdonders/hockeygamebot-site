@@ -25,16 +25,19 @@
  *                      compact header, scaled to this card).
  *   • Number captions  Barlow 600 9px (their '600 9px "Barlow"' stat label).
  *   • Eyebrows/meta     JetBrains Mono 700 8–9px (their '700 9/10px' eyebrows).
+ *   • Readouts          JetBrains Mono, light-ink — the badge-rarity + record
+ *                      context strings share ONE mono/light-gray idiom (mirrors
+ *                      the on-page .att-badge-rarity / .att-record-sub CSS).
  *   • Footer            compact INK10 band, centred mono/condensed at FOOT_INK,
- *                      dot-joined segments incl. HOCKEYGAMEBOT.COM + SEASON —
- *                      the shared cardFooterText shape.
+ *                      dot-joined brand + HOCKEYGAMEBOT.COM. NO handle (there are
+ *                      no usernames yet) and NO season (Passport is not seasonal).
  *
  * House rule (FAIL LOUD): the caller passes `boxIncomplete` when some box scores
  * failed to load; the card prints an honest footnote rather than presenting a
  * possibly-short Shots / Players-Seen figure as complete truth.
  */
 
-import { SEASON, DOMAIN_UPPER, FOOTER_STYLE } from '../../lib/card-footer';
+import { DOMAIN_UPPER, FOOTER_STYLE } from '../../lib/card-footer';
 
 const BG = '#EFEEE8';
 const SURFACE = '#FFFFFF';
@@ -62,8 +65,6 @@ export interface ShareRecord {
 }
 
 export interface PassportShareData {
-  /** "@handle" style identity, or null when logged-out / unknown. */
-  handle: string | null;
   counters: ShareCounters;
   arenas: { visited: number; total: number };
   /** Rarest earned badges, already sorted rarest-first (0–3 shown). */
@@ -130,7 +131,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const COUNTERS_H = 74; // 5-up big-number band
   const SECTION_GAP = 14; // vertical rhythm between sections
   const LABEL_H = 24; // section title + underline
-  const ARENA_H = 54;
+  const ARENA_H = 74; // frac row + 32-pip collection meter + caption (iOS-mockup style)
   const BADGE_ROW_H = 34;
   const RECORD_ROW_H = 44;
   const ROW_GAP = 3;
@@ -153,23 +154,10 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const ctx = canvas.getContext('2d')!;
   ctx.scale(SCALE, SCALE);
 
-  // ── background: cream + faint grid (matches the page masthead) ──
+  // ── background: flat cream, exactly like the real skater/goalie cards
+  // (BG #EFEEE8, no grid/checker) ──
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = ink(0.04);
-  ctx.lineWidth = 1;
-  for (let gx = 40; gx < W; gx += 40) {
-    ctx.beginPath();
-    ctx.moveTo(gx + 0.5, HEADER_H);
-    ctx.lineTo(gx + 0.5, H);
-    ctx.stroke();
-  }
-  for (let gy = HEADER_H + 40; gy < H; gy += 40) {
-    ctx.beginPath();
-    ctx.moveTo(0, gy + 0.5);
-    ctx.lineTo(W, gy + 0.5);
-    ctx.stroke();
-  }
 
   // ── HEADER (white band + accent bar) ──
   ctx.fillStyle = SURFACE;
@@ -194,11 +182,11 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.textBaseline = 'top';
   ctx.fillText(headline, PAD, 32);
 
-  // tagline / handle — Barlow 600, the cards' plain-Barlow label weight
+  // tagline — Barlow 600, the cards' plain-Barlow label weight (no handle: there
+  // are no usernames yet)
   ctx.font = body(12, 600);
   ctx.fillStyle = ink(0.56);
-  const tagline = data.handle ? data.handle : 'Every game I’ve been to, in person.';
-  ctx.fillText(truncate(ctx, tagline, W - PAD * 2), PAD, 34 + hPx + 6);
+  ctx.fillText(truncate(ctx, 'Every game I’ve been to, in person.', W - PAD * 2), PAD, 34 + hPx + 6);
 
   // ── COUNTERS (full-bleed 5-up on white) ──
   const cy = HEADER_H;
@@ -264,35 +252,55 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
     y += LABEL_H;
   };
 
-  // ── ARENAS VISITED (red-accent collection box) ──
+  // ── ARENAS VISITED — collection meter modelled on the iOS mockup's arena bar:
+  // a big fraction, then a row of one pip per building (filled = visited), then a
+  // "N to go" caption. A segmented pip meter reads as a *collection* far better
+  // than a single continuous progress bar. ──
   sectionLabel('Arenas Visited');
+  const aPad = 14;
   ctx.fillStyle = SURFACE;
   ctx.fillRect(PAD, y, W - PAD * 2, ARENA_H);
-  ctx.fillStyle = RED;
-  ctx.fillRect(PAD, y, 3, ARENA_H);
   ctx.strokeStyle = ink(0.14);
   ctx.lineWidth = 1;
   ctx.strokeRect(PAD + 0.5, y + 0.5, W - PAD * 2 - 1, ARENA_H - 1);
 
-  ctx.font = body(9, 600);
-  ctx.fillStyle = ink(0.48);
-  ctx.textBaseline = 'top';
-  ctx.fillText('DISTINCT ARENAS · COLLECTION', PAD + 16, y + 11);
+  const total = Math.max(1, data.arenas.total);
+  const visited = Math.max(0, Math.min(total, data.arenas.visited));
+  // top row: fraction (left) + eyebrow (right)
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
   ctx.font = cond(26, 800);
   ctx.fillStyle = INK;
-  ctx.fillText(`${data.arenas.visited}`, PAD + 16, y + 24);
-  const visW = ctx.measureText(`${data.arenas.visited}`).width;
+  ctx.fillText(`${visited}`, PAD + aPad, y + 30);
+  const visW = ctx.measureText(`${visited}`).width;
   ctx.font = cond(15, 700);
-  ctx.fillStyle = ink(0.4);
-  ctx.fillText(`/ ${data.arenas.total}`, PAD + 16 + visW + 6, y + 33);
-  // progress bar (right side)
-  const barW = 150;
-  const barX = W - PAD - 16 - barW;
-  const barY = y + ARENA_H / 2 - 4;
-  ctx.fillStyle = ink(0.1);
-  ctx.fillRect(barX, barY, barW, 8);
-  ctx.fillStyle = RED;
-  ctx.fillRect(barX, barY, barW * Math.min(1, data.arenas.visited / data.arenas.total), 8);
+  ctx.fillStyle = ink(0.32);
+  ctx.fillText(`/ ${total}`, PAD + aPad + visW + 5, y + 30);
+  ctx.font = mono(8, 700);
+  ctx.fillStyle = ink(0.42);
+  ctx.textAlign = 'right';
+  ctx.fillText('DISTINCT ARENAS', W - PAD - aPad, y + 22);
+  ctx.textAlign = 'left';
+
+  // pip meter: `total` segments, first `visited` filled with the accent
+  const pipGap = 3;
+  const pipsX = PAD + aPad;
+  const pipsW = W - PAD * 2 - aPad * 2;
+  const pipH = 8;
+  const pipY = y + 40;
+  const pipW = (pipsW - pipGap * (total - 1)) / total;
+  for (let p = 0; p < total; p++) {
+    ctx.fillStyle = p < visited ? accent : ink(0.1);
+    rrect(ctx, pipsX + p * (pipW + pipGap), pipY, pipW, pipH, 2);
+    ctx.fill();
+  }
+  // caption
+  ctx.font = mono(9, 500);
+  ctx.fillStyle = ink(0.48);
+  ctx.textBaseline = 'top';
+  const toGo = total - visited;
+  const cap = toGo > 0 ? `${visited} visited · ${toGo} to go — collect all ${total}` : `all ${total} collected`;
+  ctx.fillText(truncate(ctx, cap, pipsW), pipsX, pipY + pipH + 6);
   y += ARENA_H + SECTION_GAP;
 
   // ── RAREST BADGES ──
@@ -311,9 +319,10 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       ctx.fillText(truncate(ctx, b.label.toUpperCase(), W - PAD * 2 - 130), PAD + 12, ry + BADGE_ROW_H / 2);
-      // rarity — mono 700 readout in red
+      // rarity — mono readout in light ink (matches .att-badge-rarity + the
+      // record context line: ONE mono/light-gray idiom across both sections)
       ctx.font = mono(10, 700);
-      ctx.fillStyle = RED;
+      ctx.fillStyle = ink(0.48);
       ctx.textAlign = 'right';
       ctx.fillText(b.rarity, W - PAD - 12, ry + BADGE_ROW_H / 2);
     });
@@ -332,8 +341,9 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.strokeStyle = ink(0.14);
       ctx.lineWidth = 1;
       ctx.strokeRect(PAD + 0.5, ry + 0.5, W - PAD * 2 - 1, RECORD_ROW_H - 1);
-      // label — Barlow 600 9px stat-label
-      ctx.font = body(9, 600);
+      // label — mono light-gray eyebrow (matches .att-record-label + the badge
+      // rarity idiom so both sections read identically)
+      ctx.font = mono(9, 700);
       ctx.fillStyle = ink(0.48);
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
@@ -356,14 +366,13 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
     y += data.records.length * RECORD_ROW_H + (data.records.length - 1) * ROW_GAP + SECTION_GAP;
   }
 
-  // ── FOOTER — compact INK10 band, centred dot-joined segments (cardFooterText
-  // shape): "Puck Passport · HOCKEYGAMEBOT.COM · 2025-26 [· @handle]" ──
+  // ── FOOTER — compact INK10 band, centred dot-joined segments: just the brand +
+  // domain. No handle (no usernames yet) and no season (Passport is not seasonal
+  // data). The box-incomplete caveat is the only conditional line. ──
   const fy = H - FOOTER_H;
   ctx.fillStyle = ink(0.08);
   ctx.fillRect(0, fy, W, FOOTER_H);
-  const footSegs = ['Puck Passport', DOMAIN_UPPER, SEASON];
-  if (data.handle) footSegs.push(data.handle);
-  const footLine = footSegs.join(' · ');
+  const footLine = ['Puck Passport', DOMAIN_UPPER].join(' · ');
   const footMidY = data.boxIncomplete ? fy + 15 : fy + FOOTER_H / 2;
   ctx.font = mono(9, 700);
   ctx.fillStyle = FOOT_INK;

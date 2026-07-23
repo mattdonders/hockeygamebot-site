@@ -524,7 +524,6 @@ export default function AttendedTracker() {
   const [hydrated, setHydrated] = useState(false);
   const [d1Error, setD1Error] = useState(false); // FAIL LOUD: D1 list failed to load
   const [writeError, setWriteError] = useState<string | null>(null); // add/remove/sync failed
-  const [userHandle, setUserHandle] = useState<string | null>(null); // "@handle" for the share card
 
   // Server summary (logged-in source of truth). null + summaryError ⇒ FAIL LOUD:
   // banner + client-side fallback compute so the dashboard is never blanked.
@@ -616,9 +615,6 @@ export default function AttendedTracker() {
       const token = getSessionToken();
       const me = token ? await getMe() : null;
       if (cancelled) return;
-
-      // Handle for the share card: the email local-part (never the full address).
-      if (me?.email) setUserHandle('@' + me.email.split('@')[0]);
 
       if (!me) {
         setLocalGames(readAttended());
@@ -1173,53 +1169,59 @@ export default function AttendedTracker() {
   // player/goalie cards. No new network fetch — everything below is already in
   // memory. Disabled while empty (see render).
   const handleShare = useCallback(async () => {
-    // Rarest earned badges first: lowest share of the attended set = rarest.
-    const rarest: PassportShareData['badges'] = [...earnedBadges]
-      .sort((a, b) => b.total / b.count - a.total / a.count)
+    // Everything below reads from the VIEW aggregates (the same source the page
+    // renders from) — NOT the client-only compute — so the card is correct in
+    // BOTH auth states. When logged in, B2 skips the client box fetch, leaving
+    // the raw client aggregates empty; the view layer is the source of truth.
+
+    // Rarest earned badges first: `catalog` is already sorted rarest-first, so
+    // the first three earned entries ARE the rarest three.
+    const rarest: PassportShareData['badges'] = catalog
+      .filter((c) => c.earned)
       .slice(0, 3)
-      .map((b) => ({
-        label: b.def.label,
-        rarity: b.rarity ? `${b.rarity} games` : b.def.rarityHint,
+      .map((c) => ({
+        label: c.label,
+        rarity: c.rarity ? `${c.rarity} games` : c.rarityHint,
       }));
 
-    // Marquee moments: prefer the crowd-pleasers, then fill from the rest. Player
-    // records get the same "F. Last" → "First Last" upgrade the page table uses.
-    const byKey = new Map(records.map((r) => [r.key, r]));
+    // Marquee moments: prefer the crowd-pleasers, then fill from the rest.
+    // viewRecords is already name-resolved ({key,label,value,sub}) either way.
+    const byKey = new Map(viewRecords.map((r) => [r.key, r]));
     const preferred = ['highest', 'longest', 'player-goals', 'player-points'];
-    const chosen: GameRecord[] = [];
+    const chosen: ViewRecord[] = [];
     for (const k of preferred) {
       const r = byKey.get(k);
       if (r) chosen.push(r);
       if (chosen.length === 3) break;
     }
     if (chosen.length < 3) {
-      for (const r of records) {
+      for (const r of viewRecords) {
         if (chosen.length === 3) break;
         if (!chosen.includes(r)) chosen.push(r);
       }
     }
-    const shareRecords: PassportShareData['records'] = chosen.map((r) => {
-      const name = r.playerId != null ? nameMap?.get(r.playerId) ?? r.playerName : null;
-      return { label: r.label, value: r.value, sub: name ? `${name} · ${r.sub}` : r.sub };
-    });
+    const shareRecords: PassportShareData['records'] = chosen.map((r) => ({
+      label: r.label,
+      value: r.value,
+      sub: r.sub,
+    }));
 
     // Accent = the colour of the team the user has seen most (falls back to red).
-    const accent = teamRecords.length > 0 ? pickTeamColor(teamRecords[0].abbrev) : null;
+    const accent = viewTeamRecords.length > 0 ? pickTeamColor(viewTeamRecords[0].abbrev) : null;
 
     const data: PassportShareData = {
-      handle: userHandle,
       counters: {
-        games: games.length,
-        periods: totals.periods,
-        goals: totals.goals,
-        shots: totals.shots,
-        playersSeen: totals.playersSeen,
+        games: viewCounters.games,
+        periods: viewCounters.periods,
+        goals: viewCounters.goals,
+        shots: viewCounters.shots,
+        playersSeen: viewCounters.playersSeen,
       },
-      arenas: { visited: arenaBadge.visited, total: arenaBadge.total },
+      arenas: { visited: viewArenaBadge.visited, total: viewArenaBadge.total },
       badges: rarest,
       records: shareRecords,
       accent,
-      boxIncomplete,
+      boxIncomplete: viewBoxIncomplete,
     };
 
     // Ensure the Barlow / mono webfonts are ready so measureText + fills are
@@ -1238,17 +1240,7 @@ export default function AttendedTracker() {
       console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
       setWriteError('Could not open the share card — please reload the page and try again.');
     }
-  }, [
-    earnedBadges,
-    records,
-    nameMap,
-    teamRecords,
-    userHandle,
-    games.length,
-    totals,
-    arenaBadge,
-    boxIncomplete,
-  ]);
+  }, [catalog, viewRecords, viewTeamRecords, viewCounters, viewArenaBadge, viewBoxIncomplete]);
 
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
