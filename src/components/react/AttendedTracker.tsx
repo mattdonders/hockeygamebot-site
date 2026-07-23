@@ -19,6 +19,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
+import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import {
   computeEarnedBadges,
@@ -106,6 +107,51 @@ type RawGame = {
   last_period_type: string | null;
   status: string;
 };
+
+// ── Add-flow shared helpers ─────────────────────────────────────────────────────
+
+/** Map a raw `{ games: [...] }` payload (from /v1/games/today OR /v1/games/by-team,
+ *  which share a shape) into the RawGame list the add pipeline consumes. */
+function toRawGames(data: any): RawGame[] {
+  return (Array.isArray(data?.games) ? data.games : []).map((g: any) => ({
+    game_id: g.game_id,
+    date: g.date,
+    home_team: g.home_team,
+    away_team: g.away_team,
+    venue: g.venue ?? null,
+    last_period_type: g.last_period_type ?? null,
+    status: g.status,
+  }));
+}
+
+type SeasonOption = { value: string; label: string };
+
+/** Recent NHL seasons, newest first, back to 2010-11. The current season is the
+ *  one whose October start has passed (offseason ⇒ the most recently played). */
+function buildSeasonOptions(): SeasonOption[] {
+  const now = new Date();
+  // NHL seasons open in October (month index 9). Before then, "current" is prior.
+  const startYear = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
+  const out: SeasonOption[] = [];
+  for (let y = startYear; y >= 2010; y--) {
+    out.push({ value: `${y}${y + 1}`, label: `${y}-${String(y + 1).slice(2)}` });
+  }
+  return out;
+}
+
+/** Does a game's final score match a loose "5-4" style filter? Order-independent
+ *  (fans don't recall which side); a single number matches either team's score.
+ *  Only finals carry a meaningful score, so non-finals never match a score query. */
+function scoreMatches(g: RawGame, raw: string): boolean {
+  const nums = raw.match(/\d+/g);
+  if (!nums || nums.length === 0) return true; // empty filter = pass-through
+  if (g.status !== 'final') return false;
+  const want = nums.map(Number);
+  const have = [g.away_team.score, g.home_team.score];
+  if (want.length === 1) return have.includes(want[0]);
+  const [a, b] = want;
+  return (have[0] === a && have[1] === b) || (have[0] === b && have[1] === a);
+}
 
 // ── localStorage helpers ────────────────────────────────────────────────────────
 
@@ -373,12 +419,30 @@ export default function AttendedTracker() {
   // correctly-cased first/last for current-season players. Non-fatal.
   const [nameMap, setNameMap] = useState<Map<number, string> | null>(null);
 
-  // Add-games flow
+  // Add-games flow — mode toggle: team-first (default, matches fan recall) or date.
+  const [addMode, setAddMode] = useState<'team' | 'date'>('team');
+
+  // By-Date sub-flow (the original)
   const [searchDate, setSearchDate] = useState<string>('');
   const [searchResults, setSearchResults] = useState<RawGame[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [matchupFilter, setMatchupFilter] = useState('');
+
+  // By-Team sub-flow
+  const seasonOptions = useMemo(() => buildSeasonOptions(), []);
+  const [teamSel, setTeamSel] = useState<string>(''); // abbrev
+  const [seasonSel, setSeasonSel] = useState<string>(seasonOptions[0]?.value ?? '');
+  const [teamResults, setTeamResults] = useState<RawGame[] | null>(null);
+  const [teamQuery, setTeamQuery] = useState<{ team: string; season: string } | null>(null); // what's shown
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [teamError, setTeamError] = useState<string | null>(null);
+  // Client-side recall filters over the fetched season
+  const [oppFilter, setOppFilter] = useState<string>(''); // opponent abbrev, '' = any
+  const [homeAwayFilter, setHomeAwayFilter] = useState<'all' | 'home' | 'away'>('all');
+  const [scoreFilter, setScoreFilter] = useState('');
+  // Multi-select "add many at once"
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // ── Hydrate + resolve auth on mount ──────────────────────────────────────────
   // Logged-out: read the localStorage list (Phase 0). Logged-in: merge any local
@@ -652,22 +716,104 @@ export default function AttendedTracker() {
       const res = await fetch(`${API}/v1/games/today?date=${searchDate}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const list: RawGame[] = (data.games ?? []).map((g: any) => ({
-        game_id: g.game_id,
-        date: g.date,
-        home_team: g.home_team,
-        away_team: g.away_team,
-        venue: g.venue ?? null,
-        last_period_type: g.last_period_type ?? null,
-        status: g.status,
-      }));
-      setSearchResults(list);
+      setSearchResults(toRawGames(data));
     } catch (err) {
       setSearchError('Could not load games for that date. Please try again.');
     } finally {
       setSearchLoading(false);
     }
   }, [searchDate]);
+
+  // ── Search a team's season ───────────────────────────────────────────────────
+  // Hits the new GET /v1/games/by-team endpoint (same game shape as /today), then
+  // lets the client-side recall filters below narrow the ~82-game season.
+  const runTeamSearch = useCallback(async () => {
+    if (!teamSel) {
+      setTeamError('Pick a team first.');
+      return;
+    }
+    if (!/^\d{8}$/.test(seasonSel)) {
+      setTeamError('Pick a season first.');
+      return;
+    }
+    setTeamLoading(true);
+    setTeamError(null);
+    setTeamResults(null);
+    setSelectedIds(new Set());
+    // Reset the recall filters so stale opponent/score choices don't hide a fresh
+    // season's results.
+    setOppFilter('');
+    setHomeAwayFilter('all');
+    setScoreFilter('');
+    try {
+      const url = `${API}/v1/games/by-team?team=${encodeURIComponent(teamSel)}&season=${seasonSel}&type=all`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setTeamResults(toRawGames(data));
+      setTeamQuery({ team: teamSel, season: seasonSel });
+    } catch (err) {
+      setTeamError('Could not load games for that team and season. Please try again.');
+    } finally {
+      setTeamLoading(false);
+    }
+  }, [teamSel, seasonSel]);
+
+  // The team the results are anchored to (from the query that produced them, so
+  // home/away chips stay correct even if the picker is changed before re-search).
+  const anchorTeam = teamQuery?.team ?? '';
+
+  // Opponents present in the fetched season → populate the opponent dropdown.
+  const opponentOptions = useMemo(() => {
+    if (!teamResults || !anchorTeam) return [] as string[];
+    const set = new Set<string>();
+    for (const g of teamResults) {
+      const opp = g.home_team.abbrev === anchorTeam ? g.away_team.abbrev : g.home_team.abbrev;
+      if (opp) set.add(opp);
+    }
+    return Array.from(set).sort();
+  }, [teamResults, anchorTeam]);
+
+  // Apply the client-side recall filters (opponent + home/away + score).
+  const filteredTeamResults = useMemo(() => {
+    if (!teamResults) return null;
+    return teamResults.filter((g) => {
+      const isHome = g.home_team.abbrev === anchorTeam;
+      const opp = isHome ? g.away_team.abbrev : g.home_team.abbrev;
+      if (oppFilter && opp !== oppFilter) return false;
+      if (homeAwayFilter === 'home' && !isHome) return false;
+      if (homeAwayFilter === 'away' && isHome) return false;
+      if (!scoreMatches(g, scoreFilter)) return false;
+      return true;
+    });
+  }, [teamResults, anchorTeam, oppFilter, homeAwayFilter, scoreFilter]);
+
+  const toggleSelected = useCallback((gameId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(gameId)) next.delete(gameId);
+      else next.add(gameId);
+      return next;
+    });
+  }, []);
+
+  // "Add N games" — fan out the existing single-game add pipeline (localStorage
+  // when logged out, optimistic D1 upsert when logged in) over the selection,
+  // skipping any game already attended. Reuses addGame wholesale (its own
+  // FAIL-LOUD rollback per game stands); we just drive it in a loop.
+  const addSelected = useCallback(
+    (attended: Set<string>) => {
+      if (!teamResults) return;
+      const byId = new Map(teamResults.map((g) => [g.game_id, g]));
+      for (const id of selectedIds) {
+        if (attended.has(id)) continue;
+        const g = byId.get(id);
+        if (g) addGame(g);
+      }
+      setSelectedIds(new Set());
+    },
+    [teamResults, selectedIds, addGame],
+  );
 
   // ── Derived aggregates ───────────────────────────────────────────────────────
   const finalGames = useMemo(() => games.filter((g) => g.status === 'final'), [games]);
@@ -998,77 +1144,259 @@ export default function AttendedTracker() {
       <section className="att-section">
         <div className="att-section-head">
           <span className="att-section-label">Add Games</span>
-          <span className="att-section-meta">Pick a date, then mark the games you were at.</span>
+          <span className="att-section-meta">
+            {addMode === 'team'
+              ? 'Pick a team and season — you remember the matchup, not the date.'
+              : 'Pick a date, then mark the games you were at.'}
+          </span>
         </div>
-        <div className="att-add-controls">
-          <input
-            type="date"
-            className="att-date"
-            value={searchDate}
-            onChange={(e) => setSearchDate(e.target.value)}
-            aria-label="Game date"
-          />
-          <button className="att-btn" onClick={runSearch} disabled={searchLoading}>
-            {searchLoading ? 'Loading…' : 'Find games'}
+
+        {/* Mode toggle — By Team is the default (matches how fans recall games) */}
+        <div className="att-mode-toggle" role="tablist" aria-label="Add games by">
+          <button
+            role="tab"
+            aria-selected={addMode === 'team'}
+            className={addMode === 'team' ? 'att-mode-btn active' : 'att-mode-btn'}
+            onClick={() => setAddMode('team')}
+          >
+            By Team
           </button>
-          {searchResults && searchResults.length > 3 ? (
-            <input
-              type="search"
-              className="att-matchup"
-              placeholder="Filter by team…"
-              value={matchupFilter}
-              onChange={(e) => setMatchupFilter(e.target.value)}
-              aria-label="Filter results by team"
-            />
-          ) : null}
+          <button
+            role="tab"
+            aria-selected={addMode === 'date'}
+            className={addMode === 'date' ? 'att-mode-btn active' : 'att-mode-btn'}
+            onClick={() => setAddMode('date')}
+          >
+            By Date
+          </button>
         </div>
 
-        {searchError ? <div className="att-banner att-banner-warn">{searchError}</div> : null}
-
-        {searchResults != null ? (
-          searchResults.length === 0 ? (
-            <div className="att-add-empty">No NHL games on {searchDate}.</div>
-          ) : (
-            <div className="att-add-results">
-              {searchResults
-                .filter((g) => {
-                  const q = matchupFilter.trim().toLowerCase();
-                  if (!q) return true;
-                  return (
-                    g.home_team.abbrev.toLowerCase().includes(q) ||
-                    g.away_team.abbrev.toLowerCase().includes(q) ||
-                    g.home_team.name.toLowerCase().includes(q) ||
-                    g.away_team.name.toLowerCase().includes(q)
-                  );
-                })
-                .map((g) => {
-                  const already = attendedIds.has(g.game_id);
-                  const awayColor = pickTeamColor(g.away_team.abbrev);
-                  const homeColor = pickTeamColor(g.home_team.abbrev);
-                  return (
-                    <div className="att-add-row" key={g.game_id}>
-                      <span className="att-add-teams">
-                        <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
-                        <span className="att-add-at">@</span>
-                        <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
-                      </span>
-                      <span className="att-add-score">
-                        {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
-                      </span>
-                      <span className="att-add-venue">{g.venue ?? 'venue unknown'}</span>
-                      <button
-                        className={already ? 'att-add-btn added' : 'att-add-btn'}
-                        disabled={already}
-                        onClick={() => addGame(g)}
-                      >
-                        {already ? '✓ Added' : '+ Attended'}
-                      </button>
-                    </div>
-                  );
-                })}
+        {/* ── BY TEAM ─────────────────────────────────────────────────────────── */}
+        {addMode === 'team' ? (
+          <>
+            <div className="att-add-controls">
+              <select
+                className="att-select"
+                value={teamSel}
+                onChange={(e) => setTeamSel(e.target.value)}
+                aria-label="Team"
+              >
+                <option value="">Select team…</option>
+                {NHL_TEAMS.map((t) => (
+                  <option key={t.abbr} value={t.abbr}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="att-select"
+                value={seasonSel}
+                onChange={(e) => setSeasonSel(e.target.value)}
+                aria-label="Season"
+              >
+                {seasonOptions.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <button className="att-btn" onClick={runTeamSearch} disabled={teamLoading}>
+                {teamLoading ? 'Loading…' : 'Find games'}
+              </button>
             </div>
-          )
-        ) : null}
+
+            {teamError ? <div className="att-banner att-banner-warn">{teamError}</div> : null}
+
+            {teamResults != null ? (
+              teamResults.length === 0 ? (
+                <div className="att-add-empty">
+                  No games found for {NHL_TEAM_NAMES[anchorTeam] ?? anchorTeam} in{' '}
+                  {seasonOptions.find((s) => s.value === teamQuery?.season)?.label ?? teamQuery?.season}.
+                </div>
+              ) : (
+                <>
+                  {/* Recall filters over the fetched season */}
+                  <div className="att-filters">
+                    <select
+                      className="att-select att-filter-opp"
+                      value={oppFilter}
+                      onChange={(e) => setOppFilter(e.target.value)}
+                      aria-label="Filter by opponent"
+                    >
+                      <option value="">All opponents</option>
+                      {opponentOptions.map((opp) => (
+                        <option key={opp} value={opp}>
+                          {NHL_TEAM_NAMES[opp] ?? opp}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="att-chips" role="group" aria-label="Home or away">
+                      {(['all', 'home', 'away'] as const).map((v) => (
+                        <button
+                          key={v}
+                          className={homeAwayFilter === v ? 'att-chip-btn active' : 'att-chip-btn'}
+                          aria-pressed={homeAwayFilter === v}
+                          onClick={() => setHomeAwayFilter(v)}
+                        >
+                          {v === 'all' ? 'All' : v === 'home' ? 'Home' : 'Away'}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="search"
+                      className="att-matchup"
+                      placeholder='Score e.g. "5-4"…'
+                      value={scoreFilter}
+                      onChange={(e) => setScoreFilter(e.target.value)}
+                      aria-label="Filter by score"
+                    />
+                  </div>
+
+                  {/* Multi-select action bar */}
+                  {(() => {
+                    const addable = Array.from(selectedIds).filter((id) => !attendedIds.has(id)).length;
+                    return (
+                      <div className="att-select-bar">
+                        <span className="att-select-count">
+                          {selectedIds.size === 0
+                            ? `${filteredTeamResults?.length ?? 0} games`
+                            : `${selectedIds.size} selected`}
+                        </span>
+                        <button
+                          className="att-btn att-btn-sm"
+                          disabled={addable === 0}
+                          onClick={() => addSelected(attendedIds)}
+                        >
+                          {addable > 0 ? `Add ${addable} game${addable === 1 ? '' : 's'}` : 'Add games'}
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {filteredTeamResults && filteredTeamResults.length === 0 ? (
+                    <div className="att-add-empty">No games match those filters.</div>
+                  ) : (
+                    <div className="att-add-results">
+                      {filteredTeamResults!.map((g) => {
+                        const already = attendedIds.has(g.game_id);
+                        const checked = selectedIds.has(g.game_id);
+                        const awayColor = pickTeamColor(g.away_team.abbrev);
+                        const homeColor = pickTeamColor(g.home_team.abbrev);
+                        const chip = gameTypeLabel(g.game_id);
+                        return (
+                          <div className="att-add-row att-add-row-team" key={g.game_id}>
+                            <input
+                              type="checkbox"
+                              className="att-check"
+                              checked={checked}
+                              disabled={already}
+                              onChange={() => toggleSelected(g.game_id)}
+                              aria-label={`Select ${g.away_team.abbrev} at ${g.home_team.abbrev} on ${g.date}`}
+                            />
+                            <span className="att-add-date">{g.date}</span>
+                            <span className="att-add-teams">
+                              <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
+                              <span className="att-add-at">@</span>
+                              <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
+                              {chip ? <span className="att-chip">{chip}</span> : null}
+                            </span>
+                            <span className="att-add-score">
+                              {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
+                              {g.last_period_type && g.last_period_type.toUpperCase() !== 'REG' ? (
+                                <span className="att-ot">{g.last_period_type.toUpperCase()}</span>
+                              ) : null}
+                            </span>
+                            <span className="att-add-venue">{g.venue ?? 'venue unknown'}</span>
+                            <button
+                              className={already ? 'att-add-btn added' : 'att-add-btn'}
+                              disabled={already}
+                              onClick={() => addGame(g)}
+                            >
+                              {already ? '✓ Added' : '+ Attended'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )
+            ) : null}
+          </>
+        ) : (
+          /* ── BY DATE (original flow) ────────────────────────────────────────── */
+          <>
+            <div className="att-add-controls">
+              <input
+                type="date"
+                className="att-date"
+                value={searchDate}
+                onChange={(e) => setSearchDate(e.target.value)}
+                aria-label="Game date"
+              />
+              <button className="att-btn" onClick={runSearch} disabled={searchLoading}>
+                {searchLoading ? 'Loading…' : 'Find games'}
+              </button>
+              {searchResults && searchResults.length > 3 ? (
+                <input
+                  type="search"
+                  className="att-matchup"
+                  placeholder="Filter by team…"
+                  value={matchupFilter}
+                  onChange={(e) => setMatchupFilter(e.target.value)}
+                  aria-label="Filter results by team"
+                />
+              ) : null}
+            </div>
+
+            {searchError ? <div className="att-banner att-banner-warn">{searchError}</div> : null}
+
+            {searchResults != null ? (
+              searchResults.length === 0 ? (
+                <div className="att-add-empty">No NHL games on {searchDate}.</div>
+              ) : (
+                <div className="att-add-results">
+                  {searchResults
+                    .filter((g) => {
+                      const q = matchupFilter.trim().toLowerCase();
+                      if (!q) return true;
+                      return (
+                        g.home_team.abbrev.toLowerCase().includes(q) ||
+                        g.away_team.abbrev.toLowerCase().includes(q) ||
+                        g.home_team.name.toLowerCase().includes(q) ||
+                        g.away_team.name.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((g) => {
+                      const already = attendedIds.has(g.game_id);
+                      const awayColor = pickTeamColor(g.away_team.abbrev);
+                      const homeColor = pickTeamColor(g.home_team.abbrev);
+                      return (
+                        <div className="att-add-row" key={g.game_id}>
+                          <span className="att-add-teams">
+                            <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
+                            <span className="att-add-at">@</span>
+                            <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
+                          </span>
+                          <span className="att-add-score">
+                            {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
+                          </span>
+                          <span className="att-add-venue">{g.venue ?? 'venue unknown'}</span>
+                          <button
+                            className={already ? 'att-add-btn added' : 'att-add-btn'}
+                            disabled={already}
+                            onClick={() => addGame(g)}
+                          >
+                            {already ? '✓ Added' : '+ Attended'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )
+            ) : null}
+          </>
+        )}
       </section>
 
       {empty ? (
