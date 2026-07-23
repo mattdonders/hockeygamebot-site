@@ -611,7 +611,7 @@ export default function AttendedTracker() {
         header: 'Games',
         accessor: (r) => r.gamesSeen,
         sortType: 'number',
-        align: 'right',
+        align: 'center',
         cell: (v) => (
           <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, fontSize: CELL_FONT_SIZE }}>
             {v}
@@ -623,7 +623,7 @@ export default function AttendedTracker() {
         header: 'Goals',
         accessor: (r) => r.goals,
         sortType: 'number',
-        align: 'right',
+        align: 'center',
         cell: (v) => (
           <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-72)' }}>
             {v}
