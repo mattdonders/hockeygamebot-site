@@ -1,0 +1,159 @@
+---
+// HockeyGameBot — /attended — "Games I've Attended" tracker (Phase 0, stateless)
+// The interactive dashboard is a React island; everything the user owns lives in
+// localStorage (no auth in Phase 0). Everything else is derived from public data.
+import Base from '../layouts/Base.astro';
+import AttendedTracker from '../components/react/AttendedTracker.tsx';
+---
+
+<Base
+  title="Games I've Attended · HockeyGameBot"
+  description="Track the NHL games you've been to in person — counters, team records, arenas visited, and every player you've seen ranked by WAR."
+  currentPath={Astro.url.pathname}
+>
+  <style is:global slot="head">
+    :root { --semi: 'Barlow Semi-Condensed', sans-serif; }
+
+    .att-wrap { max-width: 1120px; margin: 0 auto; padding: 0 32px; }
+
+    /* ── MASTHEAD ── */
+    .att-mast {
+      position: relative;
+      padding: 52px 0 40px;
+      border-bottom: 2px solid var(--ink);
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(var(--ink-04) 1px, transparent 1px),
+        linear-gradient(90deg, var(--ink-04) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+    .att-mast-ghost {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      font-family: var(--display); font-weight: 800; font-size: clamp(70px, 16vw, 170px);
+      letter-spacing: -0.01em; text-transform: uppercase;
+      color: var(--ink); opacity: 0.05; pointer-events: none; white-space: nowrap; user-select: none;
+    }
+    .att-mast-inner { position: relative; }
+    .att-eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--red); }
+    .att-headline { font-family: var(--display); font-weight: 800; font-size: clamp(40px, 5vw, 64px); letter-spacing: -0.01em; text-transform: uppercase; line-height: 0.95; color: var(--ink); margin-top: 8px; }
+    .att-sub { font-family: var(--body); font-size: 15px; color: var(--ink-56); margin-top: 10px; max-width: 560px; line-height: 1.5; }
+    .att-note { font-family: var(--mono); font-size: 11px; color: var(--ink-48); margin-top: 12px; }
+
+    /* ── BODY ── */
+    .att-body { padding: 40px 0 96px; }
+    .att-root { display: flex; flex-direction: column; gap: 44px; }
+    .att-loading { font-family: var(--mono); font-size: 13px; color: var(--ink-48); padding: 40px 0; }
+
+    /* Banners (FAIL LOUD) */
+    .att-banner { font-family: var(--mono); font-size: 12px; line-height: 1.5; padding: 12px 16px; background: var(--surface); border-left: 3px solid var(--red); color: var(--ink-72); }
+    .att-banner-warn { border-left-color: var(--red); }
+
+    /* Counters */
+    .att-counters { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; background: var(--ink-14); border: 1.5px solid var(--ink); }
+    .att-counter { background: var(--surface); padding: 22px 16px 18px; text-align: center; }
+    .att-counter-num { font-family: var(--display); font-weight: 800; font-size: clamp(34px, 5vw, 52px); line-height: 1; color: var(--ink); position: relative; }
+    .att-counter-pending { color: var(--ink-32); }
+    .att-counter-warn { color: var(--red); font-size: 16px; vertical-align: super; margin-left: 3px; cursor: help; }
+    .att-counter-label { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-48); margin-top: 10px; }
+
+    /* Sections */
+    .att-section { }
+    .att-section-head { display: flex; align-items: baseline; gap: 12px; border-bottom: 1.5px solid var(--ink); padding-bottom: 10px; margin-bottom: 18px; }
+    .att-section-label { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: 0.03em; text-transform: uppercase; }
+    .att-section-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); margin-left: auto; }
+
+    /* Add-games controls */
+    .att-add-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+    .att-date, .att-matchup {
+      font-family: var(--mono); font-size: 13px; padding: 10px 14px;
+      background: var(--surface); border: 1.5px solid var(--ink-20); color: var(--ink); outline: none;
+    }
+    .att-date:focus, .att-matchup:focus { border-color: var(--ink-56); }
+    .att-matchup { flex: 1; min-width: 180px; }
+    .att-btn {
+      font-family: var(--display); font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase;
+      background: var(--ink); color: var(--surface); border: none; padding: 11px 22px; cursor: pointer; transition: opacity .15s;
+    }
+    .att-btn:hover { opacity: 0.85; }
+    .att-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .att-add-results { display: flex; flex-direction: column; gap: 4px; }
+    .att-add-empty { font-family: var(--mono); font-size: 12px; color: var(--ink-48); padding: 10px 0; }
+    .att-add-row {
+      display: grid; grid-template-columns: 120px 70px 1fr auto; align-items: center; gap: 14px;
+      padding: 10px 14px; background: var(--bg-2); border: 1px solid var(--ink-10);
+      font-family: var(--mono); font-size: 13px;
+    }
+    .att-add-teams { display: inline-flex; align-items: center; gap: 8px; }
+    .att-add-at { color: var(--ink-32); }
+    .att-add-score { color: var(--ink-72); font-weight: 600; }
+    .att-add-venue { color: var(--ink-48); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .att-add-btn {
+      font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      background: var(--surface); border: 1.5px solid var(--ink-20); color: var(--ink); padding: 7px 14px; cursor: pointer; transition: border-color .12s, color .12s; white-space: nowrap;
+    }
+    .att-add-btn:hover:not(:disabled) { border-color: var(--ink); }
+    .att-add-btn.added { color: var(--green); border-color: var(--green); cursor: default; }
+
+    /* Game-type chip */
+    .att-chip { font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--red); border: 1px solid var(--red); padding: 1px 5px; margin-left: 6px; }
+
+    /* Remove button in games table */
+    .att-remove { background: none; border: none; color: var(--ink-32); font-size: 13px; cursor: pointer; padding: 4px 6px; line-height: 1; transition: color .12s; }
+    .att-remove:hover { color: var(--red); }
+
+    /* Two-column (team records + arenas) */
+    .att-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; }
+
+    /* Team records */
+    .att-teams { display: flex; flex-direction: column; gap: 4px; }
+    .att-team-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--ink-10); font-family: var(--mono); font-size: 13px; }
+    .att-team-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .att-team-abbr { font-weight: 700; min-width: 40px; }
+    .att-team-name { color: var(--ink-56); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .att-team-rec { font-weight: 700; }
+
+    /* Arenas */
+    .att-arenas { display: flex; flex-direction: column; gap: 4px; }
+    .att-arena-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--ink-10); font-family: var(--mono); font-size: 13px; }
+    .att-arena-name { flex: 1; color: var(--ink-72); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .att-arena-count { font-weight: 700; }
+    .att-arena-unknown .att-arena-name { color: var(--ink-32); font-style: italic; }
+
+    /* Empty state */
+    .att-empty { text-align: center; padding: 56px 24px; background: var(--surface); border: 1.5px dashed var(--ink-20); }
+    .att-empty-title { font-family: var(--display); font-weight: 800; font-size: 26px; text-transform: uppercase; color: var(--ink); }
+    .att-empty-sub { font-family: var(--body); font-size: 14px; color: var(--ink-56); margin-top: 8px; max-width: 380px; margin-left: auto; margin-right: auto; line-height: 1.5; }
+
+    @media (max-width: 820px) {
+      .att-two-col { grid-template-columns: 1fr; gap: 44px; }
+    }
+    @media (max-width: 640px) {
+      .att-wrap { padding: 0 16px; }
+      .att-counters { grid-template-columns: repeat(3, 1fr); }
+      .att-add-row { grid-template-columns: 1fr auto; row-gap: 6px; }
+      .att-add-venue { display: none; }
+    }
+  </style>
+
+  <!-- MASTHEAD -->
+  <section class="att-mast">
+    <div class="att-mast-ghost">ATTENDED</div>
+    <div class="att-wrap att-mast-inner">
+      <span class="att-eyebrow">Personal Tracker</span>
+      <h1 class="att-headline">Games I've Attended</h1>
+      <p class="att-sub">
+        Log the NHL games you've been to in person and see it all add up — periods, goals and shots witnessed,
+        team records, arenas visited, and every player you've watched ranked by WAR.
+      </p>
+      <p class="att-note">// Saved in this browser only. Sign-in sync &amp; badges are coming soon.</p>
+    </div>
+  </section>
+
+  <!-- BODY -->
+  <section class="att-body">
+    <div class="att-wrap">
+      <AttendedTracker client:only="react" />
+    </div>
+  </section>
+</Base>
