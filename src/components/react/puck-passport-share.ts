@@ -7,9 +7,21 @@
  * surface as the player/goalie cards (`window.HGB_Export.showCardModal`).
  *
  * Aesthetic mirrors the HGB stats cards: light/cream (BG #EFEEE8, surface #FFF,
- * ink #0d0d14), Barlow Condensed display + JetBrains-Mono labels, a team-colour
- * accent bar (falls back to HGB red). Per the site's canvas-card rule this file
- * owns only the drawing; the React island supplies the already-derived data.
+ * ink #0d0d14) with a team-colour accent bar (falls back to HGB red). Per the
+ * site's canvas-card rule this file owns only the drawing; the React island
+ * supplies the already-derived data.
+ *
+ * TYPOGRAPHY — matched to the canonical player/goalie share cards
+ * (stats/player/[slug].astro, stats/goalies/[slug].astro) so this reads as a
+ * sibling, not a lookalike:
+ *   • Hero name        Barlow Condensed 900 (their big-hero weight, '900 58px'),
+ *                      auto-fit via measureText like their name loop.
+ *   • Big numbers      Barlow Condensed 800 (their '800 28/32px' stat values).
+ *   • Section titles   Barlow Condensed 800 ('800 16/24px').
+ *   • Number captions  Barlow 600 (their '600 9px "Barlow"' stat label — plain
+ *                      Barlow, NOT Condensed, which reads badly ≤12px).
+ *   • Eyebrows/meta/   JetBrains Mono 700 (their '700 9/10px' eyebrows and
+ *     readouts          mono readouts); data strings keep mono 500.
  *
  * House rule (FAIL LOUD): the caller passes `boxIncomplete` when some box scores
  * failed to load; the card prints an honest footnote rather than presenting a
@@ -155,23 +167,25 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.fillStyle = INK;
   ctx.fillRect(0, HEADER_H - 2, W, 2);
 
-  // eyebrow
+  // eyebrow — canonical mono meta treatment (matches the player card's
+  // '800 14px JetBrains Mono' header-meta / '700 10px' eyebrows).
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
-  ctx.font = mono(11, 600);
+  ctx.font = mono(10, 700);
   ctx.fillStyle = RED;
   ctx.fillText('PERSONAL TRACKER · HOCKEYGAMEBOT', PAD, PAD + 6);
 
-  // headline
+  // headline — hero name = Barlow Condensed 900 (the big-hero weight used by the
+  // player/goalie cards, e.g. '900 58px'), auto-fit like their measureText loop.
   const headline = 'MY PUCK PASSPORT';
-  const hPx = fitFont(ctx, headline, (p) => cond(p, 800), 46, W - PAD * 2, 30);
-  ctx.font = cond(hPx, 800);
+  const hPx = fitFont(ctx, headline, (p) => cond(p, 900), 52, W - PAD * 2, 30);
+  ctx.font = cond(hPx, 900);
   ctx.fillStyle = INK;
   ctx.textBaseline = 'top';
   ctx.fillText(headline, PAD, PAD + 20);
 
-  // handle / tagline
-  ctx.font = body(15, 500);
+  // handle / tagline — Barlow 600 (the cards' plain-Barlow label weight).
+  ctx.font = body(14, 600);
   ctx.fillStyle = ink(0.56);
   const tagline = data.handle ? data.handle : 'Every game I’ve been to, in person.';
   ctx.fillText(truncate(ctx, tagline, W - PAD * 2), PAD, PAD + 20 + hPx + 12);
@@ -207,7 +221,9 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(numStr, x0 + colW / 2, cy + 62);
-    ctx.font = mono(9, 600);
+    // Number-caption = Barlow 600 9px (the cards' '600 9px "Barlow"' stat label,
+    // NOT mono — Barlow Condensed reads badly ≤12px per the branding memo).
+    ctx.font = body(9, 600);
     ctx.fillStyle = ink(0.48);
     ctx.fillText(label, x0 + colW / 2, cy + 90);
   });
@@ -223,7 +239,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
     const t = text.toUpperCase();
     ctx.fillText(t, PAD, y);
     if (meta) {
-      ctx.font = mono(10, 500);
+      ctx.font = mono(9, 700);
       ctx.fillStyle = ink(0.42);
       ctx.textAlign = 'right';
       ctx.fillText(meta, W - PAD, y + 6);
@@ -248,7 +264,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.lineWidth = 1;
   ctx.strokeRect(PAD + 0.5, y + 0.5, W - PAD * 2 - 1, ARENA_H - 1);
 
-  ctx.font = mono(10, 600);
+  ctx.font = body(9, 600);
   ctx.fillStyle = ink(0.48);
   ctx.textBaseline = 'top';
   ctx.fillText('DISTINCT ARENAS · COLLECTION', PAD + 22, y + 16);
@@ -279,14 +295,14 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.strokeStyle = INK;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(PAD + 0.75, ry + 0.75, W - PAD * 2 - 1.5, BADGE_ROW_H - 1.5);
-      // label
-      ctx.font = cond(17, 800);
+      // label — Barlow Condensed 800 (the cards' title weight, e.g. '800 16px')
+      ctx.font = cond(16, 800);
       ctx.fillStyle = INK;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       ctx.fillText(truncate(ctx, b.label.toUpperCase(), W - PAD * 2 - 150), PAD + 16, ry + BADGE_ROW_H / 2);
-      // rarity
-      ctx.font = mono(12, 500);
+      // rarity — mono technical readout, canonical '700' weight
+      ctx.font = mono(11, 700);
       ctx.fillStyle = RED;
       ctx.textAlign = 'right';
       ctx.fillText(b.rarity, W - PAD - 16, ry + BADGE_ROW_H / 2);
@@ -306,15 +322,15 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.strokeStyle = ink(0.14);
       ctx.lineWidth = 1;
       ctx.strokeRect(PAD + 0.5, ry + 0.5, W - PAD * 2 - 1, RECORD_ROW_H - 1);
-      // label (small, top-left)
-      ctx.font = mono(10, 600);
+      // label (small, top-left) — Barlow 600 stat-label, matches counter labels
+      ctx.font = body(10, 600);
       ctx.fillStyle = ink(0.48);
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
       ctx.fillText(r.label.toUpperCase(), PAD + 16, ry + 12);
-      // sub (muted, bottom-left)
+      // sub (muted, bottom-left) — mono data string (matchup · date), canon '400/500 10px'
       if (r.sub) {
-        ctx.font = mono(11, 500);
+        ctx.font = mono(10, 500);
         ctx.fillStyle = ink(0.56);
         ctx.fillText(truncate(ctx, r.sub, W - PAD * 2 - 180), PAD + 16, ry + 34);
       }
@@ -342,7 +358,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const brandW = ctx.measureText('HOCKEYGAMEBOT.COM').width;
   ctx.fillStyle = RED;
   ctx.fillText(' / PUCK PASSPORT', PAD + brandW, fy + FOOTER_H / 2 - (data.boxIncomplete ? 6 : 0));
-  ctx.font = mono(10, 500);
+  ctx.font = mono(10, 700);
   ctx.fillStyle = ink(0.42);
   ctx.textAlign = 'right';
   ctx.fillText('/puck-passport', W - PAD, fy + FOOTER_H / 2 - (data.boxIncomplete ? 6 : 0));
