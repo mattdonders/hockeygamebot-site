@@ -1398,7 +1398,6 @@ import {
     // Old bot goal events have event_team_id=null, so for goals we use the
     // home_score/away_score delta to determine which team scored.
     const _homeTeamId = boxscore.homeTeam?.id != null ? String(boxscore.homeTeam.id) : null;
-    const xg5v5 = { home: 0, away: 0 };
     const goals5v5 = { home: 0, away: 0 };
     const sog5v5 = { home: 0, away: 0 };
     const cf5v5 = { home: 0, away: 0 };
@@ -1422,10 +1421,6 @@ import {
         if (ev.event_type === 'SHOT_ON_GOAL') sog5v5[isHome ? 'home' : 'away']++;
       } else {
         cf5v5[isHome ? 'home' : 'away']++;
-      }
-      const xg = parseFloat(ev.payload?.xg);
-      if (!isNaN(xg) && xg > 0) {
-        xg5v5[isHome ? 'home' : 'away'] += xg;
       }
     }
 
@@ -1459,25 +1454,40 @@ import {
       hmS5El.style.color = sog5v5.home > sog5v5.away ? homeColor : sog5v5.home < sog5v5.away ? 'var(--ink-32)' : 'var(--ink)';
     }
 
-    // 5v5 xG
+    // 5v5 xG — read the server's precomputed total (flow.totals.xg_5v5), never
+    // recompute from events. `totals.xg_5v5` is OMITTED entirely (not 0) when
+    // the server has no 5v5 series for this game (pre-dates the feature) — in
+    // that case hide the row rather than show a different-pipeline number.
     const aw5El = document.getElementById('away-xg5v5');
     const hm5El = document.getElementById('home-xg5v5');
-    if (xg5v5.home > 0 || xg5v5.away > 0) {
-      aw5El.textContent = xg5v5.away.toFixed(2);
-      hm5El.textContent = xg5v5.home.toFixed(2);
-      aw5El.style.color = xg5v5.away > xg5v5.home ? awayColor : xg5v5.away < xg5v5.home ? 'var(--ink-32)' : 'var(--ink)';
-      hm5El.style.color = xg5v5.home > xg5v5.away ? homeColor : xg5v5.home < xg5v5.away ? 'var(--ink-32)' : 'var(--ink)';
+    const aw5PctEl = document.getElementById('away-xg5v5pct');
+    const hm5PctEl = document.getElementById('home-xg5v5pct');
+    const xg5v5Row = aw5El?.closest('.stats-compare-row') ?? null;
+    const xg5v5PctRow = aw5PctEl?.closest('.stats-compare-row') ?? null;
+    const xg5v5Totals = flow.totals?.xg_5v5;
+    if (xg5v5Totals && (xg5v5Totals.home != null || xg5v5Totals.away != null) && aw5El && hm5El) {
+      if (xg5v5Row) xg5v5Row.style.display = '';
+      const xgAway5 = xg5v5Totals.away ?? 0;
+      const xgHome5 = xg5v5Totals.home ?? 0;
+      aw5El.textContent = xgAway5.toFixed(2);
+      hm5El.textContent = xgHome5.toFixed(2);
+      aw5El.style.color = xgAway5 > xgHome5 ? awayColor : xgAway5 < xgHome5 ? 'var(--ink-32)' : 'var(--ink)';
+      hm5El.style.color = xgHome5 > xgAway5 ? homeColor : xgHome5 < xgAway5 ? 'var(--ink-32)' : 'var(--ink)';
       // 5v5 xG Share
-      const tot5 = xg5v5.home + xg5v5.away;
-      const aw5PctEl = document.getElementById('away-xg5v5pct');
-      const hm5PctEl = document.getElementById('home-xg5v5pct');
+      const tot5 = xgHome5 + xgAway5;
       if (aw5PctEl && hm5PctEl && tot5 > 0) {
-        const aw5Pct = xg5v5.away / tot5 * 100, hm5Pct = 100 - aw5Pct;
+        if (xg5v5PctRow) xg5v5PctRow.style.display = '';
+        const aw5Pct = xgAway5 / tot5 * 100, hm5Pct = 100 - aw5Pct;
         aw5PctEl.textContent = `${aw5Pct.toFixed(1)}%`;
         hm5PctEl.textContent = `${hm5Pct.toFixed(1)}%`;
         aw5PctEl.style.color = aw5Pct > hm5Pct ? awayColor : 'var(--ink-32)';
         hm5PctEl.style.color = hm5Pct > aw5Pct ? homeColor : 'var(--ink-32)';
+      } else if (xg5v5PctRow) {
+        xg5v5PctRow.style.display = 'none';
       }
+    } else {
+      if (xg5v5Row) xg5v5Row.style.display = 'none';
+      if (xg5v5PctRow) xg5v5PctRow.style.display = 'none';
     }
 
     // All-sit Shot Attempts (Corsi) from events
@@ -1508,13 +1518,16 @@ import {
       hmSogEl.style.color = homeSog > awaySog ? homeColor : homeSog < awaySog ? 'var(--ink-32)' : 'var(--ink)';
     }
 
-    // xGF from flow
+    // All-sit xG — prefer the server's precomputed total (flow.totals.xg_all);
+    // fall back to the last flow point's cumulative value (same server series,
+    // just pre-totals-field games) when totals are absent.
     const pts = flow.points || [];
+    const xgAllTotals = flow.totals?.xg_all;
     const last = [...pts].reverse().find(p => p.xg_home != null);
-    if (!last) { document.getElementById('stats-strip').style.visibility = 'hidden'; return; }
+    if (!xgAllTotals && !last) { document.getElementById('stats-strip').style.visibility = 'hidden'; return; }
 
-    const homeXg = last.xg_home;
-    const awayXg = last.xg_away;
+    const homeXg = xgAllTotals?.home ?? last.xg_home;
+    const awayXg = xgAllTotals?.away ?? last.xg_away;
     const total  = homeXg + awayXg;
     const homePct = total > 0 ? (homeXg / total * 100) : 50;
     const awayPct = 100 - homePct;
@@ -1681,44 +1694,48 @@ import {
 
   // ── xG Step Chart (5v5, built from events endpoint) ─────────────────────────
 
+  // Server contract (`/v1/games/:id/flow`): each point in `flow.points[]` carries
+  // pre-aggregated cumulative xG — `xg_home`/`xg_away` (all situations) and
+  // `xg_home_5v5`/`xg_away_5v5` (5v5). Values are monotonic (server enforces a
+  // running max) and sorted by `t`. This chart is a PURE RENDERER of that server
+  // series — it must NOT recompute cumulative xG from raw events (that was the
+  // web/iOS drift source; iOS already reads the server series).
+  function xg5v5Available(flow) {
+    if (flow?.totals?.xg_5v5) return true;
+    return (flow.points || []).some(p => p.xg_home_5v5 != null || p.xg_away_5v5 != null);
+  }
+
   function renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, sitFilter = '5v5') {
     const svg    = document.getElementById('xg-chart');
     const noData = document.getElementById('xg-no-data');
 
-    function toGameSecs(period, tip) {
-      if (!tip || !period) return null;
-      const ci = tip.indexOf(':');
-      if (ci === -1) return null;
-      const m = parseInt(tip.slice(0, ci), 10), s = parseInt(tip.slice(ci + 1), 10);
-      if (isNaN(m) || isNaN(s)) return null;
-      const e = m * 60 + s;
-      return period <= 3 ? (period - 1) * 1200 + e : 3600 + (period - 4) * 300 + e;
-    }
+    // Fall back to All Sit if 5v5 was requested but the server has no 5v5 series
+    // for this game (pre-dates the feature) — never plot nulls as 0.
+    if (sitFilter === '5v5' && !xg5v5Available(flow)) sitFilter = 'all';
 
-    const homeShots = [], awayShots = [];
-    for (const ev of (eventsData?.events || [])) {
-      if (ev.event_type !== 'SHOT_ON_GOAL' && ev.event_type !== 'MISSED_SHOT' && ev.event_type !== 'GOAL') continue;
-      const include = sitFilter === '5v5' ? (ev.payload?.situationCode === '1551') : true;
-      if (!include) continue;
-      const xg = parseFloat(ev.payload?.xg);
-      if (isNaN(xg) || xg <= 0) continue;
-      const t = toGameSecs(ev.period, ev.payload?.timeInPeriod);
-      if (t === null) continue;
-      const isHome = ev.event_team_id != null && String(ev.event_team_id) === String(ev.home_team_id);
-      (isHome ? homeShots : awayShots).push({ t, xg });
-    }
-    homeShots.sort((a, b) => a.t - b.t);
-    awayShots.sort((a, b) => a.t - b.t);
+    const homeField = sitFilter === '5v5' ? 'xg_home_5v5' : 'xg_home';
+    const awayField = sitFilter === '5v5' ? 'xg_away_5v5' : 'xg_away';
 
-    if (!homeShots.length && !awayShots.length) { svg.style.display = 'none'; noData.style.display = ''; return; }
+    const pts = (flow.points || []).filter(p => p.t != null).sort((a, b) => a.t - b.t);
 
-    function buildCum(shots) {
-      let c = 0; const r = [{ t: 0, c: 0 }];
-      for (const s of shots) { c += s.xg; r.push({ t: s.t, c }); }
+    // Build step-series directly from the server's cumulative values — points
+    // arrive already sorted/monotonic, so just plot them (no re-sort/re-max).
+    function buildCumFromFlow(field) {
+      const r = [{ t: 0, c: 0 }];
+      let last = 0;
+      for (const p of pts) {
+        const v = p[field];
+        if (v == null) continue;
+        if (v !== last) { r.push({ t: p.t, c: v }); last = v; }
+      }
       return r;
     }
-    const homeCum = buildCum(homeShots);
-    const awayCum = buildCum(awayShots);
+    const homeCum = buildCumFromFlow(homeField);
+    const awayCum = buildCumFromFlow(awayField);
+
+    if (homeCum.length <= 1 && awayCum.length <= 1) { svg.style.display = 'none'; noData.style.display = ''; return; }
+    svg.style.display = '';
+    noData.style.display = 'none';
 
     const homeTotal = homeCum[homeCum.length - 1]?.c ?? 0;
     const awayTotal = awayCum[awayCum.length - 1]?.c ?? 0;
@@ -1729,7 +1746,7 @@ import {
     const flowPts = (flow.points || []).filter(p => p.t != null);
     const tMax = flowPts.length
       ? Math.max(...flowPts.map(p => p.t))
-      : Math.max(...homeShots.map(s => s.t), ...awayShots.map(s => s.t), 3600);
+      : Math.max(...homeCum.map(p => p.t), ...awayCum.map(p => p.t), 3600);
 
     const W = 840, H = 360;
     const PAD = { l: 34, r: 64, t: 60, b: 24 }; // t=60 includes 44px label area
@@ -3075,12 +3092,25 @@ import {
       document.getElementById('section-game-body').style.display = '';
       renderStats(flow, boxscore, eventsData, awayAbbr, homeAbbr, awayColor, homeColor);
       renderChart(flow, homeColor, awayColor, homeAbbr, awayAbbr, state, awayScore, homeScore);
-      renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr);
+
+      // If the server has no 5v5 xG series for this game (pre-dates the feature),
+      // hide the 5v5 option and default to All Sit — never plot nulls as 0.
+      const xgToggleEl = document.getElementById('xg-sit-toggle');
+      const has5v5Xg = xg5v5Available(flow);
+      if (xgToggleEl) xgToggleEl.style.display = has5v5Xg ? '' : 'none';
+      let xgCurrentSit = has5v5Xg ? '5v5' : 'all';
+      renderXgChart(eventsData, flow, homeColor, awayColor, homeAbbr, awayAbbr, xgCurrentSit);
+      {
+        const meta = document.getElementById('chart-section-meta');
+        if (meta && !has5v5Xg) {
+          const isLive = state === 'live';
+          meta.textContent = isLive ? 'All Sit · HGB xG model · live' : 'All Sit · HGB xG model';
+        }
+      }
 
       // Wire up xG situation toggle (ChipGroup emits chip:changed).
       // Remove the previous handler before adding a new one to prevent stacking
       // on live-game re-renders (renderGame is called on every refresh interval).
-      let xgCurrentSit = '5v5';
       if (renderGame._xgChipHandler) {
         document.removeEventListener('chip:changed', renderGame._xgChipHandler);
       }

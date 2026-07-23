@@ -125,7 +125,19 @@ export type GamesTodayResponse = z.infer<typeof GamesTodayResponseSchema>;
 
 // ── GET /v1/games/:id/flow ───────────────────────────────────────────────────
 
-const FlowPointSchema = z.object({ t: z.number().optional(), wp: z.number().nullable().optional() }).passthrough();
+const FlowPointSchema = z
+  .object({
+    t: z.number().optional(),
+    wp: z.number().nullable().optional(),
+    // Precomputed cumulative xG (server enforces running-max + sort by `t`).
+    // All-situations:
+    xg_home: z.number().nullable().optional(),
+    xg_away: z.number().nullable().optional(),
+    // 5v5 only — nullable/absent for games that predate this field.
+    xg_home_5v5: z.number().nullable().optional(),
+    xg_away_5v5: z.number().nullable().optional(),
+  })
+  .passthrough();
 const FlowGoalSchema = z
   .object({
     t: z.number().optional(),
@@ -137,12 +149,24 @@ const FlowGoalSchema = z
   })
   .passthrough();
 
+const FlowStatPairSchema = z.object({ home: z.number().nullable().optional(), away: z.number().nullable().optional() }).passthrough();
+
 export const GameFlowSchema = z
   .object({
     game_id: z.string().optional(),
     points: z.array(FlowPointSchema).optional(),
     goals: z.array(FlowGoalSchema).optional(),
     three_stars: z.array(ThreeStarSchema).nullable().optional(),
+    // Precomputed final totals. `xg_5v5` is OMITTED ENTIRELY (not present, not
+    // null) when the server has no 5v5 series for this game — never treat a
+    // missing key here as 0.
+    totals: z
+      .object({
+        xg_all: FlowStatPairSchema.optional(),
+        xg_5v5: FlowStatPairSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 export type GameFlow = z.infer<typeof GameFlowSchema>;
