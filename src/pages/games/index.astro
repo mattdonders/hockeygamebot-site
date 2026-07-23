@@ -2597,6 +2597,28 @@ import {
 
   // ── On-Ice dot chart ────────────────────────────────────────────────────────
 
+  // ── Name formatting (parity with iOS GameDetail) ──────────────────────────
+  // On-ice endpoint sends "LAST, FIRST" (all caps); /lines sends "F. Last"
+  // (already correctly cased, e.g. "R. McLeod"). We moved off the "F. Last"
+  // display format everywhere: First Last where there's room (one player per
+  // row), Last-only when cramped (line/pair rows joined by " · ").
+  function hgbTitleWord(w) { return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''; }
+  function hgbTitle(s) { return s.split(' ').filter(Boolean).map(hgbTitleWord).join(' '); }
+  function hgbFirstLast(raw) {
+    const i = raw.indexOf(', ');
+    if (i < 0) return hgbTitle(raw);
+    return `${hgbTitle(raw.slice(i + 2))} ${hgbTitle(raw.slice(0, i))}`;
+  }
+  function hgbLastOnly(raw) {
+    const i = raw.indexOf(', ');
+    if (i >= 0) return hgbTitle(raw.slice(0, i));      // "LAST, FIRST" -> "Last"
+    // "F. Last" already-cased -> drop leading initial(s), preserve case.
+    const toks = raw.split(' ');
+    const isInit = t => (t.length <= 2 && t.endsWith('.')) || t.length === 1;
+    let k = 0; while (k < toks.length && isInit(toks[k])) k++;
+    return k < toks.length ? toks.slice(k).join(' ') : raw;
+  }
+
   function renderDotChart(players, homeColor, awayColor, homeAbbr, awayAbbr) {
     // ── Layout constants ──────────────────────────────────────────────────────
     const W = 800, H = 420;
@@ -2618,12 +2640,7 @@ import {
     const toY = pct => PAD_T + (1 - pct / 100) * CHART_H;
     const toiStr = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
 
-    function fmtName(raw) {
-      const idx = raw.indexOf(', ');
-      if (idx < 0) return raw;
-      const last = raw.slice(0, idx), first = raw.slice(idx + 2);
-      return `${first.charAt(0)}. ${last.charAt(0) + last.slice(1).toLowerCase()}`;
-    }
+    const fmtName = hgbFirstLast;   // dot-chart tooltip has room → First Last
 
     const ok = p => p.xgf_pct_5v5 != null && (p.toi_5v5_sec || p.toi_sec || 0) >= MIN_TOI;
     const awayPls = players.filter(p => !p.is_home && ok(p));
@@ -2751,12 +2768,6 @@ import {
     section.style.display = '';
     if (meta) meta.textContent = `As of ${d.as_of || '—'} · HGB xG model`;
 
-    function fmtName(raw) {
-      const [last, first] = raw.split(', ');
-      if (!first) return raw.charAt(0) + raw.slice(1).toLowerCase();
-      const cap = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-      return `${first.charAt(0)}. ${cap(last)}`;
-    }
     const toiStr = sec => `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`;
 
     function heatCell(pct, teamHex) {
@@ -2807,7 +2818,7 @@ import {
         </div>
         ${sorted.map(p => `
           <div class="onice-prow">
-            <div class="onice-pcell"><span class="onice-name-text">${esc(fmtName(p.name))}</span></div>
+            <div class="onice-pcell"><span class="onice-name-text">${esc(hgbFirstLast(p.name))}</span></div>
             ${heatCell(p.xgf_pct_5v5 ?? null, hex)}
             <div class="onice-toi">${toiStr(p.toi_sec)}</div>
             <div></div>
@@ -2824,7 +2835,7 @@ import {
         </div>
         ${sorted.map(ln => `
           <div class="onice-lrow">
-            <div class="onice-lnames">${esc(ln.players.map(fmtName).join(' · '))}</div>
+            <div class="onice-lnames">${esc(ln.players.map(hgbLastOnly).join(' · '))}</div>
             <div class="onice-ltoi">${toiStr(ln.toi_sec)}</div>
           </div>`).join('')}`;
     }
@@ -2973,7 +2984,7 @@ import {
     function comboRows(combos, prefix) {
       return combos.map((c, i) => `<tr>
         <td class="lc-line-label">${esc(prefix)} ${i + 1}</td>
-        <td class="lc-players">${esc((c.players || []).join(' · '))}</td>
+        <td class="lc-players">${esc((c.players || []).map(hgbLastOnly).join(' · '))}</td>
         <td><span class="ps-toi">${esc(toiMmSs(c.toi_min))}</span></td>
         <td>${c.xgf != null ? c.xgf.toFixed(2) : '—'}</td>
         <td>${c.xga != null ? c.xga.toFixed(2) : '—'}</td>
