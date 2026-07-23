@@ -1,6 +1,6 @@
 // Synced with utils/team_details.py (Python bot) and public/js/hgb-charts.js.
 // Canonical source is the Python bot — update all three when adding/changing a team.
-const TEAM_COLORS: Record<string, [string, string]> = {
+export const TEAM_COLORS: Record<string, [string, string]> = {
   ANA: ['#F47A38', '#B09862'], BOS: ['#FFB81C', '#000000'], BUF: ['#002654', '#FDBB30'],
   CAR: ['#CC0000', '#000000'], CBJ: ['#002654', '#CE1126'], CGY: ['#C8102E', '#F1BE48'],
   CHI: ['#CF0A2C', '#000000'], COL: ['#6F263D', '#236192'], DAL: ['#006847', '#8F8F8C'],

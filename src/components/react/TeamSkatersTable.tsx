@@ -17,6 +17,7 @@ import HGBTable, {
   NAME_FONT_SIZE,
 } from './HGBTable';
 import type { PlayerSummary, GameLogEntry } from '../../lib/stats-loader';
+import { useIsDark } from './FilterPrimitives';
 
 type Props = {
   players: PlayerSummary[];
@@ -64,16 +65,8 @@ type SkaterDisplayRow = {
 };
 
 export default function TeamSkatersTable({ players, playerGameMap, initialOpp = '' }: Props) {
-  const [isDark, setIsDark] = useState(false);
+  const isDark = useIsDark();
   const [activeOpp, setActiveOpp] = useState(initialOpp);
-
-  useEffect(() => {
-    const check = () => setIsDark(document.documentElement.dataset.theme === 'dark');
-    check();
-    const obs = new MutationObserver(check);
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => obs.disconnect();
-  }, []);
 
   // Listen for opponent filter changes from the vanilla dropdown
   useEffect(() => {
