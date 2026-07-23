@@ -1,0 +1,384 @@
+/**
+ * Puck Passport — client-side canvas "share card" (flex card of your attendance).
+ *
+ * A portrait PNG the user can download / paste on Twitter/Bluesky. It reuses the
+ * SAME in-memory data AttendedTracker already computes (counters, arenas, earned
+ * badges, single-game records) — NO new network fetch — and the SAME export
+ * surface as the player/goalie cards (`window.HGB_Export.showCardModal`).
+ *
+ * Aesthetic mirrors the HGB stats cards: light/cream (BG #EFEEE8, surface #FFF,
+ * ink #0d0d14) with a team-colour accent bar (falls back to HGB red). Per the
+ * site's canvas-card rule this file owns only the drawing; the React island
+ * supplies the already-derived data.
+ *
+ * SCALE + DENSITY — sized to the real portrait skater card (Season / Rating
+ * card: W=560, PAD≈24, FOOT_H=36, ROW_H≈36, section dividers not gaps), NOT
+ * blown up. The cards are tight and dense; so is this.
+ *
+ * TYPOGRAPHY — matched to the canonical player/goalie share cards
+ * (stats/player/[slug].astro, stats/goalies/[slug].astro):
+ *   • Hero name        Barlow Condensed 900, auto-fit (their big-hero '900 nfs'
+ *                      loop; here 40px→26 on a 560-wide card).
+ *   • Big numbers      Barlow Condensed 800 (their stat values are '800 34/42px'
+ *                      at hero scale; here 30px counters / 26px arena / 20px row).
+ *   • Section titles   Barlow Condensed 800 15px (their portrait '800 24px'
+ *                      compact header, scaled to this card).
+ *   • Number captions  Barlow 600 9px (their '600 9px "Barlow"' stat label).
+ *   • Eyebrows/meta     JetBrains Mono 700 8–9px (their '700 9/10px' eyebrows).
+ *   • Footer            compact INK10 band, centred mono/condensed at FOOT_INK,
+ *                      dot-joined segments incl. HOCKEYGAMEBOT.COM + SEASON —
+ *                      the shared cardFooterText shape.
+ *
+ * House rule (FAIL LOUD): the caller passes `boxIncomplete` when some box scores
+ * failed to load; the card prints an honest footnote rather than presenting a
+ * possibly-short Shots / Players-Seen figure as complete truth.
+ */
+
+import { SEASON, DOMAIN_UPPER, FOOTER_STYLE } from '../../lib/card-footer';
+
+const BG = '#EFEEE8';
+const SURFACE = '#FFFFFF';
+const INK = '#0D0D14';
+const RED = '#CC0000';
+const ink = (a: number) => `rgba(13,13,20,${a})`;
+
+export interface ShareCounters {
+  games: number;
+  periods: number;
+  goals: number;
+  shots: number;
+  playersSeen: number;
+}
+
+export interface ShareBadge {
+  label: string;
+  rarity: string; // e.g. "1 in 8 games"
+}
+
+export interface ShareRecord {
+  label: string; // e.g. "Highest Scoring"
+  value: string; // e.g. "11 goals"
+  sub?: string; // context line (matchup · date)
+}
+
+export interface PassportShareData {
+  /** "@handle" style identity, or null when logged-out / unknown. */
+  handle: string | null;
+  counters: ShareCounters;
+  arenas: { visited: number; total: number };
+  /** Rarest earned badges, already sorted rarest-first (0–3 shown). */
+  badges: ShareBadge[];
+  /** Marquee single-game records (0–3 shown). */
+  records: ShareRecord[];
+  /** Team-colour accent (hex) — falls back to HGB red. */
+  accent?: string | null;
+  /** True when some box scores failed → Shots / Players Seen may be short. */
+  boxIncomplete: boolean;
+}
+
+// ── tiny draw helpers ───────────────────────────────────────────────────────
+
+function rrect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/** Largest px size (≤ start) at which `text` in `font(px)` fits `maxW`. */
+function fitFont(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  font: (px: number) => string,
+  start: number,
+  maxW: number,
+  min = 12,
+): number {
+  let px = start;
+  while (px > min) {
+    ctx.font = font(px);
+    if (ctx.measureText(text).width <= maxW) break;
+    px -= 1;
+  }
+  return px;
+}
+
+function truncate(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+
+// ── the card ────────────────────────────────────────────────────────────────
+
+export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
+  const accent = data.accent || RED;
+  const SCALE = 2;
+  const W = 560; // matches the portrait skater card (Season / Rating card)
+  const PAD = 24;
+  const FOOT_INK = FOOTER_STYLE.inkOnLight; // rgba(13,13,20,0.55)
+  const cond = (px: number, wt = 800) => `${wt} ${px}px "Barlow Condensed", sans-serif`;
+  const body = (px: number, wt = 500) => `${wt} ${px}px "Barlow", sans-serif`;
+  const mono = (px: number, wt = 500) => `${wt} ${px}px "JetBrains Mono", monospace`;
+
+  // ── section heights — tight, card-scale (no dead space between sections) ──
+  const HEADER_H = 104; // eyebrow + hero name + tagline
+  const COUNTERS_H = 74; // 5-up big-number band
+  const SECTION_GAP = 14; // vertical rhythm between sections
+  const LABEL_H = 24; // section title + underline
+  const ARENA_H = 54;
+  const BADGE_ROW_H = 34;
+  const RECORD_ROW_H = 44;
+  const ROW_GAP = 3;
+  const FOOTER_H = data.boxIncomplete ? 46 : 36; // canonical FOOT_H = 36
+
+  const hasBadges = data.badges.length > 0;
+  const hasRecords = data.records.length > 0;
+
+  let bodyH = HEADER_H + COUNTERS_H + SECTION_GAP + LABEL_H + ARENA_H;
+  if (hasBadges)
+    bodyH += SECTION_GAP + LABEL_H + data.badges.length * BADGE_ROW_H + (data.badges.length - 1) * ROW_GAP;
+  if (hasRecords)
+    bodyH += SECTION_GAP + LABEL_H + data.records.length * RECORD_ROW_H + (data.records.length - 1) * ROW_GAP;
+  bodyH += SECTION_GAP;
+  const H = bodyH + FOOTER_H;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W * SCALE;
+  canvas.height = H * SCALE;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(SCALE, SCALE);
+
+  // ── background: cream + faint grid (matches the page masthead) ──
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = ink(0.04);
+  ctx.lineWidth = 1;
+  for (let gx = 40; gx < W; gx += 40) {
+    ctx.beginPath();
+    ctx.moveTo(gx + 0.5, HEADER_H);
+    ctx.lineTo(gx + 0.5, H);
+    ctx.stroke();
+  }
+  for (let gy = HEADER_H + 40; gy < H; gy += 40) {
+    ctx.beginPath();
+    ctx.moveTo(0, gy + 0.5);
+    ctx.lineTo(W, gy + 0.5);
+    ctx.stroke();
+  }
+
+  // ── HEADER (white band + accent bar) ──
+  ctx.fillStyle = SURFACE;
+  ctx.fillRect(0, 0, W, HEADER_H);
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, 0, 5, HEADER_H);
+  ctx.fillStyle = INK;
+  ctx.fillRect(0, HEADER_H - 1.5, W, 1.5);
+
+  // eyebrow — mono 700, canonical eyebrow treatment
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.font = mono(9, 700);
+  ctx.fillStyle = RED;
+  ctx.fillText('PERSONAL TRACKER · HOCKEYGAMEBOT', PAD, 24);
+
+  // hero name — Barlow Condensed 900, auto-fit (their '900 nfs' loop, card-scaled)
+  const headline = 'MY PUCK PASSPORT';
+  const hPx = fitFont(ctx, headline, (p) => cond(p, 900), 36, W - PAD * 2, 26);
+  ctx.font = cond(hPx, 900);
+  ctx.fillStyle = INK;
+  ctx.textBaseline = 'top';
+  ctx.fillText(headline, PAD, 32);
+
+  // tagline / handle — Barlow 600, the cards' plain-Barlow label weight
+  ctx.font = body(12, 600);
+  ctx.fillStyle = ink(0.56);
+  const tagline = data.handle ? data.handle : 'Every game I’ve been to, in person.';
+  ctx.fillText(truncate(ctx, tagline, W - PAD * 2), PAD, 34 + hPx + 6);
+
+  // ── COUNTERS (full-bleed 5-up on white) ──
+  const cy = HEADER_H;
+  ctx.fillStyle = SURFACE;
+  ctx.fillRect(0, cy, W, COUNTERS_H);
+  ctx.fillStyle = INK;
+  ctx.fillRect(0, cy + COUNTERS_H - 1.5, W, 1.5);
+
+  const cells: Array<[string, number]> = [
+    ['GAMES', data.counters.games],
+    ['PERIODS', data.counters.periods],
+    ['GOALS', data.counters.goals],
+    ['SHOTS', data.counters.shots],
+    ['SEEN', data.counters.playersSeen],
+  ];
+  const colW = W / cells.length;
+  cells.forEach(([label, val], i) => {
+    const x0 = i * colW;
+    if (i > 0) {
+      ctx.strokeStyle = ink(0.1);
+      ctx.beginPath();
+      ctx.moveTo(x0 + 0.5, cy + 14);
+      ctx.lineTo(x0 + 0.5, cy + COUNTERS_H - 14);
+      ctx.stroke();
+    }
+    const numStr = String(val);
+    // Big number = Barlow Condensed 800 30px (card-scale stat value, was 44px).
+    const numPx = fitFont(ctx, numStr, (p) => cond(p, 800), 30, colW - 12, 18);
+    ctx.font = cond(numPx, 800);
+    ctx.fillStyle = INK;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(numStr, x0 + colW / 2, cy + 42);
+    // caption = Barlow 600 9px stat label
+    ctx.font = body(9, 600);
+    ctx.fillStyle = ink(0.48);
+    ctx.textBaseline = 'top';
+    ctx.fillText(label, x0 + colW / 2, cy + 52);
+  });
+  ctx.textAlign = 'left';
+
+  // ── section title helper — compact Barlow Condensed 800 15px + hairline ──
+  let y = cy + COUNTERS_H + SECTION_GAP;
+  const sectionLabel = (text: string, meta?: string) => {
+    ctx.font = cond(15, 800);
+    ctx.fillStyle = INK;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.fillText(text.toUpperCase(), PAD, y);
+    if (meta) {
+      ctx.font = mono(8, 700);
+      ctx.fillStyle = ink(0.42);
+      ctx.textAlign = 'right';
+      ctx.fillText(meta.toUpperCase(), W - PAD, y + 4);
+      ctx.textAlign = 'left';
+    }
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.moveTo(PAD, y + LABEL_H - 6);
+    ctx.lineTo(W - PAD, y + LABEL_H - 6);
+    ctx.stroke();
+    y += LABEL_H;
+  };
+
+  // ── ARENAS VISITED (red-accent collection box) ──
+  sectionLabel('Arenas Visited');
+  ctx.fillStyle = SURFACE;
+  ctx.fillRect(PAD, y, W - PAD * 2, ARENA_H);
+  ctx.fillStyle = RED;
+  ctx.fillRect(PAD, y, 3, ARENA_H);
+  ctx.strokeStyle = ink(0.14);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(PAD + 0.5, y + 0.5, W - PAD * 2 - 1, ARENA_H - 1);
+
+  ctx.font = body(9, 600);
+  ctx.fillStyle = ink(0.48);
+  ctx.textBaseline = 'top';
+  ctx.fillText('DISTINCT ARENAS · COLLECTION', PAD + 16, y + 11);
+  ctx.font = cond(26, 800);
+  ctx.fillStyle = INK;
+  ctx.fillText(`${data.arenas.visited}`, PAD + 16, y + 24);
+  const visW = ctx.measureText(`${data.arenas.visited}`).width;
+  ctx.font = cond(15, 700);
+  ctx.fillStyle = ink(0.4);
+  ctx.fillText(`/ ${data.arenas.total}`, PAD + 16 + visW + 6, y + 33);
+  // progress bar (right side)
+  const barW = 150;
+  const barX = W - PAD - 16 - barW;
+  const barY = y + ARENA_H / 2 - 4;
+  ctx.fillStyle = ink(0.1);
+  ctx.fillRect(barX, barY, barW, 8);
+  ctx.fillStyle = RED;
+  ctx.fillRect(barX, barY, barW * Math.min(1, data.arenas.visited / data.arenas.total), 8);
+  y += ARENA_H + SECTION_GAP;
+
+  // ── RAREST BADGES ──
+  if (hasBadges) {
+    sectionLabel('Rarest Badges', `${data.badges.length} shown`);
+    data.badges.forEach((b, i) => {
+      const ry = y + i * (BADGE_ROW_H + ROW_GAP);
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(PAD, ry, W - PAD * 2, BADGE_ROW_H);
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 1.25;
+      ctx.strokeRect(PAD + 0.625, ry + 0.625, W - PAD * 2 - 1.25, BADGE_ROW_H - 1.25);
+      // label — Barlow Condensed 800 14px title
+      ctx.font = cond(14, 800);
+      ctx.fillStyle = INK;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText(truncate(ctx, b.label.toUpperCase(), W - PAD * 2 - 130), PAD + 12, ry + BADGE_ROW_H / 2);
+      // rarity — mono 700 readout in red
+      ctx.font = mono(10, 700);
+      ctx.fillStyle = RED;
+      ctx.textAlign = 'right';
+      ctx.fillText(b.rarity, W - PAD - 12, ry + BADGE_ROW_H / 2);
+    });
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    y += data.badges.length * BADGE_ROW_H + (data.badges.length - 1) * ROW_GAP + SECTION_GAP;
+  }
+
+  // ── STANDOUT MOMENTS (records) ──
+  if (hasRecords) {
+    sectionLabel('Standout Moments');
+    data.records.forEach((r, i) => {
+      const ry = y + i * (RECORD_ROW_H + ROW_GAP);
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(PAD, ry, W - PAD * 2, RECORD_ROW_H);
+      ctx.strokeStyle = ink(0.14);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(PAD + 0.5, ry + 0.5, W - PAD * 2 - 1, RECORD_ROW_H - 1);
+      // label — Barlow 600 9px stat-label
+      ctx.font = body(9, 600);
+      ctx.fillStyle = ink(0.48);
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.fillText(r.label.toUpperCase(), PAD + 12, ry + 9);
+      // sub — mono data string (matchup · date)
+      if (r.sub) {
+        ctx.font = mono(9, 500);
+        ctx.fillStyle = ink(0.56);
+        ctx.fillText(truncate(ctx, r.sub, W - PAD * 2 - 140), PAD + 12, ry + 25);
+      }
+      // value — Barlow Condensed 800 20px
+      ctx.font = cond(20, 800);
+      ctx.fillStyle = INK;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(r.value, W - PAD - 12, ry + RECORD_ROW_H / 2);
+    });
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    y += data.records.length * RECORD_ROW_H + (data.records.length - 1) * ROW_GAP + SECTION_GAP;
+  }
+
+  // ── FOOTER — compact INK10 band, centred dot-joined segments (cardFooterText
+  // shape): "Puck Passport · HOCKEYGAMEBOT.COM · 2025-26 [· @handle]" ──
+  const fy = H - FOOTER_H;
+  ctx.fillStyle = ink(0.08);
+  ctx.fillRect(0, fy, W, FOOTER_H);
+  const footSegs = ['Puck Passport', DOMAIN_UPPER, SEASON];
+  if (data.handle) footSegs.push(data.handle);
+  const footLine = footSegs.join(' · ');
+  const footMidY = data.boxIncomplete ? fy + 15 : fy + FOOTER_H / 2;
+  ctx.font = mono(9, 700);
+  ctx.fillStyle = FOOT_INK;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(truncate(ctx, footLine, W - PAD * 2), W / 2, footMidY);
+  if (data.boxIncomplete) {
+    ctx.font = mono(8, 500);
+    ctx.fillStyle = ink(0.4);
+    ctx.fillText(
+      truncate(ctx, 'Shots & Players Seen may be incomplete — some box scores unavailable.', W - PAD * 2),
+      W / 2,
+      fy + 33,
+    );
+  }
+
+  return canvas;
+}
