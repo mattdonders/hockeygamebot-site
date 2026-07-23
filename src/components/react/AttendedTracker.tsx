@@ -28,6 +28,7 @@ import {
   type EarnedBadge,
   type GameRecord,
 } from './puck-passport-badges';
+import { drawPassportCard, type PassportShareData } from './puck-passport-share';
 
 const API = 'https://api.hockeygamebot.com';
 const STORAGE_KEY = 'hgb_puck_passport_games';
@@ -396,6 +397,7 @@ export default function AttendedTracker() {
   const [hydrated, setHydrated] = useState(false);
   const [d1Error, setD1Error] = useState(false); // FAIL LOUD: D1 list failed to load
   const [writeError, setWriteError] = useState<string | null>(null); // add/remove/sync failed
+  const [userHandle, setUserHandle] = useState<string | null>(null); // "@handle" for the share card
 
   const commitDetail = useCallback((g: AttendedGame) => {
     detailsRef.current[g.game_id] = g;
@@ -462,6 +464,9 @@ export default function AttendedTracker() {
       const token = getSessionToken();
       const me = token ? await getMe() : null;
       if (cancelled) return;
+
+      // Handle for the share card: the email local-part (never the full address).
+      if (me?.email) setUserHandle('@' + me.email.split('@')[0]);
 
       if (!me) {
         setLocalGames(readAttended());
@@ -934,6 +939,89 @@ export default function AttendedTracker() {
     [arenas.list.length],
   );
 
+  // ── Share card (client-side canvas PNG) ──────────────────────────────────────
+  // Draws the SAME in-memory aggregates to a portrait canvas and hands it to the
+  // shared HGB_Export modal (download / long-press-to-save), exactly like the
+  // player/goalie cards. No new network fetch — everything below is already in
+  // memory. Disabled while empty (see render).
+  const handleShare = useCallback(async () => {
+    // Rarest earned badges first: lowest share of the attended set = rarest.
+    const rarest: PassportShareData['badges'] = [...earnedBadges]
+      .sort((a, b) => b.total / b.count - a.total / a.count)
+      .slice(0, 3)
+      .map((b) => ({
+        label: b.def.label,
+        rarity: b.rarity ? `${b.rarity} games` : b.def.rarityHint,
+      }));
+
+    // Marquee moments: prefer the crowd-pleasers, then fill from the rest. Player
+    // records get the same "F. Last" → "First Last" upgrade the page table uses.
+    const byKey = new Map(records.map((r) => [r.key, r]));
+    const preferred = ['highest', 'longest', 'player-goals', 'player-points'];
+    const chosen: GameRecord[] = [];
+    for (const k of preferred) {
+      const r = byKey.get(k);
+      if (r) chosen.push(r);
+      if (chosen.length === 3) break;
+    }
+    if (chosen.length < 3) {
+      for (const r of records) {
+        if (chosen.length === 3) break;
+        if (!chosen.includes(r)) chosen.push(r);
+      }
+    }
+    const shareRecords: PassportShareData['records'] = chosen.map((r) => {
+      const name = r.playerId != null ? nameMap?.get(r.playerId) ?? r.playerName : null;
+      return { label: r.label, value: r.value, sub: name ? `${name} · ${r.sub}` : r.sub };
+    });
+
+    // Accent = the colour of the team the user has seen most (falls back to red).
+    const accent = teamRecords.length > 0 ? pickTeamColor(teamRecords[0].abbrev) : null;
+
+    const data: PassportShareData = {
+      handle: userHandle,
+      counters: {
+        games: games.length,
+        periods: totals.periods,
+        goals: totals.goals,
+        shots: totals.shots,
+        playersSeen: totals.playersSeen,
+      },
+      arenas: { visited: arenaBadge.visited, total: arenaBadge.total },
+      badges: rarest,
+      records: shareRecords,
+      accent,
+      boxIncomplete,
+    };
+
+    // Ensure the Barlow / mono webfonts are ready so measureText + fills are
+    // correct (canvas text silently falls back to a system font otherwise).
+    try {
+      await (document as any).fonts?.ready;
+    } catch {
+      /* non-fatal — draw with whatever is loaded */
+    }
+    const canvas = drawPassportCard(data);
+    const exp = (window as any).HGB_Export;
+    if (exp?.showCardModal) {
+      exp.showCardModal(canvas, 'hgb-puck-passport.png');
+    } else {
+      // FAIL LOUD: the export surface script wasn't on the page.
+      console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
+      setWriteError('Could not open the share card — please reload the page and try again.');
+    }
+  }, [
+    earnedBadges,
+    records,
+    nameMap,
+    teamRecords,
+    userHandle,
+    games.length,
+    totals,
+    arenaBadge,
+    boxIncomplete,
+  ]);
+
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
     () => [
@@ -1139,6 +1227,16 @@ export default function AttendedTracker() {
           warn={boxIncomplete}
         />
       </div>
+
+      {/* Share your Passport — client-side canvas PNG (hidden until there's data) */}
+      {!empty ? (
+        <div className="att-share-bar">
+          <button className="att-share-btn" onClick={handleShare}>
+            ↑ Share your Passport
+          </button>
+          <span className="att-share-note">Generates a shareable card of your stats — download or post it.</span>
+        </div>
+      ) : null}
 
       {/* Add games */}
       <section className="att-section">
