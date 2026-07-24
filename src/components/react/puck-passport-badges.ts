@@ -66,8 +66,33 @@ function typeDigits(gameId: string): string {
   return gameId.slice(4, 6);
 }
 
-function periodType(g: BadgeGame): string {
-  return (g.last_period_type ?? '').toUpperCase();
+/** Canonical period code + a clean display label. `otCount` drives the periods
+ *  math (REG→0, OT/SO→1, 2OT→2, 3OT→3), so `periods = 3 + otCount`. This MUST
+ *  stay byte-for-byte in sync with the backend's normalizePeriod (attended
+ *  summary) — the server owns the logged-in numbers, this owns the logged-out
+ *  ones, and the two can never disagree. */
+export type PeriodCode = 'REG' | 'OT' | 'SO';
+export interface NormalizedPeriod {
+  code: PeriodCode;
+  otCount: number;
+  /** Human display: 'REG' | 'OT' | '2OT' | '3OT' | 'SO' — never a raw "20T". */
+  label: string;
+}
+
+/** Normalize a raw last_period_type into {code, otCount, label}. Tolerant of the
+ *  numbered playoff-OT forms ("2OT", "OT2", "3OT") and canonicalizes anything
+ *  unexpected to REG so the UI never renders a raw period string verbatim. */
+export function normalizePeriod(raw: string | null | undefined): NormalizedPeriod {
+  const s = (raw ?? '').toUpperCase().trim();
+  if (!s || s === 'REG' || s === 'REGULATION') return { code: 'REG', otCount: 0, label: 'REG' };
+  if (s.includes('SO') || s === 'SHOOTOUT') return { code: 'SO', otCount: 1, label: 'SO' };
+  if (s.includes('OT') || s.includes('OVERTIME')) {
+    const m = s.match(/(\d+)/);
+    let n = m ? parseInt(m[1], 10) : 1;
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    return { code: 'OT', otCount: n, label: n > 1 ? `${n}OT` : 'OT' };
+  }
+  return { code: 'REG', otCount: 0, label: 'REG' };
 }
 
 function anyPlayer(box: BadgeBox | undefined, pred: (p: BadgePlayer) => boolean): boolean {
@@ -136,14 +161,14 @@ export const BADGES: BadgeDef[] = [
     label: 'OT Winner',
     family: 'moment',
     rarityHint: '1 in 5',
-    earns: (g) => periodType(g) === 'OT',
+    earns: (g) => normalizePeriod(g.last_period_type).code === 'OT',
   },
   {
     id: 'shootout',
     label: 'Shootout Decided',
     family: 'moment',
     rarityHint: '1 in 9',
-    earns: (g) => periodType(g) === 'SO',
+    earns: (g) => normalizePeriod(g.last_period_type).code === 'SO',
   },
 ];
 
@@ -269,11 +294,10 @@ export interface GameRecord {
   playerName?: string;
 }
 
-/** Periods witnessed: 3 regulation + 1 for OT/SO. Playoff multi-OT undercounts
- *  here — the same caveat as the periods counter (documented, not silent). */
+/** Periods witnessed: 3 regulation + `otCount` (REG→0, OT/SO→1, 2OT→2, 3OT→3).
+ *  normalizePeriod owns the parsing so multi-OT is counted, not undercounted. */
 function periodsFor(g: BadgeGame): number {
-  const pt = periodType(g);
-  return 3 + (pt === 'OT' || pt === 'SO' ? 1 : 0);
+  return 3 + normalizePeriod(g.last_period_type).otCount;
 }
 
 function matchupLabel(g: { away: { abbrev?: string }; home: { abbrev?: string } }): string {
@@ -307,8 +331,8 @@ export function computeRecords(
       }
     }
     if (best) {
-      const pt = periodType(best);
-      const tag = pt === 'OT' ? ' (OT)' : pt === 'SO' ? ' (SO)' : '';
+      const np = normalizePeriod(best.last_period_type);
+      const tag = np.code === 'REG' ? '' : ` (${np.label})`;
       records.push({
         key: 'longest',
         label: 'Longest Game',

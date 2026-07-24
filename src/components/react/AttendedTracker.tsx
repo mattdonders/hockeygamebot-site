@@ -35,6 +35,7 @@ import {
   buildLocalCatalog,
   sortCatalog,
   parseOneInN,
+  normalizePeriod,
   type BadgeBox,
   type CatalogBadge,
   type GameRecord,
@@ -103,6 +104,8 @@ type D1AttendedRow = {
   home_score: number | null;
   away_score: number | null;
   is_final: number | null;
+  venue: string | null;
+  last_period_type: string | null; // REG | OT | SO | (playoff OT variants)
 };
 
 /** team_id → abbrev/name, from GET /v1/config. */
@@ -346,8 +349,10 @@ function mapD1Row(
     date: r.game_date ?? snap?.date ?? '',
     home: side(r.home_team_id, r.home_score, snap?.home),
     away: side(r.away_team_id, r.away_score, snap?.away),
-    venue: snap?.venue ?? null,
-    last_period_type: snap?.last_period_type ?? null,
+    // Prefer the server's game_results facts (cross-device / after a cache
+    // clear the local snapshot is absent); fall back to the local snapshot.
+    venue: r.venue ?? snap?.venue ?? null,
+    last_period_type: r.last_period_type ?? snap?.last_period_type ?? null,
     status: isFinal ? 'final' : snap?.status ?? 'scheduled',
     added_at: r.created_at ?? snap?.added_at ?? '',
   };
@@ -355,11 +360,10 @@ function mapD1Row(
 
 // ── Small derivations ───────────────────────────────────────────────────────────
 
-/** Periods witnessed: 3 regulation + 1 if the game reached OT or a shootout.
- *  (Playoff multi-OT undercounts here — acceptable for a Phase-0 counter.) */
+/** Periods witnessed: 3 regulation + `otCount` (REG→0, OT/SO→1, 2OT→2, 3OT→3).
+ *  normalizePeriod (shared with the badge module + backend) owns the parsing. */
 function periodsFor(g: AttendedGame): number {
-  const pt = (g.last_period_type ?? '').toUpperCase();
-  return 3 + (pt === 'OT' || pt === 'SO' ? 1 : 0);
+  return 3 + normalizePeriod(g.last_period_type).otCount;
 }
 
 function winnerAbbrev(g: AttendedGame): string | null {
@@ -813,6 +817,8 @@ export default function AttendedTracker() {
             home_score: raw.home_team.score,
             away_score: raw.away_team.score,
             is_final: raw.status === 'final' ? 1 : 0,
+            venue: raw.venue ?? null,
+            last_period_type: raw.last_period_type ?? null,
           };
           return [row, ...rows];
         });
@@ -985,17 +991,21 @@ export default function AttendedTracker() {
   const finalGames = useMemo(() => games.filter((g) => g.status === 'final'), [games]);
 
   const totals = useMemo(() => {
+    // Periods + goals count FINAL games only — a scheduled/live game logged before
+    // it ends has no meaningful score and would otherwise add a phantom 3 periods +
+    // 0 goals (mirrors the backend counters + how team records already filter).
     let goals = 0;
     let periods = 0;
-    for (const g of games) {
+    for (const g of finalGames) {
       goals += (g.home.score ?? 0) + (g.away.score ?? 0);
       periods += periodsFor(g);
     }
-    // Shots + distinct players from whatever box scores we have.
+    // Shots + distinct players from whatever box scores we have (finals only —
+    // finals are the only games with a persisted box).
     let shots = 0;
     const seen = new Set<number>();
     let missingBox = false;
-    for (const g of games) {
+    for (const g of finalGames) {
       const d = boxDerived[g.game_id];
       if (!d) {
         missingBox = true;
@@ -1005,7 +1015,7 @@ export default function AttendedTracker() {
       for (const p of d.players) seen.add(p.id);
     }
     return { goals, periods, shots, playersSeen: seen.size, seen, missingBox };
-  }, [games, boxDerived]);
+  }, [finalGames, boxDerived]);
 
   // Team W-L across attended (final) games.
   const teamRecords = useMemo(() => {
@@ -1156,7 +1166,14 @@ export default function AttendedTracker() {
 
   // Full badge catalog (§2): earned first (rarest-first) then ghost/unearned.
   const catalog = useMemo<CatalogBadge[]>(() => {
-    if (useSummary && summary) return sortCatalog(summary.badges.catalog.map(mapSummaryCatalog));
+    // Drop `arenas-visited`: the server catalog carries it, but a dedicated
+    // "Arenas Visited" collection badge is rendered separately below. Without
+    // this filter the logged-in view shows two Arenas badges and double-counts
+    // it in the earned tally (the logged-out local catalog never includes it).
+    if (useSummary && summary)
+      return sortCatalog(
+        summary.badges.catalog.filter((c) => c.id !== 'arenas-visited').map(mapSummaryCatalog),
+      );
     return sortCatalog(buildLocalCatalog(games, boxDerived as Record<string, BadgeBox | undefined>));
   }, [useSummary, summary, games, boxDerived]);
   const earnedCount = useMemo(() => catalog.filter((c) => c.earned).length, [catalog]);
@@ -1289,16 +1306,19 @@ export default function AttendedTracker() {
         header: 'Final',
         accessor: (r) => `${r.away.score}-${r.home.score}`,
         align: 'center',
-        cell: (_, r) => (
-          <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700 }}>
-            {r.away.score}–{r.home.score}
-            {r.last_period_type && r.last_period_type.toUpperCase() !== 'REG' ? (
-              <span style={{ marginLeft: 5, color: 'var(--red)', fontSize: 10, fontWeight: 700 }}>
-                {r.last_period_type.toUpperCase()}
-              </span>
-            ) : null}
-          </span>
-        ),
+        cell: (_, r) => {
+          const np = normalizePeriod(r.last_period_type);
+          return (
+            <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700 }}>
+              {r.away.score}–{r.home.score}
+              {np.code !== 'REG' ? (
+                <span style={{ marginLeft: 5, color: 'var(--red)', fontSize: 10, fontWeight: 700 }}>
+                  {np.label}
+                </span>
+              ) : null}
+            </span>
+          );
+        },
       },
       {
         id: 'venue',
@@ -1462,10 +1482,21 @@ export default function AttendedTracker() {
       {/* Share your Passport — client-side canvas PNG (hidden until there's data) */}
       {!empty ? (
         <div className="att-share-bar">
-          <button className="att-share-btn" onClick={handleShare}>
+          {/* Disabled while the server summary is still loading: box scores aren't
+              fetched in that window, so the aggregates would export as zeros. */}
+          <button
+            className="att-share-btn"
+            onClick={handleShare}
+            disabled={summaryPending}
+            title={summaryPending ? 'Loading your stats — one moment…' : undefined}
+          >
             ↑ Share your Passport
           </button>
-          <span className="att-share-note">Generates a shareable card of your stats — download or post it.</span>
+          <span className="att-share-note">
+            {summaryPending
+              ? 'Loading your stats…'
+              : 'Generates a shareable card of your stats — download or post it.'}
+          </span>
         </div>
       ) : null}
 
@@ -1633,9 +1664,10 @@ export default function AttendedTracker() {
                             </span>
                             <span className="att-add-score">
                               {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
-                              {g.last_period_type && g.last_period_type.toUpperCase() !== 'REG' ? (
-                                <span className="att-ot">{g.last_period_type.toUpperCase()}</span>
-                              ) : null}
+                              {(() => {
+                                const np = normalizePeriod(g.last_period_type);
+                                return np.code !== 'REG' ? <span className="att-ot">{np.label}</span> : null;
+                              })()}
                             </span>
                             <span className="att-add-venue">{g.venue ?? 'venue unknown'}</span>
                             <button
@@ -1894,7 +1926,7 @@ export default function AttendedTracker() {
                   {viewArenas.unknown > 0 ? (
                     <div className="att-arena-row att-arena-unknown">
                       <span className="att-arena-name">Venue unknown</span>
-                      <span className="att-arena-count">{arenas.unknown}</span>
+                      <span className="att-arena-count">{viewArenas.unknown}</span>
                     </div>
                   ) : null}
                 </div>
