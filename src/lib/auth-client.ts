@@ -81,14 +81,130 @@ export function apiFetch(url: string, opts: RequestInit = {}): Promise<Response>
 
 // ── Account endpoints ─────────────────────────────────────────────────────────
 
-/** GET /v1/auth/me — returns the user object, or null on 401/error. */
-export async function getMe(): Promise<{ id: string; email: string } | null> {
+// The Puck Passport public identity lives on the users row: `handle` is the
+// public @name (auto-assigned at signup, so non-null for real logins) and
+// `is_public` is the public-passport opt-in.
+export type Me = {
+  id: string;
+  email: string;
+  handle: string | null;
+  is_public: boolean;
+};
+
+/** GET /v1/auth/me — returns { user }, or null on 401/error. */
+export async function getMe(): Promise<{ user: Me } | null> {
   try {
     const r = await apiFetch(`${API_BASE}/v1/auth/me`);
     if (!r.ok) return null;
     const data = await r.json();
+    if (!data || data.error || !data.user) return null;
+    return data as { user: Me };
+  } catch {
+    return null;
+  }
+}
+
+// ── Puck Passport public identity (handle + privacy) ────────────────────────────
+
+/** PUT /v1/account/public — set the public-passport opt-in. Returns the new
+ *  is_public value on success, or null on error. */
+export async function putAccountPublic(isPublic: boolean): Promise<boolean | null> {
+  try {
+    const r = await apiFetch(`${API_BASE}/v1/account/public`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_public: isPublic }),
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
     if (!data || data.error) return null;
-    return data as { id: string; email: string };
+    return !!data.is_public;
+  } catch {
+    return null;
+  }
+}
+
+export type HandleAvailability = { available: boolean; reason?: 'format' | 'reserved' };
+
+/** GET /v1/account/handle-available?handle=x — live availability check. */
+export async function checkHandleAvailable(handle: string): Promise<HandleAvailability | null> {
+  try {
+    const r = await apiFetch(
+      `${API_BASE}/v1/account/handle-available?handle=${encodeURIComponent(handle)}`,
+    );
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data) return null;
+    return data as HandleAvailability;
+  } catch {
+    return null;
+  }
+}
+
+export type PutHandleResult = { ok: boolean; handle?: string; status: number; error?: string };
+
+/** PUT /v1/account/handle — claim/change the handle. Surfaces 400 (bad format /
+ *  reserved) and 409 ("handle taken") via `status` so the caller can message the
+ *  user. `status: 0` means a network error (no response). */
+export async function putHandle(handle: string): Promise<PutHandleResult> {
+  try {
+    const r = await apiFetch(`${API_BASE}/v1/account/handle`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle }),
+    });
+    const data = await r.json().catch(() => ({}) as any);
+    if (r.ok && data?.ok) return { ok: true, handle: data.handle, status: r.status };
+    return { ok: false, status: r.status, error: data?.error ?? 'Could not update handle' };
+  } catch {
+    return { ok: false, status: 0, error: 'Network error — try again.' };
+  }
+}
+
+// ── Public passport projection (GET /v1/passport/:handle) ───────────────────────
+
+export type PassportCounters = {
+  games: number;
+  periods: number;
+  goals: number;
+  shots: number;
+  players_seen: number;
+};
+export type PassportBadge = {
+  id: string;
+  label: string;
+  family: string;
+  earned: boolean;
+  count: number;
+  rarity: string;
+  rarity_hint: string;
+  note?: string;
+  total?: number;
+};
+export type PassportArenas = {
+  home_rinks: number;
+  total: number;
+  distinct_buildings: number;
+  teams_seen: number[];
+};
+export type PassportTeamRecord = { abbrev: string; name: string; w: number; l: number };
+export type PublicPassport = {
+  handle: string;
+  counters: PassportCounters;
+  badges: { earned: unknown[]; catalog: PassportBadge[] };
+  arenas: PassportArenas;
+  team_records: PassportTeamRecord[];
+};
+
+/** GET /v1/passport/:handle (public, no auth). Returns the projection, or null
+ *  on 404 (unknown OR private — deliberately indistinguishable) / error. */
+export async function getPassport(handle: string): Promise<PublicPassport | null> {
+  try {
+    const r = await fetch(`${API_BASE}/v1/passport/${encodeURIComponent(handle)}`);
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data || data.error || !data.handle) return null;
+    return data as PublicPassport;
   } catch {
     return null;
   }
