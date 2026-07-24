@@ -1,0 +1,190 @@
+---
+/**
+ * PublicPassportBody — the READ-ONLY public profile body, rendered as NATIVE
+ * ASTRO MARKUP (no React) so it can render inside the Cloudflare Worker on the
+ * on-demand /puck-passport/[handle] route. React SSR is deliberately avoided
+ * here: Astro's React renderer loads `react-dom/server.browser`, which
+ * references `MessageChannel` unguarded at init and crashes workerd. This view
+ * is pure/read-only, so plain Astro markup is the robust choice — zero React
+ * runtime in the worker, and it shares the dashboard's att-* CSS for parity.
+ *
+ * It renders the FOUR public sections only — counters, badges (earned + ghost),
+ * the Home Rinks arena meter, and team records. The masthead + the private/404
+ * and error states are owned by the [handle].astro route.
+ */
+import { NHL_TEAMS } from '../lib/nhl-teams';
+import { pickTeamColor } from '../lib/team-colors';
+import { sortCatalog, parseOneInN, badgeBlurb, type CatalogBadge } from './react/puck-passport-badges';
+import type { PublicPassport as PassportData, PassportBadge } from '../lib/auth-client';
+
+interface Props {
+  data: PassportData;
+  abbrevToId: Record<string, number>;
+}
+const { data, abbrevToId } = Astro.props;
+
+/** Server catalog entry → the shared CatalogBadge shape (mirrors the dashboard's
+ *  mapSummaryCatalog). Blurbs aren't sent over the wire — reuse the local ones. */
+function mapCatalog(c: PassportBadge): CatalogBadge {
+  return {
+    id: c.id,
+    label: c.label,
+    family: c.family,
+    earned: !!c.earned,
+    count: c.count ?? 0,
+    rarity: c.rarity ?? '',
+    rarityHint: c.rarity_hint ?? '',
+    blurb: badgeBlurb(c.id),
+    note: c.note,
+    total: c.total,
+    rarityRatio: c.earned && c.count > 0 && c.total ? c.total / c.count : parseOneInN(c.rarity_hint),
+  };
+}
+
+const catalog: CatalogBadge[] = sortCatalog(
+  data.badges.catalog.filter((c) => c.id !== 'arenas-visited').map(mapCatalog),
+);
+const earnedCount = catalog.filter((c) => c.earned).length;
+const pipTeams = [...NHL_TEAMS].sort((a, b) => a.name.localeCompare(b.name));
+const teamsSeen = new Set(data.arenas.teams_seen ?? []);
+
+const c = data.counters;
+const arenas = data.arenas;
+const homeRinksEarned = arenas.home_rinks > 0;
+---
+
+<div class="att-root">
+  {/* Read-only note + make-your-own CTA */}
+  <div class="pp-cta-row">
+    <a class="pp-cta" href="/puck-passport/">Make your own →</a>
+    <span class="pp-readonly-note">// A read-only public profile. Stats are computed from attended games.</span>
+  </div>
+
+  {/* Counters */}
+  <div class="att-counters">
+    <div class="att-counter">
+      <div class="att-counter-num">{c.games}</div>
+      <div class="att-counter-label">Games</div>
+    </div>
+    <div class="att-counter">
+      <div class="att-counter-num">{c.periods}</div>
+      <div class="att-counter-label">Periods</div>
+    </div>
+    <div class="att-counter">
+      <div class="att-counter-num">{c.goals}</div>
+      <div class="att-counter-label">Goals</div>
+    </div>
+    <div class="att-counter">
+      <div class="att-counter-num">{c.shots}</div>
+      <div class="att-counter-label">Shots</div>
+    </div>
+    <div class="att-counter">
+      <div class="att-counter-num">{c.players_seen}</div>
+      <div class="att-counter-label">Players Seen</div>
+    </div>
+  </div>
+
+  {/* Badges — earned (rarest first) then ghost/unearned */}
+  <section class="att-section">
+    <div class="att-section-head">
+      <span class="att-section-label">Badges</span>
+      <span class="att-section-meta">{earnedCount + (homeRinksEarned ? 1 : 0)} of {catalog.length + 1}</span>
+    </div>
+    <div class="att-badges">
+      {
+        homeRinksEarned && (
+          <div class="att-badge att-badge-collection" data-family="collection">
+            <div class="att-badge-top">
+              <span class="att-badge-label">Home Rinks</span>
+              <span class="att-badge-count">{arenas.home_rinks}/{arenas.total}</span>
+            </div>
+            <span class="att-badge-rarity">home rinks collected · collection</span>
+          </div>
+        )
+      }
+      {
+        catalog.map((b) =>
+          b.earned ? (
+            <div class="att-badge" data-family={b.family}>
+              <div class="att-badge-top">
+                <span class="att-badge-label">{b.label}</span>
+                <span class="att-badge-count">×{b.count}</span>
+              </div>
+              <span class="att-badge-rarity">
+                {b.rarity ? `${b.rarity} games` : b.rarityHint}
+                <span class="att-badge-family"> · {b.family === 'game-type' ? 'type' : 'moment'}</span>
+              </span>
+              {b.blurb && <span class="att-badge-blurb">{b.blurb}</span>}
+              {b.note && <span class="att-badge-note">{b.note}</span>}
+            </div>
+          ) : (
+            <div class="att-badge att-badge-ghost" data-family={b.family}>
+              <div class="att-badge-top">
+                <span class="att-badge-label">{b.label}</span>
+                <span class="att-badge-ghost-tag">Locked</span>
+              </div>
+              <span class="att-badge-rarity">
+                {b.rarityHint ? `rarity ~${b.rarityHint}` : 'not yet seen'}
+                <span class="att-badge-family"> · {b.family === 'game-type' ? 'type' : 'moment'}</span>
+              </span>
+              {b.blurb && <span class="att-badge-blurb">{b.blurb}</span>}
+            </div>
+          ),
+        )
+      }
+    </div>
+  </section>
+
+  {/* Team records + Home Rinks side by side */}
+  <div class="att-two-col">
+    <section class="att-section">
+      <div class="att-section-head">
+        <span class="att-section-label">Team Records</span>
+        <span class="att-section-meta">every team seen</span>
+      </div>
+      {
+        data.team_records.length === 0 ? (
+          <div class="att-add-empty">No completed games yet.</div>
+        ) : (
+          <div class="att-teams">
+            {
+              data.team_records.map((t) => (
+                <div class="att-team-row">
+                  <span class="att-team-dot" style={`background:${pickTeamColor(t.abbrev)}`}></span>
+                  <span class="att-team-abbr">{t.abbrev}</span>
+                  <span class="att-team-name">{t.name}</span>
+                  <span class="att-team-rec">{t.w}-{t.l}</span>
+                </div>
+              ))
+            }
+          </div>
+        )
+      }
+    </section>
+
+    <section class="att-section">
+      <div class="att-section-head">
+        <span class="att-section-label">Home Rinks — {arenas.home_rinks} / {arenas.total}</span>
+        <span class="att-section-meta">{arenas.total - arenas.home_rinks} to go — collect all {arenas.total}</span>
+      </div>
+      <div class="att-rinks">
+        {
+          pipTeams.map((t) => {
+            const id = abbrevToId[t.abbr];
+            const collected = id != null && teamsSeen.has(id);
+            return (
+              <div
+                class={collected ? 'att-rink att-rink-on' : 'att-rink'}
+                title={collected ? `${t.name} — collected` : `${t.name} — not yet`}
+              >
+                <span class="att-rink-pip" style={`background:${collected ? pickTeamColor(t.abbr) : 'var(--ink-14)'}`}></span>
+                <span class="att-rink-abbr">{t.abbr}</span>
+              </div>
+            );
+          })
+        }
+      </div>
+      <div class="att-rinks-substat">{arenas.distinct_buildings} total arenas visited</div>
+    </section>
+  </div>
+</div>

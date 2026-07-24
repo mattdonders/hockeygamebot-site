@@ -1,0 +1,176 @@
+---
+// HockeyGameBot — public Puck Passport profile (/puck-passport/@{handle}).
+//
+// ON-DEMAND (SSR) route. `prerender = false` opts THIS route out of static
+// generation while the rest of the site stays statically prerendered (see
+// astro.config.mjs). That's required because handles are created at RUNTIME —
+// a new handle must resolve to a real page instantly, which build-time
+// getStaticPaths can't do. Rendering server-side also gives every shared link a
+// per-handle OG preview (title/description below), which a client-fetched
+// static shell can't (crawlers don't run JS).
+//
+// The handle arrives with an optional leading `@` (the shareable URL is
+// /puck-passport/@matt). We strip it, lowercase, and look up the public
+// projection GET /v1/passport/:handle (404 = unknown OR private, deliberately
+// indistinguishable). On miss we render the honest empty state with a real 404.
+export const prerender = false;
+
+import Base from '../../layouts/Base.astro';
+import PublicPassportBody from '../../components/PublicPassportBody.astro';
+import '../../styles/puck-passport.css';
+
+const API = 'https://api.hockeygamebot.com';
+
+const raw = Astro.params.handle ?? '';
+// Malformed percent-encoding (e.g. /puck-passport/%E0%A4%A) must not 500 —
+// decode defensively and fall through to the honest 404 miss.
+let handle = '';
+try {
+  handle = decodeURIComponent(raw).replace(/^@/, '').trim().toLowerCase();
+} catch {
+  handle = '';
+}
+
+type PassportData = {
+  handle: string;
+  counters: { games: number; periods: number; goals: number; shots: number; players_seen: number };
+  badges: { earned: unknown[]; catalog: Array<{ id: string; earned: boolean }> };
+  arenas: { home_rinks: number; total: number; distinct_buildings: number; teams_seen: number[] };
+  team_records: Array<{ abbrev: string; name: string; w: number; l: number }>;
+};
+
+// Fetch the public projection + the team config (for Home Rinks pip colours) in
+// parallel, server-side. Any failure → treated as "missing" (fail to the honest
+// 404 state, never a half-rendered card).
+let passport: PassportData | null = null;
+let abbrevToId: Record<string, number> = {};
+// Distinguish a genuine miss (unknown/private handle → cacheable 404) from an
+// UPSTREAM failure (API down / timeout / 5xx). Treating an outage as a 404 would
+// tell crawlers a real public passport was deleted — and they cache that. On
+// upstream failure we send a no-store 503 instead.
+let upstreamError = false;
+
+if (handle) {
+  const [pRes, cRes] = await Promise.allSettled([
+    fetch(`${API}/v1/passport/${encodeURIComponent(handle)}`),
+    fetch(`${API}/v1/config`),
+  ]);
+
+  if (pRes.status === 'rejected') {
+    upstreamError = true; // network error / timeout
+  } else if (pRes.value.ok) {
+    try {
+      const data = await pRes.value.json();
+      if (data && !data.error && data.handle) passport = data as PassportData;
+      // 200 but not a valid passport → genuine miss (leave passport null).
+    } catch {
+      upstreamError = true; // 200 with an unparseable body = upstream problem
+    }
+  } else if (pRes.value.status >= 500) {
+    upstreamError = true; // upstream 5xx
+  }
+  // else: a 4xx (incl. 404) is a genuine miss — passport stays null.
+
+  if (cRes.status === 'fulfilled' && cRes.value.ok) {
+    try {
+      const cfg = await cRes.value.json();
+      for (const t of (cfg.teams ?? []) as Array<{ id: number; abbrev: string }>) {
+        if (typeof t.id === 'number' && t.abbrev) abbrevToId[t.abbrev] = t.id;
+      }
+    } catch {
+      /* non-fatal: pips just stay grey without the id map */
+    }
+  }
+}
+
+// Status: 200 with data; 503 (no-store) on upstream failure so a transient
+// outage is never cached as a deletion; 404 for a genuine unknown/private miss.
+if (!passport) {
+  if (upstreamError) {
+    Astro.response.status = 503;
+    Astro.response.headers.set('Cache-Control', 'no-store');
+  } else {
+    Astro.response.status = 404;
+  }
+}
+
+// ── Per-handle SEO / OG (the whole point of SSR here) ───────────────────────
+const earnedBadges = passport
+  ? passport.badges.catalog.filter((b) => b.earned && b.id !== 'arenas-visited').length +
+    (passport.arenas.home_rinks > 0 ? 1 : 0)
+  : 0;
+
+const pageTitle = passport
+  ? `@${passport.handle}'s Puck Passport · HockeyGameBot`
+  : 'Puck Passport · HockeyGameBot';
+const pageDesc = passport
+  ? `${passport.counters.games} NHL games attended in person · ${earnedBadges} badges earned · ${passport.arenas.home_rinks}/${passport.arenas.total} home rinks collected.`
+  : 'A fan-made record of NHL games attended in person — counters, badges, home rinks collected, and team records.';
+
+const mastTitle = passport ? `@${passport.handle}'s Puck Passport` : 'Puck Passport';
+const mastSub = passport
+  ? 'Every NHL game this fan has been to in person — counters, badges, home rinks collected, and team records.'
+  : upstreamError
+    ? "Couldn't load this passport right now — please try again in a moment."
+    : 'A fan-made record of NHL games attended in person.';
+---
+
+<Base
+  title={pageTitle}
+  description={pageDesc}
+  ogType="profile"
+  canonical={passport ? `/puck-passport/@${passport.handle}` : '/puck-passport'}
+  currentPath="/puck-passport"
+>
+  <section class="att-mast">
+    <div class="att-mast-ghost">PASSPORT</div>
+    <div class="att-mast-corners">
+      <div class="att-corner tl"></div>
+      <div class="att-corner tr"></div>
+    </div>
+    <div class="att-wrap att-mast-inner">
+      <div class="att-mast-top">
+        <span class="att-mast-top-eyebrow">
+          <span class="pip"></span> HockeyGameBot · Puck Passport
+        </span>
+      </div>
+      <div class="att-mast-card">
+        <span class="att-eyebrow">Public Passport</span>
+        <h1 class="att-headline">{mastTitle}</h1>
+        <p class="att-sub">{mastSub}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="att-body">
+    <div class="att-wrap">
+      {
+        passport ? (
+          <PublicPassportBody data={passport} abbrevToId={abbrevToId} />
+        ) : upstreamError ? (
+          <div class="pp-404">
+            <div class="pp-404-title">This passport couldn't be loaded</div>
+            <div class="pp-404-sub">
+              Something went wrong reaching the server — this is temporary, not a deleted passport. Refresh
+              in a moment.
+            </div>
+            <div class="pp-404-cta">
+              <a class="pp-cta" href="/puck-passport/">Go to your passport →</a>
+            </div>
+          </div>
+        ) : (
+          <div class="pp-404">
+            <div class="pp-404-title">This passport is private or doesn't exist</div>
+            <div class="pp-404-sub">
+              The handle you're looking for isn't public — or hasn't been claimed yet. Start your own and
+              stamp every game you've been to.
+            </div>
+            <div class="pp-404-cta">
+              <a class="pp-cta" href="/puck-passport/">Make your own →</a>
+            </div>
+          </div>
+        )
+      }
+    </div>
+  </section>
+</Base>
