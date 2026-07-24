@@ -20,7 +20,9 @@
  *   • Hero name        Barlow Condensed 900, auto-fit (their big-hero '900 nfs'
  *                      loop; here 40px→26 on a 560-wide card).
  *   • Big numbers      Barlow Condensed 800 (their stat values are '800 34/42px'
- *                      at hero scale; here 30px counters / 26px arena / 20px row).
+ *                      at hero scale; here 30px counters / 26px arena / 16px row).
+ *                      The badge-NAME and record-VALUE are the same row-hero tier,
+ *                      so they share ONE size (HERO_PX) — never one bigger.
  *   • Section titles   Barlow Condensed 800 15px (their portrait '800 24px'
  *                      compact header, scaled to this card).
  *   • Number captions  Barlow 600 9px (their '600 9px "Barlow"' stat label).
@@ -38,6 +40,7 @@
  */
 
 import { DOMAIN_UPPER, FOOTER_STYLE } from '../../lib/card-footer';
+import { normalizePeriod } from './puck-passport-badges';
 
 const BG = '#EFEEE8';
 const SURFACE = '#FFFFFF';
@@ -56,12 +59,17 @@ export interface ShareCounters {
 export interface ShareBadge {
   label: string;
   rarity: string; // e.g. "1 in 8 games"
+  blurb?: string; // one-line criteria description (mono gray sub-line)
 }
 
 export interface ShareRecord {
+  key?: string; // record key (e.g. 'longest') — drives the longest-game layout
   label: string; // e.g. "Highest Scoring"
   value: string; // e.g. "11 goals"
   sub?: string; // context line (matchup · date)
+  /** Longest-game only: total elapsed clock (e.g. "92:56") when the backend
+   *  supplies it. Absent today → the hero falls back to "N periods". */
+  total_time?: string | null;
 }
 
 export interface PassportShareData {
@@ -125,6 +133,10 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const cond = (px: number, wt = 800) => `${wt} ${px}px "Barlow Condensed", sans-serif`;
   const body = (px: number, wt = 500) => `${wt} ${px}px "Barlow", sans-serif`;
   const mono = (px: number, wt = 500) => `${wt} ${px}px "JetBrains Mono", monospace`;
+  // Shared "row hero" size — the bold Barlow value that headlines a row. The
+  // Rarest-Badges NAME and the Standout-Moments VALUE are the SAME tier, so they
+  // MUST render at the same size (was 14 vs 20 — the badge name looked demoted).
+  const HERO_PX = 16;
 
   // ── section heights — tight, card-scale (no dead space between sections) ──
   const HEADER_H = 104; // eyebrow + hero name + tagline
@@ -132,7 +144,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const SECTION_GAP = 14; // vertical rhythm between sections
   const LABEL_H = 24; // section title + underline
   const ARENA_H = 74; // frac row + 32-pip collection meter + caption (iOS-mockup style)
-  const BADGE_ROW_H = 34;
+  const BADGE_ROW_H = 44; // name (hero) + blurb sub-line — matches the record row
   const RECORD_ROW_H = 44;
   const ROW_GAP = 3;
   const FOOTER_H = data.boxIncomplete ? 46 : 36; // canonical FOOT_H = 36
@@ -299,7 +311,9 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.fillStyle = ink(0.48);
   ctx.textBaseline = 'top';
   const toGo = total - visited;
-  const cap = toGo > 0 ? `${visited} visited · ${toGo} to go — collect all ${total}` : `all ${total} collected`;
+  // Drop the redundant "N visited ·" prefix — the count is already the headline
+  // fraction above. Keep just the "to go — collect all N" chase copy.
+  const cap = toGo > 0 ? `${toGo} to go — collect all ${total}` : `all ${total} collected`;
   ctx.fillText(truncate(ctx, cap, pipsW), pipsX, pipY + pipH + 6);
   y += ARENA_H + SECTION_GAP;
 
@@ -313,16 +327,25 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.strokeStyle = INK;
       ctx.lineWidth = 1.25;
       ctx.strokeRect(PAD + 0.625, ry + 0.625, W - PAD * 2 - 1.25, BADGE_ROW_H - 1.25);
-      // label — Barlow Condensed 800 14px title
-      ctx.font = cond(14, 800);
+      // name (row hero) — Barlow Condensed 800 at the shared HERO_PX, level with
+      // the Standout Moments value (same tier ⇒ same size). Top-aligned so the
+      // mono blurb can sit beneath it.
+      ctx.font = cond(HERO_PX, 800);
       ctx.fillStyle = INK;
-      ctx.textBaseline = 'middle';
+      ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
-      ctx.fillText(truncate(ctx, b.label.toUpperCase(), W - PAD * 2 - 130), PAD + 12, ry + BADGE_ROW_H / 2);
+      ctx.fillText(truncate(ctx, b.label.toUpperCase(), W - PAD * 2 - 130), PAD + 12, ry + 8);
+      // blurb — mono light-gray criteria sub-line (matches the record sub idiom)
+      if (b.blurb) {
+        ctx.font = mono(9, 500);
+        ctx.fillStyle = ink(0.5);
+        ctx.fillText(truncate(ctx, b.blurb, W - PAD * 2 - 130), PAD + 12, ry + 27);
+      }
       // rarity — mono readout in light ink (matches .att-badge-rarity + the
       // record context line: ONE mono/light-gray idiom across both sections)
       ctx.font = mono(10, 700);
       ctx.fillStyle = ink(0.48);
+      ctx.textBaseline = 'middle';
       ctx.textAlign = 'right';
       ctx.fillText(b.rarity, W - PAD - 12, ry + BADGE_ROW_H / 2);
     });
@@ -354,12 +377,51 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
         ctx.fillStyle = ink(0.56);
         ctx.fillText(truncate(ctx, r.sub, W - PAD * 2 - 140), PAD + 12, ry + 25);
       }
-      // value — Barlow Condensed 800 20px
-      ctx.font = cond(20, 800);
-      ctx.fillStyle = INK;
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(r.value, W - PAD - 12, ry + RECORD_ROW_H / 2);
+
+      // Hero (value) — Barlow Condensed 800 at HERO_PX, right-aligned. Level with
+      // the Rarest-Badges name (same tier). The LONGEST-GAME row is data-driven:
+      // a bold condensed "2OT" reads as "20T" (O looks like 0), so the OT label
+      // becomes a MONO readout and the bold hero is a clean value instead.
+      let heroText = r.value;
+      let heroReadout: string | undefined;
+      if (r.key === 'longest') {
+        // Derive periods + OT label from the record's own OT tag (computeRecords
+        // formats value as "N periods (2OT)"); normalizePeriod owns the parsing —
+        // periods = 3 + otCount — so multi-OT is never miscounted or duplicated.
+        const paren = r.value.match(/\(([^)]+)\)/);
+        const np = normalizePeriod(paren ? paren[1] : null);
+        const periods = 3 + np.otCount;
+        if (r.total_time) {
+          // Backend supplied a clock (e.g. "92:56") → that is the bold hero, with
+          // the periods + OT label as the mono readout beneath it.
+          heroText = r.total_time;
+          heroReadout = `${periods} periods · ${np.label}`;
+        } else {
+          // No clock today → lowercase "N periods" hero (matches the "11 goals"
+          // idiom), with the OT label (if any) as the mono readout.
+          heroText = `${periods} periods`;
+          heroReadout = np.code === 'REG' ? undefined : np.label;
+        }
+      }
+      if (heroReadout) {
+        // Stack hero + readout on the right (hero up, readout below).
+        ctx.font = cond(HERO_PX, 800);
+        ctx.fillStyle = INK;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(heroText, W - PAD - 12, ry + RECORD_ROW_H / 2);
+        ctx.font = mono(9, 500);
+        ctx.fillStyle = ink(0.5);
+        ctx.textBaseline = 'top';
+        ctx.fillText(heroReadout, W - PAD - 12, ry + RECORD_ROW_H / 2 + 4);
+        ctx.textAlign = 'left';
+      } else {
+        ctx.font = cond(HERO_PX, 800);
+        ctx.fillStyle = INK;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(heroText, W - PAD - 12, ry + RECORD_ROW_H / 2);
+      }
     });
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';

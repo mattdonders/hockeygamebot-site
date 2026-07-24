@@ -50,6 +50,10 @@ export interface BadgeDef {
   id: string;
   label: string;
   family: BadgeFamily;
+  /** One-line plain-language description of what earns this badge. Rendered as a
+   *  mono gray sub-line under the badge name on both the card and the web list.
+   *  MUST match the `earns` predicate below (write it from the criteria). */
+  blurb: string;
   /** Rough "1 in N games" seed from the scope doc; the UI shows the *computed*
    *  rarity from the user's own set, this is only a fallback hint. */
   rarityHint: string;
@@ -108,6 +112,7 @@ export const BADGES: BadgeDef[] = [
     id: 'playoff-game',
     label: 'Playoff Game',
     family: 'game-type',
+    blurb: 'A Stanley Cup Playoff game you saw in person.',
     rarityHint: '1 in 6',
     earns: (g) => typeDigits(g.game_id) === '03',
   },
@@ -115,6 +120,7 @@ export const BADGES: BadgeDef[] = [
     id: 'preseason-game',
     label: 'Preseason Game',
     family: 'game-type',
+    blurb: 'A preseason game you saw in person.',
     rarityHint: '1 in 12',
     earns: (g) => typeDigits(g.game_id) === '01',
   },
@@ -124,6 +130,7 @@ export const BADGES: BadgeDef[] = [
     id: 'hat-trick',
     label: 'Hat Trick Seen',
     family: 'moment',
+    blurb: 'You watched a player score 3+ goals.',
     rarityHint: '1 in 8',
     earns: (_g, box) => anyPlayer(box, (p) => p.goals >= 3),
   },
@@ -131,6 +138,7 @@ export const BADGES: BadgeDef[] = [
     id: 'four-goal-game',
     label: '4+ Goal Game',
     family: 'moment',
+    blurb: 'You saw a player bag 4 or more goals in one game.',
     rarityHint: '1 in 60',
     earns: (_g, box) => anyPlayer(box, (p) => p.goals >= 4),
   },
@@ -138,6 +146,7 @@ export const BADGES: BadgeDef[] = [
     id: 'gordie-howe',
     label: 'Gordie Howe Hat Trick',
     family: 'moment',
+    blurb: 'A player with a goal, an assist and a fight (estimated).',
     rarityHint: '1 in 40',
     note: 'Estimated — a goal, an assist and 5+ PIM (fight heuristic, imperfect).',
     earns: (_g, box) => anyPlayer(box, (p) => p.goals >= 1 && p.assists >= 1 && p.pim >= 5),
@@ -146,6 +155,7 @@ export const BADGES: BadgeDef[] = [
     id: 'three-point-night',
     label: '3-Point Night',
     family: 'moment',
+    blurb: 'You saw a player rack up 3 or more points.',
     rarityHint: '1 in 4',
     earns: (_g, box) => anyPlayer(box, (p) => p.points >= 3),
   },
@@ -153,6 +163,7 @@ export const BADGES: BadgeDef[] = [
     id: 'shutout',
     label: 'Shutout',
     family: 'moment',
+    blurb: 'A game where one goalie kept a clean sheet.',
     rarityHint: '1 in 11',
     earns: (g) => g.status === 'final' && (g.home.score === 0 || g.away.score === 0),
   },
@@ -160,6 +171,7 @@ export const BADGES: BadgeDef[] = [
     id: 'ot-winner',
     label: 'OT Winner',
     family: 'moment',
+    blurb: 'A game you saw decided in overtime.',
     rarityHint: '1 in 5',
     earns: (g) => normalizePeriod(g.last_period_type).code === 'OT',
   },
@@ -167,10 +179,20 @@ export const BADGES: BadgeDef[] = [
     id: 'shootout',
     label: 'Shootout Decided',
     family: 'moment',
+    blurb: 'A game you saw decided by a shootout.',
     rarityHint: '1 in 9',
     earns: (g) => normalizePeriod(g.last_period_type).code === 'SO',
   },
 ];
+
+/** Blurb lookup by badge id — lets the server-summary catalog path (which does
+ *  not carry blurbs over the wire) reuse the same one-liners as the local path,
+ *  so both auth states render identical descriptions. */
+const BLURB_BY_ID: Record<string, string> = Object.fromEntries(BADGES.map((b) => [b.id, b.blurb]));
+
+export function badgeBlurb(id: string): string | undefined {
+  return BLURB_BY_ID[id];
+}
 
 // ── Earned-badge computation ────────────────────────────────────────────────────
 
@@ -224,6 +246,8 @@ export interface CatalogBadge {
   rarity: string;
   /** Static "1 in N" seed from config — the tease shown on ghost chips. */
   rarityHint: string;
+  /** One-line description of the badge's criteria (mono gray sub-line). */
+  blurb?: string;
   note?: string;
   total?: number; // rarity denominator (attended count), when known
   /** Numeric rarity for sorting: earned = total/count (higher ⇒ rarer); unearned
@@ -263,6 +287,7 @@ export function buildLocalCatalog(
       count,
       rarity: earned ? formatRarity(count, total) : '',
       rarityHint: def.rarityHint,
+      blurb: def.blurb,
       note: def.note,
       total,
       rarityRatio: earned && count > 0 ? total / count : parseOneInN(def.rarityHint),

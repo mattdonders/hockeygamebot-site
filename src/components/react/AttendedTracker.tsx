@@ -36,6 +36,7 @@ import {
   sortCatalog,
   parseOneInN,
   normalizePeriod,
+  badgeBlurb,
   type BadgeBox,
   type CatalogBadge,
   type GameRecord,
@@ -478,6 +479,9 @@ function mapSummaryCatalog(c: AttendedSummary['badges']['catalog'][number]): Cat
     count: c.count ?? 0,
     rarity: c.rarity ?? '',
     rarityHint: c.rarity_hint ?? '',
+    // Blurbs are code/config, not carried over the wire — reuse the same
+    // one-liners the local catalog uses so both auth states read identically.
+    blurb: badgeBlurb(c.id),
     note: c.note,
     total: c.total,
     rarityRatio: ratio,
@@ -1237,6 +1241,7 @@ export default function AttendedTracker() {
       .map((c) => ({
         label: c.label,
         rarity: c.rarity ? `${c.rarity} games` : c.rarityHint,
+        blurb: c.blurb,
       }));
 
     // Marquee moments: prefer the crowd-pleasers, then fill from the rest.
@@ -1256,9 +1261,12 @@ export default function AttendedTracker() {
       }
     }
     const shareRecords: PassportShareData['records'] = chosen.map((r) => ({
+      key: r.key,
       label: r.label,
       value: r.value,
       sub: r.sub,
+      // total_time isn't in the view aggregates yet; the card falls back to
+      // "N periods" for the longest game until the backend supplies it.
     }));
 
     // Accent = the colour of the team the user has seen most (falls back to red).
@@ -1845,6 +1853,7 @@ export default function AttendedTracker() {
                       {c.rarity ? `${c.rarity} games` : c.rarityHint}
                       <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
                     </span>
+                    {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
                     {c.note ? <span className="att-badge-note">{c.note}</span> : null}
                   </div>
                 ) : (
@@ -1858,6 +1867,7 @@ export default function AttendedTracker() {
                       {c.rarityHint || 'not yet seen'}
                       <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
                     </span>
+                    {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
                   </div>
                 ),
               )}
