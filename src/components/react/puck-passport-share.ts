@@ -7,8 +7,9 @@
  * surface as the player/goalie cards (`window.HGB_Export.showCardModal`).
  *
  * Aesthetic mirrors the HGB stats cards: light/cream (BG #EFEEE8, surface #FFF,
- * ink #0d0d14) with a team-colour accent bar (falls back to HGB red). Per the
- * site's canvas-card rule this file owns only the drawing; the React island
+ * ink #0d0d14) with the HGB brand-red accent bar (#E8002D). Every Passport card
+ * uses that one brand red — NOT a team colour — for shareable-brand cohesion. Per
+ * the site's canvas-card rule this file owns only the drawing; the React island
  * supplies the already-derived data.
  *
  * SCALE + DENSITY — sized to the real portrait skater card (Season / Rating
@@ -45,7 +46,10 @@ import { normalizePeriod } from './puck-passport-badges';
 const BG = '#EFEEE8';
 const SURFACE = '#FFFFFF';
 const INK = '#0D0D14';
-const RED = '#CC0000';
+// HGB brand red (--hgb-red in stats-tokens.css / site-tokens.css). Per the
+// shareable-brand cohesion decision EVERY Puck Passport card uses this one accent —
+// team colours are deliberately NOT used here (see drawPassportCard).
+const RED = '#E8002D';
 const ink = (a: number) => `rgba(13,13,20,${a})`;
 
 export interface ShareCounters {
@@ -79,7 +83,9 @@ export interface PassportShareData {
   badges: ShareBadge[];
   /** Marquee single-game records (0–3 shown). */
   records: ShareRecord[];
-  /** Team-colour accent (hex) — falls back to HGB red. */
+  /** @deprecated Ignored — all Passport cards use the HGB brand red (#E8002D).
+   *  Retained only so existing callers keep type-checking until the field is
+   *  removed from them. */
   accent?: string | null;
   /** True when some box scores failed → Shots / Players Seen may be short. */
   boxIncomplete: boolean;
@@ -125,7 +131,9 @@ function truncate(ctx: CanvasRenderingContext2D, text: string, maxW: number): st
 // ── the card ────────────────────────────────────────────────────────────────
 
 export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
-  const accent = data.accent || RED;
+  // Always the HGB brand red — Passport cards never take a team colour (brand
+  // cohesion across every shared card). `data.accent` is intentionally ignored.
+  const accent = RED;
   const SCALE = 2;
   const W = 560; // matches the portrait skater card (Season / Rating card)
   const PAD = 24;
