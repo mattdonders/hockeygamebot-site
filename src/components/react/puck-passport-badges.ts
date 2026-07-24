@@ -50,6 +50,10 @@ export interface BadgeDef {
   id: string;
   label: string;
   family: BadgeFamily;
+  /** One-line plain-language description of what earns this badge. Rendered as a
+   *  mono gray sub-line under the badge name on both the card and the web list.
+   *  MUST match the `earns` predicate below (write it from the criteria). */
+  blurb: string;
   /** Rough "1 in N games" seed from the scope doc; the UI shows the *computed*
    *  rarity from the user's own set, this is only a fallback hint. */
   rarityHint: string;
@@ -66,8 +70,33 @@ function typeDigits(gameId: string): string {
   return gameId.slice(4, 6);
 }
 
-function periodType(g: BadgeGame): string {
-  return (g.last_period_type ?? '').toUpperCase();
+/** Canonical period code + a clean display label. `otCount` drives the periods
+ *  math (REG→0, OT/SO→1, 2OT→2, 3OT→3), so `periods = 3 + otCount`. This MUST
+ *  stay byte-for-byte in sync with the backend's normalizePeriod (attended
+ *  summary) — the server owns the logged-in numbers, this owns the logged-out
+ *  ones, and the two can never disagree. */
+export type PeriodCode = 'REG' | 'OT' | 'SO';
+export interface NormalizedPeriod {
+  code: PeriodCode;
+  otCount: number;
+  /** Human display: 'REG' | 'OT' | '2OT' | '3OT' | 'SO' — never a raw "20T". */
+  label: string;
+}
+
+/** Normalize a raw last_period_type into {code, otCount, label}. Tolerant of the
+ *  numbered playoff-OT forms ("2OT", "OT2", "3OT") and canonicalizes anything
+ *  unexpected to REG so the UI never renders a raw period string verbatim. */
+export function normalizePeriod(raw: string | null | undefined): NormalizedPeriod {
+  const s = (raw ?? '').toUpperCase().trim();
+  if (!s || s === 'REG' || s === 'REGULATION') return { code: 'REG', otCount: 0, label: 'REG' };
+  if (s.includes('SO') || s === 'SHOOTOUT') return { code: 'SO', otCount: 1, label: 'SO' };
+  if (s.includes('OT') || s.includes('OVERTIME')) {
+    const m = s.match(/(\d+)/);
+    let n = m ? parseInt(m[1], 10) : 1;
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    return { code: 'OT', otCount: n, label: n > 1 ? `${n}OT` : 'OT' };
+  }
+  return { code: 'REG', otCount: 0, label: 'REG' };
 }
 
 function anyPlayer(box: BadgeBox | undefined, pred: (p: BadgePlayer) => boolean): boolean {
@@ -83,6 +112,7 @@ export const BADGES: BadgeDef[] = [
     id: 'playoff-game',
     label: 'Playoff Game',
     family: 'game-type',
+    blurb: 'You watched Stanley Cup Playoff hockey, live.',
     rarityHint: '1 in 6',
     earns: (g) => typeDigits(g.game_id) === '03',
   },
@@ -90,6 +120,7 @@ export const BADGES: BadgeDef[] = [
     id: 'preseason-game',
     label: 'Preseason Game',
     family: 'game-type',
+    blurb: 'You watched hockey before the games counted.',
     rarityHint: '1 in 12',
     earns: (g) => typeDigits(g.game_id) === '01',
   },
@@ -99,6 +130,7 @@ export const BADGES: BadgeDef[] = [
     id: 'hat-trick',
     label: 'Hat Trick Seen',
     family: 'moment',
+    blurb: 'You watched a player score a hat trick.',
     rarityHint: '1 in 8',
     earns: (_g, box) => anyPlayer(box, (p) => p.goals >= 3),
   },
@@ -106,6 +138,7 @@ export const BADGES: BadgeDef[] = [
     id: 'four-goal-game',
     label: '4+ Goal Game',
     family: 'moment',
+    blurb: 'You watched a player score four goals.',
     rarityHint: '1 in 60',
     earns: (_g, box) => anyPlayer(box, (p) => p.goals >= 4),
   },
@@ -113,6 +146,7 @@ export const BADGES: BadgeDef[] = [
     id: 'gordie-howe',
     label: 'Gordie Howe Hat Trick',
     family: 'moment',
+    blurb: 'You watched a player get a goal, an assist, and (likely) a fight.',
     rarityHint: '1 in 40',
     note: 'Estimated — a goal, an assist and 5+ PIM (fight heuristic, imperfect).',
     earns: (_g, box) => anyPlayer(box, (p) => p.goals >= 1 && p.assists >= 1 && p.pim >= 5),
@@ -121,6 +155,7 @@ export const BADGES: BadgeDef[] = [
     id: 'three-point-night',
     label: '3-Point Night',
     family: 'moment',
+    blurb: 'You watched a player put up three points.',
     rarityHint: '1 in 4',
     earns: (_g, box) => anyPlayer(box, (p) => p.points >= 3),
   },
@@ -128,6 +163,7 @@ export const BADGES: BadgeDef[] = [
     id: 'shutout',
     label: 'Shutout',
     family: 'moment',
+    blurb: 'You watched a goalie post a shutout.',
     rarityHint: '1 in 11',
     earns: (g) => g.status === 'final' && (g.home.score === 0 || g.away.score === 0),
   },
@@ -135,17 +171,28 @@ export const BADGES: BadgeDef[] = [
     id: 'ot-winner',
     label: 'OT Winner',
     family: 'moment',
+    blurb: 'You watched a game decided in overtime.',
     rarityHint: '1 in 5',
-    earns: (g) => periodType(g) === 'OT',
+    earns: (g) => normalizePeriod(g.last_period_type).code === 'OT',
   },
   {
     id: 'shootout',
     label: 'Shootout Decided',
     family: 'moment',
+    blurb: 'You watched a game decided in a shootout.',
     rarityHint: '1 in 9',
-    earns: (g) => periodType(g) === 'SO',
+    earns: (g) => normalizePeriod(g.last_period_type).code === 'SO',
   },
 ];
+
+/** Blurb lookup by badge id — lets the server-summary catalog path (which does
+ *  not carry blurbs over the wire) reuse the same one-liners as the local path,
+ *  so both auth states render identical descriptions. */
+const BLURB_BY_ID: Record<string, string> = Object.fromEntries(BADGES.map((b) => [b.id, b.blurb]));
+
+export function badgeBlurb(id: string): string | undefined {
+  return BLURB_BY_ID[id];
+}
 
 // ── Earned-badge computation ────────────────────────────────────────────────────
 
@@ -184,6 +231,80 @@ export function computeEarnedBadges(
   return earned;
 }
 
+// ── Full catalog: earned + ghost (unearned) badges (Workstream B2, §2) ───────────
+
+/** One entry in the FULL badge catalog — earned or not. Shared render shape for
+ *  both the logged-in (server summary) and logged-out (client-computed) paths so
+ *  the two states render identical chips (anti-divergence). */
+export interface CatalogBadge {
+  id: string;
+  label: string;
+  family: string; // 'game-type' | 'moment' (string: tolerant of server families)
+  earned: boolean;
+  count: number; // attended games satisfying it (0 when unearned)
+  /** Computed "1 in N" over the user's own set (earned only; '' when unearned). */
+  rarity: string;
+  /** Static "1 in N" seed from config — the tease shown on ghost chips. */
+  rarityHint: string;
+  /** One-line description of the badge's criteria (mono gray sub-line). */
+  blurb?: string;
+  note?: string;
+  total?: number; // rarity denominator (attended count), when known
+  /** Numeric rarity for sorting: earned = total/count (higher ⇒ rarer); unearned
+   *  = the hint's N. Populated by the builders below. */
+  rarityRatio: number;
+}
+
+/** Parse a "1 in N" rarity string → N (a bare number). Falls back to 1 for
+ *  "every game"/empty so it never sorts a real badge to infinity. */
+export function parseOneInN(s: string | undefined | null): number {
+  if (!s) return 1;
+  const m = s.match(/1\s*in\s*([\d.]+)/i);
+  if (m) return Number(m[1]) || 1;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/** Build the FULL catalog (earned + unearned) client-side from BADGES — the
+ *  logged-OUT path. Mirrors the server summary's `badges.catalog` shape so the
+ *  UI is source-agnostic. Rarity is computed over the user's own attended set. */
+export function buildLocalCatalog(
+  games: BadgeGame[],
+  boxByGameId: Record<string, BadgeBox | undefined>,
+): CatalogBadge[] {
+  const total = games.length;
+  return BADGES.map((def) => {
+    let count = 0;
+    for (const g of games) {
+      if (def.earns(g, boxByGameId[g.game_id])) count += 1;
+    }
+    const earned = count > 0;
+    return {
+      id: def.id,
+      label: def.label,
+      family: def.family,
+      earned,
+      count,
+      rarity: earned ? formatRarity(count, total) : '',
+      rarityHint: def.rarityHint,
+      blurb: def.blurb,
+      note: def.note,
+      total,
+      rarityRatio: earned && count > 0 ? total / count : parseOneInN(def.rarityHint),
+    };
+  });
+}
+
+/** Sort a catalog for display: EARNED first (rarest ⇒ highest ratio first), then
+ *  UNEARNED ghost chips (most attainable ⇒ lowest hint-N first, as the chase). */
+export function sortCatalog(cat: CatalogBadge[]): CatalogBadge[] {
+  return [...cat].sort((a, b) => {
+    if (a.earned !== b.earned) return a.earned ? -1 : 1;
+    if (a.earned) return b.rarityRatio - a.rarityRatio; // rarest earned first
+    return a.rarityRatio - b.rarityRatio; // attainable ghosts first
+  });
+}
+
 // ── Single-game records (extremes across the attended set — §2c) ────────────────
 
 export interface GameRecord {
@@ -198,11 +319,10 @@ export interface GameRecord {
   playerName?: string;
 }
 
-/** Periods witnessed: 3 regulation + 1 for OT/SO. Playoff multi-OT undercounts
- *  here — the same caveat as the periods counter (documented, not silent). */
+/** Periods witnessed: 3 regulation + `otCount` (REG→0, OT/SO→1, 2OT→2, 3OT→3).
+ *  normalizePeriod owns the parsing so multi-OT is counted, not undercounted. */
 function periodsFor(g: BadgeGame): number {
-  const pt = periodType(g);
-  return 3 + (pt === 'OT' || pt === 'SO' ? 1 : 0);
+  return 3 + normalizePeriod(g.last_period_type).otCount;
 }
 
 function matchupLabel(g: { away: { abbrev?: string }; home: { abbrev?: string } }): string {
@@ -236,8 +356,8 @@ export function computeRecords(
       }
     }
     if (best) {
-      const pt = periodType(best);
-      const tag = pt === 'OT' ? ' (OT)' : pt === 'SO' ? ' (SO)' : '';
+      const np = normalizePeriod(best.last_period_type);
+      const tag = np.code === 'REG' ? '' : ` (${np.label})`;
       records.push({
         key: 'longest',
         label: 'Longest Game',
