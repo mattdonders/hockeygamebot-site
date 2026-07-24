@@ -2191,11 +2191,12 @@ export default function AttendedTracker() {
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
               <span className="att-section-meta">
-                {/* earned + total, so earned + (total − earned locked) always reconciles.
-                    catalog.length is the FULL catalog (earned + locked); the Home Rinks
-                    collection badge is rendered separately, so add it to both sides. */}
+                {/* The Home Rinks collection badge is ALWAYS rendered as a collectible, so
+                    it always counts toward the total (denominator +1). It counts as earned
+                    only once at least one current home rink is collected. (Codex: previously
+                    dropped from the total when homeRinks===0 → "0 of 8" instead of "0 of 9".) */}
                 {earnedCount + (viewArenaBadge.homeRinks > 0 ? 1 : 0)} of{' '}
-                {catalog.length + (viewArenaBadge.homeRinks > 0 ? 1 : 0)}
+                {catalog.length + 1}
                 {summaryPending ? ' · loading…' : ''}
               </span>
             </div>
