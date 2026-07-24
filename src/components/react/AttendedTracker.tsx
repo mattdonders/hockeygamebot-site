@@ -2170,7 +2170,9 @@ export default function AttendedTracker() {
           <section className="att-section">
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
-              <span className="att-section-meta">0 of {ghostCatalog.length}</span>
+              {/* +1 for the Home Rinks collection (shown as the meter below), so the
+                  empty-state total matches the populated "X of Y" (which also counts it). */}
+              <span className="att-section-meta">0 of {ghostCatalog.length + 1}</span>
             </div>
             <div className="att-badges">{ghostCatalog.map(renderCatalogBadge)}</div>
           </section>
