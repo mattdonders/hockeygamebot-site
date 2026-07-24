@@ -25,6 +25,7 @@ export interface BadgeGame {
   home: { score: number };
   away: { score: number };
   venue: string | null;
+  special_event?: string | null; // event name (Stadium Series/Winter Classic/…) or null
 }
 
 /** One player's box-score line as needed for moment badges + records. */
@@ -123,6 +124,17 @@ export const BADGES: BadgeDef[] = [
     blurb: 'You watched hockey before the games counted.',
     rarityHint: '1 in 12',
     earns: (g) => typeDigits(g.game_id) === '01',
+  },
+  {
+    // Mirror of the server 'special-event' badge (fires on box.specialEvent).
+    // Local predicate is for the ghost-catalog empty state only — the server
+    // owns the real computation (client games don't carry special_event).
+    id: 'special-event',
+    label: 'Special Event',
+    family: 'game-type',
+    blurb: 'You watched a special event — an outdoor game or Stadium Series.',
+    rarityHint: '1 in 200',
+    earns: (g) => g.special_event != null,
   },
 
   // ── In-game moments (box- / score-derived) ──
