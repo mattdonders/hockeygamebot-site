@@ -1332,12 +1332,15 @@ export default function AttendedTracker() {
       {/* Share your Passport — client-side canvas PNG (hidden until there's data) */}
       {!empty ? (
         <div className="att-share-bar">
-          {/* Disabled while the server summary is still loading: box scores aren't
-              fetched in that window, so the aggregates would export as zeros. */}
+          {/* Disabled while the server summary is still loading OR after a fetch
+              failure: in both windows viewCounters falls back to zeroed stats, so
+              exporting would produce an all-zeros card presented as truth. On error
+              a disabled Share is correct fail-loud behavior — the banner above
+              already explains why. */}
           <button
             className="att-share-btn"
             onClick={handleShare}
-            disabled={summaryPending}
+            disabled={summaryPending || summaryError}
             title={summaryPending ? 'Loading your stats — one moment…' : undefined}
           >
             ↑ Share your Passport
@@ -1345,7 +1348,9 @@ export default function AttendedTracker() {
           <span className="att-share-note">
             {summaryPending
               ? 'Loading your stats…'
-              : 'Generates a shareable card of your stats — download or post it.'}
+              : summaryError
+                ? 'Stats unavailable right now — sharing is paused until they load.'
+                : 'Generates a shareable card of your stats — download or post it.'}
           </span>
         </div>
       ) : null}
