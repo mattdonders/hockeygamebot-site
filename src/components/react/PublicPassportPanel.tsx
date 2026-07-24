@@ -168,6 +168,13 @@ export default function PublicPassportPanel({ handle, isPublic, onHandleChange, 
           <span className="pp-toggle-label">{isPublic ? 'Public — anyone with the link' : 'Make public'}</span>
         </label>
       </div>
+      {/* Consent / what-goes-public. Public passports are AGGREGATE ONLY — totals,
+          badges, arenas collected, team records. No individual game dates, no
+          venues, no player lists. Stated plainly so making public is informed. */}
+      <div className="pp-consent">
+        Public shows your totals, badges, arenas collected, and team records — never
+        individual game dates or locations. Flip back to private anytime.
+      </div>
       {publicError ? <div className="pp-note err">{publicError}</div> : null}
 
       {/* Customize handle */}

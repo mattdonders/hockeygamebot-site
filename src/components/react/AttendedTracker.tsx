@@ -44,6 +44,7 @@ import {
   type CatalogBadge,
 } from './puck-passport-badges';
 import { drawPassportCard, type PassportShareData } from './puck-passport-share';
+import { trackEvent } from '../../lib/track';
 
 const API = 'https://api.hockeygamebot.com';
 const STORAGE_KEY = 'hgb_puck_passport_games';
@@ -1445,6 +1446,11 @@ export default function AttendedTracker() {
   // player/goalie cards. No new network fetch — everything below is already in
   // memory. Disabled while empty (see render).
   const handleShare = useCallback(async () => {
+    // Anonymous telemetry: record the Share action. Fire-and-forget — pass the
+    // user's own handle when it's in state (real logins), else omit. Never awaited,
+    // never throws (see lib/track.ts).
+    trackEvent('share_click', { handle: passportHandle });
+
     // Everything below reads from the VIEW aggregates — the same server-summary
     // source the page renders from — so the card is correct in BOTH auth states.
 
@@ -1521,7 +1527,7 @@ export default function AttendedTracker() {
       console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
       setWriteError('Could not open the share card — please reload the page and try again.');
     }
-  }, [catalog, viewRecords, viewCounters, viewArenaBadge, viewBoxIncomplete, viewUnverifiedCount]);
+  }, [catalog, viewRecords, viewCounters, viewArenaBadge, viewBoxIncomplete, viewUnverifiedCount, passportHandle]);
 
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
