@@ -36,6 +36,7 @@ import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import {
   sortCatalog,
+  buildLocalCatalog,
   parseOneInN,
   normalizePeriod,
   badgeBlurb,
@@ -1271,6 +1272,11 @@ export default function AttendedTracker() {
   }, [summary]);
   const earnedCount = useMemo(() => catalog.filter((c) => c.earned).length, [catalog]);
 
+  // Ghost catalog for the EMPTY state — the full badge wall, all locked. Built
+  // locally from BADGES (no network; the empty state fires no summary fetch) and
+  // shown honestly: nothing is "earned", every chip is a locked chase.
+  const ghostCatalog = useMemo<CatalogBadge[]>(() => sortCatalog(buildLocalCatalog([], {})), []);
+
   // Milestones Witnessed — server-provided (same payload in both auth states).
   const milestones = summary ? summary.milestones : [];
   // ── Share card (client-side canvas PNG) ──────────────────────────────────────
@@ -1583,6 +1589,10 @@ export default function AttendedTracker() {
       <span className="att-rink-abbr">{t.abbr}</span>
     </div>
   );
+
+  const scrollToAdd = () => {
+    document.getElementById('att-add')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   // ── Render ───────────────────────────────────────────────────────────────────
   if (!hydrated) {
@@ -2024,13 +2034,40 @@ export default function AttendedTracker() {
       </section>
 
       {empty ? (
-        <div className="att-empty">
-          <div className="att-empty-title">No games yet</div>
-          <div className="att-empty-sub">
-            Use "Add Games" above to log the first game you attended.{' '}
-            {isLoggedIn ? 'Your list is synced to your account.' : 'Your list is saved in this browser.'}
+        // Honest empty state — the STRUCTURE you'll fill, never fabricated sample
+        // data. Full badge wall as locked ghosts + all 32 arena pips grey, so the
+        // collection reads as a chase from the first visit.
+        <>
+          <div className="att-empty-hero">
+            <div className="att-empty-title">Start your Puck Passport</div>
+            <div className="att-empty-sub">
+              Log the first NHL game you were at in person and watch it add up — badges, arenas, records, and every
+              player you've seen.{' '}
+              {isLoggedIn ? 'Your list is synced to your account.' : 'Your list is saved in this browser.'}
+            </div>
+            <button className="att-btn att-empty-cta" onClick={scrollToAdd}>
+              + Add your first game
+            </button>
           </div>
-        </div>
+
+          {/* Full badge catalog as ghosts — all locked */}
+          <section className="att-section">
+            <div className="att-section-head">
+              <span className="att-section-label">Badges</span>
+              <span className="att-section-meta">0 earned · {ghostCatalog.length} to collect</span>
+            </div>
+            <div className="att-badges">{ghostCatalog.map(renderCatalogBadge)}</div>
+          </section>
+
+          {/* All 32 arena pips grey — the collection meter at zero */}
+          <section className="att-section">
+            <div className="att-section-head">
+              <span className="att-section-label">Home Rinks — 0 / 32</span>
+              <span className="att-section-meta">collect all 32</span>
+            </div>
+            <div className="att-rinks">{pipTeams.map((t) => renderPip(t, false))}</div>
+          </section>
+        </>
       ) : (
         <>
           {/* Badges — full catalog: earned (rarest-first) then ghost/unearned (§2) */}
