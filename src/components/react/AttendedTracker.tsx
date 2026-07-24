@@ -62,6 +62,16 @@ const SUMMARY_NUDGE_AT = 10;
 // logged the game. Cross-device games fall back to /v1/config + game_results.
 const DETAILS_KEY = 'hgb_puck_passport_details_v1';
 
+// A freshly-added or just-merged game is not box-scored server-side yet, so the
+// FIRST summary after it lands is transiently box_incomplete (partial shots /
+// players). Rather than flash the alarming "couldn't load box scores" banner and
+// a confident-but-wrong counter, we do ONE bounded retry after a short delay to
+// let the server's lazy backfill finish, then surface the banner ONLY if the set
+// is STILL incomplete (a game the NHL genuinely can't box-score stays flagged —
+// fail loud). The single pending retry is debounced so rapid multi-add collapses.
+const SUMMARY_HEAL_DELAY_MS = 2000;
+const MAX_SUMMARY_RETRIES = 1;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type TeamSide = { id: number; abbrev: string; name: string; score: number };
@@ -588,35 +598,95 @@ export default function AttendedTracker() {
   const [summary, setSummary] = useState<AttendedSummary | null>(null);
   const [summaryError, setSummaryError] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  // True while we're waiting out the bounded retry for a transiently box_incomplete
+  // summary (just-added/just-merged game the server hasn't backfilled yet). While
+  // healing we suppress the alarming banner and show box-derived counters as pending
+  // ("…") rather than a confident partial number.
+  const [boxHealing, setBoxHealing] = useState(false);
+  // The single pending heal-retry timer. Held in a ref so a fresh cycle (or a rapid
+  // multi-add) can DEBOUNCE it — clear the outstanding retry and schedule at most one.
+  const healTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Whether a summary payload is still missing box scores (transient after an add
+   *  until the server backfills; persistent for games the NHL can't box-score). */
+  const isBoxIncomplete = (s: AttendedSummary): boolean =>
+    s.box_incomplete || (s.missing_box_game_ids?.length ?? 0) > 0;
+
+  /** Debounced one-shot heal retry: cancels any outstanding retry (so rapid adds
+   *  collapse to a single pending refetch) and schedules `fn` after a short delay. */
+  const scheduleHeal = useCallback((fn: () => void) => {
+    setBoxHealing(true);
+    if (healTimerRef.current) clearTimeout(healTimerRef.current);
+    healTimerRef.current = setTimeout(() => {
+      healTimerRef.current = null;
+      fn();
+    }, SUMMARY_HEAL_DELAY_MS);
+  }, []);
+
+  /** End the heal window (summary is complete, retries exhausted, or errored): drop
+   *  the pending retry and clear the healing flag so the banner/counters read truth. */
+  const finishHeal = useCallback(() => {
+    if (healTimerRef.current) {
+      clearTimeout(healTimerRef.current);
+      healTimerRef.current = null;
+    }
+    setBoxHealing(false);
+  }, []);
+
+  // Cancel any pending heal retry on unmount.
+  useEffect(() => () => finishHeal(), [finishHeal]);
 
   /** Fetch (or refetch) the AUTHED summary (logged-in). FAIL LOUD on any failure:
-   *  clears the payload and flags the error so the dashboard surfaces a banner. */
-  const loadSummary = useCallback(async () => {
-    setSummaryLoading(true);
-    try {
-      const r = await apiFetch(`${API}/v1/account/attended/summary`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      if (!data || data.error || !data.counters || !data.badges) throw new Error('bad summary payload');
-      setSummary(data as AttendedSummary);
-      setSummaryError(false);
-    } catch {
-      setSummary(null);
-      setSummaryError(true);
-    } finally {
-      setSummaryLoading(false);
-    }
-  }, []);
+   *  clears the payload and flags the error so the dashboard surfaces a banner.
+   *  `attempt` drives the bounded box_incomplete self-heal (see SUMMARY heal notes);
+   *  a fresh (attempt 0) call supersedes any pending retry. */
+  const loadSummary = useCallback(
+    async (attempt = 0): Promise<void> => {
+      if (attempt === 0 && healTimerRef.current) {
+        clearTimeout(healTimerRef.current);
+        healTimerRef.current = null;
+      }
+      setSummaryLoading(true);
+      try {
+        const r = await apiFetch(`${API}/v1/account/attended/summary`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (!data || data.error || !data.counters || !data.badges) throw new Error('bad summary payload');
+        const summaryData = data as AttendedSummary;
+        setSummary(summaryData);
+        setSummaryError(false);
+        if (isBoxIncomplete(summaryData) && attempt < MAX_SUMMARY_RETRIES) {
+          // Transient: let the server finish backfilling the just-added game, then
+          // refetch once. Banner/partial counters stay suppressed until it settles.
+          scheduleHeal(() => loadSummary(attempt + 1));
+        } else {
+          finishHeal();
+        }
+      } catch {
+        setSummary(null);
+        setSummaryError(true);
+        finishHeal();
+      } finally {
+        setSummaryLoading(false);
+      }
+    },
+    [scheduleHeal, finishHeal],
+  );
 
   /** Load the PUBLIC summary (logged-out) via POST { game_ids }. The response is
    *  cached in localStorage keyed by the sorted game-id list, so it is reused until
    *  the list changes (add/remove ⇒ new key ⇒ cache miss ⇒ refetch). Mirrors the
    *  planned iOS userDefaults+cache pattern. FAIL LOUD on error: banner, no blank
    *  fabrication. An empty list clears the summary (the empty-state renders). */
-  const loadPublicSummary = useCallback(async (all: AttendedGame[]) => {
+  const loadPublicSummary = useCallback(async (all: AttendedGame[], attempt = 0): Promise<void> => {
+    if (attempt === 0 && healTimerRef.current) {
+      clearTimeout(healTimerRef.current);
+      healTimerRef.current = null;
+    }
     if (all.length === 0) {
       setSummary(null);
       setSummaryError(false);
+      finishHeal();
       return;
     }
     // Split into NHL ids + manual games, enforcing the COMBINED cap (the public
@@ -628,8 +698,11 @@ export default function AttendedTracker() {
 
     const cached = readSummaryCache();
     if (cached && cached.key === key) {
+      // A cached summary is only ever written when COMPLETE (see below), so a hit
+      // is guaranteed box-complete — end any heal window.
       setSummary(cached.summary);
       setSummaryError(false);
+      finishHeal();
       return;
     }
 
@@ -654,18 +727,28 @@ export default function AttendedTracker() {
       // cached half-baked summary would be returned forever with no refetch path.
       // Skipping the write leaves no cache entry, so the next load refetches and
       // keeps refetching until the server has fully healed the games.
-      const isComplete =
-        !summaryData.box_incomplete && (summaryData.missing_box_game_ids?.length ?? 0) === 0;
-      if (isComplete) {
+      if (isBoxIncomplete(summaryData)) {
+        if (attempt < MAX_SUMMARY_RETRIES) {
+          // Transient after an add — one debounced retry to let the backfill finish
+          // before the banner/partial counters ever show.
+          scheduleHeal(() => loadPublicSummary(all, attempt + 1));
+        } else {
+          // Persistently incomplete (NHL can't box-score it): stop retrying, let the
+          // banner surface (fail loud). Still not cached, so a list change refetches.
+          finishHeal();
+        }
+      } else {
         writeSummaryCache(key, summaryData);
+        finishHeal();
       }
     } catch {
       setSummary(null);
       setSummaryError(true);
+      finishHeal();
     } finally {
       setSummaryLoading(false);
     }
-  }, []);
+  }, [scheduleHeal, finishHeal]);
 
   const commitDetail = useCallback((g: AttendedGame) => {
     detailsRef.current[g.game_id] = g;
@@ -1188,6 +1271,12 @@ export default function AttendedTracker() {
   // (loading) or FAILED, we render the known game count with the rest zeroed and
   // surface a banner (FAIL LOUD) rather than fabricating figures client-side.
   const summaryPending = summary == null && !summaryError && games.length > 0;
+  // Box-derived counters (periods/goals/shots/players) are honestly "still loading"
+  // both before the first summary arrives AND while we're healing a transiently
+  // box_incomplete summary — show "…" rather than a confident partial number. The
+  // "!" warn marker and the box-incomplete banner only appear once healing is done
+  // and the set is STILL incomplete (fail loud on a genuinely un-box-scorable game).
+  const boxPending = summaryPending || boxHealing;
 
   const viewCounters = useMemo(() => {
     if (summary) {
@@ -1422,6 +1511,15 @@ export default function AttendedTracker() {
               <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-32)' }}>—</span>
             );
           }
+          // NHL game with no final facts yet (older game with no game_results row,
+          // or a cross-device row that hasn't hydrated): show an honest "—" rather
+          // than a fabricated 0–0 that reads as a real final. mapD1Row leaves such
+          // rows non-final, so this only hides genuinely-unknown scores.
+          if (!r.is_manual && r.status !== 'final') {
+            return (
+              <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-32)' }}>—</span>
+            );
+          }
           const np = normalizePeriod(r.last_period_type);
           return (
             <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700 }}>
@@ -1615,7 +1713,7 @@ export default function AttendedTracker() {
           Couldn't load your Passport stats right now — your games are still saved. Reload to retry.
         </div>
       ) : null}
-      {viewBoxIncomplete ? (
+      {viewBoxIncomplete && !boxHealing ? (
         <div className="att-banner att-banner-warn">
           Couldn't load box scores for {viewMissingBoxCount} game{viewMissingBoxCount === 1 ? '' : 's'} — Shots and
           Players Seen may be incomplete. Reload to retry.
@@ -1638,14 +1736,14 @@ export default function AttendedTracker() {
       {/* Counter row */}
       <div className="att-counters">
         <Counter label="Games" value={viewCounters.games} />
-        <Counter label="Periods" value={viewCounters.periods} />
-        <Counter label="Goals" value={viewCounters.goals} />
-        <Counter label="Shots" value={viewCounters.shots} pending={summaryPending} warn={viewBoxIncomplete} />
+        <Counter label="Periods" value={viewCounters.periods} pending={boxPending} />
+        <Counter label="Goals" value={viewCounters.goals} pending={boxPending} />
+        <Counter label="Shots" value={viewCounters.shots} pending={boxPending} warn={viewBoxIncomplete && !boxHealing} />
         <Counter
           label="Players Seen"
           value={viewCounters.playersSeen}
-          pending={summaryPending}
-          warn={viewBoxIncomplete}
+          pending={boxPending}
+          warn={viewBoxIncomplete && !boxHealing}
         />
       </div>
 
@@ -1668,13 +1766,13 @@ export default function AttendedTracker() {
           <button
             className="att-share-btn"
             onClick={handleShare}
-            disabled={summaryPending || summaryError}
-            title={summaryPending ? 'Loading your stats — one moment…' : undefined}
+            disabled={boxPending || summaryError}
+            title={boxPending ? 'Loading your stats — one moment…' : undefined}
           >
             ↑ Share your Passport
           </button>
           <span className="att-share-note">
-            {summaryPending
+            {boxPending
               ? 'Loading your stats…'
               : summaryError
                 ? 'Stats unavailable right now — sharing is paused until they load.'
