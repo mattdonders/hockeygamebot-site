@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
+import cloudflare from '@astrojs/cloudflare';
 
 /**
  * Dev-only preview integration.
@@ -51,7 +52,13 @@ const devOnlyRoutes = {
 };
 
 export default defineConfig({
+  // Hybrid: every page prerenders to static HTML by default (unchanged). Only
+  // routes that `export const prerender = false` (e.g. the public Puck Passport
+  // profile) render on-demand in the Cloudflare Worker — so a runtime-created
+  // handle gets a server-rendered page + per-handle OG preview instantly, which
+  // static output can't do. See src/pages/puck-passport/[handle].astro.
   output: 'static',
+  adapter: cloudflare(),
   site: 'https://hockeygamebot.com',
   redirects: {
     '/analytics/lines':       '/stats/lines',
@@ -62,6 +69,17 @@ export default defineConfig({
   vite: {
     resolve: {
       dedupe: ['react', 'react-dom'],
+      // @astrojs/react imports `react-dom/server`, which the package export map
+      // resolves to `server.browser.js` under the worker/browser condition. That
+      // build references `MessageChannel` unguarded at module init and crashes
+      // the Cloudflare Workers runtime (workerd) at startup once the adapter
+      // bundles renderers into the on-demand `_worker.js` (verified: server.browser
+      // has the ref, server.edge/server.node have zero). Force the edge build,
+      // which uses Web Streams and works in both workerd and Node prerendering.
+      // SSR-only (build-time prerender + worker); client hydration uses react-dom/client.
+      alias: {
+        'react-dom/server': 'react-dom/server.edge',
+      },
     },
     server: {
       allowedHosts: ['cygnus'],

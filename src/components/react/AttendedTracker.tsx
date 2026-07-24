@@ -34,6 +34,7 @@ import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE, TEAM_LOGO_
 import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
+import PublicPassportPanel from './PublicPassportPanel';
 import {
   sortCatalog,
   buildLocalCatalog,
@@ -605,6 +606,10 @@ export default function AttendedTracker() {
   const [localGames, setLocalGames] = useState<AttendedGame[]>([]);
   const [d1Rows, setD1Rows] = useState<D1AttendedRow[] | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  // Puck Passport public identity (from /v1/auth/me) — drives the "Your public
+  // passport" share panel. handle is non-null for real logins.
+  const [passportHandle, setPassportHandle] = useState<string | null>(null);
+  const [passportPublic, setPassportPublic] = useState<boolean>(false);
   const [configMap, setConfigMap] = useState<Map<number, TeamInfo>>(new Map());
   const detailsRef = useRef<Record<string, AttendedGame>>({});
   const [detailsVersion, setDetailsVersion] = useState(0);
@@ -861,6 +866,10 @@ export default function AttendedTracker() {
         setHydrated(true);
         return;
       }
+
+      // Public-passport identity (handle + privacy) for the share panel.
+      setPassportHandle(me.user.handle);
+      setPassportPublic(me.user.is_public);
 
       // ── Merge-on-login (mirrors auth-client mergeLocalPresets) ──────────────
       const local = readAttended();
@@ -1823,6 +1832,17 @@ export default function AttendedTracker() {
           {viewUnverifiedCount} game{viewUnverifiedCount === 1 ? '' : 's'} added manually — counts toward Games,
           Arenas and Team records only; goals, shots, players and badges are limited.
         </div>
+      ) : null}
+
+      {/* Your public passport — share URL + make-public toggle + customize handle.
+          Account-level, so it renders whenever logged in (independent of games). */}
+      {isLoggedIn ? (
+        <PublicPassportPanel
+          handle={passportHandle}
+          isPublic={passportPublic}
+          onHandleChange={setPassportHandle}
+          onPublicChange={setPassportPublic}
+        />
       ) : null}
 
       {/* Share your Passport — client-side canvas PNG (hidden until there's data) */}

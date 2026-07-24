@@ -1,0 +1,121 @@
+---
+// HockeyGameBot — /games/:id (per-game page with per-game OG metadata).
+//
+// ON-DEMAND (SSR) route. Ported 2026-07-24 from the raw Cloudflare Pages
+// Function `functions/games/[id].ts` when the site adopted the Astro Cloudflare
+// adapter for hybrid rendering: the adapter emits a `_worker.js`, and Cloudflare
+// Pages IGNORES the `functions/` directory whenever a `_worker.js` is present.
+// To keep per-game OG injection working it had to move into the Astro worker.
+//
+// Behaviour is preserved 1:1: fetch the prerendered SPA shell (/games/index.html)
+// via the ASSETS binding + the boxscore, string-inject per-game <title>/OG meta,
+// return the shell. The client SPA reads the game id from window.location.pathname
+// (see games/index.astro init()), so the canonical URL stays /games/:id.
+export const prerender = false;
+
+const API_BASE = 'https://api.hockeygamebot.com';
+const SITE = 'https://hockeygamebot.com';
+const GAME_ID_RE = /^\d{10}$/;
+
+const id = Astro.params.id ?? '';
+
+// ASSETS binding (Cloudflare Pages) — how the worker reads the prerendered
+// static shell. Surfaced by the adapter on Astro.locals.runtime.env.
+const env = (Astro.locals as any).runtime?.env as { ASSETS: { fetch: (req: Request | string) => Promise<Response> } };
+
+// Non-game-id paths (defensive; static assets normally never reach the worker)
+// pass straight through to asset handling — never fabricate a game page.
+if (!GAME_ID_RE.test(id)) {
+  if (!env?.ASSETS) return new Response('Not found', { status: 404 });
+  // Re-wrap: the ASSETS Response has immutable headers, and returning it raw
+  // makes Astro throw "Can't modify immutable headers" when it post-processes.
+  const asset = await env.ASSETS.fetch(Astro.request);
+  return new Response(asset.body, { status: asset.status, headers: new Headers(asset.headers) });
+}
+
+// FAIL LOUD: the shell MUST be read via the ASSETS binding (loop-safe — a
+// network fetch of /games/index.html would re-enter this worker). A missing
+// binding is a deploy/config bug (adapter or Pages), not a per-request 404.
+if (!env?.ASSETS) {
+  return new Response(
+    'games/[id]: Cloudflare ASSETS binding unavailable — check the Astro adapter + Pages config.',
+    { status: 500 },
+  );
+}
+
+const shellUrl = new URL('/games/index.html', Astro.url).toString();
+const [shellResp, apiResp] = await Promise.all([
+  env.ASSETS.fetch(shellUrl),
+  fetch(`${API_BASE}/v1/games/${id}/boxscore`).catch(() => null),
+]);
+
+// FAIL LOUD: the prerendered shell must be present. A missing/errored shell is a
+// deploy/config bug — never serve injected metadata over a broken page as 200.
+if (!shellResp.ok) {
+  return new Response(
+    `games/[id]: shell /games/index.html unavailable (status ${shellResp.status}) — deploy/config bug.`,
+    { status: 500 },
+  );
+}
+
+let title = 'Game · HockeyGameBot';
+let description = 'Live xG, win probability, and advanced stats · HockeyGameBot';
+
+if (apiResp?.ok) {
+  try {
+    const d = (await apiResp.json()) as any;
+    const away = d.awayTeam?.abbrev as string | undefined;
+    const home = d.homeTeam?.abbrev as string | undefined;
+    const state = (d.gameState ?? '') as string;
+
+    if (away && home) {
+      const awayScore = d.awayTeam?.score ?? 0;
+      const homeScore = d.homeTeam?.score ?? 0;
+
+      if (state === 'LIVE' || state === 'CRIT') {
+        title = `LIVE · ${away} ${awayScore}–${homeScore} ${home} · HockeyGameBot`;
+        description = `Live xG, win probability, and advanced stats for ${away} @ ${home}.`;
+      } else if (state === 'FINAL' || state === 'OFF') {
+        title = `${away} ${awayScore}–${homeScore} ${home} · HockeyGameBot`;
+        description = `Final score, xG model, and advanced stats for ${away} @ ${home}.`;
+      } else {
+        title = `${away} @ ${home} · HockeyGameBot`;
+        description = `Preview, xG model, and advanced stats for ${away} @ ${home}.`;
+      }
+    }
+  } catch {
+    // Fall through to generic metadata
+  }
+}
+
+const esc = (s: string) => s.replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const t = esc(title);
+const dsc = esc(description);
+const url = `${SITE}/games/${id}`;
+const img = `${SITE}/og/main.png`;
+
+const injected = `  <meta property="og:type"        content="website" />
+  <meta property="og:title"       content="${t}" />
+  <meta property="og:description" content="${dsc}" />
+  <meta property="og:url"         content="${url}" />
+  <meta property="og:image"       content="${img}" />
+  <meta name="twitter:card"        content="summary_large_image" />
+  <meta name="twitter:title"       content="${t}" />
+  <meta name="twitter:description" content="${dsc}" />
+  <meta name="twitter:image"       content="${img}" />
+  <meta name="description"         content="${dsc}" />
+</head>`;
+
+const html = (await shellResp.text())
+  .replace('<title>Game · HockeyGameBot</title>', `<title>${t}</title>`)
+  .replace('</head>', injected);
+
+// Short cache: 60s for live games, 1 hour for final/pre (mirrors the old function).
+const isLive = title.startsWith('LIVE');
+return new Response(html, {
+  headers: {
+    'Content-Type': 'text/html;charset=UTF-8',
+    'Cache-Control': isLive ? 'public, max-age=60' : 'public, max-age=3600',
+  },
+});
+---
