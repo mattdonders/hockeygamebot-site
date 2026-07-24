@@ -83,15 +83,22 @@ if (handle) {
   }
 }
 
-// Status: 200 with data; 503 (no-store) on upstream failure so a transient
-// outage is never cached as a deletion; 404 for a genuine unknown/private miss.
-if (!passport) {
-  if (upstreamError) {
-    Astro.response.status = 503;
-    Astro.response.headers.set('Cache-Control', 'no-store');
-  } else {
-    Astro.response.status = 404;
-  }
+// Status + caching:
+//  - 200 (public passport): edge-cache 5 min (s-maxage) to absorb viral share
+//    traffic — public passports change rarely. No purge on a private-toggle, so
+//    a just-hidden passport can serve for up to 5 min; acceptable under the
+//    privacy model. 404/503 are deliberately NOT cached (a claim/publish or a
+//    recovered outage must reflect immediately, not after a stale window).
+//  - 503 (upstream failure): no-store so a transient outage is never cached as
+//    a deletion.
+//  - 404 (unknown/private miss): dynamic (uncached).
+if (passport) {
+  Astro.response.headers.set('Cache-Control', 'public, s-maxage=300');
+} else if (upstreamError) {
+  Astro.response.status = 503;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+} else {
+  Astro.response.status = 404;
 }
 
 // ── Per-handle SEO / OG (the whole point of SSR here) ───────────────────────
@@ -119,6 +126,7 @@ const mastSub = passport
   title={pageTitle}
   description={pageDesc}
   ogType="profile"
+  ogImage={passport ? `https://api.hockeygamebot.com/v1/passport/${passport.handle}/card.png` : undefined}
   canonical={passport ? `/puck-passport/@${passport.handle}` : '/puck-passport'}
   currentPath="/puck-passport"
 >
