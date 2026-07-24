@@ -78,7 +78,11 @@ export interface ShareRecord {
 
 export interface PassportShareData {
   counters: ShareCounters;
-  arenas: { visited: number; total: number };
+  /** "Home rinks collected" model: homeRinks (distinct current teams seen at home,
+   *  the /32 collection meter) + distinctBuildings (every building visited — can
+   *  exceed 32, shown as the honest substat). The red pip bar tracks homeRinks/total.
+   *  Per the brand-cohesion decision the card bar stays HGB red — NO team colours. */
+  arenas: { homeRinks: number; total: number; distinctBuildings: number };
   /** Rarest earned badges, already sorted rarest-first (0–3 shown). */
   badges: ShareBadge[];
   /** Marquee single-game records (0–3 shown). */
@@ -147,7 +151,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const COUNTERS_H = 74; // 5-up big-number band
   const SECTION_GAP = 14; // vertical rhythm between sections
   const LABEL_H = 24; // section title + underline
-  const ARENA_H = 74; // frac row + 32-pip collection meter + caption (iOS-mockup style)
+  const ARENA_H = 90; // frac row + 32-pip collection meter + "to go" caption + total-buildings substat
   const BADGE_ROW_H = 44; // name (hero) + blurb sub-line — matches the record row
   const RECORD_ROW_H = 44;
   const ROW_GAP = 3;
@@ -268,11 +272,12 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
     y += LABEL_H;
   };
 
-  // ── ARENAS VISITED — collection meter modelled on the iOS mockup's arena bar:
-  // a big fraction, then a row of one pip per building (filled = visited), then a
-  // "N to go" caption. A segmented pip meter reads as a *collection* far better
-  // than a single continuous progress bar. ──
-  sectionLabel('Arenas Visited');
+  // ── HOME RINKS — collection meter: a big home_rinks/32 fraction, a row of 32
+  // pips (first `homeRinks` filled with the brand red — NO team colours on the
+  // card), a "N to go — collect all 32" caption, and an honest mono substat with
+  // the total buildings visited (which can exceed 32). A segmented pip meter reads
+  // as a *collection* far better than a single continuous progress bar. ──
+  sectionLabel('Home Rinks');
   const aPad = 14;
   ctx.fillStyle = SURFACE;
   ctx.fillRect(PAD, y, W - PAD * 2, ARENA_H);
@@ -281,24 +286,24 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.strokeRect(PAD + 0.5, y + 0.5, W - PAD * 2 - 1, ARENA_H - 1);
 
   const total = Math.max(1, data.arenas.total);
-  const visited = Math.max(0, Math.min(total, data.arenas.visited));
+  const homeRinks = Math.max(0, Math.min(total, data.arenas.homeRinks));
   // top row: fraction (left) + eyebrow (right)
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.font = cond(26, 800);
   ctx.fillStyle = INK;
-  ctx.fillText(`${visited}`, PAD + aPad, y + 30);
-  const visW = ctx.measureText(`${visited}`).width;
+  ctx.fillText(`${homeRinks}`, PAD + aPad, y + 30);
+  const visW = ctx.measureText(`${homeRinks}`).width;
   ctx.font = cond(15, 700);
   ctx.fillStyle = ink(0.32);
   ctx.fillText(`/ ${total}`, PAD + aPad + visW + 5, y + 30);
   ctx.font = mono(8, 700);
   ctx.fillStyle = ink(0.42);
   ctx.textAlign = 'right';
-  ctx.fillText('DISTINCT ARENAS', W - PAD - aPad, y + 22);
+  ctx.fillText('HOME RINKS COLLECTED', W - PAD - aPad, y + 22);
   ctx.textAlign = 'left';
 
-  // pip meter: `total` segments, first `visited` filled with the accent
+  // pip meter: `total` segments, first `homeRinks` filled with the accent (red)
   const pipGap = 3;
   const pipsX = PAD + aPad;
   const pipsW = W - PAD * 2 - aPad * 2;
@@ -306,19 +311,25 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const pipY = y + 40;
   const pipW = (pipsW - pipGap * (total - 1)) / total;
   for (let p = 0; p < total; p++) {
-    ctx.fillStyle = p < visited ? accent : ink(0.1);
+    ctx.fillStyle = p < homeRinks ? accent : ink(0.1);
     rrect(ctx, pipsX + p * (pipW + pipGap), pipY, pipW, pipH, 2);
     ctx.fill();
   }
-  // caption
+  // caption — chase copy
   ctx.font = mono(9, 500);
   ctx.fillStyle = ink(0.48);
   ctx.textBaseline = 'top';
-  const toGo = total - visited;
-  // Drop the redundant "N visited ·" prefix — the count is already the headline
-  // fraction above. Keep just the "to go — collect all N" chase copy.
+  const toGo = total - homeRinks;
   const cap = toGo > 0 ? `${toGo} to go — collect all ${total}` : `all ${total} collected`;
   ctx.fillText(truncate(ctx, cap, pipsW), pipsX, pipY + pipH + 6);
+  // honest substat — total distinct buildings visited (can exceed the /32 meter)
+  ctx.font = mono(9, 500);
+  ctx.fillStyle = ink(0.36);
+  ctx.fillText(
+    truncate(ctx, `${data.arenas.distinctBuildings} total arenas visited`, pipsW),
+    pipsX,
+    pipY + pipH + 6 + 13,
+  );
   y += ARENA_H + SECTION_GAP;
 
   // ── RAREST BADGES ──

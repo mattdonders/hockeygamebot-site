@@ -136,7 +136,11 @@ type SummaryMilestone = {
 type AttendedSummary = {
   counters: { games: number; periods: number; goals: number; shots: number; players_seen: number };
   team_records: { abbrev: string; name: string; w: number; l: number }[];
-  arenas: { visited: number; total: number; list: { venue: string; count: number }[]; unknown: number };
+  // "Home rinks collected" model: home_rinks = distinct CURRENT teams seen at home
+  // (≤ 32, the /32 collection meter); distinct_buildings = every distinct building
+  // visited (can EXCEED 32 — relocations, neutral-site games); teams_seen = the
+  // current-team ids collected, used to colour the per-team pips.
+  arenas: { home_rinks: number; total: number; distinct_buildings: number; teams_seen: number[] };
   players_seen: {
     player_id: number;
     name: string | null;
@@ -682,9 +686,11 @@ export default function AttendedTracker() {
     };
   }, []);
 
-  // ── team_id → abbrev/name (only needed for the logged-in D1 list) ────────────
+  // ── team_id → abbrev/name (from /v1/config) ─────────────────────────────────
+  // Loaded in BOTH auth states: the logged-in D1 list needs it to map id-only
+  // rows, and the arenas pip meter needs abbrev↔id in either state to colour the
+  // per-team pips from arenas.teams_seen (a list of current-team ids).
   useEffect(() => {
-    if (!isLoggedIn) return;
     let cancelled = false;
     (async () => {
       try {
@@ -703,7 +709,7 @@ export default function AttendedTracker() {
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn]);
+  }, []);
 
   // ── Load the server summary (source of truth for aggregates, both auth states) ─
   //   Logged IN  → authed GET (once, on login).
@@ -985,13 +991,38 @@ export default function AttendedTracker() {
 
   const viewTeamRecords = summary ? summary.team_records : [];
 
+  // Home-rinks collection: home_rinks/32 drives the meter + badge; teams_seen (a
+  // set of current-team ids) colours the per-team pips; distinct_buildings is the
+  // honest "every building visited" total (can exceed 32).
   const viewArenas = useMemo(
-    () => (summary ? { list: summary.arenas.list, unknown: summary.arenas.unknown } : { list: [], unknown: 0 }),
+    () =>
+      summary
+        ? {
+            homeRinks: summary.arenas.home_rinks,
+            total: summary.arenas.total,
+            distinctBuildings: summary.arenas.distinct_buildings,
+            teamsSeen: new Set(summary.arenas.teams_seen ?? []),
+          }
+        : { homeRinks: 0, total: 32, distinctBuildings: 0, teamsSeen: new Set<number>() },
     [summary],
   );
   const viewArenaBadge = summary
-    ? { visited: summary.arenas.visited, total: summary.arenas.total }
-    : { visited: 0, total: 32 };
+    ? {
+        homeRinks: summary.arenas.home_rinks,
+        total: summary.arenas.total,
+        distinctBuildings: summary.arenas.distinct_buildings,
+      }
+    : { homeRinks: 0, total: 32, distinctBuildings: 0 };
+
+  // The 32 current NHL teams, sorted alphabetically by full name (one pip each),
+  // and an abbrev→NHL-team-id map (from /v1/config) so a team's pip lights up when
+  // its id is in arenas.teams_seen. Sort is by team NAME for a stable, scannable order.
+  const pipTeams = useMemo(() => [...NHL_TEAMS].sort((a, b) => a.name.localeCompare(b.name)), []);
+  const abbrevToTeamId = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [id, info] of configMap) m.set(info.abbrev, id);
+    return m;
+  }, [configMap]);
 
   const viewSeenPlayers = useMemo<SeenPlayerRow[]>(() => {
     if (!summary) return [];
@@ -1077,7 +1108,11 @@ export default function AttendedTracker() {
         shots: viewCounters.shots,
         playersSeen: viewCounters.playersSeen,
       },
-      arenas: { visited: viewArenaBadge.visited, total: viewArenaBadge.total },
+      arenas: {
+        homeRinks: viewArenaBadge.homeRinks,
+        total: viewArenaBadge.total,
+        distinctBuildings: viewArenaBadge.distinctBuildings,
+      },
       badges: rarest,
       records: shareRecords,
       // No accent — every Passport card uses the HGB brand red for brand cohesion.
@@ -1632,21 +1667,21 @@ export default function AttendedTracker() {
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
               <span className="att-section-meta">
-                {earnedCount + (viewArenaBadge.visited > 0 ? 1 : 0)} earned · {catalog.length} to collect
+                {earnedCount + (viewArenaBadge.homeRinks > 0 ? 1 : 0)} earned · {catalog.length} to collect
                 {summaryPending ? ' · loading…' : ''}
               </span>
             </div>
             <div className="att-badges">
-              {/* Arenas-visited collection badge (distinct known venues / 32) */}
-              {viewArenaBadge.visited > 0 ? (
+              {/* Home-rinks collection badge (distinct current teams seen at home / 32) */}
+              {viewArenaBadge.homeRinks > 0 ? (
                 <div className="att-badge att-badge-collection" data-family="collection">
                   <div className="att-badge-top">
-                    <span className="att-badge-label">Arenas Visited</span>
+                    <span className="att-badge-label">Home Rinks</span>
                     <span className="att-badge-count">
-                      {viewArenaBadge.visited}/{viewArenaBadge.total}
+                      {viewArenaBadge.homeRinks}/{viewArenaBadge.total}
                     </span>
                   </div>
-                  <span className="att-badge-rarity">distinct arenas · collection</span>
+                  <span className="att-badge-rarity">home rinks collected · collection</span>
                 </div>
               ) : null}
 
@@ -1767,27 +1802,35 @@ export default function AttendedTracker() {
 
             <section className="att-section">
               <div className="att-section-head">
-                <span className="att-section-label">Arenas Visited</span>
-                <span className="att-section-meta">{viewArenas.list.length} known</span>
+                <span className="att-section-label">Home Rinks — {viewArenas.homeRinks} / {viewArenas.total}</span>
+                <span className="att-section-meta">
+                  {viewArenas.total - viewArenas.homeRinks} to go — collect all {viewArenas.total}
+                </span>
               </div>
-              {viewArenas.list.length === 0 && viewArenas.unknown === 0 ? (
-                <div className="att-add-empty">No games yet.</div>
-              ) : (
-                <div className="att-arenas">
-                  {viewArenas.list.map((a) => (
-                    <div className="att-arena-row" key={a.venue}>
-                      <span className="att-arena-name">{a.venue}</span>
-                      <span className="att-arena-count">{a.count}</span>
+              {/* One pip per current NHL team, alphabetical. Filled in that team's
+                  colour when its id is in teams_seen; neutral grey when not. The
+                  abbreviation sits under each pip (and in the title) so you can see
+                  exactly which teams' home rinks you still need. */}
+              <div className="att-rinks">
+                {pipTeams.map((t) => {
+                  const id = abbrevToTeamId.get(t.abbr);
+                  const collected = id != null && viewArenas.teamsSeen.has(id);
+                  return (
+                    <div
+                      className={collected ? 'att-rink att-rink-on' : 'att-rink'}
+                      key={t.abbr}
+                      title={collected ? `${t.name} — collected` : `${t.name} — not yet`}
+                    >
+                      <span
+                        className="att-rink-pip"
+                        style={{ background: collected ? pickTeamColor(t.abbr) : 'var(--ink-14)' }}
+                      />
+                      <span className="att-rink-abbr">{t.abbr}</span>
                     </div>
-                  ))}
-                  {viewArenas.unknown > 0 ? (
-                    <div className="att-arena-row att-arena-unknown">
-                      <span className="att-arena-name">Venue unknown</span>
-                      <span className="att-arena-count">{viewArenas.unknown}</span>
-                    </div>
-                  ) : null}
-                </div>
-              )}
+                  );
+                })}
+              </div>
+              <div className="att-rinks-substat">{viewArenas.distinctBuildings} total arenas visited</div>
             </section>
           </div>
 
