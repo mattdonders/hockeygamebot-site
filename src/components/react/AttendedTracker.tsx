@@ -606,6 +606,11 @@ export default function AttendedTracker() {
   // The single pending heal-retry timer. Held in a ref so a fresh cycle (or a rapid
   // multi-add) can DEBOUNCE it — clear the outstanding retry and schedule at most one.
   const healTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonic request counter. Every summary load (authed or public, incl. heal
+  // retries) captures the current value; after its await it only writes state if it
+  // is still the latest. Prevents an older in-flight response (rapid add A, then A+B)
+  // from resolving last and clobbering newer stats with stale data.
+  const summaryReqSeqRef = useRef(0);
 
   /** Whether a summary payload is still missing box scores (transient after an add
    *  until the server backfills; persistent for games the NHL can't box-score). */
@@ -646,11 +651,13 @@ export default function AttendedTracker() {
         clearTimeout(healTimerRef.current);
         healTimerRef.current = null;
       }
+      const seq = ++summaryReqSeqRef.current;
       setSummaryLoading(true);
       try {
         const r = await apiFetch(`${API}/v1/account/attended/summary`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
+        if (summaryReqSeqRef.current !== seq) return; // superseded by a newer load — discard
         if (!data || data.error || !data.counters || !data.badges) throw new Error('bad summary payload');
         const summaryData = data as AttendedSummary;
         setSummary(summaryData);
@@ -663,11 +670,12 @@ export default function AttendedTracker() {
           finishHeal();
         }
       } catch {
+        if (summaryReqSeqRef.current !== seq) return; // superseded — don't clobber newer state
         setSummary(null);
         setSummaryError(true);
         finishHeal();
       } finally {
-        setSummaryLoading(false);
+        if (summaryReqSeqRef.current === seq) setSummaryLoading(false);
       }
     },
     [scheduleHeal, finishHeal],
@@ -683,6 +691,7 @@ export default function AttendedTracker() {
       clearTimeout(healTimerRef.current);
       healTimerRef.current = null;
     }
+    const seq = ++summaryReqSeqRef.current;
     if (all.length === 0) {
       setSummary(null);
       setSummaryError(false);
@@ -717,6 +726,7 @@ export default function AttendedTracker() {
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
+      if (summaryReqSeqRef.current !== seq) return; // superseded by a newer load — discard
       if (!data || data.error || !data.counters || !data.badges) throw new Error('bad summary payload');
       const summaryData = data as AttendedSummary;
       setSummary(summaryData);
@@ -742,11 +752,12 @@ export default function AttendedTracker() {
         finishHeal();
       }
     } catch {
+      if (summaryReqSeqRef.current !== seq) return; // superseded — don't clobber newer state
       setSummary(null);
       setSummaryError(true);
       finishHeal();
     } finally {
-      setSummaryLoading(false);
+      if (summaryReqSeqRef.current === seq) setSummaryLoading(false);
     }
   }, [scheduleHeal, finishHeal]);
 
