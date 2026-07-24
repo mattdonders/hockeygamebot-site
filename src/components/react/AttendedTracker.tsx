@@ -1,28 +1,32 @@
 /**
  * AttendedTracker — "Games I've Attended" tracker (Puck Passport).
  *
- * Two data sources, ONE set of UI components (anti-divergence):
+ * ONE data source, ONE renderer, in BOTH auth states (anti-divergence). Every
+ * dashboard aggregate (counters, team records, arenas, players-seen, records,
+ * badges, milestones) comes from the SAME server summary payload — the server
+ * owns the numbers so web + iOS + share card can never disagree:
  *
- *   Logged OUT — the attended LIST lives in localStorage, and every aggregate
- *   (counters, team records, arenas, players-seen, records, badges) is COMPUTED
- *   client-side from public data:
- *     - Game lookup / add flow  →  GET /v1/games/today?date=YYYY-MM-DD
- *     - Per-game player stats    →  GET /v1/games/{id}/boxscore  (NHL API proxy)
+ *   Logged OUT — the attended LIST lives in localStorage. Its game ids are POSTed
+ *   to the PUBLIC summary endpoint, which returns the identical payload shape:
+ *     - List lookup / add flow  →  GET  /v1/games/today | /v1/games/by-team
+ *     - Aggregates              →  POST /v1/account/attended/summary { game_ids }
+ *   The response is cached in localStorage keyed by the sorted game-id list, so it
+ *   is reused until the list changes (mirrors the iOS userDefaults+cache pattern).
  *
- *   Logged IN — the list still comes from D1 (GET /v1/account/attended), but the
- *   dashboard aggregates render FROM the server summary
- *   (GET /v1/account/attended/summary) rather than recomputing client-side. The
- *   server owns the numbers so web + iOS + share card can never disagree. The
- *   summary also carries the Milestones-Witnessed feed the web now surfaces.
- *   Box scores are NOT fetched in this state (the summary already has Shots +
- *   Players-Seen) unless the summary fetch FAILS, in which case we fall back to
- *   the client compute so the dashboard is never blanked.
+ *   Logged IN — the list comes from D1 (GET /v1/account/attended); the aggregates
+ *   come from the AUTHED summary (GET /v1/account/attended/summary). The summary
+ *   also carries the Milestones-Witnessed feed.
+ *
+ * The per-game LIST ("Your Games") still renders from the local/D1 list; only the
+ * aggregates come from the summary. NHL box scores are no longer fetched client
+ * side — the server summary supplies Shots + Players-Seen + records + badges.
  *
  * Badges (§2) render the FULL catalog either way: earned first (rarest-first)
  * then unearned "ghost" chips as the collection/chase tease.
  *
- * House rule — FAIL LOUD: summary / box-score / stats fetch failures are surfaced
- * in an honest banner and per-counter warning markers, never silently shown as 0.
+ * House rule — FAIL LOUD: a summary fetch failure is surfaced in an honest banner
+ * (never a silent blank); the dashboard shows the known game count with the rest
+ * pending/zeroed rather than fabricating aggregates.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,25 +35,20 @@ import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import {
-  computeRecords,
-  buildLocalCatalog,
   sortCatalog,
   parseOneInN,
   normalizePeriod,
   badgeBlurb,
-  type BadgeBox,
   type CatalogBadge,
-  type GameRecord,
 } from './puck-passport-badges';
 import { drawPassportCard, type PassportShareData } from './puck-passport-share';
 
 const API = 'https://api.hockeygamebot.com';
 const STORAGE_KEY = 'hgb_puck_passport_games';
-// v4: box cache now also carries the canonical `periodType` folded from
-// gameOutcome.otPeriods (so a logged-out 2OT/3OT game counts its true periods —
-// the lookup endpoint only gives a bare "OT"). Bumping the key forces cached v3
-// entries (which lack periodType) to re-derive rather than undercount (FAIL LOUD).
-const BOX_CACHE_KEY = 'hgb_puck_passport_boxcache_v4';
+// Logged-out summary cache: the POST /v1/account/attended/summary response keyed
+// by the sorted attended game-id list (see summaryCacheKey). Reused until the list
+// changes — a add/remove yields a new key, missing the cache and refetching.
+const SUMMARY_CACHE_KEY = 'hgb_puck_passport_summary_v1';
 // Display snapshot cache (venue, period type, team abbrev/name/score) keyed by
 // game_id. This is what lets the logged-in D1 list — which carries only team
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
@@ -60,8 +59,8 @@ const DETAILS_KEY = 'hgb_puck_passport_details_v1';
 
 type TeamSide = { id: number; abbrev: string; name: string; score: number };
 
-/** The persisted shape — enough to render list/counters/team-WL/arenas with zero
- *  network. Shots + Players Seen still need the box score (fetched + cached). */
+/** The persisted shape — enough to render the game LIST (matchup / score / venue
+ *  / OT chip) with zero network. Aggregates come from the server summary. */
 type AttendedGame = {
   game_id: string;
   date: string; // YYYY-MM-DD (hockey date)
@@ -72,27 +71,6 @@ type AttendedGame = {
   status: string;
   added_at: string; // ISO
 };
-
-/** A single player as seen in one game's box score. Carries the full stat line
- *  the moment-badges + player records read (assists/points/pim/sog), not just
- *  goals. */
-type BoxPlayer = {
-  id: number;
-  name: string;
-  pos: string;
-  team: string;
-  goals: number;
-  assists: number;
-  points: number;
-  pim: number;
-  sog: number;
-};
-
-/** Derived-from-boxscore, cached per (final) game_id — finals are immutable.
- *  `periodType` is the canonical stored form ("REG"|"OT"|"2OT"|"3OT"|"SO") folded
- *  from gameOutcome (incl. the multi-OT count the lookup endpoint omits); null for
- *  non-final games, which have no meaningful outcome yet. */
-type BoxDerived = { shots: number; players: BoxPlayer[]; periodType: string | null };
 
 /** One row from the (now hydrated) GET /v1/account/attended — the attendance
  *  record LEFT JOINed to game_results. Game facts are null for games with no
@@ -122,7 +100,9 @@ type TeamInfo = { abbrev: string; name: string };
 // server owns the aggregates so the web + iOS + share card can never disagree.
 
 /** One server-computed single-game record. `sub` is the context line; `name` is
- *  pre-resolved server-side (no client "F. Last" upgrade needed). */
+ *  pre-resolved server-side (no client "F. Last" upgrade needed). The longest-game
+ *  record additionally carries the elapsed clock (`total_time` "92:56" +
+ *  `total_time_seconds`) which the share card renders as its bold hero. */
 type SummaryRecord = {
   label: string;
   value: string;
@@ -130,6 +110,8 @@ type SummaryRecord = {
   game_id?: string;
   player_id?: number;
   name?: string;
+  total_time?: string | null;
+  total_time_seconds?: number | null;
 } | null;
 
 type SummaryMilestone = {
@@ -184,9 +166,9 @@ type AttendedSummary = {
   missing_box_game_ids: string[];
 };
 
-/** A single-game record normalized for render — the same shape whether it came
- *  from the server summary or the client `computeRecords` path. */
-type ViewRecord = { key: string; label: string; value: string; sub: string };
+/** A single-game record normalized for render (from the server summary). The
+ *  longest-game row carries `total_time` for the share card's bold-hero clock. */
+type ViewRecord = { key: string; label: string; value: string; sub: string; total_time?: string | null };
 
 // Raw shapes from /v1/games/today
 type RawTeam = { id: number; abbrev: string; name: string; score: number };
@@ -265,20 +247,33 @@ function writeAttended(games: AttendedGame[]): void {
   }
 }
 
-function readBoxCache(): Record<string, BoxDerived> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(BOX_CACHE_KEY) ?? '{}');
-    return raw && typeof raw === 'object' ? raw : {};
-  } catch {
-    return {};
-  }
+/** Stable cache key for a set of attended games: the sorted, de-duped game-id
+ *  list. Order-independent, so re-adding the same games hits the cache; adding or
+ *  removing one yields a new key (cache miss → refetch). */
+function summaryCacheKey(gameIds: string[]): string {
+  return Array.from(new Set(gameIds)).sort().join(',');
 }
 
-function writeBoxCache(cache: Record<string, BoxDerived>): void {
+/** The cached logged-out summary, or null. Returned with its key so the caller can
+ *  confirm it still matches the current attended list before using it. */
+function readSummaryCache(): { key: string; summary: AttendedSummary } | null {
+  if (typeof window === 'undefined') return null;
   try {
-    localStorage.setItem(BOX_CACHE_KEY, JSON.stringify(cache));
+    const raw = JSON.parse(localStorage.getItem(SUMMARY_CACHE_KEY) ?? 'null');
+    if (raw && typeof raw === 'object' && typeof raw.key === 'string' && raw.summary) {
+      return raw as { key: string; summary: AttendedSummary };
+    }
   } catch {
     /* ignore */
+  }
+  return null;
+}
+
+function writeSummaryCache(key: string, summary: AttendedSummary): void {
+  try {
+    localStorage.setItem(SUMMARY_CACHE_KEY, JSON.stringify({ key, summary }));
+  } catch {
+    /* private mode / quota — the next load just refetches */
   }
 }
 
@@ -365,12 +360,6 @@ function mapD1Row(
 
 // ── Small derivations ───────────────────────────────────────────────────────────
 
-/** Periods witnessed: 3 regulation + `otCount` (REG→0, OT/SO→1, 2OT→2, 3OT→3).
- *  normalizePeriod (shared with the badge module + backend) owns the parsing. */
-function periodsFor(g: AttendedGame): number {
-  return 3 + normalizePeriod(g.last_period_type).otCount;
-}
-
 function winnerAbbrev(g: AttendedGame): string | null {
   if (g.status !== 'final') return null;
   if (g.home.score > g.away.score) return g.home.abbrev;
@@ -384,74 +373,6 @@ function gameTypeLabel(gameId: string): string {
   if (tt === '01') return 'PRE';
   if (tt === '03') return 'PLAYOFF';
   return ''; // 02 regular — no chip
-}
-
-// ── Box-score fetch → derived {shots, players[]} ─────────────────────────────────
-
-/** NHL box-score player names come as `{ name: { default: "Jack Hughes" } }`, but
- *  older shapes carry firstName/lastName objects — cover both. */
-function playerName(p: any): string {
-  const nm = p?.name?.default ?? (typeof p?.name === 'string' ? p.name : null);
-  if (nm) return nm;
-  const first = p?.firstName?.default ?? p?.firstName ?? '';
-  const last = p?.lastName?.default ?? p?.lastName ?? '';
-  const joined = `${first} ${last}`.trim();
-  return joined || `#${p?.playerId ?? '?'}`;
-}
-
-/** Fold a boxscore's `gameOutcome` into the canonical stored period type
- *  ("REG"|"OT"|"2OT"|"3OT"|"SO") that normalizePeriod expects. The game-lookup
- *  endpoint only carries a bare "OT" (no overtime count), so a multi-OT game's
- *  true period total is ONLY recoverable here, from `gameOutcome.otPeriods`
- *  (verified: 2019030415 → lastPeriodType "OT", otPeriods 2). Only final games
- *  carry a meaningful outcome; non-final ⇒ null (don't fabricate). normalizePeriod
- *  stays the single source of the code/label logic — this only picks the count. */
-function canonicalPeriodFromBox(box: any): string | null {
-  const state = String(box?.gameState ?? '').toUpperCase();
-  const isFinal = state === 'OFF' || state === 'FINAL' || state === 'OVER';
-  if (!isFinal) return null;
-  const outcome = box?.gameOutcome ?? {};
-  const np = normalizePeriod(outcome.lastPeriodType);
-  if (np.code === 'SO') return 'SO';
-  if (np.code === 'REG') return 'REG';
-  // OT: fold the count from otPeriods (1 ⇒ "OT", 2 ⇒ "2OT", 3 ⇒ "3OT", …).
-  const ot = typeof outcome.otPeriods === 'number' ? outcome.otPeriods : 1;
-  return ot >= 2 ? `${ot}OT` : 'OT';
-}
-
-function deriveFromBoxscore(box: any): BoxDerived {
-  const players: BoxPlayer[] = [];
-  let shots = 0;
-  const pbg = box?.playerByGameStats ?? {};
-  const abbrevFor: Record<string, string> = {
-    homeTeam: box?.homeTeam?.abbrev ?? '',
-    awayTeam: box?.awayTeam?.abbrev ?? '',
-  };
-  for (const sideKey of ['homeTeam', 'awayTeam']) {
-    const side = pbg[sideKey] ?? {};
-    for (const groupKey of ['forwards', 'defense', 'goalies']) {
-      const group = Array.isArray(side[groupKey]) ? side[groupKey] : [];
-      for (const p of group) {
-        if (typeof p?.playerId !== 'number') continue;
-        const goals = typeof p?.goals === 'number' ? p.goals : 0;
-        const assists = typeof p?.assists === 'number' ? p.assists : 0;
-        const sog = typeof p?.sog === 'number' ? p.sog : 0; // goalies have no sog
-        players.push({
-          id: p.playerId,
-          name: playerName(p),
-          pos: p?.position ?? '',
-          team: abbrevFor[sideKey],
-          goals,
-          assists,
-          points: typeof p?.points === 'number' ? p.points : goals + assists,
-          pim: typeof p?.pim === 'number' ? p.pim : 0,
-          sog,
-        });
-        shots += sog;
-      }
-    }
-  }
-  return { shots, players, periodType: canonicalPeriodFromBox(box) };
 }
 
 // ── Players-seen aggregate row (games seen + goals) ──────────────────────────────
@@ -507,7 +428,13 @@ function summaryRecordsToView(recs: AttendedSummary['records']): ViewRecord[] {
   for (const { field, key } of SUMMARY_RECORD_ORDER) {
     const r = recs[field];
     if (!r) continue;
-    out.push({ key, label: r.label, value: r.value, sub: r.name ? `${r.name} · ${r.sub}` : r.sub });
+    out.push({
+      key,
+      label: r.label,
+      value: r.value,
+      sub: r.name ? `${r.name} · ${r.sub}` : r.sub,
+      total_time: r.total_time ?? null,
+    });
   }
   return out;
 }
@@ -557,14 +484,14 @@ export default function AttendedTracker() {
   const [d1Error, setD1Error] = useState(false); // FAIL LOUD: D1 list failed to load
   const [writeError, setWriteError] = useState<string | null>(null); // add/remove/sync failed
 
-  // Server summary (logged-in source of truth). null + summaryError ⇒ FAIL LOUD:
-  // banner + client-side fallback compute so the dashboard is never blanked.
+  // Server summary — the SOLE source of every aggregate in BOTH auth states.
+  // null + summaryError ⇒ FAIL LOUD: an honest banner (no client fallback).
   const [summary, setSummary] = useState<AttendedSummary | null>(null);
   const [summaryError, setSummaryError] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
-  /** Fetch (or refetch) the authed summary. FAIL LOUD on any failure: clears the
-   *  payload and flags the error so the render falls back to client compute. */
+  /** Fetch (or refetch) the AUTHED summary (logged-in). FAIL LOUD on any failure:
+   *  clears the payload and flags the error so the dashboard surfaces a banner. */
   const loadSummary = useCallback(async () => {
     setSummaryLoading(true);
     try {
@@ -574,6 +501,49 @@ export default function AttendedTracker() {
       if (!data || data.error || !data.counters || !data.badges) throw new Error('bad summary payload');
       setSummary(data as AttendedSummary);
       setSummaryError(false);
+    } catch {
+      setSummary(null);
+      setSummaryError(true);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, []);
+
+  /** Load the PUBLIC summary (logged-out) via POST { game_ids }. The response is
+   *  cached in localStorage keyed by the sorted game-id list, so it is reused until
+   *  the list changes (add/remove ⇒ new key ⇒ cache miss ⇒ refetch). Mirrors the
+   *  planned iOS userDefaults+cache pattern. FAIL LOUD on error: banner, no blank
+   *  fabrication. An empty list clears the summary (the empty-state renders). */
+  const loadPublicSummary = useCallback(async (gameIds: string[]) => {
+    if (gameIds.length === 0) {
+      setSummary(null);
+      setSummaryError(false);
+      return;
+    }
+    // The endpoint caps at 60 game ids per request.
+    const ids = Array.from(new Set(gameIds)).slice(0, 60);
+    const key = summaryCacheKey(ids);
+
+    const cached = readSummaryCache();
+    if (cached && cached.key === key) {
+      setSummary(cached.summary);
+      setSummaryError(false);
+      return;
+    }
+
+    setSummaryLoading(true);
+    try {
+      const r = await fetch(`${API}/v1/account/attended/summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ game_ids: ids }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      if (!data || data.error || !data.counters || !data.badges) throw new Error('bad summary payload');
+      setSummary(data as AttendedSummary);
+      setSummaryError(false);
+      writeSummaryCache(key, data as AttendedSummary);
     } catch {
       setSummary(null);
       setSummaryError(true);
@@ -595,13 +565,13 @@ export default function AttendedTracker() {
     // detailsVersion forces a recompute when a display snapshot is written.
   }, [isLoggedIn, d1Rows, localGames, configMap, detailsVersion]);
 
-  // Box-score derived counters
-  const boxCacheRef = useRef<Record<string, BoxDerived>>({});
-  const [boxDerived, setBoxDerived] = useState<Record<string, BoxDerived>>({});
-  const [boxLoading, setBoxLoading] = useState(false);
-  const [boxErrors, setBoxErrors] = useState<string[]>([]); // game_ids that failed
-  // Display-name upgrade only: box scores carry "F. Last"; players.json has the
-  // correctly-cased first/last for current-season players. Non-fatal.
+  // Sorted attended game-id list — the identity/cache key for the public summary.
+  // Recomputing only when the id SET changes keeps the logged-out summary effect
+  // from refiring on unrelated re-renders.
+  const gameIdKey = useMemo(() => summaryCacheKey(games.map((g) => g.game_id)), [games]);
+
+  // Display-name upgrade only: the server may leave a players_seen name null for
+  // historical players; players.json backfills a properly-cased name. Non-fatal.
   const [nameMap, setNameMap] = useState<Map<number, string> | null>(null);
 
   // Add-games flow — mode toggle: team-first (default, matches fan recall) or date.
@@ -634,8 +604,6 @@ export default function AttendedTracker() {
   // games into D1 (mergeLocalPresets pattern), then load the D1 list as source.
   useEffect(() => {
     detailsRef.current = readDetails();
-    boxCacheRef.current = readBoxCache();
-    setBoxDerived({ ...boxCacheRef.current });
     // Default the date picker to today (local).
     const t = new Date();
     setSearchDate(
@@ -720,11 +688,22 @@ export default function AttendedTracker() {
     };
   }, [isLoggedIn]);
 
-  // ── Load the server summary once logged in (source of truth for aggregates) ──
+  // ── Load the server summary (source of truth for aggregates, both auth states) ─
+  //   Logged IN  → authed GET (once, on login).
+  //   Logged OUT → public POST { game_ids }, refetched whenever the attended id SET
+  //                changes (keyed by gameIdKey; the loader's localStorage cache
+  //                short-circuits a no-op re-fire).
   useEffect(() => {
-    if (!isLoggedIn) return;
-    loadSummary();
-  }, [isLoggedIn, loadSummary]);
+    if (!hydrated) return;
+    if (isLoggedIn) {
+      loadSummary();
+    } else {
+      loadPublicSummary(games.map((g) => g.game_id));
+    }
+    // games is read but intentionally keyed via gameIdKey so the effect fires only
+    // on a real list change (not on every unrelated re-render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, isLoggedIn, gameIdKey, loadSummary, loadPublicSummary]);
 
   // ── Reflect sync state in the masthead note (rendered in the Astro page) ─────
   useEffect(() => {
@@ -763,53 +742,6 @@ export default function AttendedTracker() {
       cancelled = true;
     };
   }, []);
-
-  // ── Fetch box scores for any attended game not yet derived ───────────────────
-  // Logged IN, the server summary already carries Shots + Players Seen + moment
-  // badges, so we skip the NHL-proxy fan-out entirely — UNLESS the summary failed
-  // to load, in which case we fetch boxes to power the client-side fallback.
-  useEffect(() => {
-    if (!hydrated || games.length === 0) return;
-    if (isLoggedIn && !summaryError) return;
-    const missing = games.filter((g) => !boxCacheRef.current[g.game_id]);
-    if (missing.length === 0) return;
-
-    let cancelled = false;
-    setBoxLoading(true);
-
-    (async () => {
-      const failed: string[] = [];
-      // Modest concurrency to avoid hammering the NHL proxy.
-      const queue = [...missing];
-      const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
-        while (queue.length && !cancelled) {
-          const g = queue.shift()!;
-          try {
-            const res = await fetch(`${API}/v1/games/${g.game_id}/boxscore`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const box = await res.json();
-            const derived = deriveFromBoxscore(box);
-            boxCacheRef.current[g.game_id] = derived;
-            // Persist only immutable finals so the cache never traps a live score.
-            if (g.status === 'final') {
-              writeBoxCache(boxCacheRef.current);
-            }
-          } catch {
-            failed.push(g.game_id);
-          }
-        }
-      });
-      await Promise.all(workers);
-      if (cancelled) return;
-      setBoxDerived({ ...boxCacheRef.current });
-      setBoxErrors((prev) => Array.from(new Set([...prev, ...failed])));
-      setBoxLoading(false);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [games, hydrated, isLoggedIn, summaryError]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   // Logged-in writes go to D1 (optimistic, rolled back on failure); logged-out
@@ -1015,223 +947,73 @@ export default function AttendedTracker() {
     [teamResults, selectedIds, addGame],
   );
 
-  // ── Derived aggregates ───────────────────────────────────────────────────────
-  // Overlay the box-derived canonical period type (which folds the multi-OT count
-  // from gameOutcome.otPeriods) onto each game's last_period_type. The game-lookup
-  // endpoint only carries a bare "OT" with no overtime count, so without this a
-  // logged-out 2OT/3OT game undercounts periods AND mislabels the Longest Game
-  // record. Logged-in games already carry the canonical stored form from
-  // game_results (and boxes aren't fetched), so this is a no-op there — the periods
-  // counter + records still render from the server summary (anti-divergence).
-  const effectiveGames = useMemo<AttendedGame[]>(() => {
-    return games.map((g) => {
-      const pt = boxDerived[g.game_id]?.periodType;
-      return pt ? { ...g, last_period_type: pt } : g;
-    });
-  }, [games, boxDerived]);
-
-  const finalGames = useMemo(() => effectiveGames.filter((g) => g.status === 'final'), [effectiveGames]);
-
-  const totals = useMemo(() => {
-    // Periods + goals count FINAL games only — a scheduled/live game logged before
-    // it ends has no meaningful score and would otherwise add a phantom 3 periods +
-    // 0 goals (mirrors the backend counters + how team records already filter).
-    let goals = 0;
-    let periods = 0;
-    for (const g of finalGames) {
-      goals += (g.home.score ?? 0) + (g.away.score ?? 0);
-      periods += periodsFor(g);
-    }
-    // Shots + distinct players from whatever box scores we have (finals only —
-    // finals are the only games with a persisted box).
-    let shots = 0;
-    const seen = new Set<number>();
-    let missingBox = false;
-    for (const g of finalGames) {
-      const d = boxDerived[g.game_id];
-      if (!d) {
-        missingBox = true;
-        continue;
-      }
-      shots += d.shots;
-      for (const p of d.players) seen.add(p.id);
-    }
-    return { goals, periods, shots, playersSeen: seen.size, seen, missingBox };
-  }, [finalGames, boxDerived]);
-
-  // Team W-L across attended (final) games.
-  const teamRecords = useMemo(() => {
-    const map = new Map<string, { abbrev: string; name: string; w: number; l: number }>();
-    for (const g of finalGames) {
-      const win = winnerAbbrev(g);
-      for (const side of [g.home, g.away]) {
-        const rec = map.get(side.abbrev) ?? { abbrev: side.abbrev, name: side.name, w: 0, l: 0 };
-        if (win === side.abbrev) rec.w += 1;
-        else if (win) rec.l += 1;
-        map.set(side.abbrev, rec);
-      }
-    }
-    return Array.from(map.values()).sort(
-      (a, b) => b.w + b.l - (a.w + a.l) || b.w - a.w || a.abbrev.localeCompare(b.abbrev),
-    );
-  }, [finalGames]);
-
-  // Arenas visited (venue only present in schedule data).
-  const arenas = useMemo(() => {
-    const known = new Map<string, number>();
-    let unknown = 0;
-    for (const g of games) {
-      const v = (g.venue ?? '').trim();
-      if (v) known.set(v, (known.get(v) ?? 0) + 1);
-      else unknown += 1;
-    }
-    return {
-      list: Array.from(known.entries())
-        .map(([venue, count]) => ({ venue, count }))
-        .sort((a, b) => b.count - a.count || a.venue.localeCompare(b.venue)),
-      unknown,
-    };
-  }, [games]);
-
-  // Players seen ranked by games-seen, then goals — aggregated straight from the
-  // box scores (works for any era, no players.json/WAR dependency).
-  const seenPlayers = useMemo<SeenPlayerRow[]>(() => {
-    const agg = new Map<number, SeenPlayerRow>();
-    for (const g of games) {
-      const d = boxDerived[g.game_id];
-      if (!d) continue;
-      for (const p of d.players) {
-        const row = agg.get(p.id);
-        if (row) {
-          row.gamesSeen += 1;
-          row.goals += p.goals;
-          // Keep the latest non-empty name/team/pos we've seen.
-          if (p.name && !p.name.startsWith('#')) row.name = p.name;
-          if (p.team) row.team = p.team;
-          if (p.pos) row.pos = p.pos;
-        } else {
-          agg.set(p.id, {
-            player_id: p.id,
-            name: p.name,
-            team: p.team,
-            pos: p.pos,
-            gamesSeen: 1,
-            goals: p.goals,
-          });
-        }
-      }
-    }
-    return Array.from(agg.values())
-      .map((r) => ({ ...r, name: nameMap?.get(r.player_id) ?? r.name }))
-      .sort(
-        (a, b) => b.gamesSeen - a.gamesSeen || b.goals - a.goals || a.name.localeCompare(b.name),
-      );
-  }, [games, boxDerived, nameMap]);
-
-  // ── Single-game records (§2c), client path ──────────────────────────────────
-  // Computed from data already in memory (game_results facts, last_period_type,
-  // game_id digits, cached box scores). Moment records that need a box simply
-  // don't fire for un-hydrated games (FAIL-LOUD, not a silent 0).
-  const records = useMemo<GameRecord[]>(
-    () => computeRecords(effectiveGames, boxDerived as Record<string, BadgeBox | undefined>),
-    [effectiveGames, boxDerived],
-  );
-
-  // Arenas-Visited N/32 is a collection badge (distinct known venues), computed
-  // separately from the per-game predicates. Only games with a known venue count.
-  const clientArenaBadge = useMemo(
-    () => ({ visited: arenas.list.length, total: 32 }),
-    [arenas.list.length],
-  );
-
-  // ── Unified view layer (anti-divergence) ─────────────────────────────────────
-  // When logged IN and the summary loaded, EVERY aggregate below renders from the
-  // server payload (the source of truth). Logged OUT — or logged-in with a failed
-  // summary — falls back to the client-side compute above. Both feed identical UI.
-  const useSummary = isLoggedIn && summary != null && !summaryError;
-  // Logged-in but the summary hasn't arrived yet (and hasn't failed): box scores
-  // aren't fetched in this state, so box-derived figures show a pending marker
-  // rather than a misleading 0.
-  const summaryPending = isLoggedIn && summary == null && !summaryError;
+  // ── View layer — the server summary is the SOLE source (both auth states) ────
+  // Every aggregate below reads from the summary payload; when it hasn't arrived
+  // (loading) or FAILED, we render the known game count with the rest zeroed and
+  // surface a banner (FAIL LOUD) rather than fabricating figures client-side.
+  const summaryPending = summary == null && !summaryError && games.length > 0;
 
   const viewCounters = useMemo(() => {
-    if (useSummary && summary) {
+    if (summary) {
       const c = summary.counters;
       return { games: c.games, periods: c.periods, goals: c.goals, shots: c.shots, playersSeen: c.players_seen };
     }
-    return {
-      games: games.length,
-      periods: totals.periods,
-      goals: totals.goals,
-      shots: totals.shots,
-      playersSeen: totals.playersSeen,
-    };
-  }, [useSummary, summary, games.length, totals]);
+    // No summary yet (loading / error / empty): the game count is always known
+    // from the list; the rest await the summary.
+    return { games: games.length, periods: 0, goals: 0, shots: 0, playersSeen: 0 };
+  }, [summary, games.length]);
 
-  const viewBoxIncomplete = useSummary && summary ? summary.box_incomplete : boxErrors.length > 0;
-  const viewMissingBoxCount =
-    useSummary && summary ? summary.missing_box_game_ids?.length ?? 0 : boxErrors.length;
+  const viewBoxIncomplete = summary ? summary.box_incomplete : false;
+  const viewMissingBoxCount = summary ? summary.missing_box_game_ids?.length ?? 0 : 0;
 
-  const viewTeamRecords = useSummary && summary ? summary.team_records : teamRecords;
+  const viewTeamRecords = summary ? summary.team_records : [];
 
   const viewArenas = useMemo(
-    () => (useSummary && summary ? { list: summary.arenas.list, unknown: summary.arenas.unknown } : arenas),
-    [useSummary, summary, arenas],
+    () => (summary ? { list: summary.arenas.list, unknown: summary.arenas.unknown } : { list: [], unknown: 0 }),
+    [summary],
   );
-  const viewArenaBadge =
-    useSummary && summary
-      ? { visited: summary.arenas.visited, total: summary.arenas.total }
-      : clientArenaBadge;
+  const viewArenaBadge = summary
+    ? { visited: summary.arenas.visited, total: summary.arenas.total }
+    : { visited: 0, total: 32 };
 
   const viewSeenPlayers = useMemo<SeenPlayerRow[]>(() => {
-    if (useSummary && summary) {
-      return summary.players_seen.map((p) => ({
-        player_id: p.player_id,
-        name: p.name ?? nameMap?.get(p.player_id) ?? `#${p.player_id}`,
-        team: p.team,
-        pos: p.pos,
-        gamesSeen: p.games,
-        goals: p.goals,
-      }));
-    }
-    return seenPlayers;
-  }, [useSummary, summary, seenPlayers, nameMap]);
+    if (!summary) return [];
+    return summary.players_seen.map((p) => ({
+      player_id: p.player_id,
+      name: p.name ?? nameMap?.get(p.player_id) ?? `#${p.player_id}`,
+      team: p.team,
+      pos: p.pos,
+      gamesSeen: p.games,
+      goals: p.goals,
+    }));
+  }, [summary, nameMap]);
 
-  const viewRecords = useMemo<ViewRecord[]>(() => {
-    if (useSummary && summary) return summaryRecordsToView(summary.records);
-    // Client path: resolve player "F. Last" → "First Last" and compose the sub.
-    return records.map((r) => {
-      const name = r.playerId != null ? nameMap?.get(r.playerId) ?? r.playerName : null;
-      return { key: r.key, label: r.label, value: r.value, sub: name ? `${name} · ${r.sub}` : r.sub };
-    });
-  }, [useSummary, summary, records, nameMap]);
+  const viewRecords = useMemo<ViewRecord[]>(
+    () => (summary ? summaryRecordsToView(summary.records) : []),
+    [summary],
+  );
 
   // Full badge catalog (§2): earned first (rarest-first) then ghost/unearned.
   const catalog = useMemo<CatalogBadge[]>(() => {
+    if (!summary) return [];
     // Drop `arenas-visited`: the server catalog carries it, but a dedicated
     // "Arenas Visited" collection badge is rendered separately below. Without
-    // this filter the logged-in view shows two Arenas badges and double-counts
-    // it in the earned tally (the logged-out local catalog never includes it).
-    if (useSummary && summary)
-      return sortCatalog(
-        summary.badges.catalog.filter((c) => c.id !== 'arenas-visited').map(mapSummaryCatalog),
-      );
-    return sortCatalog(buildLocalCatalog(effectiveGames, boxDerived as Record<string, BadgeBox | undefined>));
-  }, [useSummary, summary, effectiveGames, boxDerived]);
+    // this filter the view shows two Arenas badges and double-counts it in the
+    // earned tally.
+    return sortCatalog(summary.badges.catalog.filter((c) => c.id !== 'arenas-visited').map(mapSummaryCatalog));
+  }, [summary]);
   const earnedCount = useMemo(() => catalog.filter((c) => c.earned).length, [catalog]);
 
-  // Milestones Witnessed — server-provided; logged-out has no account, so none.
-  const milestones = useSummary && summary ? summary.milestones : [];
+  // Milestones Witnessed — server-provided (same payload in both auth states).
+  const milestones = summary ? summary.milestones : [];
   // ── Share card (client-side canvas PNG) ──────────────────────────────────────
   // Draws the SAME in-memory aggregates to a portrait canvas and hands it to the
   // shared HGB_Export modal (download / long-press-to-save), exactly like the
   // player/goalie cards. No new network fetch — everything below is already in
   // memory. Disabled while empty (see render).
   const handleShare = useCallback(async () => {
-    // Everything below reads from the VIEW aggregates (the same source the page
-    // renders from) — NOT the client-only compute — so the card is correct in
-    // BOTH auth states. When logged in, B2 skips the client box fetch, leaving
-    // the raw client aggregates empty; the view layer is the source of truth.
+    // Everything below reads from the VIEW aggregates — the same server-summary
+    // source the page renders from — so the card is correct in BOTH auth states.
 
     // Rarest earned badges first: `catalog` is already sorted rarest-first, so
     // the first three earned entries ARE the rarest three.
@@ -1265,12 +1047,10 @@ export default function AttendedTracker() {
       label: r.label,
       value: r.value,
       sub: r.sub,
-      // total_time isn't in the view aggregates yet; the card falls back to
-      // "N periods" for the longest game until the backend supplies it.
+      // Longest-game elapsed clock ("92:56") when the summary supplies it; the
+      // card renders it as the bold hero and falls back to "N periods" otherwise.
+      total_time: r.total_time ?? null,
     }));
-
-    // Accent = the colour of the team the user has seen most (falls back to red).
-    const accent = viewTeamRecords.length > 0 ? pickTeamColor(viewTeamRecords[0].abbrev) : null;
 
     const data: PassportShareData = {
       counters: {
@@ -1283,7 +1063,7 @@ export default function AttendedTracker() {
       arenas: { visited: viewArenaBadge.visited, total: viewArenaBadge.total },
       badges: rarest,
       records: shareRecords,
-      accent,
+      // No accent — every Passport card uses the HGB brand red for brand cohesion.
       boxIncomplete: viewBoxIncomplete,
     };
 
@@ -1303,7 +1083,7 @@ export default function AttendedTracker() {
       console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
       setWriteError('Could not open the share card — please reload the page and try again.');
     }
-  }, [catalog, viewRecords, viewTeamRecords, viewCounters, viewArenaBadge, viewBoxIncomplete]);
+  }, [catalog, viewRecords, viewCounters, viewArenaBadge, viewBoxIncomplete]);
 
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
@@ -1495,8 +1275,7 @@ export default function AttendedTracker() {
       {writeError ? <div className="att-banner att-banner-warn">{writeError}</div> : null}
       {summaryError ? (
         <div className="att-banner att-banner-warn">
-          Couldn't load your Passport summary from your account — showing figures computed in this browser instead.
-          Reload to retry.
+          Couldn't load your Passport stats right now — your games are still saved. Reload to retry.
         </div>
       ) : null}
       {viewBoxIncomplete ? (
@@ -1511,16 +1290,11 @@ export default function AttendedTracker() {
         <Counter label="Games" value={viewCounters.games} />
         <Counter label="Periods" value={viewCounters.periods} />
         <Counter label="Goals" value={viewCounters.goals} />
-        <Counter
-          label="Shots"
-          value={viewCounters.shots}
-          pending={summaryPending || (boxLoading && totals.missingBox)}
-          warn={viewBoxIncomplete}
-        />
+        <Counter label="Shots" value={viewCounters.shots} pending={summaryPending} warn={viewBoxIncomplete} />
         <Counter
           label="Players Seen"
           value={viewCounters.playersSeen}
-          pending={summaryPending || (boxLoading && totals.missingBox)}
+          pending={summaryPending}
           warn={viewBoxIncomplete}
         />
       </div>
@@ -1824,7 +1598,7 @@ export default function AttendedTracker() {
               <span className="att-section-label">Badges</span>
               <span className="att-section-meta">
                 {earnedCount + (viewArenaBadge.visited > 0 ? 1 : 0)} earned · {catalog.length} to collect
-                {(summaryPending || (boxLoading && totals.missingBox)) ? ' · scanning box scores…' : ''}
+                {summaryPending ? ' · loading…' : ''}
               </span>
             </div>
             <div className="att-badges">
@@ -1924,7 +1698,7 @@ export default function AttendedTracker() {
               <span className="att-section-meta">{games.length} logged</span>
             </div>
             <HGBTable
-              data={[...effectiveGames].sort((a, b) => b.date.localeCompare(a.date))}
+              data={[...games].sort((a, b) => b.date.localeCompare(a.date))}
               columns={gameCols}
               defaultSort={{ id: 'date', desc: true }}
               toolbar={{ show: false }}

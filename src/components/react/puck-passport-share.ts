@@ -83,10 +83,6 @@ export interface PassportShareData {
   badges: ShareBadge[];
   /** Marquee single-game records (0–3 shown). */
   records: ShareRecord[];
-  /** @deprecated Ignored — all Passport cards use the HGB brand red (#E8002D).
-   *  Retained only so existing callers keep type-checking until the field is
-   *  removed from them. */
-  accent?: string | null;
   /** True when some box scores failed → Shots / Players Seen may be short. */
   boxIncomplete: boolean;
 }
