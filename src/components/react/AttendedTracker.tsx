@@ -547,9 +547,20 @@ export default function AttendedTracker() {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       if (!data || data.error || !data.counters || !data.badges) throw new Error('bad summary payload');
-      setSummary(data as AttendedSummary);
+      const summaryData = data as AttendedSummary;
+      setSummary(summaryData);
       setSummaryError(false);
-      writeSummaryCache(key, data as AttendedSummary);
+      // Only persist a COMPLETE summary. If the server is still backfilling box
+      // scores (box_incomplete, or any missing_box_game_ids), we still RENDER the
+      // best-effort result but do NOT cache it — the id-set is unchanged, so a
+      // cached half-baked summary would be returned forever with no refetch path.
+      // Skipping the write leaves no cache entry, so the next load refetches and
+      // keeps refetching until the server has fully healed the games.
+      const isComplete =
+        !summaryData.box_incomplete && (summaryData.missing_box_game_ids?.length ?? 0) === 0;
+      if (isComplete) {
+        writeSummaryCache(key, summaryData);
+      }
     } catch {
       setSummary(null);
       setSummaryError(true);
