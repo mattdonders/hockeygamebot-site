@@ -1679,7 +1679,9 @@ export default function AttendedTracker() {
           <span className="att-badge-ghost-tag">Locked</span>
         </div>
         <span className="att-badge-rarity">
-          {c.rarityHint || 'not yet seen'}
+          {/* LOCKED: the hint is a GENERAL target rarity, not the user's own rate.
+              Label it ("rarity ~1 in N") so it can't be misread as an achieved stat. */}
+          {c.rarityHint ? `rarity ~${c.rarityHint}` : 'not yet seen'}
           <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
         </span>
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
@@ -2163,7 +2165,7 @@ export default function AttendedTracker() {
           <section className="att-section">
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
-              <span className="att-section-meta">0 earned · {ghostCatalog.length} to collect</span>
+              <span className="att-section-meta">0 of {ghostCatalog.length}</span>
             </div>
             <div className="att-badges">{ghostCatalog.map(renderCatalogBadge)}</div>
           </section>
@@ -2184,7 +2186,11 @@ export default function AttendedTracker() {
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
               <span className="att-section-meta">
-                {earnedCount + (viewArenaBadge.homeRinks > 0 ? 1 : 0)} earned · {catalog.length} to collect
+                {/* earned + total, so earned + (total − earned locked) always reconciles.
+                    catalog.length is the FULL catalog (earned + locked); the Home Rinks
+                    collection badge is rendered separately, so add it to both sides. */}
+                {earnedCount + (viewArenaBadge.homeRinks > 0 ? 1 : 0)} of{' '}
+                {catalog.length + (viewArenaBadge.homeRinks > 0 ? 1 : 0)}
                 {summaryPending ? ' · loading…' : ''}
               </span>
             </div>
