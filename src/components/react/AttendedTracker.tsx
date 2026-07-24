@@ -49,6 +49,12 @@ const STORAGE_KEY = 'hgb_puck_passport_games';
 // by the sorted attended game-id list (see summaryCacheKey). Reused until the list
 // changes — a add/remove yields a new key, missing the cache and refetching.
 const SUMMARY_CACHE_KEY = 'hgb_puck_passport_summary_v1';
+// Public summary endpoint caps the game-id list (anonymous callers can trigger
+// backfill fetches). Logged-out lists beyond this compute stats on the first
+// SUMMARY_ID_CAP only — surfaced loudly (never silently truncated). A softer
+// "log in to sync" nudge fires well before then (SUMMARY_NUDGE_AT).
+const SUMMARY_ID_CAP = 60;
+const SUMMARY_NUDGE_AT = 10;
 // Display snapshot cache (venue, period type, team abbrev/name/score) keyed by
 // game_id. This is what lets the logged-in D1 list — which carries only team
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
@@ -520,8 +526,8 @@ export default function AttendedTracker() {
       setSummaryError(false);
       return;
     }
-    // The endpoint caps at 60 game ids per request.
-    const ids = Array.from(new Set(gameIds)).slice(0, 60);
+    // The endpoint caps the id list per request (see SUMMARY_ID_CAP).
+    const ids = Array.from(new Set(gameIds)).slice(0, SUMMARY_ID_CAP);
     const key = summaryCacheKey(ids);
 
     const cached = readSummaryCache();
@@ -1282,6 +1288,19 @@ export default function AttendedTracker() {
         <div className="att-banner att-banner-warn">
           Couldn't load box scores for {viewMissingBoxCount} game{viewMissingBoxCount === 1 ? '' : 's'} — Shots and
           Players Seen may be incomplete. Reload to retry.
+        </div>
+      ) : null}
+
+      {/* Logged-out escalation: a soft "sync" nudge well before the cap, and a
+          LOUD truncation notice once the list exceeds what the anonymous summary
+          can cover — never silently under-report. */}
+      {!isLoggedIn && games.length > SUMMARY_ID_CAP ? (
+        <div className="att-banner att-banner-warn">
+          Stats cover your first {SUMMARY_ID_CAP} games — log in to sync all {games.length} and keep your Passport accurate.
+        </div>
+      ) : !isLoggedIn && games.length >= SUMMARY_NUDGE_AT ? (
+        <div className="att-banner">
+          Log in to sync your games across devices and keep your stats accurate.
         </div>
       ) : null}
 
