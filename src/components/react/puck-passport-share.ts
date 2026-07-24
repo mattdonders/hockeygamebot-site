@@ -216,7 +216,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
     ['PERIODS', data.counters.periods],
     ['GOALS', data.counters.goals],
     ['SHOTS', data.counters.shots],
-    ['SEEN', data.counters.playersSeen],
+    ['PLAYERS', data.counters.playersSeen],
   ];
   const colW = W / cells.length;
   cells.forEach(([label, val], i) => {
