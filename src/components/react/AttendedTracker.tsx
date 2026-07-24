@@ -30,7 +30,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE } from './HGBTable';
+import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
@@ -807,6 +807,8 @@ export default function AttendedTracker() {
   const [scoreFilter, setScoreFilter] = useState('');
   // Multi-select "add many at once"
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Players Seen renders the top 25 by games (matches iOS); expand to show all.
+  const [showAllSeen, setShowAllSeen] = useState(false);
 
   // ── Manual add sub-flow (games the NHL API can't find) ──────────────────────────
   const [showManual, setShowManual] = useState(false);
@@ -1221,6 +1223,26 @@ export default function AttendedTracker() {
     }
   }, [teamSel, seasonSel]);
 
+  // ── Dismiss search results (§3) — explicit Close, never auto-close on select.
+  // Clears the fetched list + all recall filters so the page returns to the
+  // pre-search Add Games state. The team/season pickers are left as-is so a
+  // re-search is one click away.
+  const resetTeamSearch = useCallback(() => {
+    setTeamResults(null);
+    setTeamQuery(null);
+    setSelectedIds(new Set());
+    setOppFilter('');
+    setHomeAwayFilter('all');
+    setScoreFilter('');
+    setTeamError(null);
+  }, []);
+
+  const resetDateSearch = useCallback(() => {
+    setSearchResults(null);
+    setMatchupFilter('');
+    setSearchError(null);
+  }, []);
+
   // The team the results are anchored to (from the query that produced them, so
   // home/away chips stay correct even if the picker is changed before re-search).
   const anchorTeam = teamQuery?.team ?? '';
@@ -1355,6 +1377,16 @@ export default function AttendedTracker() {
       goals: p.goals,
     }));
   }, [summary, nameMap]);
+
+  // Top-25 cap (§6, matches iOS). Sort a copy games-desc (then goals) so the
+  // slice is deterministic regardless of the server payload order; HGBTable
+  // re-sorts by its own defaultSort on top of this.
+  const SEEN_CAP = 25;
+  const sortedSeenPlayers = useMemo<SeenPlayerRow[]>(
+    () => [...viewSeenPlayers].sort((a, b) => b.gamesSeen - a.gamesSeen || b.goals - a.goals),
+    [viewSeenPlayers],
+  );
+  const seenPlayersToShow = showAllSeen ? sortedSeenPlayers : sortedSeenPlayers.slice(0, SEEN_CAP);
 
   const viewRecords = useMemo<ViewRecord[]>(
     () => (summary ? summaryRecordsToView(summary.records) : []),
@@ -1591,33 +1623,39 @@ export default function AttendedTracker() {
         header: 'Player',
         accessor: (r) => r.name,
         align: 'left',
+        sortType: 'string',
+        // Name-only (the team logo lives in the TEAM column, matching Skater Stats).
         cell: (_, r) => (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="att-seen-name" style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{r.name}</span>
+        ),
+        exportText: (_v, r) => r.name,
+      },
+      {
+        id: 'team',
+        header: 'Team',
+        accessor: (r) => r.team,
+        align: 'center',
+        width: 70,
+        // Logo + abbrev, matching the Skater Stats team cell. Defunct/relocated
+        // teams (e.g. ATL, PHX) have no local logo asset — the onError hides the
+        // broken image so the abbrev stands alone (never a broken-image glyph).
+        cell: (_v, r) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
             <img
-              src={`https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg`}
-              alt={r.team}
+              className="att-seen-logo"
+              src={teamLogoSrc(r.team)}
               width={28}
               height={28}
-              style={{ flexShrink: 0, objectFit: 'contain' }}
+              style={TEAM_LOGO_STYLE}
+              alt=""
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).style.display = 'none';
               }}
             />
-            <span style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{r.name}</span>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700 }}>{r.team}</span>
           </div>
         ),
-      },
-      {
-        id: 'team',
-        header: 'Tm',
-        accessor: (r) => r.team,
-        align: 'center',
-        mobileHidden: true,
-        cell: (v) => (
-          <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'var(--ink-48)' }}>
-            {v}
-          </span>
-        ),
+        exportText: (_v, r) => r.team,
       },
       {
         id: 'pos',
@@ -1679,7 +1717,9 @@ export default function AttendedTracker() {
           <span className="att-badge-ghost-tag">Locked</span>
         </div>
         <span className="att-badge-rarity">
-          {c.rarityHint || 'not yet seen'}
+          {/* LOCKED: the hint is a GENERAL target rarity, not the user's own rate.
+              Label it ("rarity ~1 in N") so it can't be misread as an achieved stat. */}
+          {c.rarityHint ? `rarity ~${c.rarityHint}` : 'not yet seen'}
           <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
         </span>
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
@@ -1914,13 +1954,22 @@ export default function AttendedTracker() {
                             ? `${filteredTeamResults?.length ?? 0} games`
                             : `${selectedIds.size} selected`}
                         </span>
-                        <button
-                          className="att-btn att-btn-sm"
-                          disabled={addable === 0}
-                          onClick={() => addSelected(attendedIds)}
-                        >
-                          {addable > 0 ? `Add ${addable} game${addable === 1 ? '' : 's'}` : 'Add games'}
-                        </button>
+                        <div className="att-select-actions">
+                          <button
+                            className="att-btn att-btn-sm"
+                            disabled={addable === 0}
+                            onClick={() => addSelected(attendedIds)}
+                          >
+                            {addable > 0 ? `Add ${addable} game${addable === 1 ? '' : 's'}` : 'Add games'}
+                          </button>
+                          <button
+                            className="att-btn-ghost"
+                            onClick={resetTeamSearch}
+                            aria-label="Close search results"
+                          >
+                            Close
+                          </button>
+                        </div>
                       </div>
                     );
                   })()}
@@ -1945,23 +1994,27 @@ export default function AttendedTracker() {
                               onChange={() => toggleSelected(g.game_id)}
                               aria-label={`Select ${g.away_team.abbrev} at ${g.home_team.abbrev} on ${g.date}`}
                             />
-                            <span className="att-add-date">{g.date}</span>
-                            <span className="att-add-teams">
-                              <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
-                              <span className="att-add-at">@</span>
-                              <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
-                            </span>
-                            <span className="att-add-type">
-                              {chip ? <span className="att-chip">{chip}</span> : null}
-                            </span>
-                            <span className="att-add-score">
-                              {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
-                              {(() => {
-                                const np = normalizePeriod(g.last_period_type);
-                                return np.code !== 'REG' ? <span className="att-ot">{np.label}</span> : null;
-                              })()}
-                            </span>
-                            <span className="att-add-venue">{g.venue ?? 'venue unknown'}</span>
+                            <div className="att-add-info">
+                              <span className="att-add-line">
+                                <span className="att-add-teams">
+                                  <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
+                                  <span className="att-add-at">@</span>
+                                  <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
+                                </span>
+                                <span className="att-add-score">
+                                  {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
+                                  {(() => {
+                                    const np = normalizePeriod(g.last_period_type);
+                                    return np.code !== 'REG' ? <span className="att-ot">{np.label}</span> : null;
+                                  })()}
+                                </span>
+                              </span>
+                              <span className="att-add-meta">
+                                <span className="att-add-date">{g.date}</span>
+                                {chip ? <span className="att-add-type"><span className="att-chip">{chip}</span></span> : null}
+                                {g.venue ? <span className="att-add-venue">{g.venue}</span> : null}
+                              </span>
+                            </div>
                             <button
                               className={already ? 'att-add-btn added' : 'att-add-btn'}
                               disabled={already}
@@ -2007,10 +2060,27 @@ export default function AttendedTracker() {
             {searchError ? <div className="att-banner att-banner-warn">{searchError}</div> : null}
 
             {searchResults != null ? (
-              searchResults.length === 0 ? (
-                <div className="att-add-empty">No NHL games on {searchDate}.</div>
-              ) : (
-                <div className="att-add-results">
+              <>
+                <div className="att-select-bar">
+                  <span className="att-select-count">
+                    {searchResults.length === 0
+                      ? 'No games'
+                      : `${searchResults.length} game${searchResults.length === 1 ? '' : 's'} on ${searchDate}`}
+                  </span>
+                  <div className="att-select-actions">
+                    <button
+                      className="att-btn-ghost"
+                      onClick={resetDateSearch}
+                      aria-label="Close search results"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+                {searchResults.length === 0 ? (
+                  <div className="att-add-empty">No NHL games on {searchDate}.</div>
+                ) : (
+                  <div className="att-add-results">
                   {searchResults
                     .filter((g) => {
                       const q = matchupFilter.trim().toLowerCase();
@@ -2028,15 +2098,22 @@ export default function AttendedTracker() {
                       const homeColor = pickTeamColor(g.home_team.abbrev);
                       return (
                         <div className="att-add-row" key={g.game_id}>
-                          <span className="att-add-teams">
-                            <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
-                            <span className="att-add-at">@</span>
-                            <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
-                          </span>
-                          <span className="att-add-score">
-                            {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
-                          </span>
-                          <span className="att-add-venue">{g.venue ?? 'venue unknown'}</span>
+                          <div className="att-add-info">
+                            <span className="att-add-line">
+                              <span className="att-add-teams">
+                                <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
+                                <span className="att-add-at">@</span>
+                                <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
+                              </span>
+                              <span className="att-add-score">
+                                {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
+                              </span>
+                            </span>
+                            <span className="att-add-meta">
+                              <span className="att-add-date">{g.date}</span>
+                              {g.venue ? <span className="att-add-venue">{g.venue}</span> : null}
+                            </span>
+                          </div>
                           <button
                             className={already ? 'att-add-btn added' : 'att-add-btn'}
                             disabled={already}
@@ -2047,8 +2124,9 @@ export default function AttendedTracker() {
                         </div>
                       );
                     })}
-                </div>
-              )
+                  </div>
+                )}
+              </>
             ) : null}
           </>
         )}
@@ -2163,7 +2241,9 @@ export default function AttendedTracker() {
           <section className="att-section">
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
-              <span className="att-section-meta">0 earned · {ghostCatalog.length} to collect</span>
+              {/* +1 for the Home Rinks collection (shown as the meter below), so the
+                  empty-state total matches the populated "X of Y" (which also counts it). */}
+              <span className="att-section-meta">0 of {ghostCatalog.length + 1}</span>
             </div>
             <div className="att-badges">{ghostCatalog.map(renderCatalogBadge)}</div>
           </section>
@@ -2184,7 +2264,12 @@ export default function AttendedTracker() {
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
               <span className="att-section-meta">
-                {earnedCount + (viewArenaBadge.homeRinks > 0 ? 1 : 0)} earned · {catalog.length} to collect
+                {/* The Home Rinks collection badge is ALWAYS rendered as a collectible, so
+                    it always counts toward the total (denominator +1). It counts as earned
+                    only once at least one current home rink is collected. (Codex: previously
+                    dropped from the total when homeRinks===0 → "0 of 8" instead of "0 of 9".) */}
+                {earnedCount + (viewArenaBadge.homeRinks > 0 ? 1 : 0)} of{' '}
+                {catalog.length + 1}
                 {summaryPending ? ' · loading…' : ''}
               </span>
             </div>
@@ -2320,13 +2405,24 @@ export default function AttendedTracker() {
                 No players yet — box scores may still be loading.
               </div>
             ) : (
-              <HGBTable
-                data={viewSeenPlayers}
-                columns={seenCols}
-                defaultSort={{ id: 'gamesSeen', desc: true }}
-                toolbar={{ show: false }}
-                showRank
-              />
+              <>
+                <HGBTable
+                  data={seenPlayersToShow}
+                  columns={seenCols}
+                  defaultSort={{ id: 'gamesSeen', desc: true }}
+                  toolbar={{ show: false }}
+                  showRank
+                />
+                {viewSeenPlayers.length > SEEN_CAP ? (
+                  <button
+                    type="button"
+                    className="att-btn-ghost att-seen-toggle"
+                    onClick={() => setShowAllSeen((v) => !v)}
+                  >
+                    {showAllSeen ? `Show top ${SEEN_CAP}` : `Show all (${viewSeenPlayers.length})`}
+                  </button>
+                ) : null}
+              </>
             )}
           </section>
         </>
