@@ -74,7 +74,7 @@ const MAX_SUMMARY_RETRIES = 1;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type TeamSide = { id: number; abbrev: string; name: string; score: number };
+type TeamSide = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
 
 /** The persisted shape — enough to render the game LIST (matchup / score / venue
  *  / OT chip) with zero network. Aggregates come from the server summary. */
@@ -216,7 +216,7 @@ type AttendedSummary = {
 type ViewRecord = { key: string; label: string; value: string; sub: string; total_time?: string | null };
 
 // Raw shapes from /v1/games/today
-type RawTeam = { id: number; abbrev: string; name: string; score: number };
+type RawTeam = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
 type RawGame = {
   game_id: string;
   date: string;
@@ -401,6 +401,10 @@ function mapD1Row(
       id: id ?? snapSide?.id ?? 0,
       abbrev: info?.abbrev ?? snapSide?.abbrev ?? (id != null ? String(id) : '?'),
       name: info?.name ?? snapSide?.name ?? '',
+      // /v1/config carries no short_name — only the local display snapshot does
+      // (captured at add-time). Cross-device D1 rows without a snapshot fall back
+      // to abbrev in the render helper (never blank).
+      short_name: snapSide?.short_name ?? null,
       score: score ?? snapSide?.score ?? 0,
     };
   };
@@ -468,6 +472,21 @@ function splitForSummary(games: AttendedGame[]): { gameIds: string[]; manualGame
 }
 
 // ── Small derivations ───────────────────────────────────────────────────────────
+
+/** Render a game-row matchup team label as BOTH forms: the team SHORT NAME
+ *  ("Devils") for wide layouts and the ABBREV ("NJD") for the narrow mobile
+ *  layout — CSS (`.pp-team-full` / `.pp-team-abbr`) toggles which shows by
+ *  breakpoint. When short_name is missing (old stored games / cross-device
+ *  D1 rows), the abbrev fills BOTH spans so it shows at every width, never blank. */
+function teamMatchupLabel(shortName: string | null | undefined, abbrev: string): React.ReactElement {
+  const full = shortName && shortName.trim() ? shortName : abbrev;
+  return (
+    <>
+      <span className="pp-team-full">{full}</span>
+      <span className="pp-team-abbr">{abbrev}</span>
+    </>
+  );
+}
 
 function winnerAbbrev(g: AttendedGame): string | null {
   if (g.status !== 'final') return null;
@@ -1524,7 +1543,7 @@ export default function AttendedTracker() {
                 color: win === t.abbrev ? 'var(--ink)' : 'var(--ink-56)',
               }}
             >
-              {t.abbrev}
+              {teamMatchupLabel(t.short_name, t.abbrev)}
             </span>
           );
           return (
@@ -1997,9 +2016,13 @@ export default function AttendedTracker() {
                             <div className="att-add-info">
                               <span className="att-add-line">
                                 <span className="att-add-teams">
-                                  <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
+                                  <span style={{ color: awayColor, fontWeight: 700 }}>
+                                    {teamMatchupLabel(g.away_team.short_name, g.away_team.abbrev)}
+                                  </span>
                                   <span className="att-add-at">@</span>
-                                  <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
+                                  <span style={{ color: homeColor, fontWeight: 700 }}>
+                                    {teamMatchupLabel(g.home_team.short_name, g.home_team.abbrev)}
+                                  </span>
                                 </span>
                                 <span className="att-add-score">
                                   {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
@@ -2101,9 +2124,13 @@ export default function AttendedTracker() {
                           <div className="att-add-info">
                             <span className="att-add-line">
                               <span className="att-add-teams">
-                                <span style={{ color: awayColor, fontWeight: 700 }}>{g.away_team.abbrev}</span>
+                                <span style={{ color: awayColor, fontWeight: 700 }}>
+                                  {teamMatchupLabel(g.away_team.short_name, g.away_team.abbrev)}
+                                </span>
                                 <span className="att-add-at">@</span>
-                                <span style={{ color: homeColor, fontWeight: 700 }}>{g.home_team.abbrev}</span>
+                                <span style={{ color: homeColor, fontWeight: 700 }}>
+                                  {teamMatchupLabel(g.home_team.short_name, g.home_team.abbrev)}
+                                </span>
                               </span>
                               <span className="att-add-score">
                                 {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
