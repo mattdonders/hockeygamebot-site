@@ -89,6 +89,9 @@ export interface PassportShareData {
   records: ShareRecord[];
   /** True when some box scores failed → Shots / Players Seen may be short. */
   boxIncomplete: boolean;
+  /** Count of manually-logged ("unverified") games → an honest footer caveat
+   *  (manual games count for Games/Arena/Team record only). 0/undefined ⇒ omit. */
+  unverifiedCount?: number;
 }
 
 // ── tiny draw helpers ───────────────────────────────────────────────────────
@@ -155,7 +158,16 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const BADGE_ROW_H = 44; // name (hero) + blurb sub-line — matches the record row
   const RECORD_ROW_H = 44;
   const ROW_GAP = 3;
-  const FOOTER_H = data.boxIncomplete ? 46 : 36; // canonical FOOT_H = 36
+  // Honest footer caveats (0–2): incomplete box scores and/or manually-logged
+  // games. Each adds one mono line below the brand line; canonical FOOT_H = 36.
+  const footCaveats: string[] = [];
+  if (data.boxIncomplete)
+    footCaveats.push('Shots & Players Seen may be incomplete — some box scores unavailable.');
+  if (data.unverifiedCount && data.unverifiedCount > 0)
+    footCaveats.push(
+      `${data.unverifiedCount} game${data.unverifiedCount === 1 ? '' : 's'} added manually — Games/Arenas/record only.`,
+    );
+  const FOOTER_H = footCaveats.length > 0 ? 30 + footCaveats.length * 12 : 36;
 
   const hasBadges = data.badges.length > 0;
   const hasRecords = data.records.length > 0;
@@ -450,21 +462,17 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.fillStyle = ink(0.08);
   ctx.fillRect(0, fy, W, FOOTER_H);
   const footLine = ['Puck Passport', DOMAIN_UPPER].join(' · ');
-  const footMidY = data.boxIncomplete ? fy + 15 : fy + FOOTER_H / 2;
+  const footMidY = footCaveats.length > 0 ? fy + 15 : fy + FOOTER_H / 2;
   ctx.font = mono(9, 700);
   ctx.fillStyle = FOOT_INK;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(truncate(ctx, footLine, W - PAD * 2), W / 2, footMidY);
-  if (data.boxIncomplete) {
-    ctx.font = mono(8, 500);
-    ctx.fillStyle = ink(0.4);
-    ctx.fillText(
-      truncate(ctx, 'Shots & Players Seen may be incomplete — some box scores unavailable.', W - PAD * 2),
-      W / 2,
-      fy + 33,
-    );
-  }
+  ctx.font = mono(8, 500);
+  ctx.fillStyle = ink(0.4);
+  footCaveats.forEach((line, i) => {
+    ctx.fillText(truncate(ctx, line, W - PAD * 2), W / 2, fy + 30 + i * 12);
+  });
 
   return canvas;
 }

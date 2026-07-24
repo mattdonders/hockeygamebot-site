@@ -76,6 +76,25 @@ type AttendedGame = {
   last_period_type: string | null; // REG | OT | SO | (playoff OT variants)
   status: string;
   added_at: string; // ISO
+  // ── Manual games only (games the NHL API can't find: old/preseason/neutral-site
+  //    /memory-gap). is_manual marks the row; home_score/away_score carry the RAW
+  //    nullable scores so "no score entered" (null) is never rendered as a
+  //    fabricated 0. NHL games leave these undefined. ──
+  is_manual?: boolean;
+  home_score?: number | null;
+  away_score?: number | null;
+};
+
+/** LOCKED backend contract for a manually-logged game (snake_case). Its id is
+ *  always `manual-<random>`; scores are null when the fan didn't enter them. */
+type ManualGame = {
+  id: string; // "manual-<random>"
+  home_team_id: number;
+  away_team_id: number;
+  date: string; // YYYY-MM-DD
+  home_score: number | null;
+  away_score: number | null;
+  venue: string | null;
 };
 
 /** One row from the (now hydrated) GET /v1/account/attended — the attendance
@@ -95,6 +114,7 @@ type D1AttendedRow = {
   is_final: number | null;
   venue: string | null;
   last_period_type: string | null; // REG | OT | SO | (playoff OT variants)
+  is_manual?: number | boolean | null; // 1/true for manually-logged games
 };
 
 /** team_id → abbrev/name, from GET /v1/config. */
@@ -174,6 +194,10 @@ type AttendedSummary = {
   milestones: SummaryMilestone[];
   box_incomplete: boolean;
   missing_box_game_ids: string[];
+  // Count of manually-logged ("unverified") games in the set. Manual games count
+  // toward Games + Arena + Team record, but are EXCLUDED from periods/goals/shots/
+  // players/badges/records — this drives the honest "N added manually" footnote.
+  unverified_count: number;
 };
 
 /** A single-game record normalized for render (from the server summary). The
@@ -335,6 +359,22 @@ async function postAttended(gameId: string): Promise<boolean> {
   }
 }
 
+/** POST /v1/account/attended for a MANUAL game — sends both signals the backend
+ *  accepts: `is_manual: true` plus the ManualGame fields (its `manual-` id is a
+ *  top-level id too). The authed GET summary folds it in, so no public POST. */
+async function postManualAttended(m: ManualGame): Promise<boolean> {
+  try {
+    const r = await apiFetch(`${API}/v1/account/attended`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_manual: true, ...m }),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Map a hydrated D1 row → the render shape. Prefers fresh game_results facts,
  *  falling back to the local display snapshot (venue, OT/SO, or older games with
  *  no game_results row) and finally /v1/config for team abbrev/name. */
@@ -354,6 +394,7 @@ function mapD1Row(
     };
   };
   const isFinal = r.is_final != null ? !!r.is_final : snap?.status === 'final';
+  const isManual = r.is_manual != null ? !!r.is_manual : r.game_id.startsWith('manual-');
   return {
     game_id: r.game_id,
     date: r.game_date ?? snap?.date ?? '',
@@ -365,7 +406,54 @@ function mapD1Row(
     last_period_type: r.last_period_type ?? snap?.last_period_type ?? null,
     status: isFinal ? 'final' : snap?.status ?? 'scheduled',
     added_at: r.created_at ?? snap?.added_at ?? '',
+    ...(isManual
+      ? { is_manual: true, home_score: r.home_score ?? snap?.home_score ?? null, away_score: r.away_score ?? snap?.away_score ?? null }
+      : {}),
   };
+}
+
+// ── Manual games (games the NHL API can't find) ─────────────────────────────────
+
+/** Fresh `manual-<random>` id. crypto.randomUUID where available, else a short
+ *  base36 token — either way distinct from every 10-digit NHL game_id. */
+function genManualId(): string {
+  const rand =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return `manual-${rand}`;
+}
+
+/** Project a stored manual AttendedGame back onto the LOCKED ManualGame wire shape
+ *  (the id is already `manual-…`; the raw nullable scores are preserved). */
+function toManualGame(g: AttendedGame): ManualGame {
+  return {
+    id: g.game_id,
+    home_team_id: g.home.id,
+    away_team_id: g.away.id,
+    date: g.date,
+    home_score: g.home_score ?? null,
+    away_score: g.away_score ?? null,
+    venue: g.venue,
+  };
+}
+
+/** Split the attended list for the PUBLIC summary POST: NHL games → `game_ids`,
+ *  manual games → `manual_games`. Dedupes and enforces the COMBINED cap (the
+ *  public endpoint caps `game_ids.length + manual_games.length`, see SUMMARY_ID_CAP)
+ *  by walking the list in order and stopping once the combined count hits the cap. */
+function splitForSummary(games: AttendedGame[]): { gameIds: string[]; manualGames: ManualGame[] } {
+  const gameIds: string[] = [];
+  const manualGames: ManualGame[] = [];
+  const seen = new Set<string>();
+  for (const g of games) {
+    if (seen.has(g.game_id)) continue;
+    seen.add(g.game_id);
+    if (g.is_manual) manualGames.push(toManualGame(g));
+    else gameIds.push(g.game_id);
+    if (gameIds.length + manualGames.length >= SUMMARY_ID_CAP) break;
+  }
+  return { gameIds, manualGames };
 }
 
 // ── Small derivations ───────────────────────────────────────────────────────────
@@ -524,15 +612,18 @@ export default function AttendedTracker() {
    *  the list changes (add/remove ⇒ new key ⇒ cache miss ⇒ refetch). Mirrors the
    *  planned iOS userDefaults+cache pattern. FAIL LOUD on error: banner, no blank
    *  fabrication. An empty list clears the summary (the empty-state renders). */
-  const loadPublicSummary = useCallback(async (gameIds: string[]) => {
-    if (gameIds.length === 0) {
+  const loadPublicSummary = useCallback(async (all: AttendedGame[]) => {
+    if (all.length === 0) {
       setSummary(null);
       setSummaryError(false);
       return;
     }
-    // The endpoint caps the id list per request (see SUMMARY_ID_CAP).
-    const ids = Array.from(new Set(gameIds)).slice(0, SUMMARY_ID_CAP);
-    const key = summaryCacheKey(ids);
+    // Split into NHL ids + manual games, enforcing the COMBINED cap (the public
+    // endpoint caps game_ids.length + manual_games.length — see SUMMARY_ID_CAP).
+    const { gameIds, manualGames } = splitForSummary(all);
+    // Cache key over BOTH kinds (manual ids are stable `manual-<random>`), so
+    // adding/removing either kind misses the cache and refetches.
+    const key = summaryCacheKey([...gameIds, ...manualGames.map((m) => m.id)]);
 
     const cached = readSummaryCache();
     if (cached && cached.key === key) {
@@ -546,7 +637,9 @@ export default function AttendedTracker() {
       const r = await fetch(`${API}/v1/account/attended/summary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ game_ids: ids }),
+        body: JSON.stringify(
+          manualGames.length > 0 ? { game_ids: gameIds, manual_games: manualGames } : { game_ids: gameIds },
+        ),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
@@ -620,6 +713,15 @@ export default function AttendedTracker() {
   // Multi-select "add many at once"
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // ── Manual add sub-flow (games the NHL API can't find) ──────────────────────────
+  const [showManual, setShowManual] = useState(false);
+  const [manualHome, setManualHome] = useState(''); // abbrev
+  const [manualAway, setManualAway] = useState(''); // abbrev
+  const [manualDate, setManualDate] = useState('');
+  const [manualHomeScore, setManualHomeScore] = useState('');
+  const [manualAwayScore, setManualAwayScore] = useState('');
+  const [manualError, setManualError] = useState<string | null>(null);
+
   // ── Hydrate + resolve auth on mount ──────────────────────────────────────────
   // Logged-out: read the localStorage list (Phase 0). Logged-in: merge any local
   // games into D1 (mergeLocalPresets pattern), then load the D1 list as source.
@@ -627,9 +729,9 @@ export default function AttendedTracker() {
     detailsRef.current = readDetails();
     // Default the date picker to today (local).
     const t = new Date();
-    setSearchDate(
-      `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`,
-    );
+    const today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    setSearchDate(today);
+    setManualDate(today);
 
     let cancelled = false;
     (async () => {
@@ -654,7 +756,7 @@ export default function AttendedTracker() {
         // Upsert each into D1; server dedupes on (user_id, game_id).
         let allOk = true;
         for (const g of local) {
-          const ok = await postAttended(g.game_id);
+          const ok = g.is_manual ? await postManualAttended(toManualGame(g)) : await postAttended(g.game_id);
           if (!ok) allOk = false;
         }
         if (cancelled) return;
@@ -721,7 +823,7 @@ export default function AttendedTracker() {
     if (isLoggedIn) {
       loadSummary();
     } else {
-      loadPublicSummary(games.map((g) => g.game_id));
+      loadPublicSummary(games);
     }
     // games is read but intentionally keyed via gameIdKey so the effect fires only
     // on a real list change (not on every unrelated re-render).
@@ -856,6 +958,116 @@ export default function AttendedTracker() {
     [isLoggedIn, loadSummary],
   );
 
+  // Add a MANUAL game (NHL API can't find it). Logged-IN → POST to the authed
+  // endpoint with is_manual (the authed GET summary folds it in — never a public
+  // POST); logged-OUT → store as a manual-shaped entry in the SAME localStorage
+  // list, distinguishable by is_manual + a `manual-` id. Both paths refetch the
+  // summary so the server-owned aggregates stay the source of truth.
+  const addManualGame = useCallback(() => {
+    setManualError(null);
+    if (!manualHome || !manualAway) {
+      setManualError('Pick both teams.');
+      return;
+    }
+    if (manualHome === manualAway) {
+      setManualError('Home and away must be different teams.');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(manualDate)) {
+      setManualError('Pick a valid date.');
+      return;
+    }
+    // Resolve abbrev → team id via /v1/config. FAIL LOUD if config hasn't loaded
+    // (the manual game needs numeric team ids for the LOCKED wire contract).
+    let homeId: number | undefined;
+    let awayId: number | undefined;
+    for (const [id, info] of configMap) {
+      if (info.abbrev === manualHome) homeId = id;
+      if (info.abbrev === manualAway) awayId = id;
+    }
+    if (homeId == null || awayId == null) {
+      setManualError('Team directory is still loading — try again in a moment.');
+      return;
+    }
+    const parseScore = (s: string): number | null => {
+      const t = s.trim();
+      if (t === '') return null;
+      const n = Number(t);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+    };
+    const homeScore = parseScore(manualHomeScore);
+    const awayScore = parseScore(manualAwayScore);
+    const m: ManualGame = {
+      id: genManualId(),
+      home_team_id: homeId,
+      away_team_id: awayId,
+      date: manualDate,
+      home_score: homeScore,
+      away_score: awayScore,
+      venue: null,
+    };
+    // Both scores present & unequal ⇒ a decided (final) game for list rendering.
+    const decided = homeScore != null && awayScore != null && homeScore !== awayScore;
+    const snap: AttendedGame = {
+      game_id: m.id,
+      date: m.date,
+      home: { id: homeId, abbrev: manualHome, name: NHL_TEAM_NAMES[manualHome] ?? manualHome, score: homeScore ?? 0 },
+      away: { id: awayId, abbrev: manualAway, name: NHL_TEAM_NAMES[manualAway] ?? manualAway, score: awayScore ?? 0 },
+      venue: null,
+      last_period_type: null,
+      status: decided ? 'final' : 'scheduled',
+      added_at: new Date().toISOString(),
+      is_manual: true,
+      home_score: homeScore,
+      away_score: awayScore,
+    };
+    commitDetail(snap);
+
+    if (isLoggedIn) {
+      setD1Rows((prev) => {
+        const rows = prev ?? [];
+        const row: D1AttendedRow = {
+          game_id: m.id,
+          rooted_for: null,
+          notes: null,
+          source: 'manual',
+          created_at: snap.added_at,
+          game_date: m.date,
+          home_team_id: homeId,
+          away_team_id: awayId,
+          home_score: homeScore,
+          away_score: awayScore,
+          is_final: decided ? 1 : 0,
+          venue: null,
+          last_period_type: null,
+          is_manual: 1,
+        };
+        return [row, ...rows];
+      });
+      postManualAttended(m).then((ok) => {
+        if (ok) {
+          setWriteError(null);
+          loadSummary(); // refetch aggregates (anti-divergence)
+        } else {
+          setWriteError('Could not save that game to your account — check your connection and try again.');
+          setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== m.id));
+        }
+      });
+    } else {
+      setLocalGames((prev) => {
+        const next = [...prev, snap];
+        writeAttended(next);
+        return next;
+      });
+    }
+
+    // Reset the form for the next entry (keep it open — fans log runs of games).
+    setManualHome('');
+    setManualAway('');
+    setManualHomeScore('');
+    setManualAwayScore('');
+  }, [manualHome, manualAway, manualDate, manualHomeScore, manualAwayScore, configMap, isLoggedIn, commitDetail, loadSummary]);
+
   const attendedIds = useMemo(() => new Set(games.map((g) => g.game_id)), [games]);
 
   // ── Search a date ────────────────────────────────────────────────────────────
@@ -989,6 +1201,13 @@ export default function AttendedTracker() {
   const viewBoxIncomplete = summary ? summary.box_incomplete : false;
   const viewMissingBoxCount = summary ? summary.missing_box_game_ids?.length ?? 0 : 0;
 
+  // Unverified (manually-logged) game count. Server owns the number once the
+  // summary lands; before that, fall back to the known local manual count (honest
+  // truth, not fabricated) so the footnote appears immediately after a manual add.
+  const viewUnverifiedCount = summary
+    ? summary.unverified_count ?? 0
+    : games.filter((g) => g.is_manual).length;
+
   const viewTeamRecords = summary ? summary.team_records : [];
 
   // Home-rinks collection: home_rinks/32 drives the meter + badge; teams_seen (a
@@ -1117,6 +1336,7 @@ export default function AttendedTracker() {
       records: shareRecords,
       // No accent — every Passport card uses the HGB brand red for brand cohesion.
       boxIncomplete: viewBoxIncomplete,
+      unverifiedCount: viewUnverifiedCount,
     };
 
     // Ensure the Barlow / mono webfonts are ready so measureText + fills are
@@ -1135,7 +1355,7 @@ export default function AttendedTracker() {
       console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
       setWriteError('Could not open the share card — please reload the page and try again.');
     }
-  }, [catalog, viewRecords, viewCounters, viewArenaBadge, viewBoxIncomplete]);
+  }, [catalog, viewRecords, viewCounters, viewArenaBadge, viewBoxIncomplete, viewUnverifiedCount]);
 
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
@@ -1175,6 +1395,11 @@ export default function AttendedTracker() {
               <span style={{ color: 'var(--ink-32)', fontSize: 12 }}>@</span>
               {teamSpan(r.home)}
               {chip ? <span className="att-chip">{chip}</span> : null}
+              {r.is_manual ? (
+                <span className="att-chip att-chip-unverified" title="Added manually — not verified against the NHL API. Counts toward Games, Arena and Team record only.">
+                  unverified
+                </span>
+              ) : null}
             </span>
           );
         },
@@ -1185,6 +1410,12 @@ export default function AttendedTracker() {
         accessor: (r) => `${r.away.score}-${r.home.score}`,
         align: 'center',
         cell: (_, r) => {
+          // Manual games without both scores entered: never fabricate a 0–0 final.
+          if (r.is_manual && (r.home_score == null || r.away_score == null)) {
+            return (
+              <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-32)' }}>—</span>
+            );
+          }
           const np = normalizePeriod(r.last_period_type);
           return (
             <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700 }}>
@@ -1309,6 +1540,50 @@ export default function AttendedTracker() {
     [],
   );
 
+  // ── Shared chip/pip renderers (dashboard + empty-state reuse the SAME markup) ──
+  // A single catalog-badge chip: earned or locked ghost. The empty state feeds it
+  // ghostCatalog (all locked); the dashboard feeds it the earned+ghost catalog.
+  const renderCatalogBadge = (c: CatalogBadge) =>
+    c.earned ? (
+      <div className="att-badge" data-family={c.family} key={c.id}>
+        <div className="att-badge-top">
+          <span className="att-badge-label">{c.label}</span>
+          <span className="att-badge-count">×{c.count}</span>
+        </div>
+        <span className="att-badge-rarity">
+          {c.rarity ? `${c.rarity} games` : c.rarityHint}
+          <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
+        </span>
+        {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
+        {c.note ? <span className="att-badge-note">{c.note}</span> : null}
+      </div>
+    ) : (
+      <div className="att-badge att-badge-ghost" data-family={c.family} key={c.id}>
+        <div className="att-badge-top">
+          <span className="att-badge-label">{c.label}</span>
+          <span className="att-badge-ghost-tag">Locked</span>
+        </div>
+        <span className="att-badge-rarity">
+          {c.rarityHint || 'not yet seen'}
+          <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
+        </span>
+        {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
+      </div>
+    );
+
+  // One team's home-rink collection pip. `collected` lights it in the team colour;
+  // otherwise it stays neutral grey (the "still to collect" state).
+  const renderPip = (t: { abbr: string; name: string }, collected: boolean) => (
+    <div
+      className={collected ? 'att-rink att-rink-on' : 'att-rink'}
+      key={t.abbr}
+      title={collected ? `${t.name} — collected` : `${t.name} — not yet`}
+    >
+      <span className="att-rink-pip" style={{ background: collected ? pickTeamColor(t.abbr) : 'var(--ink-14)' }} />
+      <span className="att-rink-abbr">{t.abbr}</span>
+    </div>
+  );
+
   // ── Render ───────────────────────────────────────────────────────────────────
   if (!hydrated) {
     return <div className="att-loading">Loading your games…</div>;
@@ -1364,6 +1639,14 @@ export default function AttendedTracker() {
         />
       </div>
 
+      {/* Honest footnote: manual games count for Games/Arena/Team record only. */}
+      {viewUnverifiedCount > 0 ? (
+        <div className="att-unverified-note">
+          {viewUnverifiedCount} game{viewUnverifiedCount === 1 ? '' : 's'} added manually — counts toward Games,
+          Arenas and Team records only; goals, shots, players and badges are limited.
+        </div>
+      ) : null}
+
       {/* Share your Passport — client-side canvas PNG (hidden until there's data) */}
       {!empty ? (
         <div className="att-share-bar">
@@ -1391,7 +1674,7 @@ export default function AttendedTracker() {
       ) : null}
 
       {/* Add games */}
-      <section className="att-section">
+      <section className="att-section" id="att-add">
         <div className="att-section-head">
           <span className="att-section-label">Add Games</span>
           <span className="att-section-meta">
@@ -1650,6 +1933,94 @@ export default function AttendedTracker() {
             ) : null}
           </>
         )}
+
+        {/* ── Manual fallback — a game the NHL API can't find (old / preseason /
+            neutral-site / memory-gap). Counts toward Games, Arena and Team record
+            only; excluded from periods/goals/shots/players/badges/records. ─── */}
+        <div className="att-manual">
+          <button
+            type="button"
+            className="att-manual-toggle"
+            aria-expanded={showManual}
+            onClick={() => {
+              setShowManual((v) => !v);
+              setManualError(null);
+            }}
+          >
+            {showManual ? '− Hide manual entry' : "Can't find your game? Add it manually"}
+          </button>
+
+          {showManual ? (
+            <div className="att-manual-form">
+              <div className="att-manual-note">
+                Logs a game we can't verify against the NHL API — it counts toward your Games, Arenas and Team
+                records, but not goals, shots, players or badges.
+              </div>
+              <div className="att-manual-grid">
+                <select
+                  className="att-select"
+                  value={manualAway}
+                  onChange={(e) => setManualAway(e.target.value)}
+                  aria-label="Away team"
+                >
+                  <option value="">Away team…</option>
+                  {NHL_TEAMS.map((t) => (
+                    <option key={t.abbr} value={t.abbr}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="att-manual-at">@</span>
+                <select
+                  className="att-select"
+                  value={manualHome}
+                  onChange={(e) => setManualHome(e.target.value)}
+                  aria-label="Home team"
+                >
+                  <option value="">Home team…</option>
+                  {NHL_TEAMS.map((t) => (
+                    <option key={t.abbr} value={t.abbr}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="att-manual-grid">
+                <input
+                  type="date"
+                  className="att-date"
+                  value={manualDate}
+                  onChange={(e) => setManualDate(e.target.value)}
+                  aria-label="Game date"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  className="att-manual-score"
+                  placeholder="Away"
+                  value={manualAwayScore}
+                  onChange={(e) => setManualAwayScore(e.target.value)}
+                  aria-label="Away score (optional)"
+                />
+                <span className="att-manual-dash">–</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="att-manual-score"
+                  placeholder="Home"
+                  value={manualHomeScore}
+                  onChange={(e) => setManualHomeScore(e.target.value)}
+                  aria-label="Home score (optional)"
+                />
+                <button className="att-btn att-btn-sm" onClick={addManualGame}>
+                  + Add game
+                </button>
+              </div>
+              <div className="att-manual-hint">Score is optional — leave blank if you don't remember it.</div>
+              {manualError ? <div className="att-banner att-banner-warn">{manualError}</div> : null}
+            </div>
+          ) : null}
+        </div>
       </section>
 
       {empty ? (
@@ -1685,36 +2056,7 @@ export default function AttendedTracker() {
                 </div>
               ) : null}
 
-              {catalog.map((c) =>
-                c.earned ? (
-                  // Earned chip
-                  <div className="att-badge" data-family={c.family} key={c.id}>
-                    <div className="att-badge-top">
-                      <span className="att-badge-label">{c.label}</span>
-                      <span className="att-badge-count">×{c.count}</span>
-                    </div>
-                    <span className="att-badge-rarity">
-                      {c.rarity ? `${c.rarity} games` : c.rarityHint}
-                      <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
-                    </span>
-                    {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
-                    {c.note ? <span className="att-badge-note">{c.note}</span> : null}
-                  </div>
-                ) : (
-                  // Ghost chip — dimmed/locked; the "1 in N" hint is the chase tease
-                  <div className="att-badge att-badge-ghost" data-family={c.family} key={c.id}>
-                    <div className="att-badge-top">
-                      <span className="att-badge-label">{c.label}</span>
-                      <span className="att-badge-ghost-tag">Locked</span>
-                    </div>
-                    <span className="att-badge-rarity">
-                      {c.rarityHint || 'not yet seen'}
-                      <span className="att-badge-family"> · {c.family === 'game-type' ? 'type' : 'moment'}</span>
-                    </span>
-                    {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
-                  </div>
-                ),
-              )}
+              {catalog.map(renderCatalogBadge)}
             </div>
           </section>
 
@@ -1814,20 +2156,7 @@ export default function AttendedTracker() {
               <div className="att-rinks">
                 {pipTeams.map((t) => {
                   const id = abbrevToTeamId.get(t.abbr);
-                  const collected = id != null && viewArenas.teamsSeen.has(id);
-                  return (
-                    <div
-                      className={collected ? 'att-rink att-rink-on' : 'att-rink'}
-                      key={t.abbr}
-                      title={collected ? `${t.name} — collected` : `${t.name} — not yet`}
-                    >
-                      <span
-                        className="att-rink-pip"
-                        style={{ background: collected ? pickTeamColor(t.abbr) : 'var(--ink-14)' }}
-                      />
-                      <span className="att-rink-abbr">{t.abbr}</span>
-                    </div>
-                  );
+                  return renderPip(t, id != null && viewArenas.teamsSeen.has(id));
                 })}
               </div>
               <div className="att-rinks-substat">{viewArenas.distinctBuildings} total arenas visited</div>
