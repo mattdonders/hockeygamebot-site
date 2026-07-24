@@ -30,7 +30,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE } from './HGBTable';
+import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
@@ -1591,33 +1591,38 @@ export default function AttendedTracker() {
         header: 'Player',
         accessor: (r) => r.name,
         align: 'left',
+        sortType: 'string',
+        // Name-only (the team logo lives in the TEAM column, matching Skater Stats).
         cell: (_, r) => (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{r.name}</span>
+        ),
+        exportText: (_v, r) => r.name,
+      },
+      {
+        id: 'team',
+        header: 'Team',
+        accessor: (r) => r.team,
+        align: 'center',
+        width: 70,
+        // Logo + abbrev, matching the Skater Stats team cell. Defunct/relocated
+        // teams (e.g. ATL, PHX) have no local logo asset — the onError hides the
+        // broken image so the abbrev stands alone (never a broken-image glyph).
+        cell: (_v, r) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
             <img
-              src={`https://assets.nhle.com/logos/nhl/svg/${r.team}_light.svg`}
-              alt={r.team}
+              src={teamLogoSrc(r.team)}
               width={28}
               height={28}
-              style={{ flexShrink: 0, objectFit: 'contain' }}
+              style={TEAM_LOGO_STYLE}
+              alt=""
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).style.display = 'none';
               }}
             />
-            <span style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>{r.name}</span>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700 }}>{r.team}</span>
           </div>
         ),
-      },
-      {
-        id: 'team',
-        header: 'Tm',
-        accessor: (r) => r.team,
-        align: 'center',
-        mobileHidden: true,
-        cell: (v) => (
-          <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'var(--ink-48)' }}>
-            {v}
-          </span>
-        ),
+        exportText: (_v, r) => r.team,
       },
       {
         id: 'pos',
