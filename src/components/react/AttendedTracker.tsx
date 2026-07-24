@@ -44,10 +44,11 @@ import { drawPassportCard, type PassportShareData } from './puck-passport-share'
 
 const API = 'https://api.hockeygamebot.com';
 const STORAGE_KEY = 'hgb_puck_passport_games';
-// v3: box cache now carries per-player assists/points/pim/sog (needed for the
-// moment badges + player records). Bumping the key forces a clean re-derive so
-// no badge under-fires off a v2 entry missing the new fields (FAIL LOUD).
-const BOX_CACHE_KEY = 'hgb_puck_passport_boxcache_v3';
+// v4: box cache now also carries the canonical `periodType` folded from
+// gameOutcome.otPeriods (so a logged-out 2OT/3OT game counts its true periods —
+// the lookup endpoint only gives a bare "OT"). Bumping the key forces cached v3
+// entries (which lack periodType) to re-derive rather than undercount (FAIL LOUD).
+const BOX_CACHE_KEY = 'hgb_puck_passport_boxcache_v4';
 // Display snapshot cache (venue, period type, team abbrev/name/score) keyed by
 // game_id. This is what lets the logged-in D1 list — which carries only team
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
@@ -86,8 +87,11 @@ type BoxPlayer = {
   sog: number;
 };
 
-/** Derived-from-boxscore, cached per (final) game_id — finals are immutable. */
-type BoxDerived = { shots: number; players: BoxPlayer[] };
+/** Derived-from-boxscore, cached per (final) game_id — finals are immutable.
+ *  `periodType` is the canonical stored form ("REG"|"OT"|"2OT"|"3OT"|"SO") folded
+ *  from gameOutcome (incl. the multi-OT count the lookup endpoint omits); null for
+ *  non-final games, which have no meaningful outcome yet. */
+type BoxDerived = { shots: number; players: BoxPlayer[]; periodType: string | null };
 
 /** One row from the (now hydrated) GET /v1/account/attended — the attendance
  *  record LEFT JOINed to game_results. Game facts are null for games with no
@@ -394,6 +398,26 @@ function playerName(p: any): string {
   return joined || `#${p?.playerId ?? '?'}`;
 }
 
+/** Fold a boxscore's `gameOutcome` into the canonical stored period type
+ *  ("REG"|"OT"|"2OT"|"3OT"|"SO") that normalizePeriod expects. The game-lookup
+ *  endpoint only carries a bare "OT" (no overtime count), so a multi-OT game's
+ *  true period total is ONLY recoverable here, from `gameOutcome.otPeriods`
+ *  (verified: 2019030415 → lastPeriodType "OT", otPeriods 2). Only final games
+ *  carry a meaningful outcome; non-final ⇒ null (don't fabricate). normalizePeriod
+ *  stays the single source of the code/label logic — this only picks the count. */
+function canonicalPeriodFromBox(box: any): string | null {
+  const state = String(box?.gameState ?? '').toUpperCase();
+  const isFinal = state === 'OFF' || state === 'FINAL' || state === 'OVER';
+  if (!isFinal) return null;
+  const outcome = box?.gameOutcome ?? {};
+  const np = normalizePeriod(outcome.lastPeriodType);
+  if (np.code === 'SO') return 'SO';
+  if (np.code === 'REG') return 'REG';
+  // OT: fold the count from otPeriods (1 ⇒ "OT", 2 ⇒ "2OT", 3 ⇒ "3OT", …).
+  const ot = typeof outcome.otPeriods === 'number' ? outcome.otPeriods : 1;
+  return ot >= 2 ? `${ot}OT` : 'OT';
+}
+
 function deriveFromBoxscore(box: any): BoxDerived {
   const players: BoxPlayer[] = [];
   let shots = 0;
@@ -426,7 +450,7 @@ function deriveFromBoxscore(box: any): BoxDerived {
       }
     }
   }
-  return { shots, players };
+  return { shots, players, periodType: canonicalPeriodFromBox(box) };
 }
 
 // ── Players-seen aggregate row (games seen + goals) ──────────────────────────────
@@ -988,7 +1012,21 @@ export default function AttendedTracker() {
   );
 
   // ── Derived aggregates ───────────────────────────────────────────────────────
-  const finalGames = useMemo(() => games.filter((g) => g.status === 'final'), [games]);
+  // Overlay the box-derived canonical period type (which folds the multi-OT count
+  // from gameOutcome.otPeriods) onto each game's last_period_type. The game-lookup
+  // endpoint only carries a bare "OT" with no overtime count, so without this a
+  // logged-out 2OT/3OT game undercounts periods AND mislabels the Longest Game
+  // record. Logged-in games already carry the canonical stored form from
+  // game_results (and boxes aren't fetched), so this is a no-op there — the periods
+  // counter + records still render from the server summary (anti-divergence).
+  const effectiveGames = useMemo<AttendedGame[]>(() => {
+    return games.map((g) => {
+      const pt = boxDerived[g.game_id]?.periodType;
+      return pt ? { ...g, last_period_type: pt } : g;
+    });
+  }, [games, boxDerived]);
+
+  const finalGames = useMemo(() => effectiveGames.filter((g) => g.status === 'final'), [effectiveGames]);
 
   const totals = useMemo(() => {
     // Periods + goals count FINAL games only — a scheduled/live game logged before
@@ -1091,8 +1129,8 @@ export default function AttendedTracker() {
   // game_id digits, cached box scores). Moment records that need a box simply
   // don't fire for un-hydrated games (FAIL-LOUD, not a silent 0).
   const records = useMemo<GameRecord[]>(
-    () => computeRecords(games, boxDerived as Record<string, BadgeBox | undefined>),
-    [games, boxDerived],
+    () => computeRecords(effectiveGames, boxDerived as Record<string, BadgeBox | undefined>),
+    [effectiveGames, boxDerived],
   );
 
   // Arenas-Visited N/32 is a collection badge (distinct known venues), computed
@@ -1174,8 +1212,8 @@ export default function AttendedTracker() {
       return sortCatalog(
         summary.badges.catalog.filter((c) => c.id !== 'arenas-visited').map(mapSummaryCatalog),
       );
-    return sortCatalog(buildLocalCatalog(games, boxDerived as Record<string, BadgeBox | undefined>));
-  }, [useSummary, summary, games, boxDerived]);
+    return sortCatalog(buildLocalCatalog(effectiveGames, boxDerived as Record<string, BadgeBox | undefined>));
+  }, [useSummary, summary, effectiveGames, boxDerived]);
   const earnedCount = useMemo(() => catalog.filter((c) => c.earned).length, [catalog]);
 
   // Milestones Witnessed — server-provided; logged-out has no account, so none.
@@ -1876,7 +1914,7 @@ export default function AttendedTracker() {
               <span className="att-section-meta">{games.length} logged</span>
             </div>
             <HGBTable
-              data={[...games].sort((a, b) => b.date.localeCompare(a.date))}
+              data={[...effectiveGames].sort((a, b) => b.date.localeCompare(a.date))}
               columns={gameCols}
               defaultSort={{ id: 'date', desc: true }}
               toolbar={{ show: false }}
