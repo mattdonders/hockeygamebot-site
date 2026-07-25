@@ -181,4 +181,31 @@ const mastSub = passport
       }
     </div>
   </section>
+
+  {
+    /* Anonymous telemetry marker — emitted ONLY when a public passport actually
+       resolved (never on the 404/private or 503 path). The bundled module script
+       below reads the viewed handle from here and fires `handle_view`; if this
+       marker is absent (a miss), the script no-ops. */
+    passport && <div id="pp-view-beacon" data-handle={passport.handle} hidden></div>
+  }
 </Base>
+
+<script>
+  // Fire `handle_view` ONLY when the public passport resolved (the marker exists).
+  // The viewed handle is server-known (data attribute); `ref` (channel/referrer
+  // attribution) is read from the live `?ref=` query param. Fire-and-forget.
+  import { trackEvent } from '../../lib/track';
+
+  const marker = document.getElementById('pp-view-beacon');
+  const handle = marker?.dataset.handle;
+  if (handle) {
+    let ref: string | null = null;
+    try {
+      ref = new URLSearchParams(window.location.search).get('ref');
+    } catch {
+      /* ignore malformed query strings */
+    }
+    trackEvent('handle_view', { handle, ref });
+  }
+</script>
