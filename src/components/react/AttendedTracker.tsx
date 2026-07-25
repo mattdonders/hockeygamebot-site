@@ -1773,9 +1773,6 @@ export default function AttendedTracker() {
     </div>
   );
 
-  const scrollToAdd = () => {
-    document.getElementById('att-add')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   // ── Render ───────────────────────────────────────────────────────────────────
   if (!hydrated) {
@@ -1813,8 +1810,20 @@ export default function AttendedTracker() {
           Stats cover your first {SUMMARY_ID_CAP} games — log in to sync all {games.length} and keep your Passport accurate.
         </div>
       ) : !isLoggedIn && games.length >= SUMMARY_NUDGE_AT ? (
-        <div className="att-banner">
-          Log in to sync your games across devices and keep your stats accurate.
+        <div className="att-banner att-signin-cta">
+          <div className="att-signin-cta-text">
+            <strong>Save your {games.length} games.</strong> Create a free account to sync them across devices and claim your own shareable passport.
+          </div>
+          <div className="att-signin-cta-actions">
+            <button
+              type="button"
+              className="att-signin-btn"
+              onClick={() => { window.location.href = `${API}/v1/auth/google?from=${encodeURIComponent(window.location.origin)}`; }}
+            >
+              Continue with Google
+            </button>
+            <a className="att-signin-alt" href="/account">or use email</a>
+          </div>
         </div>
       ) : null}
 
@@ -2285,9 +2294,6 @@ export default function AttendedTracker() {
               player you've seen.{' '}
               {isLoggedIn ? 'Your list is synced to your account.' : 'Your list is saved in this browser.'}
             </div>
-            <button className="att-btn att-empty-cta" onClick={scrollToAdd}>
-              + Add your first game
-            </button>
           </div>
 
           {/* Full badge catalog as ghosts — all locked */}
