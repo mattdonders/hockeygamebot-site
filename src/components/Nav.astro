@@ -155,24 +155,24 @@ const projectionsActive = (active('/projections') || active('/playoffs')) ? 'act
   <div class="nav-mobile" id="nav-mobile" aria-hidden="true">
     <a href="/" class={active('/')}>Home</a>
     <div class="nav-mobile-group">
-      <span class="nav-mobile-label">Games</span>
+      <button class="nav-mobile-label" type="button" aria-expanded="false">Games<span class="nav-mobile-chev" aria-hidden="true"></span></button>
       <a href="/results" class={active('/results')}>Recent Games</a>
       <a href="/scoreboard" class={active('/scoreboard')}>Live Scoreboard</a>
       <a href="/puck-passport" class={active('/puck-passport')}>Puck Passport</a>
     </div>
     <div class="nav-mobile-group">
-      <span class="nav-mobile-label">Projections</span>
+      <button class="nav-mobile-label" type="button" aria-expanded="false">Projections<span class="nav-mobile-chev" aria-hidden="true"></span></button>
       <a href="/projections" class={active('/projections')}>Season Projections</a>
       <a href="/playoffs/2026" class={active('/playoffs')}>Playoff Projections</a>
     </div>
     <div class="nav-mobile-group">
-      <span class="nav-mobile-label">Stats</span>
+      <button class="nav-mobile-label" type="button" aria-expanded="false">Stats<span class="nav-mobile-chev" aria-hidden="true"></span></button>
       {STATS_NAV_ITEMS.map((item) => (
         <a href={item.href} class={isStatsNavItemActive(item, currentPath) ? 'active' : ''}>{item.label}</a>
       ))}
     </div>
     <div class="nav-mobile-group">
-      <span class="nav-mobile-label">Analysis</span>
+      <button class="nav-mobile-label" type="button" aria-expanded="false">Analysis<span class="nav-mobile-chev" aria-hidden="true"></span></button>
       <a href="/analysis" class={active('/analysis')}>Articles</a>
       <a href="/methodology" class={active('/methodology')}>Methodology</a>
     </div>
@@ -520,22 +520,61 @@ html[data-theme="dark"] .icon-moon { display: none; }
 .nav-mobile-group a:hover,
 .nav-mobile-group a.active { color: var(--ink); }
 .nav-mobile-group { display: flex; flex-direction: column; }
+/* Group label is now a tappable button (collapsible section). Collapsed by default:
+   the group's links are hidden until the group gets `.open`. Shortens the tall menu
+   so it fits without the page-scroll trap. */
 .nav-mobile-label {
-  padding: 12px 24px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px 24px;
+  background: none;
+  border: none;
+  cursor: pointer;
   font-family: var(--body);  /* Barlow — mobile nav group label, not numeric */
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-32);
+  color: var(--ink-48);
+  text-align: left;
 }
+.nav-mobile-label:hover { color: var(--ink); }
+.nav-mobile-chev {
+  width: 8px; height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform .15s;
+  margin-left: 12px;
+}
+.nav-mobile-group.open > .nav-mobile-label { color: var(--ink); }
+.nav-mobile-group.open .nav-mobile-chev { transform: rotate(-135deg); }
+/* Collapsed by default — hide the group's links until `.open`. */
+.nav-mobile-group:not(.open) > a { display: none; }
 .nav-mobile-group a { padding-left: 36px; }
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .nav-links  { display: none; }
   .nav-hamburger { display: flex; }
+  /* The open mobile menu is its OWN scroll container (fixed below the bar), so
+     scrolling the menu never scroll-chains to the page behind it. Paired with the
+     body-scroll lock in the script (html.nav-locked). */
+  .nav-mobile.open {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    top: var(--nav-height, 60px);
+    max-height: calc(100dvh - var(--nav-height, 60px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    z-index: 200;
+  }
 }
+/* Lock the page behind the open mobile menu (set by the hamburger handler). */
+html.nav-locked, html.nav-locked body { overflow: hidden; }
 </style>
 
 <script>
@@ -559,7 +598,8 @@ allDropdowns.forEach(dropdown => {
   });
 });
 
-// Hamburger toggle
+// Hamburger toggle. Locks the page behind the open menu (html.nav-locked) so
+// scrolling the menu never scroll-chains to the page.
 const hamburger = document.getElementById('nav-hamburger');
 const mobileMenu = document.getElementById('nav-mobile');
 hamburger?.addEventListener('click', () => {
@@ -567,6 +607,22 @@ hamburger?.addEventListener('click', () => {
   hamburger.setAttribute('aria-expanded', String(!!open));
   hamburger.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
   mobileMenu?.setAttribute('aria-hidden', String(!open));
+  document.documentElement.classList.toggle('nav-locked', !!open);
+});
+
+// Collapsible mobile section groups — collapsed by default; tap a label to expand.
+// The group containing the active page auto-expands on load so you land oriented.
+const mobileGroups = document.querySelectorAll('.nav-mobile-group');
+mobileGroups.forEach(group => {
+  const label = group.querySelector('.nav-mobile-label');
+  if (group.querySelector('a.active')) {
+    group.classList.add('open');
+    label?.setAttribute('aria-expanded', 'true');
+  }
+  label?.addEventListener('click', () => {
+    const nowOpen = group.classList.toggle('open');
+    label.setAttribute('aria-expanded', String(nowOpen));
+  });
 });
 
 // Close dropdown + mobile on outside click
