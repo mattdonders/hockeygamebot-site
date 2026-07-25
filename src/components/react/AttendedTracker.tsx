@@ -1509,12 +1509,29 @@ export default function AttendedTracker() {
       // No accent — every Passport card uses the HGB brand red for brand cohesion.
       boxIncomplete: viewBoxIncomplete,
       unverifiedCount: viewUnverifiedCount,
+      // Attribute the card ONLY when public — a private handle's URL wouldn't resolve.
+      handle: passportPublic && passportHandle ? passportHandle : undefined,
     };
 
-    // Ensure the Barlow / mono webfonts are ready so measureText + fills are
-    // correct (canvas text silently falls back to a system font otherwise).
+    // Canvas text silently falls back to a system font if the exact (family, weight)
+    // face isn't loaded yet — and fonts.ready only waits for IN-PROGRESS loads, it
+    // does NOT initiate loading of a face the page hasn't used yet (e.g. Barlow
+    // Condensed 900, used ONLY by the card title). So the FIRST share rendered the
+    // title in a fallback font. Explicitly load every face the card draws, THEN draw.
     try {
-      await (document as any).fonts?.ready;
+      const fs = (document as any).fonts;
+      if (fs?.load) {
+        await Promise.all([
+          '900 32px "Barlow Condensed"',
+          '800 30px "Barlow Condensed"',
+          '700 15px "Barlow Condensed"',
+          '600 12px "Barlow"',
+          '500 12px "Barlow"',
+          '700 10px "JetBrains Mono"',
+          '500 9px "JetBrains Mono"',
+        ].map((f) => fs.load(f).catch(() => {})));
+        await fs.ready;
+      }
     } catch {
       /* non-fatal — draw with whatever is loaded */
     }
@@ -1527,7 +1544,7 @@ export default function AttendedTracker() {
       console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
       setWriteError('Could not open the share card — please reload the page and try again.');
     }
-  }, [catalog, viewRecords, viewCounters, viewArenaBadge, viewBoxIncomplete, viewUnverifiedCount, passportHandle]);
+  }, [catalog, viewRecords, viewCounters, viewArenaBadge, viewBoxIncomplete, viewUnverifiedCount, passportHandle, passportPublic]);
 
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
@@ -1773,9 +1790,6 @@ export default function AttendedTracker() {
     </div>
   );
 
-  const scrollToAdd = () => {
-    document.getElementById('att-add')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   // ── Render ───────────────────────────────────────────────────────────────────
   if (!hydrated) {
@@ -1813,8 +1827,20 @@ export default function AttendedTracker() {
           Stats cover your first {SUMMARY_ID_CAP} games — log in to sync all {games.length} and keep your Passport accurate.
         </div>
       ) : !isLoggedIn && games.length >= SUMMARY_NUDGE_AT ? (
-        <div className="att-banner">
-          Log in to sync your games across devices and keep your stats accurate.
+        <div className="att-banner att-signin-cta">
+          <div className="att-signin-cta-text">
+            <strong>Save your {games.length} games.</strong> Create a free account to sync them across devices and claim your own shareable passport.
+          </div>
+          <div className="att-signin-cta-actions">
+            <button
+              type="button"
+              className="att-signin-btn"
+              onClick={() => { window.location.href = `${API}/v1/auth/google?from=${encodeURIComponent(window.location.origin)}`; }}
+            >
+              Continue with Google
+            </button>
+            <a className="att-signin-alt" href="/account">or use email</a>
+          </div>
         </div>
       ) : null}
 
@@ -2285,9 +2311,6 @@ export default function AttendedTracker() {
               player you've seen.{' '}
               {isLoggedIn ? 'Your list is synced to your account.' : 'Your list is saved in this browser.'}
             </div>
-            <button className="att-btn att-empty-cta" onClick={scrollToAdd}>
-              + Add your first game
-            </button>
           </div>
 
           {/* Full badge catalog as ghosts — all locked */}

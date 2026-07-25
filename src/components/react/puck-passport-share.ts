@@ -92,6 +92,9 @@ export interface PassportShareData {
   /** Count of manually-logged ("unverified") games → an honest footer caveat
    *  (manual games count for Games/Arena/Team record only). 0/undefined ⇒ omit. */
   unverifiedCount?: number;
+  /** Public @handle, shown top-right so a shared card is attributable. ONLY pass it
+   *  when the passport is public (a private handle's URL wouldn't resolve). Omit ⇒ no handle. */
+  handle?: string | null;
 }
 
 // ── tiny draw helpers ───────────────────────────────────────────────────────
@@ -205,6 +208,15 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.font = mono(9, 700);
   ctx.fillStyle = RED;
   ctx.fillText('PERSONAL TRACKER · HOCKEYGAMEBOT', PAD, 24);
+
+  // Public @handle — right-aligned on the eyebrow row so a shared card is
+  // attributable + points to the owner's public passport. Only present when public.
+  if (data.handle) {
+    ctx.textAlign = 'right';
+    ctx.fillStyle = ink(0.56);
+    ctx.fillText('@' + data.handle.toUpperCase(), W - PAD, 24);
+    ctx.textAlign = 'left';
+  }
 
   // hero name — Barlow Condensed 900, auto-fit (their '900 nfs' loop, card-scaled)
   const headline = 'MY PUCK PASSPORT';
