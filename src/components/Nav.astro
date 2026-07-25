@@ -502,7 +502,9 @@ html[data-theme="dark"] .icon-moon { display: none; }
   background: var(--bg);
   padding: 8px 0 16px;
 }
-.nav-mobile.open { display: flex; }
+/* `.open` only reveals the menu at the mobile breakpoint (see the media query) —
+   never on desktop, so a menu left open across a resize past 768px can't get stuck
+   visible. The resize handler additionally clears .open + the scroll lock. */
 .nav-mobile > a,
 .nav-mobile-group a {
   padding: 10px 24px;
@@ -563,6 +565,7 @@ html[data-theme="dark"] .icon-moon { display: none; }
      scrolling the menu never scroll-chains to the page behind it. Paired with the
      body-scroll lock in the script (html.nav-locked). */
   .nav-mobile.open {
+    display: flex;
     position: fixed;
     left: 0; right: 0; bottom: 0;
     top: var(--nav-height, 60px);
@@ -623,6 +626,19 @@ mobileGroups.forEach(group => {
     const nowOpen = group.classList.toggle('open');
     label.setAttribute('aria-expanded', String(nowOpen));
   });
+});
+
+// If the viewport crosses to desktop while the mobile menu is open (rotate/resize),
+// clear the open state + release the scroll lock — otherwise the page stays frozen
+// with the (now display:none) menu still logically "open".
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 768 && mobileMenu?.classList.contains('open')) {
+    mobileMenu.classList.remove('open');
+    hamburger?.setAttribute('aria-expanded', 'false');
+    hamburger?.setAttribute('aria-label', 'Open menu');
+    mobileMenu.setAttribute('aria-hidden', 'true');
+    document.documentElement.classList.remove('nav-locked');
+  }
 });
 
 // Close dropdown + mobile on outside click
