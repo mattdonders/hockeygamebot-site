@@ -327,6 +327,12 @@ img { display: block; max-width: 100%; }
 .state-big em { font-style: normal; color: var(--ink-32); }
 .state-lead { font-size: 16px; color: var(--ink-72); max-width: 520px; margin: 0 auto 18px; line-height: 1.5; }
 .state-meta { font-family: var(--mono); font-size: 11px; color: var(--ink-48); letter-spacing: 0.06em; }
+/* Offseason countdown hero (no games + before opening night) */
+.os-hero .os-eyebrow { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.22em; color: var(--red); margin-bottom: 12px; }
+.os-hero .os-count { color: var(--red); font-variant-numeric: tabular-nums; }
+.os-hero .state-lead .os-link { color: var(--ink); font-weight: 700; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.os-cta { display: inline-block; margin: 4px 0 18px; padding: 11px 22px; background: var(--ink); color: #fff; font-family: var(--display); font-weight: 700; font-size: 15px; letter-spacing: 0.02em; text-transform: uppercase; text-decoration: none; transition: background 0.15s; }
+.os-cta:hover { background: var(--red); }
 
 /* ── PRE-GAME CARD GRID ──────────────────────────────────────────────────────── */
 .pregame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 24px; align-items: stretch; }
@@ -1312,6 +1318,29 @@ import { getGoals, getGameSeries, getTeamHistory } from '../lib/hgb-api-client';
     countdownTimer = setInterval(tick, 1000);
   }
   function stopCountdown() { if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; } }
+
+  // ── Offseason countdown to opening night ─────────────────────────────────────
+  // 2026–27 NHL opening night. Before this instant, EVERY no-games day is the
+  // offseason (in-season off-days only occur after opening night), so `now < this`
+  // is a correct offseason guard on the homepage's no-games hero. Update the date
+  // each season (or it silently stops showing once the date is past — intended).
+  const OPENING_NIGHT_UTC = Date.parse('2026-09-29T23:00:00Z');
+  let offseasonTimer = null;
+  // Refresh the big day count in #os-count; self-cleans when the hero changes away
+  // (the element vanishes → clear the interval). Days-granularity, ticked each minute.
+  function startOffseasonCountdown(targetMs) {
+    if (offseasonTimer) { clearInterval(offseasonTimer); offseasonTimer = null; }
+    function tick() {
+      const el = document.getElementById('os-count');
+      if (!el) { clearInterval(offseasonTimer); offseasonTimer = null; return; }
+      const diff = targetMs - Date.now();
+      const days = Math.max(0, Math.ceil(diff / 86400000));
+      el.textContent = String(days);
+    }
+    tick();
+    offseasonTimer = setInterval(tick, 60000);
+  }
+
   const pLabel = p => !p ? '' : p===4?'OT':p>=5?'SO':`P${p}`;
   const gs = g => { const s=g.game_state; if(s==='live') return 'live'; if(s==='intermission') return 'intermission'; if(s==='final'||s==='game-end') return 'final'; return 'pre'; };
   const wpPct = (g,side) => { const v=g.stats?.win_probability?.[side]; return v!=null?Math.round(v*100):50; };
@@ -2447,6 +2476,25 @@ import { getGoals, getGameSeries, getTeamHistory } from '../lib/hgb-api-client';
         </div>
       </a>`;
     }).join('');
+
+    // OFFSEASON: no games today AND we're before opening night → countdown hero
+    // (ties into the Puck Passport launch — the offseason is prime backfill time).
+    if (games.length === 0 && !isOffDay && Date.now() < OPENING_NIGHT_UTC) {
+      const days = Math.max(0, Math.ceil((OPENING_NIGHT_UTC - Date.now()) / 86400000));
+      // Override the post-game section eyebrow/meta set above — they read wrong offseason.
+      setText('hero-eyebrow-text', 'Offseason · Counting Down');
+      setText('hero-meta', 'Opening night · Sep 29');
+      setText('hero-ghost', String(days));
+      setHtml('hero-slot', `<div class="state-empty os-hero">
+        <div class="os-eyebrow">2026–27 SEASON</div>
+        <div class="state-big"><span id="os-count" class="os-count">${days}</span> <em>DAYS</em></div>
+        <div class="state-lead">Until opening night. The offseason is the best time to build your <a href="/puck-passport" class="os-link">Puck Passport</a> — log every NHL game you've already been to before the puck drops.</div>
+        <a class="os-cta" href="/puck-passport">Start your Puck Passport →</a>
+        <div class="state-meta">OPENING NIGHT · SEP 29, 2026</div>
+      </div>`);
+      startOffseasonCountdown(OPENING_NIGHT_UTC);
+      return;
+    }
 
     const heroHeadline = (games.length === 0 && !isOffDay) ? `QUIET <em>NIGHT.</em>` : `THAT'S A <em>WRAP.</em>`;
     const heroLead = (games.length === 0 && !isOffDay)
