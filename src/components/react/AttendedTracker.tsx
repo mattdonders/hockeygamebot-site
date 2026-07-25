@@ -41,7 +41,10 @@ import {
   parseOneInN,
   normalizePeriod,
   badgeBlurb,
+  computeTierBadges,
+  TIER_STATS,
   type CatalogBadge,
+  type TierBadgeView,
 } from './puck-passport-badges';
 import { drawPassportCard, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
@@ -1438,6 +1441,27 @@ export default function AttendedTracker() {
   // shown honestly: nothing is "earned", every chip is a locked chase.
   const ghostCatalog = useMemo<CatalogBadge[]>(() => sortCatalog(buildLocalCatalog([], {})), []);
 
+  // Tiered milestone badges (Games/Goals/Shots/Players/Arenas ladders) — a pure
+  // client-side bucketing of the counters the summary already delivers (see the
+  // ownership note in puck-passport-badges.ts). Always 5 entries, locked/ghost
+  // when a stat hasn't reached Rung I yet; zeros before the summary lands / in
+  // the empty state so the wall renders as an honest all-locked chase.
+  const tierBadges = useMemo<TierBadgeView[]>(
+    () =>
+      computeTierBadges(
+        summary
+          ? {
+              games: summary.counters.games,
+              goals: summary.counters.goals,
+              shots: summary.counters.shots,
+              players_seen: summary.counters.players_seen,
+            }
+          : { games: 0, goals: 0, shots: 0, players_seen: 0 },
+        summary ? summary.arenas.home_rinks : 0,
+      ),
+    [summary],
+  );
+
   // Milestones Witnessed — server-provided (same payload in both auth states).
   const milestones = summary ? summary.milestones : [];
   // ── Share card (client-side canvas PNG) ──────────────────────────────────────
@@ -1504,6 +1528,12 @@ export default function AttendedTracker() {
         total: viewArenaBadge.total,
         distinctBuildings: viewArenaBadge.distinctBuildings,
       },
+      tiers: tierBadges.map((b) => ({
+        label: b.label,
+        rungName: b.rungName,
+        earned: b.earned,
+        progress: b.progress,
+      })),
       badges: rarest,
       records: shareRecords,
       // No accent — every Passport card uses the HGB brand red for brand cohesion.
@@ -1776,6 +1806,50 @@ export default function AttendedTracker() {
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
       </div>
     );
+
+  // Rung thresholds by stat id — for the progress-bar's "start of range" edge
+  // (thresholds[rung-1], or 0 below Rung I). TIER_STATS is static config.
+  const tierThresholdsById = useMemo(() => new Map(TIER_STATS.map((d) => [d.id, d.thresholds])), []);
+
+  // One tiered milestone badge — the highest earned rung (or the Rung-I chase
+  // when locked), with a progress bar toward the next rung. Mirrors the
+  // .att-badge chip shell so the wall reads as one system with the event badges.
+  const renderTierBadge = (b: TierBadgeView) => {
+    // Progress fraction toward the NEXT rung (or a full bar when maxed) — the
+    // "how close am I" read at a glance, on top of the mono progress line.
+    const thresholds = tierThresholdsById.get(b.id);
+    const prevThreshold = b.rung > 0 && thresholds ? thresholds[b.rung - 1] : 0;
+    const frac = b.maxed
+      ? 1
+      : b.nextThreshold
+        ? Math.max(0, Math.min(1, (b.value - prevThreshold) / (b.nextThreshold - prevThreshold)))
+        : 0;
+    return b.earned ? (
+      <div className="att-badge" data-family="tier" key={b.id}>
+        <div className="att-badge-top">
+          <span className="att-badge-label">{b.label}</span>
+          <span className="att-badge-count">{b.value.toLocaleString('en-US')}</span>
+        </div>
+        <span className="att-tier-rung">{b.rungName}</span>
+        <div className="att-tier-bar">
+          <div className="att-tier-bar-fill" style={{ width: `${Math.round(frac * 100)}%` }} />
+        </div>
+        <span className="att-tier-progress">{b.progress}</span>
+      </div>
+    ) : (
+      <div className="att-badge att-badge-ghost" data-family="tier" key={b.id}>
+        <div className="att-badge-top">
+          <span className="att-badge-label">{b.label}</span>
+          <span className="att-badge-ghost-tag">Locked</span>
+        </div>
+        <span className="att-tier-rung">{b.rungName}</span>
+        <div className="att-tier-bar">
+          <div className="att-tier-bar-fill" style={{ width: `${Math.round(frac * 100)}%` }} />
+        </div>
+        <span className="att-tier-progress">{b.progress}</span>
+      </div>
+    );
+  };
 
   // One team's home-rink collection pip. `collected` lights it in the team colour;
   // otherwise it stays neutral grey (the "still to collect" state).
@@ -2324,6 +2398,15 @@ export default function AttendedTracker() {
             <div className="att-badges">{ghostCatalog.map(renderCatalogBadge)}</div>
           </section>
 
+          {/* Milestone Tiers — cumulative stat ladders, all locked at zero */}
+          <section className="att-section">
+            <div className="att-section-head">
+              <span className="att-section-label">Milestone Tiers</span>
+              <span className="att-section-meta">0 of {tierBadges.length}</span>
+            </div>
+            <div className="att-badges">{tierBadges.map(renderTierBadge)}</div>
+          </section>
+
           {/* All 32 arena pips grey — the collection meter at zero */}
           <section className="att-section">
             <div className="att-section-head">
@@ -2365,6 +2448,20 @@ export default function AttendedTracker() {
 
               {catalog.map(renderCatalogBadge)}
             </div>
+          </section>
+
+          {/* Milestone Tiers — cumulative stat ladders (Games/Goals/Shots/Players/
+              Arenas), one badge per stat showing the highest rung earned + progress
+              to the next. Always shows all 5 (locked/ghost below Rung I). */}
+          <section className="att-section">
+            <div className="att-section-head">
+              <span className="att-section-label">Milestone Tiers</span>
+              <span className="att-section-meta">
+                {tierBadges.filter((b) => b.earned).length} of {tierBadges.length}
+                {summaryPending ? ' · loading…' : ''}
+              </span>
+            </div>
+            <div className="att-badges">{tierBadges.map(renderTierBadge)}</div>
           </section>
 
           {/* Single-game records — extremes across the attended set (§2c) */}

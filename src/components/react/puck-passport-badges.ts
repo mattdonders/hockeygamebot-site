@@ -341,6 +341,123 @@ function matchupLabel(g: { away: { abbrev?: string }; home: { abbrev?: string } 
   return `${g.away.abbrev ?? '?'} @ ${g.home.abbrev ?? '?'}`;
 }
 
+// ── Tiered milestone badges (cumulative stat ladders — Workstream: tiered badges) ─
+//
+// Spec: hgb-docs/docs/plans/puck-passport-tiered-badges-2026-07.md (approved
+// 2026-07-24). Five CUMULATIVE stats, each with 5 rungs (thresholds below),
+// sharing the naming ladder Rookie → Veteran → All-Star → Legend → Hall of Fame.
+// Home rinks' top rung gets its own name ("The 32 Club") instead of Hall of
+// Fame — a deliberately different flex (travel breadth, not volume).
+//
+// Ownership note (anti-divergence): UNLIKE the event badges above (which are
+// per-game predicates), these are a pure bucketing of counters the summary
+// ALREADY delivers as server-truth (`summary.counters` + `summary.arenas.
+// home_rinks`). No new fact is computed here — only which of 5 static
+// thresholds an already-server-owned number has crossed. Same category of
+// client-side derivation as formatRarity() bucketing count/total above, which
+// is why this stays client-side with no server change (see build report).
+
+export type TierStatId = 'tier-games' | 'tier-goals' | 'tier-shots' | 'tier-players' | 'tier-arenas';
+
+/** Rung I → V naming ladder, reused across the volume stats (Games/Goals/Shots/
+ *  Players). Home rinks overrides Rung V with its own name (see TIER_STATS). */
+const TIER_LADDER = ['Rookie', 'Veteran', 'All-Star', 'Legend', 'Hall of Fame'] as const;
+
+export interface TierStatDef {
+  id: TierStatId;
+  label: string; // e.g. 'Games' — shown as the chip's top label
+  /** The 5 rung thresholds, Rung I..V (value >= thresholds[i] ⇒ rung i+1 earned). */
+  thresholds: readonly [number, number, number, number, number];
+  /** Rung names, Rung I..V. Volume stats reuse TIER_LADDER; arenas overrides Rung V. */
+  rungNames: readonly [string, string, string, string, string];
+}
+
+/** Thresholds calibrated to observed per-game rates (scope doc): Games/Goals/
+ *  Shots/Players share the same games-equivalents (10/25/50/100/250) so a user
+ *  levels up coherently across them; Arenas is a deliberately separate axis
+ *  (travel breadth) capped at the real /32 collection. */
+export const TIER_STATS: TierStatDef[] = [
+  { id: 'tier-games', label: 'Games', thresholds: [10, 25, 50, 100, 250], rungNames: TIER_LADDER },
+  { id: 'tier-goals', label: 'Goals', thresholds: [50, 150, 300, 600, 1500], rungNames: TIER_LADDER },
+  { id: 'tier-shots', label: 'Shots', thresholds: [500, 1500, 3000, 6000, 15000], rungNames: TIER_LADDER },
+  { id: 'tier-players', label: 'Players', thresholds: [100, 300, 600, 1000, 2000], rungNames: TIER_LADDER },
+  {
+    id: 'tier-arenas',
+    label: 'Arenas',
+    thresholds: [5, 10, 16, 24, 32],
+    // Rung V (32/32) is its own name — "The 32 Club" — never "Hall of Fame".
+    rungNames: ['Rookie', 'Veteran', 'All-Star', 'Legend', 'The 32 Club'],
+  },
+];
+
+/** One tiered badge's render-ready view: the HIGHEST earned rung (one badge per
+ *  stat, not five — per spec behavior), plus progress-to-next copy. */
+export interface TierBadgeView {
+  id: TierStatId;
+  label: string;
+  family: 'tier';
+  earned: boolean; // rung >= 1 (Rung I reached)
+  maxed: boolean; // rung 5 (top rung) reached — no "next" to chase
+  rung: number; // 0..5 (0 = below Rung I, locked)
+  /** Current rung's name (earned), or the Rung-I name as the chase target (locked). */
+  rungName: string;
+  value: number; // the raw counter value this badge is bucketed from
+  nextThreshold: number | null; // null when maxed
+  nextRungName: string | null; // null when maxed
+  /** Ready-to-render second line, e.g. "All-Star · 312 / 600 to Legend" (earned),
+   *  "7 / 10 to Rookie" (locked), or "Hall of Fame · 1,500 goals" (maxed). */
+  progress: string;
+}
+
+function formatCount(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+/** Compute one tiered badge's view from a raw counter value. Pure + deterministic
+ *  (see ownership note above) — no new fact is computed, only bucketing. */
+export function computeTierBadge(def: TierStatDef, rawValue: number): TierBadgeView {
+  const value = Math.max(0, Math.floor(rawValue || 0));
+  let rung = 0;
+  for (let i = 0; i < def.thresholds.length; i++) {
+    if (value >= def.thresholds[i]) rung = i + 1;
+  }
+  const earned = rung > 0;
+  const maxed = rung >= def.thresholds.length;
+  // Locked (rung 0): the "chase" target is Rung I's name/threshold.
+  const rungName = earned ? def.rungNames[rung - 1] : def.rungNames[0];
+  const nextThreshold = maxed ? null : def.thresholds[rung]; // thresholds[rung] = next rung's bar
+  const nextRungName = maxed ? null : def.rungNames[rung];
+
+  let progress: string;
+  if (maxed) {
+    progress = `${rungName} · ${formatCount(value)} ${def.label.toLowerCase()}`;
+  } else if (earned) {
+    progress = `${rungName} · ${formatCount(value)} / ${formatCount(nextThreshold as number)} to ${nextRungName}`;
+  } else {
+    progress = `${formatCount(value)} / ${formatCount(nextThreshold as number)} to ${rungName}`;
+  }
+
+  return { id: def.id, label: def.label, family: 'tier', earned, maxed, rung, rungName, value, nextThreshold, nextRungName, progress };
+}
+
+/** Build all 5 tiered badges from the summary's counters + home rinks — ALWAYS
+ *  one entry per stat (locked/ghost when rung 0), matching "one badge per stat"
+ *  (never five per stat). Takes plain numbers so both the server-summary path
+ *  and the empty/logged-out path (zeros) share this one builder. */
+export function computeTierBadges(
+  counters: { games: number; goals: number; shots: number; players_seen: number },
+  homeRinks: number,
+): TierBadgeView[] {
+  const valueById: Record<TierStatId, number> = {
+    'tier-games': counters.games,
+    'tier-goals': counters.goals,
+    'tier-shots': counters.shots,
+    'tier-players': counters.players_seen,
+    'tier-arenas': homeRinks,
+  };
+  return TIER_STATS.map((def) => computeTierBadge(def, valueById[def.id]));
+}
+
 /** The record inputs carry a bit more than BadgeGame (team abbrevs + date) so the
  *  "sub" line can name the matchup. Structurally satisfied by AttendedGame. */
 export interface RecordGame extends BadgeGame {
