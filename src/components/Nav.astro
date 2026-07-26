@@ -107,6 +107,9 @@ const projectionsActive = (active('/projections') || active('/playoffs')) ? 'act
       <a href="/teams" class={active('/teams')}>Teams</a><span class="sep"> · </span>
       <a href="/support" class={active('/support')}>Support</a><span class="sep"> · </span>
       <a href="/account" class={active('/account')}>Account</a>
+      <!-- Admin-only. Hidden by default; the auth script at the bottom reveals it
+           after confirming is_admin via /v1/admin/whoami (cached per session). -->
+      <span class="sep nav-admin-item" style="display:none"> · </span><a href="/admin" class={`nav-admin-item ${active('/admin')}`} style="display:none">Admin</a>
 
       <!-- Theme toggle — hidden until dark mode pass is complete -->
       <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" style="display:none">
@@ -179,6 +182,8 @@ const projectionsActive = (active('/projections') || active('/playoffs')) ? 'act
     <a href="/teams" class={active('/teams')}>Teams</a>
     <a href="/support" class={active('/support')}>Support</a>
     <a href="/account" class={active('/account')}>Account</a>
+    <!-- Admin-only (revealed client-side after is_admin check). -->
+    <a href="/admin" class={`nav-admin-item ${active('/admin')}`} style="display:none">Admin</a>
   </div>
 </nav>
 
@@ -662,4 +667,31 @@ function toggleTheme() {
 
 document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
 document.getElementById('theme-toggle-mobile')?.addEventListener('click', toggleTheme);
+
+// Admin nav reveal — the "Admin" link ships hidden and is unhidden ONLY for admins.
+// Gate: a session token must exist (logged-in), then confirm is_admin via
+// /v1/admin/whoami. The result is cached in sessionStorage so we call whoami at most
+// once per browser session; logged-out visitors never call it at all. This is a UI
+// affordance only — the real boundary is the API's isAdminUser gate on the data.
+(function revealAdminNav() {
+  try {
+    const token = localStorage.getItem('hgb_session');
+    if (!token) return;
+    const reveal = () =>
+      document.querySelectorAll<HTMLElement>('.nav-admin-item').forEach((el) => { el.style.display = ''; });
+    const cached = sessionStorage.getItem('hgb_is_admin');
+    if (cached === '1') { reveal(); return; }
+    if (cached === '0') return;
+    fetch('https://api.hockeygamebot.com/v1/admin/whoami', {
+      headers: { Authorization: 'Bearer ' + token },
+      credentials: 'include',
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.is_admin) { sessionStorage.setItem('hgb_is_admin', '1'); reveal(); }
+        else { sessionStorage.setItem('hgb_is_admin', '0'); }
+      })
+      .catch(() => { /* nav affordance only — failure just leaves it hidden */ });
+  } catch { /* localStorage blocked → stay hidden */ }
+})();
 </script>
