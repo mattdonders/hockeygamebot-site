@@ -79,13 +79,22 @@ export function changelogSince(sinceVersion: string): ChangelogEntry[] {
  * localStorage value when logged out. Take the MAX of the two so a dismissal on
  * any device wins. Keep this localStorage path as the offline/logged-out default.
  */
+// In-memory fallback so a dismissal STICKS for the session even when localStorage
+// is blocked (private mode / quota) — otherwise the modal re-nags on a re-mount or
+// soft navigation (Codex, 2026-07-25). A hard reload with storage fully blocked
+// still can't persist — inherent, and the rarest edge — but within a session the
+// "never re-nag after dismiss" contract holds.
+let inMemoryLastSeen: string | null = null;
+
 export function readLastSeenVersion(): string | null {
   if (typeof window === 'undefined') return null;
   try {
-    return window.localStorage.getItem(LAST_SEEN_KEY);
+    const stored = window.localStorage.getItem(LAST_SEEN_KEY);
+    if (stored !== null) return stored;
   } catch {
-    return null;
+    /* fall through to the in-memory value */
   }
+  return inMemoryLastSeen;
 }
 
 /**
@@ -99,10 +108,11 @@ export function readLastSeenVersion(): string | null {
  */
 export function writeLastSeenVersion(version: string = PUCK_PASSPORT_VERSION): void {
   if (typeof window === 'undefined') return;
+  inMemoryLastSeen = version; // always set — so the dismissal holds even if the write below throws
   try {
     window.localStorage.setItem(LAST_SEEN_KEY, version);
   } catch {
-    /* private mode / quota — nothing to do; the modal is already dismissed in-memory */
+    /* private mode / quota — the in-memory fallback keeps it dismissed for the session */
   }
 }
 

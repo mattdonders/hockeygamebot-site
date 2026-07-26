@@ -1036,7 +1036,7 @@ export default function AttendedTracker() {
           };
           return [row, ...rows];
         });
-        postAttended(raw.game_id).then((ok) => {
+        return postAttended(raw.game_id).then((ok) => {
           if (ok) {
             setWriteError(null);
             loadSummary(); // refetch aggregates from the server (anti-divergence)
@@ -1045,14 +1045,14 @@ export default function AttendedTracker() {
             setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
           }
         });
-      } else {
-        setLocalGames((prev) => {
-          if (prev.some((g) => g.game_id === raw.game_id)) return prev;
-          const next = [...prev, snap];
-          writeAttended(next);
-          return next;
-        });
       }
+      setLocalGames((prev) => {
+        if (prev.some((g) => g.game_id === raw.game_id)) return prev;
+        const next = [...prev, snap];
+        writeAttended(next);
+        return next;
+      });
+      return Promise.resolve();
     },
     [isLoggedIn, commitDetail, loadSummary],
   );
@@ -1066,7 +1066,7 @@ export default function AttendedTracker() {
           removed = rows.find((r) => r.game_id === gameId);
           return rows.filter((r) => r.game_id !== gameId);
         });
-        apiFetch(`${API}/v1/account/attended/${gameId}`, { method: 'DELETE' })
+        return apiFetch(`${API}/v1/account/attended/${gameId}`, { method: 'DELETE' })
           .then((r) => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             setWriteError(null);
@@ -1076,15 +1076,37 @@ export default function AttendedTracker() {
             setWriteError('Could not remove that game from your account — check your connection and try again.');
             if (removed) setD1Rows((prev) => [removed as D1AttendedRow, ...(prev ?? [])]);
           });
-      } else {
-        setLocalGames((prev) => {
-          const next = prev.filter((g) => g.game_id !== gameId);
-          writeAttended(next);
-          return next;
-        });
       }
+      setLocalGames((prev) => {
+        const next = prev.filter((g) => g.game_id !== gameId);
+        writeAttended(next);
+        return next;
+      });
+      return Promise.resolve();
     },
     [isLoggedIn, loadSummary],
+  );
+
+  // Guarded toggle for the ADD-GAMES search results. A synchronous ref-lock (not
+  // state — state is async and two rapid clicks would both read it empty) ignores
+  // further clicks on a row while its add/remove is IN FLIGHT, closing the
+  // rapid remove→add race that could leave local + D1 desynced (Codex, 2026-07-25).
+  // The lock clears when the network settles (add/remove now return their promise).
+  const mutatingRef = useRef<Set<string>>(new Set());
+  const [mutatingIds, setMutatingIds] = useState<Set<string>>(() => new Set());
+  const toggleSearchResult = useCallback(
+    (g: RawGame, already: boolean) => {
+      const id = g.game_id;
+      if (mutatingRef.current.has(id)) return; // synchronous, race-proof
+      mutatingRef.current.add(id);
+      setMutatingIds(new Set(mutatingRef.current)); // re-render for the disabled state
+      const clear = () => {
+        mutatingRef.current.delete(id);
+        setMutatingIds(new Set(mutatingRef.current));
+      };
+      Promise.resolve(already ? removeGame(id) : addGame(g)).finally(clear);
+    },
+    [addGame, removeGame],
   );
 
   // Add a MANUAL game (NHL API can't find it). Logged-IN → POST to the authed
@@ -2166,7 +2188,8 @@ export default function AttendedTracker() {
                             </div>
                             <button
                               className={already ? 'att-add-btn added' : 'att-add-btn'}
-                              onClick={() => (already ? removeGame(g.game_id) : addGame(g))}
+                              onClick={() => toggleSearchResult(g, already)}
+                              disabled={mutatingIds.has(g.game_id)}
                               title={already ? 'Remove from your attended games' : undefined}
                             >
                               {already ? '✓ Added' : '+ Attended'}
@@ -2269,7 +2292,8 @@ export default function AttendedTracker() {
                           </div>
                           <button
                             className={already ? 'att-add-btn added' : 'att-add-btn'}
-                            onClick={() => (already ? removeGame(g.game_id) : addGame(g))}
+                            onClick={() => toggleSearchResult(g, already)}
+                            disabled={mutatingIds.has(g.game_id)}
                             title={already ? 'Remove from your attended games' : undefined}
                           >
                             {already ? '✓ Added' : '+ Attended'}
