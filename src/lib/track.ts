@@ -2,9 +2,10 @@
  * track — tiny fire-and-forget client beacon for anonymous product telemetry.
  *
  * Posts to the hgb-api telemetry endpoint (POST /v1/track → 204). The endpoint
- * accepts ONLY the two client events wired today: `handle_view` (public passport
- * page view, with the viewed `handle` + `?ref=` attribution) and `share_click`
- * (the Puck Passport tracker's Share action).
+ * accepts ONLY the client events wired today: `handle_view` (public passport page
+ * view, with the viewed `handle` + `?ref=` attribution), `share_click` (the Puck
+ * Passport tracker's Share action), and `visit` (a tracker page opened via a
+ * `?ref=`-tagged link — channel attribution for the landing page itself).
  *
  * Contract:
  *   - NEVER throws and NEVER returns a promise the caller must await — it is
@@ -17,12 +18,12 @@
 const API_BASE = 'https://api.hockeygamebot.com';
 const TRACK_URL = `${API_BASE}/v1/track`;
 
-export type TrackEvent = 'handle_view' | 'share_click';
+export type TrackEvent = 'handle_view' | 'share_click' | 'visit';
 
 export interface TrackPayload {
   /** Handle in context (viewed passport, or the current user's own handle). */
   handle?: string | null;
-  /** `?ref=` attribution (channel/referrer) — only relevant to `handle_view`. */
+  /** `?ref=` attribution (channel/referrer) — carried by `handle_view` and `visit`. */
   ref?: string | null;
   /** Optional free-form metadata bag. */
   meta?: Record<string, unknown>;
