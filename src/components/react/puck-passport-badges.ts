@@ -404,8 +404,10 @@ export interface TierBadgeView {
   value: number; // the raw counter value this badge is bucketed from
   nextThreshold: number | null; // null when maxed
   nextRungName: string | null; // null when maxed
-  /** Ready-to-render second line, e.g. "All-Star · 312 / 600 to Legend" (earned),
-   *  "7 / 10 to Rookie" (locked), or "Hall of Fame · 1,500 goals" (maxed). */
+  /** Ready-to-render second line, e.g. "312 / 600 to Legend" (earned), "7 / 10 to
+   *  Rookie" (locked), or "1,500 goals" (maxed). The rung name is rendered separately
+   *  on the chip, so it is NOT repeated here (kept short so narrow share-card rows
+   *  don't truncate). */
   progress: string;
 }
 
@@ -428,11 +430,13 @@ export function computeTierBadge(def: TierStatDef, rawValue: number): TierBadgeV
   const nextThreshold = maxed ? null : def.thresholds[rung]; // thresholds[rung] = next rung's bar
   const nextRungName = maxed ? null : def.rungNames[rung];
 
+  // The rung name shows separately on the chip — do NOT repeat it here (it made the
+  // earned/maxed line long enough to truncate on narrow share-card rows).
   let progress: string;
   if (maxed) {
-    progress = `${rungName} · ${formatCount(value)} ${def.label.toLowerCase()}`;
+    progress = `${formatCount(value)} ${def.label.toLowerCase()}`;
   } else if (earned) {
-    progress = `${rungName} · ${formatCount(value)} / ${formatCount(nextThreshold as number)} to ${nextRungName}`;
+    progress = `${formatCount(value)} / ${formatCount(nextThreshold as number)} to ${nextRungName}`;
   } else {
     progress = `${formatCount(value)} / ${formatCount(nextThreshold as number)} to ${rungName}`;
   }
