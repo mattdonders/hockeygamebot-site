@@ -2166,8 +2166,8 @@ export default function AttendedTracker() {
                             </div>
                             <button
                               className={already ? 'att-add-btn added' : 'att-add-btn'}
-                              disabled={already}
-                              onClick={() => addGame(g)}
+                              onClick={() => (already ? removeGame(g.game_id) : addGame(g))}
+                              title={already ? 'Remove from your attended games' : undefined}
                             >
                               {already ? '✓ Added' : '+ Attended'}
                             </button>
@@ -2269,8 +2269,8 @@ export default function AttendedTracker() {
                           </div>
                           <button
                             className={already ? 'att-add-btn added' : 'att-add-btn'}
-                            disabled={already}
-                            onClick={() => addGame(g)}
+                            onClick={() => (already ? removeGame(g.game_id) : addGame(g))}
+                            title={already ? 'Remove from your attended games' : undefined}
                           >
                             {already ? '✓ Added' : '+ Attended'}
                           </button>
