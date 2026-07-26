@@ -1112,11 +1112,16 @@ export default function AttendedTracker() {
         : '// Saved in this browser only. Sign in to sync across devices.';
   }, [hydrated, isLoggedIn]);
 
-  // ── Name upgrade: First Last from players.json (HGB never shows "F. Last") ────
-  // Box scores only carry the abbreviated `name.default` ("F. Last"). players.json
-  // has first/last for current-season players; historical players gracefully keep
-  // the box-score name. Non-fatal — a failure just leaves names as-is.
+  // ── Name upgrade: First Last for any name the SERVER left null ────────────────
+  // The server summary already resolves player names (players.json + its own cache),
+  // so viewSeenPlayers uses `p.name` first and only falls back to this map when the
+  // server returned null (rare — historical players). This feed is ~1.5MB gzip /
+  // ~10MB parsed, so we DON'T pull it on every load: fetch it once, only when the
+  // summary actually contains an unresolved name. For nearly every passport (all
+  // names server-resolved) it never fetches at all. Non-fatal on failure.
   useEffect(() => {
+    if (nameMap) return; // already loaded once
+    if (!summary || !summary.players_seen.some((p) => p.name == null)) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1138,7 +1143,7 @@ export default function AttendedTracker() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [summary, nameMap]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   // Logged-in writes go to D1 (optimistic, rolled back on failure); logged-out
