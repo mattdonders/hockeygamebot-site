@@ -248,6 +248,26 @@ function toRawGames(data: any): RawGame[] {
   }));
 }
 
+// By-Date range cap. A range fires one /v1/games/today fetch per day, so we bound
+// it (14 days is plenty for "which night that week was it?") rather than let a
+// fat-fingered range spray dozens of requests.
+const MAX_DATE_SPAN_DAYS = 14;
+
+/** Inclusive list of YYYY-MM-DD from `from` to `to` (UTC, DST-safe). Returns null
+ *  if the span is invalid or exceeds MAX_DATE_SPAN_DAYS, so callers fail loud
+ *  instead of firing an unbounded fan-out. */
+function datesInRange(from: string, to: string): string[] | null {
+  const start = new Date(`${from}T00:00:00Z`).getTime();
+  const end = new Date(`${to}T00:00:00Z`).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return null;
+  const out: string[] = [];
+  for (let t = start; t <= end; t += 86400000) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+    if (out.length > MAX_DATE_SPAN_DAYS) return null;
+  }
+  return out;
+}
+
 type SeasonOption = { value: string; label: string };
 
 /** Recent NHL seasons, newest first, back to 2010-11. The current season is the
@@ -574,21 +594,137 @@ function summaryRecordsToView(recs: AttendedSummary['records']): ViewRecord[] {
 
 // ── Counter card ─────────────────────────────────────────────────────────────────
 
+function prefersReducedMotion(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
+// The tallies are the emotional core of the passport ("it adds up"), so they ROLL
+// on change — but only when the change is meaningful:
+//   • first settled value (page load, box scores resolving) → SNAP, no roll.
+//     Animating every visit reads as noise and would fight the async box load.
+//   • a later change (you logged / removed a game) → roll the delta.
+//   • an explicit replay (clicking the Games tally) → reset to 0 and roll to full.
+// Respects prefers-reduced-motion (snaps). `value` may be a string for non-numeric
+// tallies; those render verbatim with no animation.
 function Counter({
   label,
   value,
   pending,
   warn,
+  replayToken = 0,
+  onClick,
+  hint,
 }: {
   label: string;
   value: number | string;
   pending?: boolean;
   warn?: boolean;
+  replayToken?: number;
+  onClick?: () => void;
+  hint?: string;
 }) {
+  const numeric = typeof value === 'number';
+  const [display, setDisplay] = useState<number>(numeric ? (value as number) : 0);
+  const displayRef = useRef(display);
+  const settledRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
+  const replayRef = useRef(replayToken);
+
+  const setDisp = (v: number) => {
+    displayRef.current = v;
+    setDisplay(v);
+  };
+  const cancel = () => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  };
+  const animateTo = useCallback((from: number, to: number) => {
+    cancel();
+    if (from === to) {
+      setDisp(to);
+      return;
+    }
+    // Bigger jumps roll a touch longer, capped — a 3-game add shouldn't feel as
+    // epic as a from-zero replay of a 200-game passport.
+    const dur = Math.min(1400, 450 + Math.abs(to - from) * 14);
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / dur);
+      const e = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      setDisp(Math.round(from + (to - from) * e));
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+      else {
+        setDisp(to);
+        rafRef.current = null;
+      }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  // Value / pending transitions.
+  useEffect(() => {
+    if (!numeric) return;
+    const target = value as number;
+    if (pending) {
+      setDisp(target); // still loading → keep synced under the "…", no roll
+      return;
+    }
+    if (!settledRef.current) {
+      settledRef.current = true;
+      setDisp(target); // first real value → snap (no load animation)
+      return;
+    }
+    if (prefersReducedMotion()) {
+      setDisp(target);
+      return;
+    }
+    animateTo(displayRef.current, target); // a real add/remove → roll the delta
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, pending, numeric]);
+
+  // Explicit replay (Games tally clicked): reset to 0 and roll up to the full total.
+  useEffect(() => {
+    if (replayToken === replayRef.current) return;
+    replayRef.current = replayToken;
+    if (!numeric || pending) return;
+    if (prefersReducedMotion()) {
+      setDisp(value as number);
+      return;
+    }
+    animateTo(0, value as number);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayToken]);
+
+  useEffect(() => cancel, []);
+
+  const shown = numeric ? display : value;
+  const clickable = !!onClick;
   return (
-    <div className="att-counter">
+    <div
+      className={clickable ? 'att-counter att-counter-click' : 'att-counter'}
+      onClick={onClick}
+      title={hint}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick!();
+              }
+            }
+          : undefined
+      }
+    >
       <div className="att-counter-num">
-        {pending ? <span className="att-counter-pending">…</span> : value}
+        {pending ? <span className="att-counter-pending">…</span> : shown}
         {warn && !pending ? (
           <span className="att-counter-warn" title="Some box scores could not be loaded — this figure may be incomplete.">
             !
@@ -814,8 +950,15 @@ export default function AttendedTracker() {
   // Add-games flow — mode toggle: team-first (default, matches fan recall) or date.
   const [addMode, setAddMode] = useState<'team' | 'date'>('team');
 
-  // By-Date sub-flow (the original)
+  // Count-up replay: bumping this token re-runs the 0→total roll on every tally.
+  // Fired by clicking the Games counter (an opt-in "watch it add up" moment) — the
+  // tallies never auto-animate on load, only on add or on this explicit replay.
+  const [replayToken, setReplayToken] = useState(0);
+
+  // By-Date sub-flow (the original). searchDate is the FROM bound; searchDateTo is
+  // an optional TO bound — when set, the search spans the inclusive range (capped).
   const [searchDate, setSearchDate] = useState<string>('');
+  const [searchDateTo, setSearchDateTo] = useState<string>('');
   const [searchResults, setSearchResults] = useState<RawGame[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -1223,24 +1366,59 @@ export default function AttendedTracker() {
 
   // ── Search a date ────────────────────────────────────────────────────────────
   const runSearch = useCallback(async () => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(searchDate)) {
+    const from = searchDate;
+    const to = searchDateTo;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) {
       setSearchError('Pick a valid date first.');
       return;
+    }
+    // A second (TO) date turns this into an inclusive range; without it, the
+    // original single-day behavior is preserved exactly. Order-independent — a
+    // TO earlier than FROM just gets swapped.
+    const isRange = /^\d{4}-\d{2}-\d{2}$/.test(to) && to !== from;
+    let dates: string[];
+    if (isRange) {
+      const range = datesInRange(from < to ? from : to, from < to ? to : from);
+      if (!range) {
+        setSearchError(`Pick a range of ${MAX_DATE_SPAN_DAYS} days or fewer.`);
+        return;
+      }
+      dates = range;
+    } else {
+      dates = [from];
     }
     setSearchLoading(true);
     setSearchError(null);
     setSearchResults(null);
     try {
-      const res = await fetch(`${API}/v1/games/today?date=${searchDate}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setSearchResults(toRawGames(data));
+      // One fetch per day; fail loud on any day so we never show a silently partial
+      // range (the span is capped, so re-running is cheap).
+      const payloads = await Promise.all(
+        dates.map(async (d) => {
+          const res = await fetch(`${API}/v1/games/today?date=${d}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return toRawGames(await res.json());
+        }),
+      );
+      const seen = new Set<string>();
+      const merged: RawGame[] = [];
+      for (const list of payloads) {
+        for (const g of list) {
+          if (seen.has(g.game_id)) continue;
+          seen.add(g.game_id);
+          merged.push(g);
+        }
+      }
+      merged.sort((a, b) =>
+        a.date < b.date ? -1 : a.date > b.date ? 1 : a.game_id < b.game_id ? -1 : 1,
+      );
+      setSearchResults(merged);
     } catch (err) {
-      setSearchError('Could not load games for that date. Please try again.');
+      setSearchError('Could not load games for that range. Please try again.');
     } finally {
       setSearchLoading(false);
     }
-  }, [searchDate]);
+  }, [searchDate, searchDateTo]);
 
   // ── Search a team's season ───────────────────────────────────────────────────
   // Hits the new GET /v1/games/by-team endpoint (same game shape as /today), then
@@ -1940,17 +2118,31 @@ export default function AttendedTracker() {
         </div>
       ) : null}
 
-      {/* Counter row */}
+      {/* Counter row. Clicking the Games tally replays the 0→total roll across all
+          five (opt-in — nothing auto-animates on load). */}
       <div className="att-counters">
-        <Counter label="Games" value={viewCounters.games} />
-        <Counter label="Periods" value={viewCounters.periods} pending={boxPending} />
-        <Counter label="Goals" value={viewCounters.goals} pending={boxPending} />
-        <Counter label="Shots" value={viewCounters.shots} pending={boxPending} warn={viewBoxIncomplete && !boxHealing} />
+        <Counter
+          label="Games"
+          value={viewCounters.games}
+          replayToken={replayToken}
+          onClick={viewCounters.games > 0 && !summaryPending ? () => setReplayToken((t) => t + 1) : undefined}
+          hint={viewCounters.games > 0 ? 'Replay the count' : undefined}
+        />
+        <Counter label="Periods" value={viewCounters.periods} pending={boxPending} replayToken={replayToken} />
+        <Counter label="Goals" value={viewCounters.goals} pending={boxPending} replayToken={replayToken} />
+        <Counter
+          label="Shots"
+          value={viewCounters.shots}
+          pending={boxPending}
+          warn={viewBoxIncomplete && !boxHealing}
+          replayToken={replayToken}
+        />
         <Counter
           label="Players Seen"
           value={viewCounters.playersSeen}
           pending={boxPending}
           warn={viewBoxIncomplete && !boxHealing}
+          replayToken={replayToken}
         />
       </div>
 
@@ -2061,6 +2253,13 @@ export default function AttendedTracker() {
               </select>
               <button className="att-btn" onClick={runTeamSearch} disabled={teamLoading}>
                 {teamLoading ? 'Loading…' : 'Find games'}
+              </button>
+            </div>
+            <div className="att-add-hint">
+              Team search covers full season schedules back to{' '}
+              {seasonOptions[seasonOptions.length - 1]?.label ?? '2010-11'}. Attended an older game?{' '}
+              <button type="button" className="att-link-btn" onClick={() => setAddMode('date')}>
+                Find it by date →
               </button>
             </div>
 
@@ -2207,13 +2406,28 @@ export default function AttendedTracker() {
           /* ── BY DATE (original flow) ────────────────────────────────────────── */
           <>
             <div className="att-add-controls">
-              <input
-                type="date"
-                className="att-date"
-                value={searchDate}
-                onChange={(e) => setSearchDate(e.target.value)}
-                aria-label="Game date"
-              />
+              <label className="att-date-field">
+                <span className="att-date-label">From</span>
+                <input
+                  type="date"
+                  className="att-date"
+                  value={searchDate}
+                  onChange={(e) => setSearchDate(e.target.value)}
+                  aria-label="From date"
+                />
+              </label>
+              <label className="att-date-field">
+                <span className="att-date-label">To</span>
+                <input
+                  type="date"
+                  className="att-date"
+                  value={searchDateTo}
+                  min={searchDate || undefined}
+                  onChange={(e) => setSearchDateTo(e.target.value)}
+                  aria-label="To date (optional)"
+                />
+                <span className="att-date-optional">optional</span>
+              </label>
               <button className="att-btn" onClick={runSearch} disabled={searchLoading}>
                 {searchLoading ? 'Loading…' : 'Find games'}
               </button>
@@ -2228,6 +2442,10 @@ export default function AttendedTracker() {
                 />
               ) : null}
             </div>
+            <div className="att-add-hint">
+              Don't remember the exact night? Add a <strong>To</strong> date to search a range
+              (up to {MAX_DATE_SPAN_DAYS} days). Works for any season the NHL has on record.
+            </div>
 
             {searchError ? <div className="att-banner att-banner-warn">{searchError}</div> : null}
 
@@ -2235,9 +2453,14 @@ export default function AttendedTracker() {
               <>
                 <div className="att-select-bar">
                   <span className="att-select-count">
-                    {searchResults.length === 0
-                      ? 'No games'
-                      : `${searchResults.length} game${searchResults.length === 1 ? '' : 's'} on ${searchDate}`}
+                    {(() => {
+                      const isRange = /^\d{4}-\d{2}-\d{2}$/.test(searchDateTo) && searchDateTo !== searchDate;
+                      const lo = isRange ? (searchDate < searchDateTo ? searchDate : searchDateTo) : searchDate;
+                      const hi = isRange ? (searchDate < searchDateTo ? searchDateTo : searchDate) : searchDate;
+                      const when = isRange ? `${lo} → ${hi}` : searchDate;
+                      if (searchResults.length === 0) return 'No games';
+                      return `${searchResults.length} game${searchResults.length === 1 ? '' : 's'} ${isRange ? 'in' : 'on'} ${when}`;
+                    })()}
                   </span>
                   <div className="att-select-actions">
                     <button
@@ -2250,7 +2473,13 @@ export default function AttendedTracker() {
                   </div>
                 </div>
                 {searchResults.length === 0 ? (
-                  <div className="att-add-empty">No NHL games on {searchDate}.</div>
+                  <div className="att-add-empty">
+                    No NHL games{' '}
+                    {/^\d{4}-\d{2}-\d{2}$/.test(searchDateTo) && searchDateTo !== searchDate
+                      ? 'in that range'
+                      : `on ${searchDate}`}
+                    .
+                  </div>
                 ) : (
                   <div className="att-add-results">
                   {searchResults
