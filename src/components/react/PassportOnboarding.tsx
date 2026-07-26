@@ -104,7 +104,7 @@ function OnboardingBody({ onDismiss }: { onDismiss: () => void }) {
     <>
       <span className="pp-modal-eyebrow">New here</span>
       <h2 className="pp-modal-title" id="pp-modal-title">
-        Welcome to Puck Passport <span className="pp-modal-emoji" aria-hidden="true">🎟️</span>
+        Welcome to Puck <span className="pp-modal-nowrap">Passport <span className="pp-modal-emoji" aria-hidden="true">🎟️</span></span>
       </h2>
       <p className="pp-modal-lede">Track every NHL game you’ve been to in person.</p>
 
