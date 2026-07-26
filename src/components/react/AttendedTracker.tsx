@@ -2428,8 +2428,8 @@ export default function AttendedTracker() {
           {/* All 32 arena pips grey — the collection meter at zero */}
           <section className="att-section">
             <div className="att-section-head">
-              <span className="att-section-label">Home Rinks — 0 / 32</span>
-              <span className="att-section-meta">collect all 32</span>
+              <span className="att-section-label">NHL Home Arenas — 0 / 32</span>
+              <span className="att-section-meta">0 of 32 collected</span>
             </div>
             <div className="att-rinks">{pipTeams.map((t) => renderPip(t, false))}</div>
           </section>
@@ -2455,12 +2455,12 @@ export default function AttendedTracker() {
               {viewArenaBadge.homeRinks > 0 ? (
                 <div className="att-badge att-badge-collection" data-family="collection">
                   <div className="att-badge-top">
-                    <span className="att-badge-label">Home Rinks</span>
+                    <span className="att-badge-label">NHL Home Arenas</span>
                     <span className="att-badge-count">
                       {viewArenaBadge.homeRinks}/{viewArenaBadge.total}
                     </span>
                   </div>
-                  <span className="att-badge-rarity">home rinks collected · collection</span>
+                  <span className="att-badge-rarity">nhl home arenas · collection</span>
                 </div>
               ) : null}
 
@@ -2566,9 +2566,9 @@ export default function AttendedTracker() {
 
             <section className="att-section">
               <div className="att-section-head">
-                <span className="att-section-label">Home Rinks — {viewArenas.homeRinks} / {viewArenas.total}</span>
+                <span className="att-section-label">NHL Home Arenas — {viewArenas.homeRinks} / {viewArenas.total}</span>
                 <span className="att-section-meta">
-                  {viewArenas.total - viewArenas.homeRinks} to go — collect all {viewArenas.total}
+                  {viewArenas.homeRinks} of {viewArenas.total} collected
                 </span>
               </div>
               {/* One pip per current NHL team, alphabetical. Filled in that team's
