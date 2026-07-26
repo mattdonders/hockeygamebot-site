@@ -174,7 +174,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const ARENA_H = 90; // frac row + 32-pip collection meter + "to go" caption + total-buildings substat
   const BADGE_ROW_H = 44; // name (hero) + blurb sub-line — matches the record row
   const RECORD_ROW_H = 44;
-  const TIER_ROW_H = 34; // label + rung/progress — one line shorter than a badge row
+  const TIER_ROW_H = 40; // label + rung/progress — taller so the bottom text has the same breathing room as the badge rows (was 34, cramped)
   const ROW_GAP = 3;
   // Honest footer caveats (0–2): incomplete box scores and/or manually-logged
   // games. Each adds one mono line below the brand line; canonical FOOT_H = 36.
@@ -319,7 +319,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   // card), a "N to go — collect all 32" caption, and an honest mono substat with
   // the total buildings visited (which can exceed 32). A segmented pip meter reads
   // as a *collection* far better than a single continuous progress bar. ──
-  sectionLabel('Home Rinks');
+  sectionLabel('NHL Home Arenas');
   const aPad = 14;
   ctx.fillStyle = SURFACE;
   ctx.fillRect(PAD, y, W - PAD * 2, ARENA_H);
@@ -342,7 +342,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.font = mono(8, 700);
   ctx.fillStyle = ink(0.42);
   ctx.textAlign = 'right';
-  ctx.fillText('HOME RINKS COLLECTED', W - PAD - aPad, y + 22);
+  ctx.fillText('ARENAS COLLECTED', W - PAD - aPad, y + 22);
   ctx.textAlign = 'left';
 
   // pip meter: `total` segments, first `homeRinks` filled with the accent (red)
@@ -361,8 +361,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.font = mono(9, 500);
   ctx.fillStyle = ink(0.48);
   ctx.textBaseline = 'top';
-  const toGo = total - homeRinks;
-  const cap = toGo > 0 ? `${toGo} to go — collect all ${total}` : `all ${total} collected`;
+  const cap = `${homeRinks} of ${total} collected`;
   ctx.fillText(truncate(ctx, cap, pipsW), pipsX, pipY + pipH + 6);
   // honest substat — total distinct buildings visited (can exceed the /32 meter)
   ctx.font = mono(9, 500);
@@ -391,11 +390,11 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.fillStyle = t.earned ? INK : ink(0.56);
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
-      ctx.fillText(truncate(ctx, t.label.toUpperCase(), W - PAD * 2 - 190), PAD + 12, ry + 6);
+      ctx.fillText(truncate(ctx, t.label.toUpperCase(), W - PAD * 2 - 190), PAD + 12, ry + 8);
       // rung name — mono readout beneath the label (matches .att-tier-rung)
       ctx.font = mono(9, 700);
       ctx.fillStyle = t.earned ? ink(0.56) : ink(0.36);
-      ctx.fillText(truncate(ctx, t.rungName.toUpperCase(), W - PAD * 2 - 190), PAD + 12, ry + 22);
+      ctx.fillText(truncate(ctx, t.rungName.toUpperCase(), W - PAD * 2 - 190), PAD + 12, ry + 24);
       // progress readout — right-aligned mono (matches .att-tier-progress)
       ctx.font = mono(9, 500);
       ctx.fillStyle = ink(0.5);
