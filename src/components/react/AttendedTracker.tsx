@@ -2402,15 +2402,9 @@ export default function AttendedTracker() {
         // data. Full badge wall as locked ghosts + all 32 arena pips grey, so the
         // collection reads as a chase from the first visit.
         <>
-          <div className="att-empty-hero">
-            <div className="att-empty-title">Start your Puck Passport</div>
-            <div className="att-empty-sub">
-              Log the first NHL game you were at in person and watch it add up — badges, arenas, records, and every
-              player you've seen.{' '}
-              {isLoggedIn ? 'Your list is synced to your account.' : 'Your list is saved in this browser.'}
-            </div>
-          </div>
-
+          {/* No empty-state hero — the onboarding modal now welcomes + guides new
+              users, so the redundant "Start your Puck Passport" box was removed
+              (operator, 2026-07-25). The badge-ghost wall below stays as the chase. */}
           {/* Full badge catalog as ghosts — all locked */}
           <section className="att-section">
             <div className="att-section-head">
