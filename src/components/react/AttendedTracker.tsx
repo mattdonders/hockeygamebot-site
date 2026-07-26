@@ -41,7 +41,10 @@ import {
   parseOneInN,
   normalizePeriod,
   badgeBlurb,
+  computeTierBadges,
+  TIER_STATS,
   type CatalogBadge,
+  type TierBadgeView,
 } from './puck-passport-badges';
 import { drawPassportCard, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
@@ -1033,7 +1036,7 @@ export default function AttendedTracker() {
           };
           return [row, ...rows];
         });
-        postAttended(raw.game_id).then((ok) => {
+        return postAttended(raw.game_id).then((ok) => {
           if (ok) {
             setWriteError(null);
             loadSummary(); // refetch aggregates from the server (anti-divergence)
@@ -1042,14 +1045,14 @@ export default function AttendedTracker() {
             setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
           }
         });
-      } else {
-        setLocalGames((prev) => {
-          if (prev.some((g) => g.game_id === raw.game_id)) return prev;
-          const next = [...prev, snap];
-          writeAttended(next);
-          return next;
-        });
       }
+      setLocalGames((prev) => {
+        if (prev.some((g) => g.game_id === raw.game_id)) return prev;
+        const next = [...prev, snap];
+        writeAttended(next);
+        return next;
+      });
+      return Promise.resolve();
     },
     [isLoggedIn, commitDetail, loadSummary],
   );
@@ -1063,7 +1066,7 @@ export default function AttendedTracker() {
           removed = rows.find((r) => r.game_id === gameId);
           return rows.filter((r) => r.game_id !== gameId);
         });
-        apiFetch(`${API}/v1/account/attended/${gameId}`, { method: 'DELETE' })
+        return apiFetch(`${API}/v1/account/attended/${gameId}`, { method: 'DELETE' })
           .then((r) => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             setWriteError(null);
@@ -1073,15 +1076,37 @@ export default function AttendedTracker() {
             setWriteError('Could not remove that game from your account — check your connection and try again.');
             if (removed) setD1Rows((prev) => [removed as D1AttendedRow, ...(prev ?? [])]);
           });
-      } else {
-        setLocalGames((prev) => {
-          const next = prev.filter((g) => g.game_id !== gameId);
-          writeAttended(next);
-          return next;
-        });
       }
+      setLocalGames((prev) => {
+        const next = prev.filter((g) => g.game_id !== gameId);
+        writeAttended(next);
+        return next;
+      });
+      return Promise.resolve();
     },
     [isLoggedIn, loadSummary],
+  );
+
+  // Guarded toggle for the ADD-GAMES search results. A synchronous ref-lock (not
+  // state — state is async and two rapid clicks would both read it empty) ignores
+  // further clicks on a row while its add/remove is IN FLIGHT, closing the
+  // rapid remove→add race that could leave local + D1 desynced (Codex, 2026-07-25).
+  // The lock clears when the network settles (add/remove now return their promise).
+  const mutatingRef = useRef<Set<string>>(new Set());
+  const [mutatingIds, setMutatingIds] = useState<Set<string>>(() => new Set());
+  const toggleSearchResult = useCallback(
+    (g: RawGame, already: boolean) => {
+      const id = g.game_id;
+      if (mutatingRef.current.has(id)) return; // synchronous, race-proof
+      mutatingRef.current.add(id);
+      setMutatingIds(new Set(mutatingRef.current)); // re-render for the disabled state
+      const clear = () => {
+        mutatingRef.current.delete(id);
+        setMutatingIds(new Set(mutatingRef.current));
+      };
+      Promise.resolve(already ? removeGame(id) : addGame(g)).finally(clear);
+    },
+    [addGame, removeGame],
   );
 
   // Add a MANUAL game (NHL API can't find it). Logged-IN → POST to the authed
@@ -1438,6 +1463,27 @@ export default function AttendedTracker() {
   // shown honestly: nothing is "earned", every chip is a locked chase.
   const ghostCatalog = useMemo<CatalogBadge[]>(() => sortCatalog(buildLocalCatalog([], {})), []);
 
+  // Tiered milestone badges (Games/Goals/Shots/Players/Arenas ladders) — a pure
+  // client-side bucketing of the counters the summary already delivers (see the
+  // ownership note in puck-passport-badges.ts). Always 5 entries, locked/ghost
+  // when a stat hasn't reached Rung I yet; zeros before the summary lands / in
+  // the empty state so the wall renders as an honest all-locked chase.
+  const tierBadges = useMemo<TierBadgeView[]>(
+    () =>
+      computeTierBadges(
+        summary
+          ? {
+              games: summary.counters.games,
+              goals: summary.counters.goals,
+              shots: summary.counters.shots,
+              players_seen: summary.counters.players_seen,
+            }
+          : { games: 0, goals: 0, shots: 0, players_seen: 0 },
+        summary ? summary.arenas.home_rinks : 0,
+      ),
+    [summary],
+  );
+
   // Milestones Witnessed — server-provided (same payload in both auth states).
   const milestones = summary ? summary.milestones : [];
   // ── Share card (client-side canvas PNG) ──────────────────────────────────────
@@ -1504,6 +1550,12 @@ export default function AttendedTracker() {
         total: viewArenaBadge.total,
         distinctBuildings: viewArenaBadge.distinctBuildings,
       },
+      tiers: tierBadges.map((b) => ({
+        label: b.label,
+        rungName: b.rungName,
+        earned: b.earned,
+        progress: b.progress,
+      })),
       badges: rarest,
       records: shareRecords,
       // No accent — every Passport card uses the HGB brand red for brand cohesion.
@@ -1776,6 +1828,50 @@ export default function AttendedTracker() {
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
       </div>
     );
+
+  // Rung thresholds by stat id — for the progress-bar's "start of range" edge
+  // (thresholds[rung-1], or 0 below Rung I). TIER_STATS is static config.
+  const tierThresholdsById = useMemo(() => new Map(TIER_STATS.map((d) => [d.id, d.thresholds])), []);
+
+  // One tiered milestone badge — the highest earned rung (or the Rung-I chase
+  // when locked), with a progress bar toward the next rung. Mirrors the
+  // .att-badge chip shell so the wall reads as one system with the event badges.
+  const renderTierBadge = (b: TierBadgeView) => {
+    // Progress fraction toward the NEXT rung (or a full bar when maxed) — the
+    // "how close am I" read at a glance, on top of the mono progress line.
+    const thresholds = tierThresholdsById.get(b.id);
+    const prevThreshold = b.rung > 0 && thresholds ? thresholds[b.rung - 1] : 0;
+    const frac = b.maxed
+      ? 1
+      : b.nextThreshold
+        ? Math.max(0, Math.min(1, (b.value - prevThreshold) / (b.nextThreshold - prevThreshold)))
+        : 0;
+    return b.earned ? (
+      <div className="att-badge" data-family="tier" key={b.id}>
+        <div className="att-badge-top">
+          <span className="att-badge-label">{b.label}</span>
+          <span className="att-badge-count">{b.value.toLocaleString('en-US')}</span>
+        </div>
+        <span className="att-tier-rung">{b.rungName}</span>
+        <div className="att-tier-bar">
+          <div className="att-tier-bar-fill" style={{ width: `${Math.round(frac * 100)}%` }} />
+        </div>
+        <span className="att-tier-progress">{b.progress}</span>
+      </div>
+    ) : (
+      <div className="att-badge att-badge-ghost" data-family="tier" key={b.id}>
+        <div className="att-badge-top">
+          <span className="att-badge-label">{b.label}</span>
+          <span className="att-badge-ghost-tag">Locked</span>
+        </div>
+        <span className="att-tier-rung">{b.rungName}</span>
+        <div className="att-tier-bar">
+          <div className="att-tier-bar-fill" style={{ width: `${Math.round(frac * 100)}%` }} />
+        </div>
+        <span className="att-tier-progress">{b.progress}</span>
+      </div>
+    );
+  };
 
   // One team's home-rink collection pip. `collected` lights it in the team colour;
   // otherwise it stays neutral grey (the "still to collect" state).
@@ -2092,8 +2188,9 @@ export default function AttendedTracker() {
                             </div>
                             <button
                               className={already ? 'att-add-btn added' : 'att-add-btn'}
-                              disabled={already}
-                              onClick={() => addGame(g)}
+                              onClick={() => toggleSearchResult(g, already)}
+                              disabled={mutatingIds.has(g.game_id)}
+                              title={already ? 'Remove from your attended games' : undefined}
                             >
                               {already ? '✓ Added' : '+ Attended'}
                             </button>
@@ -2195,8 +2292,9 @@ export default function AttendedTracker() {
                           </div>
                           <button
                             className={already ? 'att-add-btn added' : 'att-add-btn'}
-                            disabled={already}
-                            onClick={() => addGame(g)}
+                            onClick={() => toggleSearchResult(g, already)}
+                            disabled={mutatingIds.has(g.game_id)}
+                            title={already ? 'Remove from your attended games' : undefined}
                           >
                             {already ? '✓ Added' : '+ Attended'}
                           </button>
@@ -2304,15 +2402,9 @@ export default function AttendedTracker() {
         // data. Full badge wall as locked ghosts + all 32 arena pips grey, so the
         // collection reads as a chase from the first visit.
         <>
-          <div className="att-empty-hero">
-            <div className="att-empty-title">Start your Puck Passport</div>
-            <div className="att-empty-sub">
-              Log the first NHL game you were at in person and watch it add up — badges, arenas, records, and every
-              player you've seen.{' '}
-              {isLoggedIn ? 'Your list is synced to your account.' : 'Your list is saved in this browser.'}
-            </div>
-          </div>
-
+          {/* No empty-state hero — the onboarding modal now welcomes + guides new
+              users, so the redundant "Start your Puck Passport" box was removed
+              (operator, 2026-07-25). The badge-ghost wall below stays as the chase. */}
           {/* Full badge catalog as ghosts — all locked */}
           <section className="att-section">
             <div className="att-section-head">
@@ -2322,6 +2414,15 @@ export default function AttendedTracker() {
               <span className="att-section-meta">0 of {ghostCatalog.length + 1}</span>
             </div>
             <div className="att-badges">{ghostCatalog.map(renderCatalogBadge)}</div>
+          </section>
+
+          {/* Milestone Tiers — cumulative stat ladders, all locked at zero */}
+          <section className="att-section">
+            <div className="att-section-head">
+              <span className="att-section-label">Milestone Tiers</span>
+              <span className="att-section-meta">0 of {tierBadges.length}</span>
+            </div>
+            <div className="att-badges">{tierBadges.map(renderTierBadge)}</div>
           </section>
 
           {/* All 32 arena pips grey — the collection meter at zero */}
@@ -2365,6 +2466,20 @@ export default function AttendedTracker() {
 
               {catalog.map(renderCatalogBadge)}
             </div>
+          </section>
+
+          {/* Milestone Tiers — cumulative stat ladders (Games/Goals/Shots/Players/
+              Arenas), one badge per stat showing the highest rung earned + progress
+              to the next. Always shows all 5 (locked/ghost below Rung I). */}
+          <section className="att-section">
+            <div className="att-section-head">
+              <span className="att-section-label">Milestone Tiers</span>
+              <span className="att-section-meta">
+                {tierBadges.filter((b) => b.earned).length} of {tierBadges.length}
+                {summaryPending ? ' · loading…' : ''}
+              </span>
+            </div>
+            <div className="att-badges">{tierBadges.map(renderTierBadge)}</div>
           </section>
 
           {/* Single-game records — extremes across the attended set (§2c) */}

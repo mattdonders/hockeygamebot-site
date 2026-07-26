@@ -66,6 +66,17 @@ export interface ShareBadge {
   blurb?: string; // one-line criteria description (mono gray sub-line)
 }
 
+/** One tiered milestone badge row (Games/Goals/Shots/Players/Arenas). Mirrors the
+ *  dashboard's .att-tier chip: label + current rung (or "Locked"), and a progress
+ *  line. Always 5 rows — pure client-side bucketing of the same counters the
+ *  counters band above already draws (see puck-passport-badges.ts ownership note). */
+export interface ShareTierBadge {
+  label: string; // e.g. 'Goals'
+  rungName: string; // current rung name, or the Rung-I chase name when locked
+  earned: boolean;
+  progress: string; // e.g. "312 / 600 to Legend" or "1,500 goals" (maxed)
+}
+
 export interface ShareRecord {
   key?: string; // record key (e.g. 'longest') — drives the longest-game layout
   label: string; // e.g. "Highest Scoring"
@@ -83,6 +94,9 @@ export interface PassportShareData {
    *  exceed 32, shown as the honest substat). The red pip bar tracks homeRinks/total.
    *  Per the brand-cohesion decision the card bar stays HGB red — NO team colours. */
   arenas: { homeRinks: number; total: number; distinctBuildings: number };
+  /** The 5 tiered milestone badges (Games/Goals/Shots/Players/Arenas), always
+   *  present — the card shows the wall as a chase even before any rung is earned. */
+  tiers: ShareTierBadge[];
   /** Rarest earned badges, already sorted rarest-first (0–3 shown). */
   badges: ShareBadge[];
   /** Marquee single-game records (0–3 shown). */
@@ -160,6 +174,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const ARENA_H = 90; // frac row + 32-pip collection meter + "to go" caption + total-buildings substat
   const BADGE_ROW_H = 44; // name (hero) + blurb sub-line — matches the record row
   const RECORD_ROW_H = 44;
+  const TIER_ROW_H = 34; // label + rung/progress — one line shorter than a badge row
   const ROW_GAP = 3;
   // Honest footer caveats (0–2): incomplete box scores and/or manually-logged
   // games. Each adds one mono line below the brand line; canonical FOOT_H = 36.
@@ -174,8 +189,11 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
 
   const hasBadges = data.badges.length > 0;
   const hasRecords = data.records.length > 0;
+  const hasTiers = data.tiers.length > 0;
 
   let bodyH = HEADER_H + COUNTERS_H + SECTION_GAP + LABEL_H + ARENA_H;
+  if (hasTiers)
+    bodyH += SECTION_GAP + LABEL_H + data.tiers.length * TIER_ROW_H + (data.tiers.length - 1) * ROW_GAP;
   if (hasBadges)
     bodyH += SECTION_GAP + LABEL_H + data.badges.length * BADGE_ROW_H + (data.badges.length - 1) * ROW_GAP;
   if (hasRecords)
@@ -355,6 +373,40 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
     pipY + pipH + 6 + 13,
   );
   y += ARENA_H + SECTION_GAP;
+
+  // ── MILESTONE TIERS — one row per stat, highest earned rung + progress ──
+  if (hasTiers) {
+    sectionLabel('Milestone Tiers', `${data.tiers.filter((t) => t.earned).length}/${data.tiers.length} earned`);
+    data.tiers.forEach((t, i) => {
+      const ry = y + i * (TIER_ROW_H + ROW_GAP);
+      ctx.fillStyle = SURFACE;
+      ctx.fillRect(PAD, ry, W - PAD * 2, TIER_ROW_H);
+      ctx.strokeStyle = t.earned ? INK : ink(0.14);
+      ctx.lineWidth = t.earned ? 1.25 : 1;
+      if (!t.earned) ctx.setLineDash([3, 2]);
+      ctx.strokeRect(PAD + 0.625, ry + 0.625, W - PAD * 2 - 1.25, TIER_ROW_H - 1.25);
+      ctx.setLineDash([]);
+      // label (hero) — Barlow Condensed 800, matches the badge/record hero tier.
+      ctx.font = cond(HERO_PX, 800);
+      ctx.fillStyle = t.earned ? INK : ink(0.56);
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.fillText(truncate(ctx, t.label.toUpperCase(), W - PAD * 2 - 190), PAD + 12, ry + 6);
+      // rung name — mono readout beneath the label (matches .att-tier-rung)
+      ctx.font = mono(9, 700);
+      ctx.fillStyle = t.earned ? ink(0.56) : ink(0.36);
+      ctx.fillText(truncate(ctx, t.rungName.toUpperCase(), W - PAD * 2 - 190), PAD + 12, ry + 22);
+      // progress readout — right-aligned mono (matches .att-tier-progress)
+      ctx.font = mono(9, 500);
+      ctx.fillStyle = ink(0.5);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(truncate(ctx, t.progress, 170), W - PAD - 12, ry + TIER_ROW_H / 2);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+    });
+    y += data.tiers.length * TIER_ROW_H + (data.tiers.length - 1) * ROW_GAP + SECTION_GAP;
+  }
 
   // ── RAREST BADGES ──
   if (hasBadges) {

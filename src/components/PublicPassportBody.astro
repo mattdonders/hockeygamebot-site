@@ -14,7 +14,15 @@
  */
 import { NHL_TEAMS } from '../lib/nhl-teams';
 import { pickTeamColor } from '../lib/team-colors';
-import { sortCatalog, parseOneInN, badgeBlurb, type CatalogBadge } from './react/puck-passport-badges';
+import {
+  sortCatalog,
+  parseOneInN,
+  badgeBlurb,
+  computeTierBadges,
+  TIER_STATS,
+  type CatalogBadge,
+  type TierBadgeView,
+} from './react/puck-passport-badges';
 import type { PublicPassport as PassportData, PassportBadge } from '../lib/auth-client';
 
 interface Props {
@@ -51,6 +59,33 @@ const teamsSeen = new Set(data.arenas.teams_seen ?? []);
 const c = data.counters;
 const arenas = data.arenas;
 const homeRinksEarned = arenas.home_rinks > 0;
+
+// ── Milestone Tiers (cumulative stat ladders) ────────────────────────────────
+// ANTI-DIVERGENCE: this is a PURE client/render-time bucketing of counters the
+// server already delivered (same category as the display badges above) — no new
+// fact is derived, only which of 5 static thresholds an already-server-owned
+// number has crossed. The thresholds/ladder live in puck-passport-badges.ts and
+// are imported (never duplicated), so the dashboard, iOS, and this public page
+// can never disagree. computeTierBadges takes plain numbers, so it runs fine in
+// the worker (no React) exactly like the dashboard's useMemo.
+const tierBadges: TierBadgeView[] = computeTierBadges(
+  { games: c.games, goals: c.goals, shots: c.shots, players_seen: c.players_seen },
+  arenas.home_rinks,
+);
+const tierThresholdsById = new Map(TIER_STATS.map((d) => [d.id, d.thresholds]));
+const earnedTierCount = tierBadges.filter((b) => b.earned).length;
+
+/** Progress fraction toward the NEXT rung (full bar when maxed) — mirrors the
+ *  dashboard's renderTierBadge frac math so both surfaces fill identically. */
+function tierFrac(b: TierBadgeView): number {
+  if (b.maxed) return 1;
+  const thresholds = tierThresholdsById.get(b.id);
+  const prevThreshold = b.rung > 0 && thresholds ? thresholds[b.rung - 1] : 0;
+  if (b.nextThreshold) {
+    return Math.max(0, Math.min(1, (b.value - prevThreshold) / (b.nextThreshold - prevThreshold)));
+  }
+  return 0;
+}
 ---
 
 <div class="att-root">
@@ -131,6 +166,48 @@ const homeRinksEarned = arenas.home_rinks > 0;
             </div>
           ),
         )
+      }
+    </div>
+  </section>
+
+  {/* Milestone Tiers — cumulative stat ladders (Games/Goals/Shots/Players/Arenas),
+      one badge per stat showing the highest rung earned + progress to the next.
+      Ghost/locked below Rung I, matching the dashboard. */}
+  <section class="att-section">
+    <div class="att-section-head">
+      <span class="att-section-label">Milestone Tiers</span>
+      <span class="att-section-meta">{earnedTierCount} of {tierBadges.length}</span>
+    </div>
+    <div class="att-badges">
+      {
+        tierBadges.map((b) => {
+          const frac = tierFrac(b);
+          return b.earned ? (
+            <div class="att-badge" data-family="tier">
+              <div class="att-badge-top">
+                <span class="att-badge-label">{b.label}</span>
+                <span class="att-badge-count">{b.value.toLocaleString('en-US')}</span>
+              </div>
+              <span class="att-tier-rung">{b.rungName}</span>
+              <div class="att-tier-bar">
+                <div class="att-tier-bar-fill" style={`width:${Math.round(frac * 100)}%`}></div>
+              </div>
+              <span class="att-tier-progress">{b.progress}</span>
+            </div>
+          ) : (
+            <div class="att-badge att-badge-ghost" data-family="tier">
+              <div class="att-badge-top">
+                <span class="att-badge-label">{b.label}</span>
+                <span class="att-badge-ghost-tag">Locked</span>
+              </div>
+              <span class="att-tier-rung">{b.rungName}</span>
+              <div class="att-tier-bar">
+                <div class="att-tier-bar-fill" style={`width:${Math.round(frac * 100)}%`}></div>
+              </div>
+              <span class="att-tier-progress">{b.progress}</span>
+            </div>
+          );
+        })
       }
     </div>
   </section>
