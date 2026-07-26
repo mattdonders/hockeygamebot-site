@@ -11,7 +11,7 @@
  * offers a manual refresh — so it can stay open on a phone during a launch.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API_BASE, apiFetch, getSessionToken } from '../../lib/auth-client';
+import { API_BASE, getSessionToken } from '../../lib/auth-client';
 
 // ── Response shape (mirrors admin.js passportStats) ──────────────────────────────
 interface RefCount { ref: string; n: number }
@@ -83,10 +83,16 @@ export default function AdminDashboard() {
   const timer = useRef<number | null>(null);
 
   const load = useCallback(async (soft: boolean) => {
-    if (!getSessionToken()) { setState({ kind: 'no-auth' }); return; }
+    const token = getSessionToken();
+    if (!token) { setState({ kind: 'no-auth' }); return; }
     if (!soft) setState({ kind: 'loading' });
     try {
-      const r = await apiFetch(`${API_BASE}/v1/admin/passport/stats`);
+      // Bearer-only — see Nav.astro: the /v1/admin/* preflight rejects credentialed
+      // requests, so apiFetch (credentials:'include') would fail CORS. Token auth
+      // needs no cookie anyway.
+      const r = await fetch(`${API_BASE}/v1/admin/passport/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (r.status === 401) { setState({ kind: 'no-auth' }); return; }
       if (r.status === 403) { setState({ kind: 'forbidden' }); return; }
       if (!r.ok) { setState({ kind: 'error', message: `HTTP ${r.status}` }); return; }

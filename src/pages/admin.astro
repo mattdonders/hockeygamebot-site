@@ -1,44 +1,63 @@
 ---
 // HockeyGameBot — /admin — private analytics dashboard (Puck Passport, for now).
-// The page shell is public HTML but contains NO data: everything is loaded by the
-// AdminDashboard island via the admin-gated /v1/admin/passport/stats endpoint,
-// which returns 403 for non-admins. See the island header for the auth rationale
-// (localStorage Bearer token ⇒ client-side fetch, not SSR).
 //
-// Uses the shared `.admin-mast` header chrome for visual parity with the other
-// admin tools (/admin/insights, /admin/generator). Fonts are pinned explicitly
-// (not via --display/--mono, which those standalone pages define locally) so the
-// mast renders correctly under the Base layout.
+// SOFT-404 GATING: a static page can't return a real HTTP 404 for non-admins (the
+// session token lives in localStorage, unreadable server-side — see the island
+// header). So the server ships THREE states and reveals the right one client-side:
+//   #admin-loading  — shown first, neutral, no admin chrome
+//   #admin-notfound — the site's not-found view (default for anyone who isn't admin)
+//   #admin-content  — mast + hub + dashboard, revealed ONLY after /v1/admin/whoami
+//                     confirms is_admin. Nothing admin-looking renders otherwise, so
+//                     a logged-out / non-admin visitor sees a plain 404.
+// The real security boundary remains the API's isAdminUser gate on the data itself;
+// this is just so the page doesn't advertise that an admin surface exists here.
 import Base from '../layouts/Base.astro';
 import AdminDashboard from '../components/react/AdminDashboard.tsx';
 ---
 
-<Base title="Admin · HockeyGameBot" description="Private analytics." currentPath={Astro.url.pathname}>
+<Base title="HockeyGameBot" description="" currentPath={Astro.url.pathname}>
   <meta name="robots" content="noindex, nofollow" slot="head" />
 
-  <div class="admin-mast">
-    <div class="admin-mast-inner">
-      <div>
-        <div class="admin-eyebrow"><span class="admin-pip"></span>HGB Admin · Puck Passport</div>
-        <h1 class="admin-title">Puck Passport Analytics</h1>
-      </div>
-      <div class="admin-user" id="admin-user-display"></div>
-    </div>
+  {/* Neutral first paint — swapped out the instant the gate script resolves. */}
+  <div id="admin-loading" class="admin-state"></div>
+
+  {/* Default for non-admins: looks like any other not-found page. */}
+  <div id="admin-notfound" class="admin-state" style="display:none">
+    <div class="admin-404-code">404</div>
+    <div class="admin-404-msg">This page could not be found.</div>
+    <a href="/" class="admin-404-link">← Back to HockeyGameBot</a>
   </div>
 
-  <div class="admin-page-body">
-    {/* Admin hub strip — /admin is the index of the admin namespace. */}
-    <nav class="admin-hub">
-      <span class="admin-hub-label">Admin tools →</span>
-      <a href="/admin/insights">Insights</a>
-      <a href="/admin/generator">Card Generator</a>
-      <a href="/admin/player-compare">Player Compare</a>
-    </nav>
-    <AdminDashboard client:only="react" />
+  {/* Admin-only: hidden until whoami confirms is_admin. */}
+  <div id="admin-content" style="display:none">
+    <div class="admin-mast">
+      <div class="admin-mast-inner">
+        <div>
+          <div class="admin-eyebrow"><span class="admin-pip"></span>HGB Admin · Puck Passport</div>
+          <h1 class="admin-title">Puck Passport Analytics</h1>
+        </div>
+        <div class="admin-user" id="admin-user-display"></div>
+      </div>
+    </div>
+    <div class="admin-page-body">
+      <nav class="admin-hub">
+        <span class="admin-hub-label">Admin tools →</span>
+        <a href="/admin/insights">Insights</a>
+        <a href="/admin/generator">Card Generator</a>
+        <a href="/admin/player-compare">Player Compare</a>
+      </nav>
+      <AdminDashboard client:only="react" />
+    </div>
   </div>
 </Base>
 
 <style>
+  .admin-state { min-height: 60vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; }
+  .admin-404-code { font-family: "Barlow Condensed", sans-serif; font-weight: 800; font-size: 72px; line-height: 1; color: var(--ink, #0d0d14); }
+  .admin-404-msg { font-size: 15px; color: var(--ink-60, #6b6b78); }
+  .admin-404-link { font-size: 14px; color: var(--red, #E8002D); text-decoration: none; margin-top: 6px; }
+  .admin-404-link:hover { text-decoration: underline; }
+
   /* Shared admin-mast chrome (mirrors /admin/insights + /admin/generator). */
   .admin-mast { border-bottom: 2px solid var(--ink); background: var(--bg); }
   .admin-mast-inner {
@@ -76,24 +95,35 @@ import AdminDashboard from '../components/react/AdminDashboard.tsx';
 </style>
 
 <script is:inline>
-  // Populate the mast's "signed in as" line (parity with the other admin pages).
-  // Best-effort + non-gating — the island owns the real auth states; this is chrome.
+  // Client-side gate: reveal the dashboard ONLY for a confirmed admin; everyone else
+  // sees the 404 state. Bearer-only fetch (the /v1/admin/* preflight rejects
+  // credentialed requests). Fail-closed: no token / non-admin / any error ⇒ 404.
   (function () {
-    try {
-      var token = localStorage.getItem('hgb_session');
-      if (!token) return;
-      fetch('https://api.hockeygamebot.com/v1/admin/whoami', {
-        headers: { Authorization: 'Bearer ' + token },
-        credentials: 'include',
+    var loading = document.getElementById('admin-loading');
+    var notfound = document.getElementById('admin-notfound');
+    var content = document.getElementById('admin-content');
+    function show(el) {
+      [loading, notfound, content].forEach(function (x) { if (x) x.style.display = x === el ? '' : 'none'; });
+    }
+    function deny() { show(notfound); try { document.title = '404 · HockeyGameBot'; } catch (e) {} }
+
+    var token;
+    try { token = localStorage.getItem('hgb_session'); } catch (e) {}
+    if (!token) { deny(); return; }
+
+    fetch('https://api.hockeygamebot.com/v1/admin/whoami', {
+      headers: { Authorization: 'Bearer ' + token },
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.is_admin) {
+          var el = document.getElementById('admin-user-display');
+          if (el && d.email) el.textContent = 'signed in as ' + d.email;
+          show(content);
+        } else {
+          deny();
+        }
       })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (d) {
-          if (d && d.email) {
-            var el = document.getElementById('admin-user-display');
-            if (el) el.textContent = 'signed in as ' + d.email + (d.is_admin ? '' : ' · not admin');
-          }
-        })
-        .catch(function () {});
-    } catch (e) {}
+      .catch(function () { deny(); });
   })();
 </script>
