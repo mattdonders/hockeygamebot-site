@@ -265,6 +265,17 @@ export interface CatalogBadge {
   /** Numeric rarity for sorting: earned = total/count (higher ⇒ rarer); unearned
    *  = the hint's N. Populated by the builders below. */
   rarityRatio: number;
+  /** Drill-down: the attended game(s) that earned this badge (newest-first from the
+   *  server), with the qualifying player for the 4 player-moment badges. Present only
+   *  on the logged-in/summary path for earned game/moment badges; absent for locked,
+   *  tier and collection badges (a game is meaningless there). Drives the "which game
+   *  earned this?" modal. */
+  games?: {
+    game_id: string;
+    date: string;
+    matchup: { away: string; home: string };
+    player?: { id: number; name: string | null };
+  }[];
 }
 
 /** Parse a "1 in N" rarity string → N (a bare number). Falls back to 1 for

@@ -196,7 +196,23 @@ type AttendedSummary = {
     most_shots?: SummaryRecord;
   };
   badges: {
-    earned: { id: string; label: string; family: string; count: number; rarity: string; note?: string }[];
+    earned: {
+      id: string;
+      label: string;
+      family: string;
+      count: number;
+      rarity: string;
+      note?: string;
+      // Drill-down: the attended game(s) that earned this badge (newest-first from
+      // the server), with the qualifying player for the 4 player-moment badges.
+      // Absent on cumulative/collection badges (a game is meaningless for them).
+      games?: {
+        game_id: string;
+        date: string;
+        matchup: { away: string; home: string };
+        player?: { id: number; name: string | null };
+      }[];
+    }[];
     catalog: {
       id: string;
       label: string;
@@ -817,6 +833,18 @@ export default function AttendedTracker() {
   // Server summary — the SOLE source of every aggregate in BOTH auth states.
   // null + summaryError ⇒ FAIL LOUD: an honest banner (no client fallback).
   const [summary, setSummary] = useState<AttendedSummary | null>(null);
+  // Badge event drill-down: the earned badge whose "which game(s) earned this?"
+  // modal is open (null = closed). Set by tapping an earned, game-attributed chip.
+  const [drillBadge, setDrillBadge] = useState<CatalogBadge | null>(null);
+  // Escape closes the drill-down modal (click-outside is handled on the overlay).
+  useEffect(() => {
+    if (!drillBadge) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrillBadge(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [drillBadge]);
   const [summaryError, setSummaryError] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   // True while we're waiting out the bounded retry for a transiently box_incomplete
@@ -1818,7 +1846,20 @@ export default function AttendedTracker() {
     // "Arenas Visited" collection badge is rendered separately below. Without
     // this filter the view shows two Arenas badges and double-counts it in the
     // earned tally.
-    return sortCatalog(summary.badges.catalog.filter((c) => c.id !== 'arenas-visited').map(mapSummaryCatalog));
+    // Drill-down games live on `badges.earned` (not the catalog); attach them by id
+    // so the earned chips become tappable ("which game earned this?"). Unearned /
+    // tier / collection badges have no entry here → stay non-tappable.
+    const gamesById = new Map(summary.badges.earned.map((e) => [e.id, e.games]));
+    return sortCatalog(
+      summary.badges.catalog
+        .filter((c) => c.id !== 'arenas-visited')
+        .map((c) => {
+          const b = mapSummaryCatalog(c);
+          const games = gamesById.get(c.id);
+          if (games && games.length) b.games = games;
+          return b;
+        }),
+    );
   }, [summary]);
   const earnedCount = useMemo(() => catalog.filter((c) => c.earned).length, [catalog]);
 
@@ -2160,12 +2201,41 @@ export default function AttendedTracker() {
     [],
   );
 
+  // Open the badge event drill-down modal for an earned, game-attributed badge and
+  // record the tap (anonymous; fire-and-forget — see lib/track.ts).
+  const openDrill = (c: CatalogBadge) => {
+    setDrillBadge(c);
+    trackEvent('badge_drilldown', { meta: { badge: c.id, games: c.games?.length ?? 0 } });
+  };
+
   // ── Shared chip/pip renderers (dashboard + empty-state reuse the SAME markup) ──
   // A single catalog-badge chip: earned or locked ghost. The empty state feeds it
   // ghostCatalog (all locked); the dashboard feeds it the earned+ghost catalog.
-  const renderCatalogBadge = (c: CatalogBadge) =>
-    c.earned ? (
-      <div className="att-badge" data-family={c.family} key={c.id}>
+  const renderCatalogBadge = (c: CatalogBadge) => {
+    // An earned game/moment badge carrying a drill-down list is tappable → it opens
+    // the "which game(s) earned this?" modal. Locked/tier/collection chips carry no
+    // `games` and stay static.
+    const tappable = c.earned && !!(c.games && c.games.length);
+    return c.earned ? (
+      <div
+        className={`att-badge${tappable ? ' att-badge-tappable' : ''}`}
+        data-family={c.family}
+        key={c.id}
+        {...(tappable
+          ? {
+              role: 'button' as const,
+              tabIndex: 0,
+              'aria-haspopup': 'dialog' as const,
+              onClick: () => openDrill(c),
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openDrill(c);
+                }
+              },
+            }
+          : {})}
+      >
         <div className="att-badge-top">
           <span className="att-badge-label">{c.label}</span>
           <span className="att-badge-count">×{c.count}</span>
@@ -2176,6 +2246,7 @@ export default function AttendedTracker() {
         </span>
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
         {c.note ? <span className="att-badge-note">{c.note}</span> : null}
+        {tappable ? <span className="att-badge-drill">Which game? →</span> : null}
       </div>
     ) : (
       <div className="att-badge att-badge-ghost" data-family={c.family} key={c.id}>
@@ -2192,6 +2263,7 @@ export default function AttendedTracker() {
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
       </div>
     );
+  };
 
   // Rung thresholds by stat id — for the progress-bar's "start of range" edge
   // (thresholds[rung-1], or 0 below Rung I). TIER_STATS is static config.
@@ -3155,6 +3227,48 @@ export default function AttendedTracker() {
           </section>
         </>
       )}
+
+      {/* Badge event drill-down — "which attended game(s) earned this badge?" (with
+          the qualifying player for the 4 player-moment badges). Reuses the shared
+          .pp-modal-* overlay/card shell so it's theme-aware (cream / dark) for free. */}
+      {drillBadge ? (
+        <div className="pp-modal-overlay" role="presentation" onClick={() => setDrillBadge(null)}>
+          <div
+            className="pp-modal-card att-drill-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${drillBadge.label} — attended games`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button type="button" className="pp-modal-close" aria-label="Close" onClick={() => setDrillBadge(null)}>
+              ×
+            </button>
+            <span className="pp-modal-eyebrow">
+              Badge · {drillBadge.count} {drillBadge.count === 1 ? 'game' : 'games'}
+            </span>
+            <h3 className="pp-modal-title">{drillBadge.label}</h3>
+            {drillBadge.id === 'gordie-howe' ? (
+              <p className="att-drill-estimated">
+                Estimated — flagged from a goal, an assist and 5+ PIM (a fight heuristic, imperfect), so
+                the player shown may not be exact.
+              </p>
+            ) : null}
+            <ul className="att-drill-list">
+              {(drillBadge.games ?? []).map((g, i) => (
+                <li className="att-drill-row" key={`${g.game_id}-${g.player?.id ?? 'g'}-${i}`}>
+                  {g.player ? (
+                    <span className="att-drill-player">{g.player.name ?? `Player #${g.player.id}`}</span>
+                  ) : null}
+                  <span className="att-drill-meta">
+                    {g.matchup.away} @ {g.matchup.home}
+                    <span className="att-drill-date"> · {g.date}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
