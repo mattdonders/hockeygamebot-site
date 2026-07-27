@@ -33,7 +33,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
-import { readPhotoDate } from '../../lib/exif-date';
+import { readPhotoDate, readPhotoGps, type GpsCoord } from '../../lib/exif-date';
+import { nearestArena } from '../../lib/arena-match';
 import { harvestDates } from '../../lib/import-dates';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import PublicPassportPanel from './PublicPassportPanel';
@@ -607,17 +608,23 @@ function GameAddRow({
   already,
   disabled,
   onToggle,
+  matched,
 }: {
   g: RawGame;
   already: boolean;
   disabled: boolean;
   onToggle: (g: RawGame, already: boolean) => void;
+  matched?: { arena: string; km: number };
 }) {
   const awayColor = pickTeamColor(g.away_team.abbrev);
   const homeColor = pickTeamColor(g.home_team.abbrev);
+  const dist = matched ? (matched.km < 1 ? `${Math.round(matched.km * 1000)}m` : `${matched.km.toFixed(1)}km`) : '';
   return (
-    <div className="att-add-row">
+    <div className={matched ? 'att-add-row att-add-row-matched' : 'att-add-row'}>
       <div className="att-add-info">
+        {matched ? (
+          <span className="att-add-matched">📍 Your photo was here — {matched.arena} · {dist} away</span>
+        ) : null}
         <span className="att-add-line">
           <span className="att-add-teams">
             <span style={{ color: awayColor, fontWeight: 700 }}>
@@ -1488,7 +1495,14 @@ export default function AttendedTracker() {
   // NHL games and present them grouped, so the user confirms which game they were
   // at (date alone can't disambiguate a doubleheader building). Reuses addGame via
   // toggleSearchResult, so imported adds go through the identical write path.
-  const [importGroups, setImportGroups] = useState<{ date: string; games: RawGame[] }[] | null>(null);
+  // A reviewed date + its games; `match` is set when a photo's GPS pinned the arena
+  // (so we can pre-highlight the exact game the user was almost certainly at).
+  type ImportGroup = {
+    date: string;
+    games: RawGame[];
+    match?: { gameId: string; arena: string; km: number };
+  };
+  const [importGroups, setImportGroups] = useState<ImportGroup[] | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importNote, setImportNote] = useState<string | null>(null);
@@ -1513,57 +1527,84 @@ export default function AttendedTracker() {
   // Look up each date (bounded concurrency), keeping only dates that HAVE games.
   // `seq` lets a caller (onPhotos) pass its already-claimed request id so the read
   // and lookup phases share one identity; otherwise we claim a fresh one.
-  const runImport = useCallback(async (dates: string[], note: string, seq?: number) => {
-    const reqId = seq ?? (importReqRef.current += 1);
-    const alive = () => reqId === importReqRef.current;
-    if (dates.length === 0) {
-      if (alive()) {
-        setImportError('No usable dates found.');
-        setImportGroups(null);
-      }
-      return;
-    }
-    if (dates.length > IMPORT_MAX_DATES) {
-      if (alive()) {
-        setImportError(
-          `That's ${dates.length} dates — import ${IMPORT_MAX_DATES} or fewer at a time (do it in a couple of passes).`,
-        );
-      }
-      return;
-    }
-    setImportLoading(true);
-    setImportError(null);
-    setImportGroups(null);
-    try {
-      const groups: { date: string; games: RawGame[] }[] = [];
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < dates.length) {
-          if (!alive()) return; // superseded — stop fetching
-          const d = dates[cursor++];
-          const res = await fetch(`${API}/v1/games/today?date=${d}`);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const games = toRawGames(await res.json());
-          if (games.length) groups.push({ date: d, games });
+  // `dateCoords` (from photo GPS) lets us pin the exact game per date via the arena.
+  const runImport = useCallback(
+    async (dates: string[], note: string, seq?: number, dateCoords?: Map<string, GpsCoord[]>) => {
+      const reqId = seq ?? (importReqRef.current += 1);
+      const alive = () => reqId === importReqRef.current;
+      if (dates.length === 0) {
+        if (alive()) {
+          setImportError('No usable dates found.');
+          setImportGroups(null);
         }
-      };
-      await Promise.all(
-        Array.from({ length: Math.min(IMPORT_FETCH_CONCURRENCY, dates.length) }, worker),
-      );
-      if (!alive()) return; // a newer import/reset landed — drop these results
-      groups.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-      setImportGroups(groups);
-      setImportNote(
-        `${note} · ${groups.length} of ${dates.length} date${dates.length === 1 ? '' : 's'} had NHL games.`,
-      );
-    } catch {
-      if (alive()) setImportError('Could not load games for those dates. Please try again.');
-    } finally {
-      if (alive()) setImportLoading(false);
-    }
-  }, []);
+        return;
+      }
+      if (dates.length > IMPORT_MAX_DATES) {
+        if (alive()) {
+          setImportError(
+            `That's ${dates.length} dates — import ${IMPORT_MAX_DATES} or fewer at a time (do it in a couple of passes).`,
+          );
+        }
+        return;
+      }
+      setImportLoading(true);
+      setImportError(null);
+      setImportGroups(null);
+      try {
+        const groups: ImportGroup[] = [];
+        let cursor = 0;
+        const worker = async () => {
+          while (cursor < dates.length) {
+            if (!alive()) return; // superseded — stop fetching
+            const d = dates[cursor++];
+            const res = await fetch(`${API}/v1/games/today?date=${d}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const games = toRawGames(await res.json());
+            if (!games.length) continue;
+            const group: ImportGroup = { date: d, games };
+            // Pin the exact game from a photo's GPS: nearest arena → the game whose
+            // home team plays there. Try EVERY coord on the date (a dinner photo
+            // shouldn't suppress an arena photo), and only pin when EXACTLY ONE game
+            // is at that arena (GPS identifies the building, not the game — a same-
+            // arena doubleheader stays a manual pick). No coord / no arena → date-only.
+            for (const coord of dateCoords?.get(d) ?? []) {
+              const hit = nearestArena(coord.lat, coord.lon);
+              if (!hit) continue;
+              const candidates = games.filter(
+                (x) =>
+                  x.home_team.abbrev === hit.arena.abbrev ||
+                  hit.arena.altAbbrevs?.includes(x.home_team.abbrev),
+              );
+              if (candidates.length === 1) {
+                group.match = { gameId: candidates[0].game_id, arena: hit.arena.arena, km: hit.km };
+                break; // first coord that yields a unique arena match wins
+              }
+            }
+            groups.push(group);
+          }
+        };
+        await Promise.all(
+          Array.from({ length: Math.min(IMPORT_FETCH_CONCURRENCY, dates.length) }, worker),
+        );
+        if (!alive()) return; // a newer import/reset landed — drop these results
+        groups.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+        setImportGroups(groups);
+        const matched = groups.filter((g) => g.match).length;
+        setImportNote(
+          `${note} · ${groups.length} of ${dates.length} date${dates.length === 1 ? '' : 's'} had NHL games` +
+            (matched ? ` · 📍 ${matched} pinned by location` : ''),
+        );
+      } catch {
+        if (alive()) setImportError('Could not load games for those dates. Please try again.');
+      } finally {
+        if (alive()) setImportLoading(false);
+      }
+    },
+    [],
+  );
 
-  // Read each photo's EXIF date IN THE BROWSER (never uploaded), then look up games.
+  // Read each photo's EXIF date + GPS IN THE BROWSER (never uploaded), then look up
+  // games. GPS (when present) pins the exact game via the arena; date-only otherwise.
   const onPhotos = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
@@ -1572,7 +1613,9 @@ export default function AttendedTracker() {
       setPhotoBusy(true);
       setImportError(null);
       const dates = new Set<string>();
+      const dateCoords = new Map<string, GpsCoord[]>(); // date → all GPS coords seen that day
       let noDate = 0;
+      let gpsHits = 0;
       for (const f of arr) {
         if (reqId !== importReqRef.current) {
           setPhotoBusy(false);
@@ -1581,6 +1624,15 @@ export default function AttendedTracker() {
         const d = await readPhotoDate(f);
         if (d) dates.add(d);
         else noDate++;
+        const gps = await readPhotoGps(f);
+        if (gps) {
+          gpsHits++;
+          if (d) {
+            const arr2 = dateCoords.get(d) ?? [];
+            arr2.push(gps);
+            dateCoords.set(d, arr2);
+          }
+        }
         if (dates.size > IMPORT_MAX_DATES) break; // early exit — don't drain thousands of files
       }
       setPhotoBusy(false);
@@ -1596,7 +1648,7 @@ export default function AttendedTracker() {
         );
         return;
       }
-      await runImport(list, note, reqId); // share the claimed id across read + lookup
+      await runImport(list, note, reqId, gpsHits ? dateCoords : undefined);
     },
     [runImport],
   );
@@ -2767,9 +2819,10 @@ export default function AttendedTracker() {
                   </label>
                 </div>
                 <div className="att-add-hint">
-                  Pick photos from games you went to — we read only the <strong>date</strong> each was
-                  taken, right here in your browser (<strong>nothing is uploaded</strong>), and show the
-                  NHL games from those days for you to confirm.
+                  Pick photos from games you went to — we read the <strong>date</strong> and, when it's
+                  there, the <strong>location</strong> each was taken, right in your browser
+                  (<strong>nothing is uploaded</strong>). Location pins the exact game; otherwise we show
+                  every game that day for you to pick.
                 </div>
               </>
             ) : (
@@ -2817,27 +2870,43 @@ export default function AttendedTracker() {
                   </div>
                 ) : (
                   <div className="att-import-groups">
-                    {importGroups.map((grp) => (
-                      <div className="att-import-group" key={grp.date}>
-                        <div className="att-import-date">
-                          {grp.date}
-                          {grp.games.length > 1 ? (
-                            <span className="att-import-pick"> · pick the one you were at</span>
-                          ) : null}
+                    {importGroups.map((grp) => {
+                      const matchId = grp.match?.gameId;
+                      // Pinned game floats to the top of its date group.
+                      const games = matchId
+                        ? [...grp.games].sort((a, b) =>
+                            a.game_id === matchId ? -1 : b.game_id === matchId ? 1 : 0,
+                          )
+                        : grp.games;
+                      return (
+                        <div className="att-import-group" key={grp.date}>
+                          <div className="att-import-date">
+                            {grp.date}
+                            {grp.match ? (
+                              <span className="att-import-pick"> · 📍 pinned by location — confirm below</span>
+                            ) : grp.games.length > 1 ? (
+                              <span className="att-import-pick"> · pick the one you were at</span>
+                            ) : null}
+                          </div>
+                          <div className="att-add-results">
+                            {games.map((g) => (
+                              <GameAddRow
+                                key={g.game_id}
+                                g={g}
+                                already={attendedIds.has(g.game_id)}
+                                disabled={mutatingIds.has(g.game_id)}
+                                onToggle={toggleSearchResult}
+                                matched={
+                                  matchId === g.game_id
+                                    ? { arena: grp.match!.arena, km: grp.match!.km }
+                                    : undefined
+                                }
+                              />
+                            ))}
+                          </div>
                         </div>
-                        <div className="att-add-results">
-                          {grp.games.map((g) => (
-                            <GameAddRow
-                              key={g.game_id}
-                              g={g}
-                              already={attendedIds.has(g.game_id)}
-                              disabled={mutatingIds.has(g.game_id)}
-                              onToggle={toggleSearchResult}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>
