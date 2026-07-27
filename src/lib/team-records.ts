@@ -170,19 +170,21 @@ export function anchoredRecords(games: TeamRecordGame[], anchor: string): Anchor
 
   for (const g of games) {
     if (!g.isFinal) continue;
+    // A final only counts (as a rooting result OR as a neutral game) once it has a
+    // trustworthy decided outcome — a tie / 0-0 / missing-null score contributes
+    // nothing, consistent with how such games are excluded from every record.
+    const o = outcomeOf(g);
+    if (!o) continue;
+
     const isHome = g.homeAbbrev === anchor;
     const isAway = g.awayAbbrev === anchor;
     if (!isHome && !isAway) {
-      // A final the anchor did not play in — a neutral game (no rooting result).
-      // Only count it as neutral once it is a real, decided/played final.
+      // A decided final the anchor did not play in — a neutral game (no rooting side).
       neutralGames += 1;
       continue;
     }
     if (isHome && g.homeName) anchorName = g.homeName;
     if (isAway && g.awayName) anchorName = g.awayName;
-
-    const o = outcomeOf(g);
-    if (!o) continue; // played but no trustworthy result (tie / missing score)
 
     const oppAbbrev = isHome ? g.awayAbbrev : g.homeAbbrev;
     const oppName = isHome ? g.awayName : g.homeName;
@@ -243,6 +245,11 @@ export function inferAnchor(games: TeamRecordGame[]): AnchorInference {
   if (!leader || leader.homeGames === 0) return { anchor: null, ranked };
 
   const nextHome = ranked[1]?.homeGames ?? 0;
+  // A tie for most-home games means there is no unique rooting signal — never
+  // anchor one of two co-leaders (the sort tie-break is arbitrary). Require the
+  // leader be STRICTLY ahead before either dominance rule can apply.
+  if (leader.homeGames <= nextHome) return { anchor: null, ranked };
+
   const share = games.length > 0 ? leader.homeGames / games.length : 0;
   const dominant =
     share >= ANCHOR_DOMINANCE_MIN_SHARE || leader.homeGames >= ANCHOR_DOMINANCE_NEXT_MULTIPLE * nextHome;

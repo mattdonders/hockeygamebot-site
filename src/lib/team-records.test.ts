@@ -88,6 +88,19 @@ const SLATE: TeamRecordGame[] = [
   eqRec(opp.get('CAR'), 0, 1, 0, 'Table A vs CAR');
   eqRec(a.overall, 6, 4, 2, 'Table A — NJD overall');
   assert(a.neutralGames === 3, `Table A — expected 3 neutral games, got ${a.neutralGames}`);
+
+  // Regression (Codex #1): a neutral final with NO trustworthy outcome (tie / null
+  // score) must NOT be counted as a neutral game — only decided finals count.
+  const tiedNeutral = anchoredRecords([...SLATE, g('WSH', 2, 'PIT', 2, 'REG')], 'NJD');
+  assert(tiedNeutral.neutralGames === 3, `Table A — tied neutral final ignored, got ${tiedNeutral.neutralGames}`);
+  const nullNeutral = anchoredRecords(
+    [...SLATE, { ...g('WSH', 0, 'PIT', 0), homeScore: null, awayScore: null, isManual: true }],
+    'NJD',
+  );
+  assert(nullNeutral.neutralGames === 3, `Table A — null-score neutral final ignored, got ${nullNeutral.neutralGames}`);
+  // A genuinely decided neutral final DOES still count.
+  const decidedNeutral = anchoredRecords([...SLATE, g('WSH', 3, 'PIT', 1)], 'NJD');
+  assert(decidedNeutral.neutralGames === 4, `Table A — decided neutral final counts, got ${decidedNeutral.neutralGames}`);
   // Most-played opponent sorts first, PHI (OTL) ahead of BOS at equal games/wins.
   assert(a.opponents[0].abbrev === 'TOR', 'Table A — TOR sorts first');
   assert(
@@ -158,6 +171,17 @@ const SLATE: TeamRecordGame[] = [
   for (let i = 0; i < 2; i++) byMultiple.push(g('TOR', 1, 'NYR', 2));
   for (const t of ['BOS', 'PHI', 'CAR', 'WSH', 'PIT', 'CHI', 'DET', 'STL', 'COL']) byMultiple.push(g('NJD', 1, t, 2));
   assert(inferAnchor(byMultiple).anchor === 'NJD', 'inference — 2× runner-up rule anchors NJD');
+  // Regression (Codex #2): a TIE for most-home games yields no anchor even if the
+  // (arbitrary sort-break) leader would clear the 40% share rule. NJD home 4, NYR
+  // home 4 of 10 → NJD share 40% but not strictly ahead → no anchor.
+  const homeTie: TeamRecordGame[] = [];
+  for (let i = 0; i < 4; i++) homeTie.push(g('TOR', 1, 'NJD', 2));
+  for (let i = 0; i < 4; i++) homeTie.push(g('TOR', 1, 'NYR', 2));
+  homeTie.push(g('BOS', 1, 'PHI', 2));
+  homeTie.push(g('CAR', 1, 'WSH', 2));
+  assert(homeTie.length === 10, `inference tie fixture size, got ${homeTie.length}`);
+  assert(inferAnchor(homeTie).anchor === null, 'inference — 4/4 home tie → no anchor');
+
   // no-games → no anchor, no throw.
   assert(inferAnchor([]).anchor === null, 'inference — empty slate → no anchor');
 }
