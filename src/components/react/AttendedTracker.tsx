@@ -3295,11 +3295,10 @@ export default function AttendedTracker() {
                   ))}
                   <option value={ANCHOR_NONE}>No rooting interest</option>
                 </select>
-                {anchorIsInferred ? <span className="pp-anchor-chip">inferred</span> : null}
               </div>
 
-              {/* Inferred-anchor banner (dismissible — confirming locks the pick and
-                  the banner + chip never return) + soft nudges (spec §6). */}
+              {/* Inferred-anchor banner (the sole inferred-state indicator; dismissible —
+                  confirming locks the pick and the banner never returns) + soft nudges. */}
               {anchorIsInferred && effectiveAnchor && anchoredTable ? (
                 <div className="pp-anchor-note">
                   Records shown from the {possessive(anchoredTable.anchorName)} side — not your
