@@ -48,21 +48,22 @@ export function harvestDates(text: string, maxYear = new Date().getFullYear() + 
     add(valid(+m[1], +m[2], +m[3], maxYear));
   }
 
-  // 2) Month name: Mar 15 2006 / March 15, 2006 / 15 Mar 2006
-  for (const m of text.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/g)) {
+  // 2) Month name: Mar 15 2006 / March 15, 2006 / 15 Mar 2006 (2-digit years too,
+  //    e.g. Mar 15 06 — the month name anchors it, so false positives stay low).
+  const yr = (raw: string) => (raw.length === 2 ? expandYear(+raw) : +raw);
+  for (const m of text.matchAll(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{2}|\d{4})\b/g)) {
     const mo = MONTHS[m[1].slice(0, 3).toLowerCase()];
-    if (mo) add(valid(+m[3], mo, +m[2], maxYear));
+    if (mo) add(valid(yr(m[3]), mo, +m[2], maxYear));
   }
-  for (const m of text.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})\b/g)) {
+  for (const m of text.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{2}|\d{4})\b/g)) {
     const mo = MONTHS[m[2].slice(0, 3).toLowerCase()];
-    if (mo) add(valid(+m[3], mo, +m[1], maxYear));
+    if (mo) add(valid(yr(m[3]), mo, +m[1], maxYear));
   }
 
   // 3) US numeric: 3/15/2006, 03-15-06, 3.15.2006 (month-first — the North
   //    American norm for a hockey log). 4-digit and 2-digit years both handled.
   for (const m of text.matchAll(/\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2}|\d{4})\b/g)) {
-    const yr = m[3].length === 2 ? expandYear(+m[3]) : +m[3];
-    add(valid(yr, +m[1], +m[2], maxYear));
+    add(valid(yr(m[3]), +m[1], +m[2], maxYear));
   }
 
   return [...found].sort();

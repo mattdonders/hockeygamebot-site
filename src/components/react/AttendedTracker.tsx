@@ -1490,24 +1490,40 @@ export default function AttendedTracker() {
   const [importTab, setImportTab] = useState<'photos' | 'paste'>('photos');
   const [pasteText, setPasteText] = useState('');
   const [photoBusy, setPhotoBusy] = useState(false);
+  // Monotonic import-request id. Every import claims one; a reset or a newer import
+  // bumps it, and each async continuation gates its state writes on still being the
+  // current id — so a slow photo/paste import that finishes after the panel was
+  // closed (or superseded) can't clobber fresher state or reappear.
+  const importReqRef = useRef(0);
 
   const resetImport = useCallback(() => {
+    importReqRef.current += 1; // supersede any in-flight import
     setImportGroups(null);
     setImportNote(null);
     setImportError(null);
+    setImportLoading(false);
+    setPhotoBusy(false);
   }, []);
 
   // Look up each date (bounded concurrency), keeping only dates that HAVE games.
-  const runImport = useCallback(async (dates: string[], note: string) => {
+  // `seq` lets a caller (onPhotos) pass its already-claimed request id so the read
+  // and lookup phases share one identity; otherwise we claim a fresh one.
+  const runImport = useCallback(async (dates: string[], note: string, seq?: number) => {
+    const reqId = seq ?? (importReqRef.current += 1);
+    const alive = () => reqId === importReqRef.current;
     if (dates.length === 0) {
-      setImportError('No usable dates found.');
-      setImportGroups(null);
+      if (alive()) {
+        setImportError('No usable dates found.');
+        setImportGroups(null);
+      }
       return;
     }
     if (dates.length > IMPORT_MAX_DATES) {
-      setImportError(
-        `That's ${dates.length} dates — import ${IMPORT_MAX_DATES} or fewer at a time (do it in a couple of passes).`,
-      );
+      if (alive()) {
+        setImportError(
+          `That's ${dates.length} dates — import ${IMPORT_MAX_DATES} or fewer at a time (do it in a couple of passes).`,
+        );
+      }
       return;
     }
     setImportLoading(true);
@@ -1518,6 +1534,7 @@ export default function AttendedTracker() {
       let cursor = 0;
       const worker = async () => {
         while (cursor < dates.length) {
+          if (!alive()) return; // superseded — stop fetching
           const d = dates[cursor++];
           const res = await fetch(`${API}/v1/games/today?date=${d}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1528,15 +1545,16 @@ export default function AttendedTracker() {
       await Promise.all(
         Array.from({ length: Math.min(IMPORT_FETCH_CONCURRENCY, dates.length) }, worker),
       );
+      if (!alive()) return; // a newer import/reset landed — drop these results
       groups.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
       setImportGroups(groups);
       setImportNote(
         `${note} · ${groups.length} of ${dates.length} date${dates.length === 1 ? '' : 's'} had NHL games.`,
       );
     } catch {
-      setImportError('Could not load games for those dates. Please try again.');
+      if (alive()) setImportError('Could not load games for those dates. Please try again.');
     } finally {
-      setImportLoading(false);
+      if (alive()) setImportLoading(false);
     }
   }, []);
 
@@ -1544,17 +1562,24 @@ export default function AttendedTracker() {
   const onPhotos = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
+      const reqId = (importReqRef.current += 1); // claim this run up front
       const arr = Array.from(files);
       setPhotoBusy(true);
       setImportError(null);
       const dates = new Set<string>();
       let noDate = 0;
       for (const f of arr) {
+        if (reqId !== importReqRef.current) {
+          setPhotoBusy(false);
+          return; // superseded mid-read (reset / newer import) — abandon
+        }
         const d = await readPhotoDate(f);
         if (d) dates.add(d);
         else noDate++;
+        if (dates.size > IMPORT_MAX_DATES) break; // early exit — don't drain thousands of files
       }
       setPhotoBusy(false);
+      if (reqId !== importReqRef.current) return;
       const list = [...dates].sort();
       const note = `Read ${arr.length} photo${arr.length === 1 ? '' : 's'}${
         noDate ? ` (${noDate} without a readable date)` : ''
@@ -1566,7 +1591,7 @@ export default function AttendedTracker() {
         );
         return;
       }
-      await runImport(list, note);
+      await runImport(list, note, reqId); // share the claimed id across read + lookup
     },
     [runImport],
   );

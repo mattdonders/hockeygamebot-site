@@ -12,18 +12,23 @@ const TAG_DATETIME_ORIGINAL = 0x9003;
 const TAG_DATETIME = 0x0132; // fallback (file/modify time)
 const TAG_EXIF_IFD_POINTER = 0x8769;
 
+// All offsets below are bounded by `limit` — the END of the APP1/EXIF segment, NOT
+// the whole file. A malformed IFD/value pointer can otherwise point past the
+// segment into unrelated JPEG bytes and get misread as EXIF (data-integrity bug).
+
 /** Walk one IFD, invoking cb(tag, type, count, valueOffset) per entry. */
 function eachTag(
   view: DataView,
   ifdStart: number,
   little: boolean,
+  limit: number,
   cb: (tag: number, type: number, count: number, valueOffset: number) => void,
 ): void {
-  if (ifdStart + 2 > view.byteLength) return;
+  if (ifdStart < 0 || ifdStart + 2 > limit) return;
   const entries = view.getUint16(ifdStart, little);
   for (let i = 0; i < entries; i++) {
     const entry = ifdStart + 2 + i * 12;
-    if (entry + 12 > view.byteLength) return;
+    if (entry + 12 > limit) return;
     const tag = view.getUint16(entry, little);
     const type = view.getUint16(entry + 2, little);
     const count = view.getUint32(entry + 4, little);
@@ -31,19 +36,22 @@ function eachTag(
   }
 }
 
-/** Read an ASCII EXIF value (inline if ≤4 bytes, else at the pointed offset). */
+/** Read an ASCII EXIF value (inline if ≤4 bytes, else at the pointed offset).
+ *  Rejects a pointer that lands outside [tiffStart, limit). */
 function readAscii(
   view: DataView,
   tiffStart: number,
   count: number,
   valueOffset: number,
   little: boolean,
+  limit: number,
 ): string | null {
   const strOffset = count <= 4 ? valueOffset : tiffStart + view.getUint32(valueOffset, little);
+  if (strOffset < tiffStart || strOffset >= limit) return null;
   let out = '';
   for (let j = 0; j < count - 1; j++) {
     const p = strOffset + j;
-    if (p >= view.byteLength) break;
+    if (p >= limit) break;
     const c = view.getUint8(p);
     if (c === 0) break;
     out += String.fromCharCode(c);
@@ -51,10 +59,20 @@ function readAscii(
   return out || null;
 }
 
-/** Parse the TIFF block (at tiffStart) for a capture date, preferring
- *  DateTimeOriginal over the plain DateTime fallback. */
-function parseTiff(view: DataView, tiffStart: number): string | null {
-  if (tiffStart + 8 > view.byteLength) return null;
+/** UTC round-trip: reject an impossible calendar date (e.g. 2026:02:30), matching
+ *  the paste path's validation. */
+function validExifDate(y: number, mo: number, d: number): string | null {
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${y}-${p(mo)}-${p(d)}`;
+}
+
+/** Parse the TIFF block (at tiffStart, bounded by `limit`) for a capture date,
+ *  preferring DateTimeOriginal over the plain DateTime fallback. */
+function parseTiff(view: DataView, tiffStart: number, limit: number): string | null {
+  if (tiffStart + 8 > limit) return null;
   const byteOrder = view.getUint16(tiffStart, false);
   const little = byteOrder === 0x4949; // "II" little-endian; "MM" (0x4d4d) big-endian
   if (!little && byteOrder !== 0x4d4d) return null;
@@ -63,19 +81,23 @@ function parseTiff(view: DataView, tiffStart: number): string | null {
   const ifd0 = tiffStart + view.getUint32(tiffStart + 4, little);
 
   // Collect the IFDs worth searching: IFD0, plus the ExifIFD it points to
-  // (DateTimeOriginal lives in the ExifIFD).
+  // (DateTimeOriginal lives in the ExifIFD). Reject an ExifIFD pointer that lands
+  // outside the segment.
   const ifds: number[] = [ifd0];
-  eachTag(view, ifd0, little, (tag, _type, _count, valueOffset) => {
-    if (tag === TAG_EXIF_IFD_POINTER) ifds.push(tiffStart + view.getUint32(valueOffset, little));
+  eachTag(view, ifd0, little, limit, (tag, _type, _count, valueOffset) => {
+    if (tag === TAG_EXIF_IFD_POINTER) {
+      const p = tiffStart + view.getUint32(valueOffset, little);
+      if (p >= tiffStart && p < limit) ifds.push(p);
+    }
   });
 
   let original: string | null = null;
   let fallback: string | null = null;
   for (const ifd of ifds) {
-    eachTag(view, ifd, little, (tag, type, count, valueOffset) => {
+    eachTag(view, ifd, little, limit, (tag, type, count, valueOffset) => {
       if (type !== 2) return; // ASCII only
-      if (tag === TAG_DATETIME_ORIGINAL) original ??= readAscii(view, tiffStart, count, valueOffset, little);
-      else if (tag === TAG_DATETIME) fallback ??= readAscii(view, tiffStart, count, valueOffset, little);
+      if (tag === TAG_DATETIME_ORIGINAL) original ??= readAscii(view, tiffStart, count, valueOffset, little, limit);
+      else if (tag === TAG_DATETIME) fallback ??= readAscii(view, tiffStart, count, valueOffset, little, limit);
     });
   }
 
@@ -83,7 +105,7 @@ function parseTiff(view: DataView, tiffStart: number): string | null {
   if (!raw) return null;
   // EXIF datetime is "YYYY:MM:DD HH:MM:SS" (camera-local); we only want the date.
   const m = raw.match(/^(\d{4}):(\d{2}):(\d{2})/);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+  return m ? validExifDate(+m[1], +m[2], +m[3]) : null;
 }
 
 /** Locate the EXIF APP1 segment in a JPEG and parse its date. Returns YYYY-MM-DD
@@ -102,12 +124,13 @@ export function readExifDateFromBuffer(buf: ArrayBuffer): string | null {
       if (marker === 0xffe1) {
         // APP1 — is it "Exif\0\0"?
         const app1 = offset + 4;
+        const segEnd = Math.min(offset + 2 + size, view.byteLength); // bound reads to this segment
         if (
           app1 + 6 <= view.byteLength &&
           view.getUint32(app1, false) === 0x45786966 && // "Exif"
           view.getUint16(app1 + 4, false) === 0x0000
         ) {
-          const date = parseTiff(view, app1 + 6);
+          const date = parseTiff(view, app1 + 6, segEnd);
           if (date) return date;
         }
       }
