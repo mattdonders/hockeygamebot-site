@@ -3,7 +3,7 @@
  * logged-in Puck Passport dashboard.
  *
  * Renders only when logged in (the parent gates on isLoggedIn). Owns:
- *   - the public URL  hockeygamebot.com/puck-passport/@{handle}
+ *   - the public URL  hockeygamebot.com/puck-passport/{handle}  (no @ — Twitter-safe)
  *   - a Make-public toggle          → PUT /v1/account/public
  *   - a Copy-link button
  *   - a Customize-handle control     → live /handle-available + PUT /v1/account/handle
@@ -26,7 +26,10 @@ type Props = {
 };
 
 export default function PublicPassportPanel({ handle, isPublic, onHandleChange, onPublicChange }: Props) {
-  const publicUrl = handle ? `${PUBLIC_HOST}/puck-passport/@${handle}` : '';
+  // No leading @ in the shareable URL: Twitter parses "/@handle" as a mention
+  // (breaks the link + suppresses the OG card unfurl). The route strips a leading
+  // @ anyway, and the public page still DISPLAYS the branded "@handle" in its header.
+  const publicUrl = handle ? `${PUBLIC_HOST}/puck-passport/${handle}` : '';
 
   // ── Make-public toggle ────────────────────────────────────────────────────
   const [savingPublic, setSavingPublic] = useState(false);

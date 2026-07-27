@@ -187,33 +187,8 @@ export default function AdminDashboard() {
         <div style={{ ...C.kpiSub, marginTop: 6 }}>*events-table count; the users KPI above is ground truth (older signups predate the events table).</div>
       </div>
 
-      {/* Hourly trend + funnel + top passports */}
-      <div style={C.section}>
-        <span style={C.label}>Last 48h — hourly</span>
-        <div style={C.card}>
-          {d.trend_hourly.length ? (
-            <table style={C.table}>
-              <thead><tr>
-                <th style={C.th}>hour (UTC)</th>
-                <th style={{ ...C.th, textAlign: 'right' }}>visits</th>
-                <th style={{ ...C.th, textAlign: 'right' }}>views</th>
-                <th style={{ ...C.th, textAlign: 'right' }}>signups</th>
-              </tr></thead>
-              <tbody>
-                {d.trend_hourly.map((t) => (
-                  <tr key={t.hr}>
-                    <td style={C.td}>{t.hr}</td>
-                    <td style={C.tdNum}>{fmt(t.visits)}</td>
-                    <td style={C.tdNum}>{fmt(t.handle_views)}</td>
-                    <td style={C.tdNum}>{fmt(t.signups)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <div style={C.empty}>No activity in the last 48h.</div>}
-        </div>
-      </div>
-
+      {/* Funnel + top passports FIRST (above the tall hourly table) so the money
+          numbers — game_logged etc. — are visible without scrolling, then hourly. */}
       <div style={C.section}>
         <div style={C.twoCol}>
           <div>
@@ -245,6 +220,32 @@ export default function AdminDashboard() {
               ) : <div style={C.empty}>No public passport views yet.</div>}
             </div>
           </div>
+        </div>
+      </div>
+
+      <div style={C.section}>
+        <span style={C.label}>Last 48h — hourly</span>
+        <div style={C.card}>
+          {d.trend_hourly.length ? (
+            <table style={C.table}>
+              <thead><tr>
+                <th style={C.th}>hour (UTC)</th>
+                <th style={{ ...C.th, textAlign: 'right' }}>visits</th>
+                <th style={{ ...C.th, textAlign: 'right' }}>views</th>
+                <th style={{ ...C.th, textAlign: 'right' }}>signups</th>
+              </tr></thead>
+              <tbody>
+                {d.trend_hourly.map((t) => (
+                  <tr key={t.hr}>
+                    <td style={C.td}>{t.hr}</td>
+                    <td style={C.tdNum}>{fmt(t.visits)}</td>
+                    <td style={C.tdNum}>{fmt(t.handle_views)}</td>
+                    <td style={C.tdNum}>{fmt(t.signups)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : <div style={C.empty}>No activity in the last 48h.</div>}
         </div>
       </div>
     </div>
