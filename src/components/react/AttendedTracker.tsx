@@ -1567,7 +1567,13 @@ export default function AttendedTracker() {
             const coord = dateCoords?.get(d);
             if (coord) {
               const hit = nearestArena(coord.lat, coord.lon);
-              const g = hit && games.find((x) => x.home_team.abbrev === hit.arena.abbrev);
+              const g =
+                hit &&
+                games.find(
+                  (x) =>
+                    x.home_team.abbrev === hit.arena.abbrev ||
+                    hit.arena.altAbbrevs?.includes(x.home_team.abbrev),
+                );
               if (hit && g) group.match = { gameId: g.game_id, arena: hit.arena.arena, km: hit.km };
             }
             groups.push(group);
