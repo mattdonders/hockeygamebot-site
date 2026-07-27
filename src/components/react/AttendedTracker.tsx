@@ -572,6 +572,12 @@ function teamMatchupLabel(shortName: string | null | undefined, abbrev: string):
   );
 }
 
+/** Possessive form of a team name, avoiding "Devils's": names ending in s take a
+ *  bare apostrophe ("New Jersey Devils'"), others take "'s" ("Avalanche's"). */
+function possessive(name: string): string {
+  return /s$/i.test(name) ? `${name}’` : `${name}’s`;
+}
+
 function winnerAbbrev(g: AttendedGame): string | null {
   if (g.status !== 'final') return null;
   if (g.home.score > g.away.score) return g.home.abbrev;
@@ -1879,6 +1885,13 @@ export default function AttendedTracker() {
     () => (effectiveAnchor ? anchoredRecords(recordGames, effectiveAnchor) : null),
     [recordGames, effectiveAnchor],
   );
+
+  // What the dropdown shows selected. An INFERRED anchor is pre-selected by its real
+  // team value (so it reads the full name, e.g. "New Jersey Devils") even though the
+  // stored pref is still unset — confirming (✕ or any pick) persists it. No dominant
+  // team ⇒ the disabled placeholder.
+  const anchorSelectValue = explicitTeam
+    ?? (explicitNone ? ANCHOR_NONE : anchorIsInferred && effectiveAnchor ? effectiveAnchor : '');
 
   // Data-availability check (FAIL LOUD, honestly): the server saw these finals; if
   // the browser holds fewer decided games (a cross-device D1 row with no game_results
@@ -3257,7 +3270,7 @@ export default function AttendedTracker() {
                 </span>
               </div>
 
-              {/* Anchor selector — three states (team / none / auto-inferred). */}
+              {/* Anchor selector — three states (team / none / inferred pre-select). */}
               <div className="pp-anchor-toolbar">
                 <label className="pp-anchor-label" htmlFor="pp-anchor-select">
                   Rooting perspective
@@ -3265,11 +3278,15 @@ export default function AttendedTracker() {
                 <select
                   id="pp-anchor-select"
                   className="pp-anchor-select"
-                  value={anchorPref ?? ''}
-                  onChange={(e) => chooseAnchor(e.target.value === '' ? null : e.target.value)}
+                  value={anchorSelectValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '') return; // disabled placeholder — no-op
+                    chooseAnchor(v); // any explicit pick confirms + persists (banner never returns)
+                  }}
                 >
-                  <option value="">
-                    Auto{inferred.anchor ? ` — ${inferred.anchor}` : ' — neutral'}
+                  <option value="" disabled>
+                    Choose your team…
                   </option>
                   {teamsSeenForSelect.map((t) => (
                     <option key={t.abbrev} value={t.abbrev}>
@@ -3278,15 +3295,24 @@ export default function AttendedTracker() {
                   ))}
                   <option value={ANCHOR_NONE}>No rooting interest</option>
                 </select>
+                {anchorIsInferred ? <span className="pp-anchor-chip">inferred</span> : null}
               </div>
 
-              {/* Inferred-anchor label + soft nudges (spec §6). */}
-              {anchorIsInferred && effectiveAnchor ? (
+              {/* Inferred-anchor banner (dismissible — confirming locks the pick and
+                  the banner + chip never return) + soft nudges (spec §6). */}
+              {anchorIsInferred && effectiveAnchor && anchoredTable ? (
                 <div className="pp-anchor-note">
-                  Records shown from <strong>{effectiveAnchor}</strong>’s side — not your team?{' '}
-                  <button type="button" className="pp-anchor-link" onClick={() => chooseAnchor('')}>
-                    Set your team
-                  </button>
+                  Records shown from the {possessive(anchoredTable.anchorName)} side — not your
+                  team? Pick it above, or{' '}
+                  <button
+                    type="button"
+                    className="pp-anchor-dismiss"
+                    aria-label="Keep this team as your rooting perspective"
+                    onClick={() => chooseAnchor(effectiveAnchor)}
+                  >
+                    ✕
+                  </button>{' '}
+                  to keep it.
                 </div>
               ) : noDominantTeam ? (
                 <div className="pp-anchor-note pp-anchor-note-soft">
@@ -3329,7 +3355,8 @@ export default function AttendedTracker() {
                     <div className="att-team-row pp-anchor-row" key="__anchor__">
                       <span className="att-team-dot" style={{ background: pickTeamColor(anchoredTable.anchor) }} />
                       <span className="att-team-abbr">{anchoredTable.anchor}</span>
-                      <span className="att-team-name">{anchoredTable.anchorName} — overall</span>
+                      <span className="att-team-name">{anchoredTable.anchorName}</span>
+                      <span className="pp-overall-tag">Overall</span>
                       <span className="att-team-rec">
                         {anchoredTable.overall.w}-{anchoredTable.overall.l}-{anchoredTable.overall.otl}
                       </span>
