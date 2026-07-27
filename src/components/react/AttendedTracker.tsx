@@ -33,6 +33,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
+import { readPhotoDate } from '../../lib/exif-date';
+import { harvestDates } from '../../lib/import-dates';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import PublicPassportPanel from './PublicPassportPanel';
 import {
@@ -252,6 +254,11 @@ function toRawGames(data: any): RawGame[] {
 // it (14 days is plenty for "which night that week was it?") rather than let a
 // fat-fingered range spray dozens of requests.
 const MAX_DATE_SPAN_DAYS = 14;
+
+// Import (photos / paste) looks up one date at a time; cap a single batch so a huge
+// photo dump or pasted history can't fan out unbounded (do it in a few passes).
+const IMPORT_MAX_DATES = 150;
+const IMPORT_FETCH_CONCURRENCY = 6;
 
 /** Inclusive list of YYYY-MM-DD from `from` to `to` (UTC, DST-safe). Returns null
  *  if the span is invalid or exceeds MAX_DATE_SPAN_DAYS, so callers fail loud
@@ -590,6 +597,56 @@ function summaryRecordsToView(recs: AttendedSummary['records']): ViewRecord[] {
     });
   }
   return out;
+}
+
+// ── Add-flow game row ────────────────────────────────────────────────────────────
+// One selectable search-result row (teams · score · date/venue · +Attended). Shared
+// by the Import review list; mirrors the inline markup By Date/By Team already use.
+function GameAddRow({
+  g,
+  already,
+  disabled,
+  onToggle,
+}: {
+  g: RawGame;
+  already: boolean;
+  disabled: boolean;
+  onToggle: (g: RawGame, already: boolean) => void;
+}) {
+  const awayColor = pickTeamColor(g.away_team.abbrev);
+  const homeColor = pickTeamColor(g.home_team.abbrev);
+  return (
+    <div className="att-add-row">
+      <div className="att-add-info">
+        <span className="att-add-line">
+          <span className="att-add-teams">
+            <span style={{ color: awayColor, fontWeight: 700 }}>
+              {teamMatchupLabel(g.away_team.short_name, g.away_team.abbrev)}
+            </span>
+            <span className="att-add-at">@</span>
+            <span style={{ color: homeColor, fontWeight: 700 }}>
+              {teamMatchupLabel(g.home_team.short_name, g.home_team.abbrev)}
+            </span>
+          </span>
+          <span className="att-add-score">
+            {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
+          </span>
+        </span>
+        <span className="att-add-meta">
+          <span className="att-add-date">{g.date}</span>
+          {g.venue ? <span className="att-add-venue">{g.venue}</span> : null}
+        </span>
+      </div>
+      <button
+        className={already ? 'att-add-btn added' : 'att-add-btn'}
+        onClick={() => onToggle(g, already)}
+        disabled={disabled}
+        title={already ? 'Remove from your attended games' : undefined}
+      >
+        {already ? '✓ Added' : '+ Attended'}
+      </button>
+    </div>
+  );
 }
 
 // ── Counter card ─────────────────────────────────────────────────────────────────
@@ -947,8 +1004,9 @@ export default function AttendedTracker() {
   // historical players; players.json backfills a properly-cased name. Non-fatal.
   const [nameMap, setNameMap] = useState<Map<number, string> | null>(null);
 
-  // Add-games flow — mode toggle: team-first (default, matches fan recall) or date.
-  const [addMode, setAddMode] = useState<'team' | 'date'>('team');
+  // Add-games flow — mode toggle: team-first (default, matches fan recall), date, or
+  // bulk import (photos / pasted list).
+  const [addMode, setAddMode] = useState<'team' | 'date' | 'import'>('team');
 
   // Count-up replay: bumping this token re-runs the 0→total roll on every tally.
   // Fired by clicking the Games counter (an opt-in "watch it add up" moment) — the
@@ -1424,6 +1482,129 @@ export default function AttendedTracker() {
       setSearchLoading(false);
     }
   }, [searchDate, searchDateTo]);
+
+  // ── Import: photos (EXIF date) / pasted list → review by date ─────────────────
+  // Both inputs reduce to the SAME thing: a set of dates. We look up each date's
+  // NHL games and present them grouped, so the user confirms which game they were
+  // at (date alone can't disambiguate a doubleheader building). Reuses addGame via
+  // toggleSearchResult, so imported adds go through the identical write path.
+  const [importGroups, setImportGroups] = useState<{ date: string; games: RawGame[] }[] | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importNote, setImportNote] = useState<string | null>(null);
+  const [importTab, setImportTab] = useState<'photos' | 'paste'>('photos');
+  const [pasteText, setPasteText] = useState('');
+  const [photoBusy, setPhotoBusy] = useState(false);
+  // Monotonic import-request id. Every import claims one; a reset or a newer import
+  // bumps it, and each async continuation gates its state writes on still being the
+  // current id — so a slow photo/paste import that finishes after the panel was
+  // closed (or superseded) can't clobber fresher state or reappear.
+  const importReqRef = useRef(0);
+
+  const resetImport = useCallback(() => {
+    importReqRef.current += 1; // supersede any in-flight import
+    setImportGroups(null);
+    setImportNote(null);
+    setImportError(null);
+    setImportLoading(false);
+    setPhotoBusy(false);
+  }, []);
+
+  // Look up each date (bounded concurrency), keeping only dates that HAVE games.
+  // `seq` lets a caller (onPhotos) pass its already-claimed request id so the read
+  // and lookup phases share one identity; otherwise we claim a fresh one.
+  const runImport = useCallback(async (dates: string[], note: string, seq?: number) => {
+    const reqId = seq ?? (importReqRef.current += 1);
+    const alive = () => reqId === importReqRef.current;
+    if (dates.length === 0) {
+      if (alive()) {
+        setImportError('No usable dates found.');
+        setImportGroups(null);
+      }
+      return;
+    }
+    if (dates.length > IMPORT_MAX_DATES) {
+      if (alive()) {
+        setImportError(
+          `That's ${dates.length} dates — import ${IMPORT_MAX_DATES} or fewer at a time (do it in a couple of passes).`,
+        );
+      }
+      return;
+    }
+    setImportLoading(true);
+    setImportError(null);
+    setImportGroups(null);
+    try {
+      const groups: { date: string; games: RawGame[] }[] = [];
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < dates.length) {
+          if (!alive()) return; // superseded — stop fetching
+          const d = dates[cursor++];
+          const res = await fetch(`${API}/v1/games/today?date=${d}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const games = toRawGames(await res.json());
+          if (games.length) groups.push({ date: d, games });
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(IMPORT_FETCH_CONCURRENCY, dates.length) }, worker),
+      );
+      if (!alive()) return; // a newer import/reset landed — drop these results
+      groups.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+      setImportGroups(groups);
+      setImportNote(
+        `${note} · ${groups.length} of ${dates.length} date${dates.length === 1 ? '' : 's'} had NHL games.`,
+      );
+    } catch {
+      if (alive()) setImportError('Could not load games for those dates. Please try again.');
+    } finally {
+      if (alive()) setImportLoading(false);
+    }
+  }, []);
+
+  // Read each photo's EXIF date IN THE BROWSER (never uploaded), then look up games.
+  const onPhotos = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      const reqId = (importReqRef.current += 1); // claim this run up front
+      const arr = Array.from(files);
+      setPhotoBusy(true);
+      setImportError(null);
+      const dates = new Set<string>();
+      let noDate = 0;
+      for (const f of arr) {
+        if (reqId !== importReqRef.current) {
+          setPhotoBusy(false);
+          return; // superseded mid-read (reset / newer import) — abandon
+        }
+        const d = await readPhotoDate(f);
+        if (d) dates.add(d);
+        else noDate++;
+        if (dates.size > IMPORT_MAX_DATES) break; // early exit — don't drain thousands of files
+      }
+      setPhotoBusy(false);
+      if (reqId !== importReqRef.current) return;
+      const list = [...dates].sort();
+      const note = `Read ${arr.length} photo${arr.length === 1 ? '' : 's'}${
+        noDate ? ` (${noDate} without a readable date)` : ''
+      }`;
+      if (list.length === 0) {
+        setImportGroups(null);
+        setImportError(
+          `${note} — none had a readable capture date. Screenshots and some downloads have no date; try the paste option instead.`,
+        );
+        return;
+      }
+      await runImport(list, note, reqId); // share the claimed id across read + lookup
+    },
+    [runImport],
+  );
+
+  const onPaste = useCallback(async () => {
+    const dates = harvestDates(pasteText);
+    await runImport(dates, `Found ${dates.length} date${dates.length === 1 ? '' : 's'}`);
+  }, [pasteText, runImport]);
 
   // ── Search a team's season ───────────────────────────────────────────────────
   // Hits the new GET /v1/games/by-team endpoint (same game shape as /today), then
@@ -2225,6 +2406,14 @@ export default function AttendedTracker() {
           >
             By Date
           </button>
+          <button
+            role="tab"
+            aria-selected={addMode === 'import'}
+            className={addMode === 'import' ? 'att-mode-btn active' : 'att-mode-btn'}
+            onClick={() => setAddMode('import')}
+          >
+            Import
+          </button>
         </div>
 
         {/* ── BY TEAM ─────────────────────────────────────────────────────────── */}
@@ -2407,7 +2596,7 @@ export default function AttendedTracker() {
               )
             ) : null}
           </>
-        ) : (
+        ) : addMode === 'date' ? (
           /* ── BY DATE (original flow) ────────────────────────────────────────── */
           <>
             <div className="att-add-controls">
@@ -2535,6 +2724,120 @@ export default function AttendedTracker() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </>
+            ) : null}
+          </>
+        ) : (
+          /* ── IMPORT — photos (EXIF date) or a pasted list → review by date ───── */
+          <>
+            <div className="att-import-tabs" role="tablist" aria-label="Import from">
+              <button
+                role="tab"
+                aria-selected={importTab === 'photos'}
+                className={importTab === 'photos' ? 'att-subtab active' : 'att-subtab'}
+                onClick={() => setImportTab('photos')}
+              >
+                From photos
+              </button>
+              <button
+                role="tab"
+                aria-selected={importTab === 'paste'}
+                className={importTab === 'paste' ? 'att-subtab active' : 'att-subtab'}
+                onClick={() => setImportTab('paste')}
+              >
+                Paste a list
+              </button>
+            </div>
+
+            {importTab === 'photos' ? (
+              <>
+                <div className="att-add-controls">
+                  <label className={photoBusy ? 'att-btn att-file-btn disabled' : 'att-btn att-file-btn'}>
+                    {photoBusy ? 'Reading photos…' : 'Choose photos'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      hidden
+                      disabled={photoBusy}
+                      onChange={(e) => onPhotos(e.target.files)}
+                    />
+                  </label>
+                </div>
+                <div className="att-add-hint">
+                  Pick photos from games you went to — we read only the <strong>date</strong> each was
+                  taken, right here in your browser (<strong>nothing is uploaded</strong>), and show the
+                  NHL games from those days for you to confirm.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="att-import-paste">
+                  <textarea
+                    className="att-import-textarea"
+                    rows={5}
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    aria-label="Paste your game dates"
+                    placeholder={'Paste dates in any format — one per line or straight from a spreadsheet:\n2006-03-15\n3/18/2006\nMar 22, 2006'}
+                  />
+                  <button
+                    className="att-btn"
+                    onClick={onPaste}
+                    disabled={importLoading || !pasteText.trim()}
+                  >
+                    {importLoading ? 'Looking up…' : 'Find games'}
+                  </button>
+                </div>
+                <div className="att-add-hint">
+                  Any format works — columns, commas, notes, whatever. We just pull the dates out and
+                  match NHL games. No exact-format needed.
+                </div>
+              </>
+            )}
+
+            {importError ? <div className="att-banner att-banner-warn">{importError}</div> : null}
+            {importLoading ? <div className="att-add-empty">Looking up games…</div> : null}
+
+            {importGroups != null ? (
+              <>
+                <div className="att-select-bar">
+                  <span className="att-select-count">{importNote}</span>
+                  <div className="att-select-actions">
+                    <button className="att-btn-ghost" onClick={resetImport} aria-label="Close import results">
+                      Close
+                    </button>
+                  </div>
+                </div>
+                {importGroups.length === 0 ? (
+                  <div className="att-add-empty">
+                    None of those dates had NHL games. Double-check them, or add a game manually below.
+                  </div>
+                ) : (
+                  <div className="att-import-groups">
+                    {importGroups.map((grp) => (
+                      <div className="att-import-group" key={grp.date}>
+                        <div className="att-import-date">
+                          {grp.date}
+                          {grp.games.length > 1 ? (
+                            <span className="att-import-pick"> · pick the one you were at</span>
+                          ) : null}
+                        </div>
+                        <div className="att-add-results">
+                          {grp.games.map((g) => (
+                            <GameAddRow
+                              key={g.game_id}
+                              g={g}
+                              already={attendedIds.has(g.game_id)}
+                              disabled={mutatingIds.has(g.game_id)}
+                              onToggle={toggleSearchResult}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </>
