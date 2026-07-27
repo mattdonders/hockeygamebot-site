@@ -33,7 +33,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
-import { readPhotoDate } from '../../lib/exif-date';
+import { readPhotoDate, readPhotoGps } from '../../lib/exif-date';
 import { harvestDates } from '../../lib/import-dates';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import PublicPassportPanel from './PublicPassportPanel';
@@ -1495,6 +1495,10 @@ export default function AttendedTracker() {
   const [importTab, setImportTab] = useState<'photos' | 'paste'>('photos');
   const [pasteText, setPasteText] = useState('');
   const [photoBusy, setPhotoBusy] = useState(false);
+  // SPIKE: raw GPS readout from picked photos — tells us whether iOS preserves
+  // location through a web file-pick (it strips it for privacy on some paths). If
+  // this stays "0 with location", arena auto-detection is a native-iOS feature.
+  const [importGpsDebug, setImportGpsDebug] = useState<string | null>(null);
   // Monotonic import-request id. Every import claims one; a reset or a newer import
   // bumps it, and each async continuation gates its state writes on still being the
   // current id — so a slow photo/paste import that finishes after the panel was
@@ -1571,8 +1575,11 @@ export default function AttendedTracker() {
       const arr = Array.from(files);
       setPhotoBusy(true);
       setImportError(null);
+      setImportGpsDebug(null);
       const dates = new Set<string>();
       let noDate = 0;
+      let gpsHits = 0;
+      const gpsSamples: string[] = [];
       for (const f of arr) {
         if (reqId !== importReqRef.current) {
           setPhotoBusy(false);
@@ -1581,9 +1588,21 @@ export default function AttendedTracker() {
         const d = await readPhotoDate(f);
         if (d) dates.add(d);
         else noDate++;
+        // SPIKE: also try GPS (never uploaded) to learn if iOS keeps it on web.
+        const gps = await readPhotoGps(f);
+        if (gps) {
+          gpsHits++;
+          if (gpsSamples.length < 3) gpsSamples.push(`${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}`);
+        }
         if (dates.size > IMPORT_MAX_DATES) break; // early exit — don't drain thousands of files
       }
       setPhotoBusy(false);
+      if (reqId === importReqRef.current) {
+        setImportGpsDebug(
+          `📍 Location test: ${gpsHits} of ${arr.length} photo${arr.length === 1 ? '' : 's'} had GPS` +
+            (gpsSamples.length ? ` — e.g. ${gpsSamples.join(' · ')}` : ' (none — iOS may be stripping it)'),
+        );
+      }
       if (reqId !== importReqRef.current) return;
       const list = [...dates].sort();
       const note = `Read ${arr.length} photo${arr.length === 1 ? '' : 's'}${
@@ -2771,6 +2790,7 @@ export default function AttendedTracker() {
                   taken, right here in your browser (<strong>nothing is uploaded</strong>), and show the
                   NHL games from those days for you to confirm.
                 </div>
+                {importGpsDebug ? <div className="att-gps-debug">{importGpsDebug}</div> : null}
               </>
             ) : (
               <>
