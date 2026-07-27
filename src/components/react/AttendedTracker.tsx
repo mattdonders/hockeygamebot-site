@@ -3300,18 +3300,20 @@ export default function AttendedTracker() {
               {/* Inferred-anchor banner (the sole inferred-state indicator; dismissible —
                   confirming locks the pick and the banner never returns) + soft nudges. */}
               {anchorIsInferred && effectiveAnchor && anchoredTable ? (
-                <div className="pp-anchor-note">
-                  Records shown from the {possessive(anchoredTable.anchorName)} side — not your
-                  team? Pick it above, or{' '}
+                <div className="pp-anchor-note pp-anchor-note-dismissible">
+                  <span className="pp-anchor-note-text">
+                    Records shown from the {possessive(anchoredTable.anchorName)} side — not your
+                    team? Pick it above.
+                  </span>
                   <button
                     type="button"
                     className="pp-anchor-dismiss"
                     aria-label="Keep this team as your rooting perspective"
+                    title="Keep this team"
                     onClick={() => chooseAnchor(effectiveAnchor)}
                   >
                     ✕
-                  </button>{' '}
-                  to keep it.
+                  </button>
                 </div>
               ) : noDominantTeam ? (
                 <div className="pp-anchor-note pp-anchor-note-soft">
