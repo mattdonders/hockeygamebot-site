@@ -22,12 +22,17 @@ export type ArenaMatch = { arena: NhlArena; km: number };
 export const ARENA_MATCH_MAX_KM = 5;
 
 /** Nearest NHL arena within ARENA_MATCH_MAX_KM, or null if the coordinate isn't
- *  near any arena (e.g. a photo taken at home — correctly no match). */
+ *  near any arena (a photo taken at home — correctly no match) OR is near-equidistant
+ *  from two arenas (ambiguous — don't guess). Real NHL buildings are >10km apart, so
+ *  the tie case is defensive, but a wrong pin is worse than no pin. */
 export function nearestArena(lat: number, lon: number, maxKm = ARENA_MATCH_MAX_KM): ArenaMatch | null {
-  let best: ArenaMatch | null = null;
+  const within: ArenaMatch[] = [];
   for (const a of NHL_ARENAS) {
     const km = haversineKm(lat, lon, a.lat, a.lon);
-    if (km <= maxKm && (!best || km < best.km)) best = { arena: a, km };
+    if (km <= maxKm) within.push({ arena: a, km });
   }
-  return best;
+  if (within.length === 0) return null;
+  within.sort((x, y) => x.km - y.km);
+  if (within.length > 1 && within[1].km - within[0].km < 0.5) return null; // ambiguous
+  return within[0];
 }

@@ -1529,7 +1529,7 @@ export default function AttendedTracker() {
   // and lookup phases share one identity; otherwise we claim a fresh one.
   // `dateCoords` (from photo GPS) lets us pin the exact game per date via the arena.
   const runImport = useCallback(
-    async (dates: string[], note: string, seq?: number, dateCoords?: Map<string, GpsCoord>) => {
+    async (dates: string[], note: string, seq?: number, dateCoords?: Map<string, GpsCoord[]>) => {
       const reqId = seq ?? (importReqRef.current += 1);
       const alive = () => reqId === importReqRef.current;
       if (dates.length === 0) {
@@ -1563,18 +1563,22 @@ export default function AttendedTracker() {
             if (!games.length) continue;
             const group: ImportGroup = { date: d, games };
             // Pin the exact game from a photo's GPS: nearest arena → the game whose
-            // home team plays there. No coords / no nearby arena → date-only (user picks).
-            const coord = dateCoords?.get(d);
-            if (coord) {
+            // home team plays there. Try EVERY coord on the date (a dinner photo
+            // shouldn't suppress an arena photo), and only pin when EXACTLY ONE game
+            // is at that arena (GPS identifies the building, not the game — a same-
+            // arena doubleheader stays a manual pick). No coord / no arena → date-only.
+            for (const coord of dateCoords?.get(d) ?? []) {
               const hit = nearestArena(coord.lat, coord.lon);
-              const g =
-                hit &&
-                games.find(
-                  (x) =>
-                    x.home_team.abbrev === hit.arena.abbrev ||
-                    hit.arena.altAbbrevs?.includes(x.home_team.abbrev),
-                );
-              if (hit && g) group.match = { gameId: g.game_id, arena: hit.arena.arena, km: hit.km };
+              if (!hit) continue;
+              const candidates = games.filter(
+                (x) =>
+                  x.home_team.abbrev === hit.arena.abbrev ||
+                  hit.arena.altAbbrevs?.includes(x.home_team.abbrev),
+              );
+              if (candidates.length === 1) {
+                group.match = { gameId: candidates[0].game_id, arena: hit.arena.arena, km: hit.km };
+                break; // first coord that yields a unique arena match wins
+              }
             }
             groups.push(group);
           }
@@ -1609,7 +1613,7 @@ export default function AttendedTracker() {
       setPhotoBusy(true);
       setImportError(null);
       const dates = new Set<string>();
-      const dateCoords = new Map<string, GpsCoord>(); // date → GPS (first with location wins)
+      const dateCoords = new Map<string, GpsCoord[]>(); // date → all GPS coords seen that day
       let noDate = 0;
       let gpsHits = 0;
       for (const f of arr) {
@@ -1623,7 +1627,11 @@ export default function AttendedTracker() {
         const gps = await readPhotoGps(f);
         if (gps) {
           gpsHits++;
-          if (d && !dateCoords.has(d)) dateCoords.set(d, gps);
+          if (d) {
+            const arr2 = dateCoords.get(d) ?? [];
+            arr2.push(gps);
+            dateCoords.set(d, arr2);
+          }
         }
         if (dates.size > IMPORT_MAX_DATES) break; // early exit — don't drain thousands of files
       }

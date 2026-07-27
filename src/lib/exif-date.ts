@@ -188,7 +188,8 @@ function readRationals(
   for (let i = 0; i < count; i++) {
     const num = view.getUint32(off + i * 8, little);
     const den = view.getUint32(off + i * 8 + 4, little);
-    out.push(den === 0 ? 0 : num / den);
+    if (den === 0) return null; // malformed rational — reject the whole value
+    out.push(num / den);
   }
   return out;
 }
@@ -225,7 +226,9 @@ function parseGps(view: DataView, tiffStart: number, limit: number): GpsCoord | 
   let lon = dms(g.lon);
   if (g.latRef && g.latRef.toUpperCase().startsWith('S')) lat = -lat;
   if (g.lonRef && g.lonRef.toUpperCase().startsWith('W')) lon = -lon;
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null; // impossible coord — reject
+  if (lat === 0 && lon === 0) return null; // null-island (unset) sentinel
   return { lat, lon };
 }
 
