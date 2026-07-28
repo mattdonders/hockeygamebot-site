@@ -724,7 +724,7 @@ export default function HGBTable<T extends object>({
             marginLeft: 'auto',
           }}
         >
-          {filteredData.length} rows{!isMobile ? ' · click header to sort' : ''}
+          {tableRows.length} rows{!isMobile ? ' · click header to sort' : ''}
         </span>}
       </div>}
 
