@@ -245,6 +245,18 @@ export function computeEarnedBadges(
 
 // ── Full catalog: earned + ghost (unearned) badges (Workstream B2, §2) ───────────
 
+/** One earning game for an earned badge — the OWNER-ONLY drill-down row source.
+ *  Resolved + sorted newest-first by the server on the AUTHED/OWNER summary only;
+ *  the PUBLIC passport projection INTENTIONALLY strips these (privacy: no game
+ *  dates/ids/player-ids leak on a shared link). `player` is present for
+ *  player-anchored badges (hat trick, milestones), absent for moment badges. */
+export interface BadgeEarnedGame {
+  game_id: string;
+  date: string;
+  matchup: string; // e.g. "NJD @ TOR" — already resolved server-side
+  player?: { id: number; name: string };
+}
+
 /** One entry in the FULL badge catalog — earned or not. Shared render shape for
  *  both the logged-in (server summary) and logged-out (client-computed) paths so
  *  the two states render identical chips (anti-divergence). */
@@ -265,6 +277,11 @@ export interface CatalogBadge {
   /** Numeric rarity for sorting: earned = total/count (higher ⇒ rarer); unearned
    *  = the hint's N. Populated by the builders below. */
   rarityRatio: number;
+  /** The specific games that earned this badge — newest-first, OWNER-ONLY. Present
+   *  only on the owner dashboard's authed/own-data summary (see BadgeEarnedGame);
+   *  ALWAYS undefined on the public passport (projection strips it) and on
+   *  unearned/ghost chips. Drives the click-to-open drill-down. */
+  games?: BadgeEarnedGame[];
 }
 
 /** Parse a "1 in N" rarity string → N (a bare number). Falls back to 1 for

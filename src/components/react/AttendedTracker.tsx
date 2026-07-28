@@ -48,6 +48,7 @@ import {
   TIER_STATS,
   type CatalogBadge,
   type TierBadgeView,
+  type BadgeEarnedGame,
 } from './puck-passport-badges';
 import { drawPassportCard, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
@@ -231,7 +232,18 @@ type AttendedSummary = {
     most_shots?: SummaryRecord;
   };
   badges: {
-    earned: { id: string; label: string; family: string; count: number; rarity: string; note?: string }[];
+    // `games`: the specific earning games, resolved + sorted newest-first server-side.
+    // Present ONLY on this authed/owner summary — the PUBLIC passport projection
+    // strips it (privacy). Drives the owner-only badge drill-down.
+    earned: {
+      id: string;
+      label: string;
+      family: string;
+      count: number;
+      rarity: string;
+      note?: string;
+      games?: BadgeEarnedGame[];
+    }[];
     catalog: {
       id: string;
       label: string;
@@ -646,6 +658,20 @@ function mapSummaryCatalog(c: AttendedSummary['badges']['catalog'][number]): Cat
   };
 }
 
+const DRILL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Format an earning-game date human-readably → "Nov 15, 2024". Parses a bare
+ *  "YYYY-MM-DD" by hand (no Date TZ-shift that would roll it to the prior day in
+ *  western zones); falls back to the raw string if it isn't in that shape. */
+function formatDrillDate(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!m) return date;
+  const [, y, mo, d] = m;
+  const mon = DRILL_MONTHS[Number(mo) - 1];
+  if (!mon) return date;
+  return `${mon} ${Number(d)}, ${y}`;
+}
+
 /** Fixed display order for the summary's keyed records, mapped to the same record
  *  keys the client path + share card use (so downstream logic is source-agnostic). */
 const SUMMARY_RECORD_ORDER: { field: keyof AttendedSummary['records']; key: string }[] = [
@@ -896,6 +922,19 @@ export default function AttendedTracker() {
   const [hydrated, setHydrated] = useState(false);
   const [d1Error, setD1Error] = useState(false); // FAIL LOUD: D1 list failed to load
   const [writeError, setWriteError] = useState<string | null>(null); // add/remove/sync failed
+  // Owner-only badge drill-down: the earned badge whose earning games are shown in
+  // a modal (null = closed). Only ever set from an EARNED chip that carries `games`
+  // (present solely on the owner's own summary — see the catalog join above).
+  const [drillBadge, setDrillBadge] = useState<CatalogBadge | null>(null);
+  // Close the drill-down on Escape while it's open (backdrop + ✕ close via onClick).
+  useEffect(() => {
+    if (!drillBadge) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrillBadge(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [drillBadge]);
 
   // Server summary — the SOLE source of every aggregate in BOTH auth states.
   // null + summaryError ⇒ FAIL LOUD: an honest banner (no client fallback).
@@ -2042,7 +2081,23 @@ export default function AttendedTracker() {
     // "Arenas Visited" collection badge is rendered separately below. Without
     // this filter the view shows two Arenas badges and double-counts it in the
     // earned tally.
-    return sortCatalog(summary.badges.catalog.filter((c) => c.id !== 'arenas-visited').map(mapSummaryCatalog));
+    // The catalog carries display shape; the earning GAMES live on badges.earned[]
+    // (owner summary only — the public projection strips them). Join by id so each
+    // earned chip can open its drill-down. Absent on the public passport ⇒ no games
+    // ⇒ chip stays non-clickable (see renderCatalogBadge).
+    const gamesById = new Map<string, BadgeEarnedGame[]>();
+    for (const e of summary.badges.earned) {
+      if (e.games && e.games.length) gamesById.set(e.id, e.games);
+    }
+    return sortCatalog(
+      summary.badges.catalog
+        .filter((c) => c.id !== 'arenas-visited')
+        .map((c) => {
+          const cat = mapSummaryCatalog(c);
+          const games = gamesById.get(c.id);
+          return games ? { ...cat, games } : cat;
+        }),
+    );
   }, [summary]);
   const earnedCount = useMemo(() => catalog.filter((c) => c.earned).length, [catalog]);
 
@@ -2387,9 +2442,32 @@ export default function AttendedTracker() {
   // ── Shared chip/pip renderers (dashboard + empty-state reuse the SAME markup) ──
   // A single catalog-badge chip: earned or locked ghost. The empty state feeds it
   // ghostCatalog (all locked); the dashboard feeds it the earned+ghost catalog.
-  const renderCatalogBadge = (c: CatalogBadge) =>
-    c.earned ? (
-      <div className="att-badge" data-family={c.family} key={c.id}>
+  const renderCatalogBadge = (c: CatalogBadge) => {
+    // Clickable ONLY when earned AND the chip carries its earning games. `games`
+    // is present solely on the owner's own summary (the public projection strips
+    // it), so this drill-down affordance can never appear on someone else's
+    // passport, and an earned badge with no games stays a plain, static chip.
+    const drillable = c.earned && !!c.games && c.games.length > 0;
+    return c.earned ? (
+      <div
+        className={drillable ? 'att-badge att-badge-drill' : 'att-badge'}
+        data-family={c.family}
+        key={c.id}
+        {...(drillable
+          ? {
+              role: 'button',
+              tabIndex: 0,
+              'aria-haspopup': 'dialog' as const,
+              onClick: () => setDrillBadge(c),
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setDrillBadge(c);
+                }
+              },
+            }
+          : {})}
+      >
         <div className="att-badge-top">
           <span className="att-badge-label">{c.label}</span>
           <span className="att-badge-count">×{c.count}</span>
@@ -2400,6 +2478,11 @@ export default function AttendedTracker() {
         </span>
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
         {c.note ? <span className="att-badge-note">{c.note}</span> : null}
+        {drillable ? (
+          <span className="att-badge-drill-hint" aria-hidden="true">
+            {c.games!.length === 1 ? 'View game' : `View ${c.games!.length} games`} ›
+          </span>
+        ) : null}
       </div>
     ) : (
       <div className="att-badge att-badge-ghost" data-family={c.family} key={c.id}>
@@ -2416,6 +2499,7 @@ export default function AttendedTracker() {
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
       </div>
     );
+  };
 
   // Rung thresholds by stat id — for the progress-bar's "start of range" edge
   // (thresholds[rung-1], or 0 below Rung I). TIER_STATS is static config.
@@ -3480,6 +3564,54 @@ export default function AttendedTracker() {
           </section>
         </>
       )}
+
+      {/* Owner-only badge drill-down modal. Renders ONLY when an earned chip that
+          carries its own earning games was clicked (drillBadge). The public
+          passport never populates `games`, so this surface cannot leak on a
+          shared link. Closeable via ✕ / Escape / backdrop click. */}
+      {drillBadge ? (
+        <div className="att-drill-backdrop" role="presentation" onClick={() => setDrillBadge(null)}>
+          <div
+            className="att-drill-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="att-drill-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="att-drill-head">
+              <div className="att-drill-heading">
+                <span className="att-drill-eyebrow">Earned in</span>
+                <h3 className="att-drill-title" id="att-drill-title">
+                  {drillBadge.label}
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="att-drill-close"
+                aria-label="Close"
+                onClick={() => setDrillBadge(null)}
+              >
+                ×
+              </button>
+            </div>
+            <ul className="att-drill-list">
+              {(drillBadge.games ?? []).map((g) => (
+                <li className="att-drill-row" key={g.game_id}>
+                  {g.player ? (
+                    <>
+                      <span className="att-drill-player">{g.player.name}</span>
+                      <span className="att-drill-sep"> · </span>
+                    </>
+                  ) : null}
+                  <span className="att-drill-matchup">{g.matchup}</span>
+                  <span className="att-drill-sep"> · </span>
+                  <span className="att-drill-date">{formatDrillDate(g.date)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
