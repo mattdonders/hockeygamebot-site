@@ -51,12 +51,6 @@ import {
 } from './puck-passport-badges';
 import { drawPassportCard, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
-import {
-  neutralRecords,
-  anchoredRecords,
-  inferAnchor,
-  type TeamRecordGame,
-} from '../../lib/team-records';
 
 const API = 'https://api.hockeygamebot.com';
 const STORAGE_KEY = 'hgb_puck_passport_games';
@@ -76,10 +70,12 @@ const SUMMARY_NUDGE_AT = 10;
 // logged the game. Cross-device games fall back to /v1/config + game_results.
 const DETAILS_KEY = 'hgb_puck_passport_details_v1';
 
-// Rooting-perspective anchor preference (Phase-1 prototype; localStorage only — the
-// production flag lands server-side per the spec). Value is a team abbrev (explicit
-// team), ANCHOR_NONE (explicit "no rooting interest"), or absent (unset → infer).
-const ANCHOR_PREF_KEY = 'hgb_puck_passport_anchor_v1';
+// Rooting-perspective anchor preference. LOGGED-IN users store the anchor SERVER-side
+// (PUT /v1/account/prefs — see writeAnchor); this localStorage key is the LOGGED-OUT
+// (anon) persistence only, sent as the `anchor` param on the public summary POST.
+// Value is a team_id string (explicit team), ANCHOR_NONE ("no rooting interest"), or
+// absent (unset → server infers). v2: was an abbrev in the client-compute prototype.
+const ANCHOR_PREF_KEY = 'hgb_puck_passport_anchor_v2';
 const ANCHOR_NONE = '__none__';
 
 // A freshly-added or just-merged game is not box-scored server-side yet, so the
@@ -184,9 +180,35 @@ type SummaryMilestone = {
   achieved_at: string;
 };
 
+/** One team's W-L-OTL record (server-computed). `otl` folds OT/SO losses. */
+type TeamRecord = { abbrev: string; name: string; w: number; l: number; otl: number };
+
+/** The anchored ("your record vs each team") view, server-computed. null when the
+ *  user has no rooting anchor (source 'none' or no inferable team). */
+type TeamRecordsAnchored = {
+  anchor: TeamRecord; // the anchor team's own overall W-L-OTL
+  opponents: TeamRecord[]; // record vs each opponent, most-played first
+  neutral_games: number; // finals the anchor didn't play in
+};
+
+/** The resolved anchor + how it was chosen (drives the banner). null pre-anchor
+ *  or when the api hasn't shipped the field yet (graceful fallback → neutral). */
+type SummaryAnchor = {
+  team_id: number;
+  abbrev: string;
+  source: 'explicit' | 'inferred' | 'none';
+};
+
 type AttendedSummary = {
   counters: { games: number; periods: number; goals: number; shots: number; players_seen: number };
-  team_records: { abbrev: string; name: string; w: number; l: number }[];
+  // W-L-OTL neutral ledger (otl added server-side). `otl` may be absent on an
+  // older api deploy — the render tolerates it (graceful fallback).
+  team_records: TeamRecord[];
+  // Perspective-anchored view + the resolved anchor. Both OPTIONAL: an api that
+  // predates the rooting-perspective port omits them, and the client falls back
+  // to the neutral team_records table (never crashes / shows a broken table).
+  team_records_anchored?: TeamRecordsAnchored | null;
+  anchor?: SummaryAnchor | null;
   // "Home rinks collected" model: home_rinks = distinct CURRENT teams seen at home
   // (≤ 32, the /32 collection meter); distinct_buildings = every distinct building
   // visited (can EXCEED 32 — relocations, neutral-site games); teams_seen = the
@@ -405,23 +427,14 @@ function writeAnchorPref(v: string | null): void {
   }
 }
 
-/** Project a rendered AttendedGame onto the pure TeamRecordGame the perspective
- *  helpers consume. Manual games carry their raw nullable scores (a missing score
- *  ⇒ no result credited); NHL games use the final box score. `isFinal` gates every
- *  fold, so scheduled games contribute nothing (and are never counted "neutral"). */
-function toRecordGame(g: AttendedGame): TeamRecordGame {
-  const isManual = !!g.is_manual;
-  return {
-    homeAbbrev: g.home.abbrev,
-    homeName: g.home.name || g.home.short_name || g.home.abbrev,
-    homeScore: isManual ? g.home_score ?? null : g.home.score,
-    awayAbbrev: g.away.abbrev,
-    awayName: g.away.name || g.away.short_name || g.away.abbrev,
-    awayScore: isManual ? g.away_score ?? null : g.away.score,
-    isFinal: g.status === 'final' || isManual,
-    lastPeriodType: g.last_period_type,
-    isManual,
-  };
+/** Map the stored logged-out pref → the public-summary `anchor` body param: a
+ *  team_id (explicit), "none" (no rooting interest), or undefined (omit ⇒ let the
+ *  server infer). */
+function anchorParamFromPref(pref: string | null): number | 'none' | undefined {
+  if (pref == null) return undefined;
+  if (pref === ANCHOR_NONE) return 'none';
+  const id = Number(pref);
+  return Number.isFinite(id) && id > 0 ? id : undefined;
 }
 
 // ── D1 (logged-in) source ─────────────────────────────────────────────────────
@@ -570,6 +583,12 @@ function teamMatchupLabel(shortName: string | null | undefined, abbrev: string):
       <span className="pp-team-abbr">{abbrev}</span>
     </>
   );
+}
+
+/** Format a server team record as "W-L-OTL", tolerating an older api deploy that
+ *  omits `otl` (renders "W-L" — graceful fallback, never "W-L-undefined"). */
+function fmtRec(r: { w: number; l: number; otl?: number }): string {
+  return typeof r.otl === 'number' ? `${r.w}-${r.l}-${r.otl}` : `${r.w}-${r.l}`;
 }
 
 /** Possessive form of a team name, avoiding "Devils's": names ending in s take a
@@ -896,6 +915,9 @@ export default function AttendedTracker() {
   // is still the latest. Prevents an older in-flight response (rapid add A, then A+B)
   // from resolving last and clobbering newer stats with stale data.
   const summaryReqSeqRef = useRef(0);
+  // Latest logged-out anchor pref, mirrored into a ref so loadPublicSummary reads it
+  // synchronously (the POST body's `anchor` param + cache key) without a stale closure.
+  const anchorPrefRef = useRef<string | null>(null);
 
   /** Whether a summary payload is still missing box scores (transient after an add
    *  until the server backfills; persistent for games the NHL can't box-score). */
@@ -986,9 +1008,13 @@ export default function AttendedTracker() {
     // Split into NHL ids + manual games, enforcing the COMBINED cap (the public
     // endpoint caps game_ids.length + manual_games.length — see SUMMARY_ID_CAP).
     const { gameIds, manualGames } = splitForSummary(all);
-    // Cache key over BOTH kinds (manual ids are stable `manual-<random>`), so
-    // adding/removing either kind misses the cache and refetches.
-    const key = summaryCacheKey([...gameIds, ...manualGames.map((m) => m.id)]);
+    // The logged-out anchor choice is a server-summary INPUT (it changes the
+    // computed anchored table + resolved anchor), so it is part of the cache key —
+    // changing the anchor misses the cache and refetches with the new param.
+    const anchorParam = anchorParamFromPref(anchorPrefRef.current);
+    // Cache key over BOTH game kinds (manual ids are stable `manual-<random>`) PLUS
+    // the anchor, so adding/removing a game OR changing the anchor refetches.
+    const key = `${summaryCacheKey([...gameIds, ...manualGames.map((m) => m.id)])}|a:${anchorParam ?? 'infer'}`;
 
     const cached = readSummaryCache();
     if (cached && cached.key === key) {
@@ -1002,12 +1028,15 @@ export default function AttendedTracker() {
 
     setSummaryLoading(true);
     try {
+      const body: Record<string, unknown> = { game_ids: gameIds };
+      if (manualGames.length > 0) body.manual_games = manualGames;
+      // Send the anon anchor choice so the server computes the anchored table for
+      // the right team. Omitted (undefined) ⇒ server infers.
+      if (anchorParam !== undefined) body.anchor = anchorParam;
       const r = await fetch(`${API}/v1/account/attended/summary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          manualGames.length > 0 ? { game_ids: gameIds, manual_games: manualGames } : { game_ids: gameIds },
-        ),
+        body: JSON.stringify(body),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
@@ -1103,9 +1132,9 @@ export default function AttendedTracker() {
   // Players Seen renders the top 25 by games (matches iOS); expand to show all.
   const [showAllSeen, setShowAllSeen] = useState(false);
 
-  // Rooting-perspective anchor preference (see ANCHOR_PREF_KEY): team abbrev,
-  // ANCHOR_NONE, or null (unset → inferred). Hydrated from localStorage on mount.
-  const [anchorPref, setAnchorPref] = useState<string | null>(null);
+  // The logged-out anchor pref lives entirely in localStorage + anchorPrefRef (it
+  // feeds the public-summary POST param); the RENDER is driven by the server's
+  // resolved anchor, so no React state is needed for it.
 
   // ── Manual add sub-flow (games the NHL API can't find) ──────────────────────────
   const [showManual, setShowManual] = useState(false);
@@ -1121,7 +1150,7 @@ export default function AttendedTracker() {
   // games into D1 (mergeLocalPresets pattern), then load the D1 list as source.
   useEffect(() => {
     detailsRef.current = readDetails();
-    setAnchorPref(readAnchorPref());
+    anchorPrefRef.current = readAnchorPref(); // sync ref BEFORE the first public summary POST
     // Default the date picker to today (local).
     const t = new Date();
     const today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
@@ -1863,60 +1892,93 @@ export default function AttendedTracker() {
     ? summary.unverified_count ?? 0
     : games.filter((g) => g.is_manual).length;
 
-  // Server-computed neutral W-L (fallback only — see the perspective block below).
-  const viewTeamRecords = summary ? summary.team_records : [];
+  // ── Rooting perspective (server-computed — single source of truth) ───────────
+  // The server owns BOTH record framings (neutral team_records + anchored) AND the
+  // resolved anchor + its source. The client only RENDERS them and WRITES the anchor
+  // choice (see writeAnchor). GRACEFUL FALLBACK: an api that predates the port omits
+  // team_records_anchored / anchor — those are null and we render the neutral table
+  // (never a crash / broken table). team_records may also lack `otl` on an old deploy.
+  const neutralTable = summary?.team_records ?? [];
+  const anchoredView = summary?.team_records_anchored ?? null;
+  const serverAnchor = summary?.anchor ?? null;
+  const anchorIsInferred = serverAnchor?.source === 'inferred';
+  // Show Table A only when the server resolved a real anchor AND returned its table.
+  const showAnchored = !!anchoredView && serverAnchor != null && serverAnchor.source !== 'none';
 
-  // ── Rooting perspective (Phase-1, 100% client-side) ─────────────────────────
-  // Recompute BOTH record framings from the per-game facts the browser already
-  // holds — zero dependency on the frozen attended_summary endpoint. See
-  // src/lib/team-records.ts for the pure logic (unit-tested).
-  const recordGames = useMemo<TeamRecordGame[]>(() => games.map(toRecordGame), [games]);
-  const neutralTable = useMemo(() => neutralRecords(recordGames), [recordGames]);
-  const inferred = useMemo(() => inferAnchor(recordGames), [recordGames]);
+  // abbrev → NHL team-id (from /v1/config) — needed to WRITE the anchor by team_id.
+  const abbrevToTeamId = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [id, info] of configMap) m.set(info.abbrev, id);
+    return m;
+  }, [configMap]);
 
-  // Precedence: explicit team > explicit "no rooting interest" > inferred > neutral.
-  const explicitTeam = anchorPref && anchorPref !== ANCHOR_NONE ? anchorPref : null;
-  const explicitNone = anchorPref === ANCHOR_NONE;
-  const effectiveAnchor = explicitTeam ?? (explicitNone ? null : inferred.anchor);
-  const anchorIsInferred = !explicitTeam && !explicitNone && !!inferred.anchor;
-  const noDominantTeam = !explicitTeam && !explicitNone && !inferred.anchor;
+  // The dropdown selection mirrors the server's resolved anchor: an inferred team is
+  // pre-selected by its real name; 'none' → the explicit neutral option; a missing
+  // anchor (older api / not yet resolved) → the disabled placeholder.
+  const anchorSelectValue = serverAnchor
+    ? serverAnchor.source === 'none'
+      ? ANCHOR_NONE
+      : serverAnchor.abbrev
+    : '';
 
-  const anchoredTable = useMemo(
-    () => (effectiveAnchor ? anchoredRecords(recordGames, effectiveAnchor) : null),
-    [recordGames, effectiveAnchor],
-  );
-
-  // What the dropdown shows selected. An INFERRED anchor is pre-selected by its real
-  // team value (so it reads the full name, e.g. "New Jersey Devils") even though the
-  // stored pref is still unset — confirming (✕ or any pick) persists it. No dominant
-  // team ⇒ the disabled placeholder.
-  const anchorSelectValue = explicitTeam
-    ?? (explicitNone ? ANCHOR_NONE : anchorIsInferred && effectiveAnchor ? effectiveAnchor : '');
-
-  // Data-availability check (FAIL LOUD, honestly): the server saw these finals; if
-  // the browser holds fewer decided games (a cross-device D1 row with no game_results
-  // facts on THIS device), we note the shortfall rather than silently under-counting.
-  const clientDecided = useMemo(
-    () => neutralTable.reduce((n, r) => n + r.w + r.l + r.otl, 0) / 2,
-    [neutralTable],
-  );
-  const serverDecided = summary ? summary.team_records.reduce((n, r) => n + r.w + r.l, 0) / 2 : 0;
-  const unresolvedFinals = Math.max(0, Math.round(serverDecided - clientDecided));
-
-  // Fall back to the server's neutral ledger ONLY when the client can compute
-  // nothing (no per-game facts) but the server has records — never a blank.
-  const useServerFallback = clientDecided === 0 && viewTeamRecords.length > 0;
-
-  // Teams seen (for the anchor selector), by full name.
+  // Teams for the dropdown — every team seen (from the neutral ledger), by full name.
   const teamsSeenForSelect = useMemo(
     () => [...neutralTable].sort((a, b) => a.name.localeCompare(b.name)),
     [neutralTable],
   );
 
-  const chooseAnchor = useCallback((v: string | null) => {
-    setAnchorPref(v);
-    writeAnchorPref(v);
-  }, []);
+  // Persist an anchor choice. Param: team_id (explicit) | 0 (no rooting interest) |
+  // null (infer/unset). Logged-in → PUT /v1/account/prefs then refetch the summary
+  // (server owns the pref, anti-divergence). Logged-out → persist locally + refetch
+  // the public summary (which sends the anchor param). FAIL LOUD on a failed PUT.
+  const writeAnchor = useCallback(
+    async (param: number | null) => {
+      if (isLoggedIn) {
+        try {
+          const r = await apiFetch(`${API}/v1/account/prefs`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ passport_anchor: param }),
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          setWriteError(null);
+          loadSummary(); // refetch so both tables + the banner reflect the new anchor
+        } catch {
+          setWriteError('Could not save your rooting perspective — check your connection and try again.');
+        }
+      } else {
+        const pref = param == null ? null : param === 0 ? ANCHOR_NONE : String(param);
+        anchorPrefRef.current = pref; // sync the ref so the immediate refetch sends it
+        writeAnchorPref(pref);
+        loadPublicSummary(games); // resend the public POST with the new anchor param
+      }
+    },
+    [isLoggedIn, loadSummary, loadPublicSummary, games],
+  );
+
+  // Dropdown handler: map an abbrev / ANCHOR_NONE selection → the team_id param.
+  const chooseAnchorByValue = useCallback(
+    (v: string) => {
+      if (v === '') return; // disabled placeholder
+      if (v === ANCHOR_NONE) {
+        writeAnchor(0);
+        return;
+      }
+      const id = abbrevToTeamId.get(v);
+      if (id == null) {
+        setWriteError('Could not resolve that team just yet — try again in a moment.');
+        return;
+      }
+      writeAnchor(id);
+    },
+    [writeAnchor, abbrevToTeamId],
+  );
+
+  // Banner ✕ — confirm the INFERRED guess as an EXPLICIT choice so the server stops
+  // inferring (source flips to 'explicit', the banner never returns).
+  const confirmInferredAnchor = useCallback(() => {
+    if (serverAnchor?.team_id != null && serverAnchor.team_id > 0) writeAnchor(serverAnchor.team_id);
+  }, [writeAnchor, serverAnchor]);
 
   // Home-rinks collection: home_rinks/32 drives the meter + badge; teams_seen (a
   // set of current-team ids) colours the per-team pips; distinct_buildings is the
@@ -1945,11 +2007,6 @@ export default function AttendedTracker() {
   // and an abbrev→NHL-team-id map (from /v1/config) so a team's pip lights up when
   // its id is in arenas.teams_seen. Sort is by team NAME for a stable, scannable order.
   const pipTeams = useMemo(() => [...NHL_TEAMS].sort((a, b) => a.name.localeCompare(b.name)), []);
-  const abbrevToTeamId = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const [id, info] of configMap) m.set(info.abbrev, id);
-    return m;
-  }, [configMap]);
 
   const viewSeenPlayers = useMemo<SeenPlayerRow[]>(() => {
     if (!summary) return [];
@@ -3266,11 +3323,13 @@ export default function AttendedTracker() {
               <div className="att-section-head">
                 <span className="att-section-label">Team Records</span>
                 <span className="att-section-meta">
-                  {effectiveAnchor ? 'your record vs each team' : 'every team you’ve seen'}
+                  {showAnchored ? 'your record vs each team' : 'every team you’ve seen'}
                 </span>
               </div>
 
-              {/* Anchor selector — three states (team / none / inferred pre-select). */}
+              {/* Anchor selector — three states (team / none / inferred pre-select).
+                  The server owns the resolved anchor; picking here WRITES it (prefs
+                  when logged in, localStorage + public-POST param when logged out). */}
               <div className="pp-anchor-toolbar">
                 <label className="pp-anchor-label" htmlFor="pp-anchor-select">
                   Rooting perspective
@@ -3279,11 +3338,7 @@ export default function AttendedTracker() {
                   id="pp-anchor-select"
                   className="pp-anchor-select"
                   value={anchorSelectValue}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === '') return; // disabled placeholder — no-op
-                    chooseAnchor(v); // any explicit pick confirms + persists (banner never returns)
-                  }}
+                  onChange={(e) => chooseAnchorByValue(e.target.value)}
                 >
                   <option value="" disabled>
                     Choose your team…
@@ -3297,12 +3352,14 @@ export default function AttendedTracker() {
                 </select>
               </div>
 
-              {/* Inferred-anchor banner (the sole inferred-state indicator; dismissible —
-                  confirming locks the pick and the banner never returns) + soft nudges. */}
-              {anchorIsInferred && effectiveAnchor && anchoredTable ? (
+              {/* Inferred-anchor banner — shown ONLY when the server resolved the
+                  anchor by inference. Dismissible: the ✕ confirms the guess as an
+                  explicit pref (source flips to 'explicit') so the banner never
+                  returns. A soft neutral nudge shows when there's no rooting side. */}
+              {anchorIsInferred && anchoredView ? (
                 <div className="pp-anchor-note pp-anchor-note-dismissible">
                   <span className="pp-anchor-note-text">
-                    Records shown from the {possessive(anchoredTable.anchorName)} side — not your
+                    Records shown from the {possessive(anchoredView.anchor.name)} side — not your
                     team? Pick it above.
                   </span>
                   <button
@@ -3310,72 +3367,42 @@ export default function AttendedTracker() {
                     className="pp-anchor-dismiss"
                     aria-label="Keep this team as your rooting perspective"
                     title="Keep this team"
-                    onClick={() => chooseAnchor(effectiveAnchor)}
+                    onClick={confirmInferredAnchor}
                   >
                     ✕
                   </button>
                 </div>
-              ) : noDominantTeam ? (
-                <div className="pp-anchor-note pp-anchor-note-soft">
-                  No clear rooting team from your games — showing every team you’ve seen. Set your
-                  team to see <em>your</em> record vs each opponent.
-                </div>
-              ) : explicitNone ? (
+              ) : serverAnchor?.source === 'none' ? (
                 <div className="pp-anchor-note pp-anchor-note-soft">
                   Neutral view — every team you’ve seen. Set a team for your side.
                 </div>
               ) : null}
 
-              {useServerFallback ? (
-                // Client held no per-game facts — fall back to the server's neutral
-                // ledger (W-L only) rather than render a blank. Honest about the gap.
-                <>
-                  <div className="pp-anchor-note pp-anchor-note-soft">
-                    Showing the server’s neutral record — per-game details for the anchored view
-                    aren’t on this device.
-                  </div>
-                  <div className="att-teams">
-                    {viewTeamRecords.map((t) => (
-                      <div className="att-team-row" key={t.abbrev}>
-                        <span className="att-team-dot" style={{ background: pickTeamColor(t.abbrev) }} />
-                        <span className="att-team-abbr">{t.abbrev}</span>
-                        <span className="att-team-name">{t.name}</span>
-                        <span className="att-team-rec">
-                          {t.w}-{t.l}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : anchoredTable ? (
-                // ── Table A: your record vs each team ──
-                anchoredTable.opponents.length === 0 && anchoredTable.neutralGames === 0 ? (
+              {showAnchored && anchoredView ? (
+                // ── Table A: your record vs each team (server-computed) ──
+                anchoredView.opponents.length === 0 && anchoredView.neutral_games === 0 ? (
                   <div className="att-add-empty">No completed games yet.</div>
                 ) : (
                   <div className="att-teams">
                     <div className="att-team-row pp-anchor-row" key="__anchor__">
-                      <span className="att-team-dot" style={{ background: pickTeamColor(anchoredTable.anchor) }} />
-                      <span className="att-team-abbr">{anchoredTable.anchor}</span>
-                      <span className="att-team-name">{anchoredTable.anchorName}</span>
+                      <span className="att-team-dot" style={{ background: pickTeamColor(anchoredView.anchor.abbrev) }} />
+                      <span className="att-team-abbr">{anchoredView.anchor.abbrev}</span>
+                      <span className="att-team-name">{anchoredView.anchor.name}</span>
                       <span className="pp-overall-tag">Overall</span>
-                      <span className="att-team-rec">
-                        {anchoredTable.overall.w}-{anchoredTable.overall.l}-{anchoredTable.overall.otl}
-                      </span>
+                      <span className="att-team-rec">{fmtRec(anchoredView.anchor)}</span>
                     </div>
-                    {anchoredTable.opponents.map((o) => (
+                    {anchoredView.opponents.map((o) => (
                       <div className="att-team-row" key={o.abbrev}>
                         <span className="att-team-dot" style={{ background: pickTeamColor(o.abbrev) }} />
                         <span className="att-team-abbr">vs {o.abbrev}</span>
                         <span className="att-team-name">{o.name}</span>
-                        <span className="att-team-rec">
-                          {o.w}-{o.l}-{o.otl}
-                        </span>
+                        <span className="att-team-rec">{fmtRec(o)}</span>
                       </div>
                     ))}
-                    {anchoredTable.neutralGames > 0 ? (
+                    {anchoredView.neutral_games > 0 ? (
                       <div className="pp-neutral-line">
-                        + {anchoredTable.neutralGames} neutral game
-                        {anchoredTable.neutralGames === 1 ? '' : 's'} (your team didn’t play)
+                        + {anchoredView.neutral_games} neutral game
+                        {anchoredView.neutral_games === 1 ? '' : 's'} (your team didn’t play)
                       </div>
                     ) : null}
                   </div>
@@ -3384,26 +3411,19 @@ export default function AttendedTracker() {
                 <div className="att-add-empty">No completed games yet.</div>
               ) : (
                 // ── Table B: every team you've seen (neutral, W-L-OTL) ──
+                // Also the GRACEFUL FALLBACK when an older api omits the anchored
+                // fields — fmtRec tolerates a missing otl.
                 <div className="att-teams">
                   {neutralTable.map((t) => (
                     <div className="att-team-row" key={t.abbrev}>
                       <span className="att-team-dot" style={{ background: pickTeamColor(t.abbrev) }} />
                       <span className="att-team-abbr">{t.abbrev}</span>
                       <span className="att-team-name">{t.name}</span>
-                      <span className="att-team-rec">
-                        {t.w}-{t.l}-{t.otl}
-                      </span>
+                      <span className="att-team-rec">{fmtRec(t)}</span>
                     </div>
                   ))}
                 </div>
               )}
-
-              {unresolvedFinals > 0 && !useServerFallback ? (
-                <div className="pp-anchor-note pp-anchor-note-soft">
-                  {unresolvedFinals} attended final{unresolvedFinals === 1 ? '' : 's'} couldn’t be
-                  scored on this device (logged on another device) — not included above.
-                </div>
-              ) : null}
             </section>
 
             <section className="att-section">
