@@ -11,7 +11,7 @@
  */
 
 /** Current Puck Passport product version. Bump this + add a CHANGELOG entry. */
-export const PUCK_PASSPORT_VERSION = '1.0';
+export const PUCK_PASSPORT_VERSION = '1.1';
 
 /** localStorage key holding the last version whose notes the user has seen. */
 export const LAST_SEEN_KEY = 'hgb_pp_last_seen_version';
@@ -33,6 +33,16 @@ export type ChangelogEntry = {
  * raise PUCK_PASSPORT_VERSION to match its `version`.
  */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.1',
+    date: '2026-07-28',
+    title: 'Your record against every team',
+    items: [
+      'Team records now take your team’s perspective. Overtime and shootout losses split out.',
+      'Tap any badge to see the games behind it: matchup, date, and final score.',
+      'Older and relocated teams show their real names now. The Whalers are the Whalers again.',
+    ],
+  },
   {
     version: '1.0',
     date: '2026-07-25',

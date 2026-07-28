@@ -3436,20 +3436,6 @@ export default function AttendedTracker() {
             </section>
           ) : null}
 
-          {/* Games list */}
-          <section className="att-section">
-            <div className="att-section-head">
-              <span className="att-section-label">Your Games</span>
-              <span className="att-section-meta">{games.length} logged</span>
-            </div>
-            <HGBTable
-              data={[...games].sort((a, b) => b.date.localeCompare(a.date))}
-              columns={gameCols}
-              defaultSort={{ id: 'date', desc: true }}
-              toolbar={{ show: false }}
-            />
-          </section>
-
           {/* Team W-L-OTL (perspective-anchored) + Arenas side by side */}
           <div className="att-two-col">
             <section className="att-section">
@@ -3579,6 +3565,20 @@ export default function AttendedTracker() {
               <div className="att-rinks-substat">{viewArenas.distinctBuildings} total arenas visited</div>
             </section>
           </div>
+
+          {/* Games list — below the records/arenas payoff (management view, not the highlight) */}
+          <section className="att-section">
+            <div className="att-section-head">
+              <span className="att-section-label">Your Games</span>
+              <span className="att-section-meta">{games.length} logged</span>
+            </div>
+            <HGBTable
+              data={[...games].sort((a, b) => b.date.localeCompare(a.date))}
+              columns={gameCols}
+              defaultSort={{ id: 'date', desc: true }}
+              toolbar={{ show: false }}
+            />
+          </section>
 
           {/* Players seen ranked by games seen, then goals */}
           <section className="att-section">
