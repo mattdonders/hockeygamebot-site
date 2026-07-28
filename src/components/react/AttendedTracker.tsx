@@ -680,7 +680,7 @@ function formatDrillDate(date: string): string {
 type DrillGameRow = {
   game_id: string;
   date: string;
-  matchup: { away: string; home: string };
+  matchup: BadgeEarnedGame['matchup'];
   players: string[]; // qualifying player names for this game (empty for moment badges)
 };
 
@@ -3644,21 +3644,48 @@ export default function AttendedTracker() {
               </button>
             </div>
             <ul className="att-drill-list">
-              {groupDrillGames(drillBadge.games ?? []).map((g) => (
-                <li className="att-drill-row" key={g.game_id}>
-                  {g.players.length > 0 ? (
-                    <>
-                      <span className="att-drill-player">{g.players.join(', ')}</span>
-                      <span className="att-drill-sep"> · </span>
-                    </>
-                  ) : null}
-                  <span className="att-drill-matchup">
-                    {g.matchup.away} @ {g.matchup.home}
-                  </span>
-                  <span className="att-drill-sep"> · </span>
-                  <span className="att-drill-date">{formatDrillDate(g.date)}</span>
-                </li>
-              ))}
+              {groupDrillGames(drillBadge.games ?? []).map((g) => {
+                const mu = g.matchup;
+                // Full names when the api enriched them; fall back to abbrev so an
+                // un-enriched response still renders (and desktop shows abbrev too).
+                const awayFull = mu.awayName || mu.away;
+                const homeFull = mu.homeName || mu.home;
+                // Score only when BOTH sides are present — never render "null"/a
+                // fabricated 0 for a game whose final score the api didn't supply.
+                const hasScore =
+                  mu.awayScore != null && mu.homeScore != null;
+                return (
+                  <li className="att-drill-row" key={g.game_id}>
+                    {g.players.length > 0 ? (
+                      <>
+                        <span className="att-drill-player">{g.players.join(', ')}</span>
+                        <span className="att-drill-sep"> · </span>
+                      </>
+                    ) : null}
+                    {/* CSS toggles which span shows by breakpoint (reuses the
+                        passport's .pp-team-full/.pp-team-abbr 640px rule): full
+                        names on desktop, abbrevs on mobile. No JS width-sniffing. */}
+                    <span className="att-drill-matchup">
+                      <span className="pp-team-full">
+                        {awayFull} @ {homeFull}
+                      </span>
+                      <span className="pp-team-abbr">
+                        {mu.away} @ {mu.home}
+                      </span>
+                    </span>
+                    {hasScore ? (
+                      <>
+                        <span className="att-drill-sep"> · </span>
+                        <span className="att-drill-score">
+                          {mu.awayScore}–{mu.homeScore}
+                        </span>
+                      </>
+                    ) : null}
+                    <span className="att-drill-sep"> · </span>
+                    <span className="att-drill-date">{formatDrillDate(g.date)}</span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>

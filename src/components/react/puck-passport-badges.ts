@@ -253,9 +253,18 @@ export function computeEarnedBadges(
 export interface BadgeEarnedGame {
   game_id: string;
   date: string;
-  /** Team abbrevs, already resolved server-side. Render as "away @ home" — the
-   *  server sends an OBJECT here, never a pre-joined string, so never render it raw. */
-  matchup: { away: string; home: string };
+  /** Resolved matchup, server-side. `away`/`home` are abbrevs (always present);
+   *  `awayName`/`homeName` are full team names and `awayScore`/`homeScore` the
+   *  final score — all OPTIONAL so an un-enriched api response still typechecks
+   *  (render falls back to abbrev-only / omits the score). Never render raw. */
+  matchup: {
+    away: string;
+    home: string;
+    awayName?: string | null;
+    homeName?: string | null;
+    awayScore?: number | null;
+    homeScore?: number | null;
+  };
   player?: { id: number; name: string };
 }
 
