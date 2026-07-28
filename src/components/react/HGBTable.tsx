@@ -62,6 +62,11 @@ export type HGBTableProps<T> = {
   exportFilename?: string;
   maxHeight?: number | string;
   emptyMessage?: string;
+  /** Cap the rendered rows to the first N of the CURRENT view — applied AFTER
+   *  sorting + filtering, so it honors the active sort column and direction.
+   *  This is what "Top N" filters should use: it feeds render, export, and the
+   *  visible row count identically. null/0/undefined = no cap. */
+  limit?: number | null;
   /** Enables TanStack Virtual row rendering. Requires a fixed-height scroll container.
    *  With maxHeight: uses that height. Without: defaults to calc(100vh - 300px). */
   virtualize?: boolean;
@@ -356,6 +361,7 @@ export default function HGBTable<T extends object>({
   exportFilename,
   maxHeight,
   emptyMessage = 'No results found.',
+  limit,
   virtualize = false,
   hideToolbar = false,
   toolbar,
@@ -458,7 +464,12 @@ export default function HGBTable<T extends object>({
     getFilteredRowModel: getFilteredRowModel(),
   });
 
-  const tableRows = table.getRowModel().rows;
+  // `limit` caps to the first N of the fully sorted + filtered rows — so "Top N"
+  // means the top N of the CURRENT view (active sort column + direction), not a
+  // re-rank by some fixed metric. Everything below (virtualizer, export, render,
+  // count) reads `tableRows`, so the cap applies uniformly.
+  const sortedRows = table.getRowModel().rows;
+  const tableRows = limit != null && limit > 0 ? sortedRows.slice(0, limit) : sortedRows;
 
   // Single virtualizer — always uses a fixed-height scroll container.
   // No maxHeight + virtualize=true → defaults to calc(100vh - 300px).

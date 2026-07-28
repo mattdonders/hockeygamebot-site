@@ -568,20 +568,10 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
     if (teamFilter.length > 0) r = r.filter(x => teamFilter.includes(x.team));
     if (pos !== 'all') r = r.filter(x => x.group === pos);
     if (gameType === 'playoffs') r = r.filter(x => x.po_gp != null && x.po_gp > 0);
-    // topN applied after HGBTable sorting via a post-sort slice — but since we
-    // can't hook into HGBTable's sort, sort here by the defaultSort column first
-    if (topN) {
-      // In playoff mode, column IDs map to po_* fields (same mapping as buildColumns poMap)
-      const poMap: Record<string, string> = { goals: 'po_goals', assists: 'po_assists', points: 'po_points', sog: 'po_sog', ixg: 'po_ixg', toi_pg: 'po_toi_pg' };
-      const sortField = gameType === 'playoffs' && poMap[defaultSort.id] ? poMap[defaultSort.id] : defaultSort.id;
-      r = [...r].sort((a, b) => {
-        const av = (a as any)[sortField] ?? -Infinity;
-        const bv = (b as any)[sortField] ?? -Infinity;
-        return bv - av;
-      }).slice(0, topN);
-    }
+    // Top N is applied by HGBTable's `limit` (top N of the current sort), NOT here —
+    // pre-slicing decoupled it from the user's active sort column/direction.
     return r;
-  }, [rows, minGP, minToi, playerFilter, teamFilter, pos, gameType, topN, defaultSort.id]);
+  }, [rows, minGP, minToi, playerFilter, teamFilter, pos, gameType]);
 
   // Physical / faceoff + EDGE column visibility — all hidden by default
   const [visiblePhysical, setVisiblePhysical] = useState<Set<PhysicalColId>>(new Set());
@@ -642,12 +632,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         sog60:  +(st.sog / hr).toFixed(2),
       };
     });
-    if (topN) {
-      const sortField = aggTab === 'onice' ? 'gf_diff_60' : aggTab === 'rates' || display === 'per60' ? 'p60' : 'points';
-      r = [...r].sort((a, b) => ((b as any)[sortField] ?? -Infinity) - ((a as any)[sortField] ?? -Infinity)).slice(0, topN);
-    }
+    // Top N is applied by HGBTable's `limit` (top N of the current sort), not here.
     return r;
-  }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, minToi, playerFilter, teamFilter, pos, topN, aggTab, display, strength]);
+  }, [useAgg, slimData, fromSeason, toSeason, gameType, minGP, minToi, playerFilter, teamFilter, pos, strength]);
 
   const aggColumns = useMemo(
     () => buildAggColumns(aggTab, display, strength, isDark, rangeLabel, multi)
@@ -751,7 +738,9 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         </FilterChipGroup>
         <div style={{ flex: 1 }} />
         <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
-          {useAgg ? (slimLoading ? 'loading…' : `${aggFiltered.length} skaters`) : `${filtered.length} skaters`}
+          {useAgg
+            ? (slimLoading ? 'loading…' : `${topN ? Math.min(topN, aggFiltered.length) : aggFiltered.length} skaters`)
+            : `${topN ? Math.min(topN, filtered.length) : filtered.length} skaters`}
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={() => exportFnsRef.current?.exportCsv()} disabled={slimLoading}
@@ -1009,6 +998,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           data={aggFiltered}
           columns={aggColumns}
           defaultSort={aggDefaultSort}
+          limit={topN}
           rowHref={r => r.slug ? `/stats/player/${r.slug}` : undefined}
           emptyMessage="No skaters match the current filters."
           exportFilename="hgb-skaters"
@@ -1032,6 +1022,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           data={filtered}
           columns={columns}
           defaultSort={defaultSort}
+          limit={topN}
           rowHref={r => `/stats/player/${r.slug}`}
           emptyMessage="No skaters match the current filters."
           exportFilename="hgb-skaters"
