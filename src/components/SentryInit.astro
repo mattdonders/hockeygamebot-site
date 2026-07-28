@@ -8,12 +8,21 @@
     // `*-extension://`). They were spamming the Discord Sentry alerts. Drop any
     // event whose stack has NO first-party frame — real site errors always have
     // one, so those still come through.
-    const NON_FIRST_PARTY = /^(webkit-masked-url:|safari-web-extension:|chrome-extension:|moz-extension:|chrome:)|extension:\/\//;
+    // Also catches Safari *app-extensions* (e.g. PayPal Honey), whose frames are
+    // app-bundle paths (`…/*.appex/…/*.safariextension/…`) rather than an
+    // `extension://` scheme, so the scheme list alone missed them.
+    const NON_FIRST_PARTY = /^(webkit-masked-url:|safari-web-extension:|chrome-extension:|moz-extension:|chrome:)|extension:\/\/|\.appex\/|\.safariextension|\/Contents\/PlugIns\//;
     Sentry.init({
       dsn,
       environment: import.meta.env.PUBLIC_SENTRY_ENV || (import.meta.env.DEV ? 'dev' : 'production'),
       release: import.meta.env.PUBLIC_COMMIT_SHA,
       tracesSampleRate: 0,
+      // In-app browsers (Twitter/Reddit/etc. WKWebViews) inject their OWN telemetry
+      // (sendScrollEvent/sendDataToNative → window.webkit.messageHandlers) that runs
+      // in the PAGE context, so its frames read as first-party and slip past
+      // beforeSend below. We never touch window.webkit, so any such error is injected
+      // by the host browser, not ours — drop it by message.
+      ignoreErrors: [/window\.webkit\.messageHandlers/],
       beforeSend(event) {
         const frames = (event.exception?.values ?? [])
           .flatMap((v) => v.stacktrace?.frames ?? []);
