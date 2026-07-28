@@ -672,6 +672,47 @@ function formatDrillDate(date: string): string {
   return `${mon} ${Number(d)}, ${y}`;
 }
 
+/** One DISTINCT game in the drill-down, after grouping the server's rows by
+ *  game_id. The 4 player-moment badges send ONE ROW PER QUALIFYING PLAYER, so a
+ *  single game can appear multiple times — group them so a game with two 3-point
+ *  scorers is one row listing both names, and the row count matches the badge's
+ *  per-GAME ×count. */
+type DrillGameRow = {
+  game_id: string;
+  date: string;
+  matchup: { away: string; home: string };
+  players: string[]; // qualifying player names for this game (empty for moment badges)
+};
+
+/** Group earning games by game_id, preserving first-seen (newest-first) order and
+ *  collecting each game's qualifying player names (de-duped by player id). */
+function groupDrillGames(games: BadgeEarnedGame[]): DrillGameRow[] {
+  const byGame = new Map<string, DrillGameRow>();
+  const seenPlayer = new Map<string, Set<number>>();
+  for (const g of games) {
+    let row = byGame.get(g.game_id);
+    if (!row) {
+      row = { game_id: g.game_id, date: g.date, matchup: g.matchup, players: [] };
+      byGame.set(g.game_id, row);
+      seenPlayer.set(g.game_id, new Set());
+    }
+    if (g.player) {
+      const seen = seenPlayer.get(g.game_id)!;
+      if (!seen.has(g.player.id)) {
+        seen.add(g.player.id);
+        row.players.push(g.player.name);
+      }
+    }
+  }
+  return [...byGame.values()];
+}
+
+/** Count of DISTINCT games behind an earned badge — the number that must match the
+ *  badge's per-game ×count (and the "View N games" hint). */
+function distinctGameCount(games: BadgeEarnedGame[]): number {
+  return new Set(games.map((g) => g.game_id)).size;
+}
+
 /** Fixed display order for the summary's keyed records, mapped to the same record
  *  keys the client path + share card use (so downstream logic is source-agnostic). */
 const SUMMARY_RECORD_ORDER: { field: keyof AttendedSummary['records']; key: string }[] = [
@@ -2479,9 +2520,17 @@ export default function AttendedTracker() {
         {c.blurb ? <span className="att-badge-blurb">{c.blurb}</span> : null}
         {c.note ? <span className="att-badge-note">{c.note}</span> : null}
         {drillable ? (
-          <span className="att-badge-drill-hint" aria-hidden="true">
-            {c.games!.length === 1 ? 'View game' : `View ${c.games!.length} games`} ›
-          </span>
+          (() => {
+            // DISTINCT-game count (not row count): the 4 player-moment badges send
+            // one row per qualifying player, so raw length overcounts. This matches
+            // the badge's per-game ×count and the grouped modal row count.
+            const n = distinctGameCount(c.games!);
+            return (
+              <span className="att-badge-drill-hint" aria-hidden="true">
+                {n === 1 ? 'View game' : `View ${n} games`} ›
+              </span>
+            );
+          })()
         ) : null}
       </div>
     ) : (
@@ -3595,15 +3644,17 @@ export default function AttendedTracker() {
               </button>
             </div>
             <ul className="att-drill-list">
-              {(drillBadge.games ?? []).map((g) => (
+              {groupDrillGames(drillBadge.games ?? []).map((g) => (
                 <li className="att-drill-row" key={g.game_id}>
-                  {g.player ? (
+                  {g.players.length > 0 ? (
                     <>
-                      <span className="att-drill-player">{g.player.name}</span>
+                      <span className="att-drill-player">{g.players.join(', ')}</span>
                       <span className="att-drill-sep"> · </span>
                     </>
                   ) : null}
-                  <span className="att-drill-matchup">{g.matchup}</span>
+                  <span className="att-drill-matchup">
+                    {g.matchup.away} @ {g.matchup.home}
+                  </span>
                   <span className="att-drill-sep"> · </span>
                   <span className="att-drill-date">{formatDrillDate(g.date)}</span>
                 </li>

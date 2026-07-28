@@ -253,7 +253,9 @@ export function computeEarnedBadges(
 export interface BadgeEarnedGame {
   game_id: string;
   date: string;
-  matchup: string; // e.g. "NJD @ TOR" — already resolved server-side
+  /** Team abbrevs, already resolved server-side. Render as "away @ home" — the
+   *  server sends an OBJECT here, never a pre-joined string, so never render it raw. */
+  matchup: { away: string; home: string };
   player?: { id: number; name: string };
 }
 
