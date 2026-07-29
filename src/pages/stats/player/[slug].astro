@@ -260,6 +260,21 @@ seasonStatsSorted.forEach(e => {
 const currentSeasonNorm = normalizeSeason(seasonStatsSorted[0]?.season ?? '');
 _cardFooters.talent.pre = `Current blend: ${currentSeasonNorm} + 3 prior seasons · percentile `;
 
+// ── Inactive-player page mode (Barkov class) ─────────────────────────────────
+// A player who missed the WHOLE current season is emitted by
+// export_inactive_players.py with is_active === false and their object
+// synthesized from `last_active_season` (that season's cohort percentiles).
+// The page already renders correctly WITHOUT special-casing — currentSeasonNorm
+// resolves to the last active season and every field is populated — so the ONLY
+// functional gap is that a visitor has no signal the page is showing a prior
+// (last-active) season instead of the live one. `isInactive` drives that signal.
+//
+// STUB ONLY — the operator owns the visual design of this banner (copy, colors,
+// placement, whether inactive players are also flagged in ranks/peers/leaderboard).
+// See docs/plans/stats-missing-inactive-players-2026-07.md §4 + the report.
+const isInactive = player.is_active === false;
+const lastActiveSeasonNorm = normalizeSeason(player.last_active_season ?? '') || currentSeasonNorm;
+
 // Enrich each career season row with RAPM + HGB Rating + WAR + Impact from player_season_stats.
 // For 2025-26: override with authoritative values from players.json (same as page hero).
 // Historical seasons use simplified pipeline formula (different computation, labeled in footnote).
@@ -286,6 +301,15 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
   currentPath={Astro.url.pathname}
 >
 <style is:global>
+    /* ── Inactive-player banner (STUB — operator owns final design) ──
+       Neutral placeholder so the "last active season" signal is visible in
+       preview; restyle/relocate to match the design system before shipping. */
+    .inactive-banner {
+      font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em;
+      color: var(--ink-70, var(--ink)); background: var(--surface-2, rgba(0,0,0,0.04));
+      border: 1px dashed var(--ink-14); border-radius: 6px;
+      padding: 8px 12px; margin-bottom: 12px;
+    }
     /* ── MASTHEAD REDESIGN ── */
     .mast-card {
       background: var(--surface); border: 1px solid var(--ink-14);
@@ -675,6 +699,13 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     <div class="breadcrumb">
       <a href="/stats">HGB Stats</a> / <a href="/stats/skaters">Players</a> / {player.first_name} {player.last_name}
     </div>
+    {isInactive && (
+      <!-- STUB banner (design-gated): signals the page shows the last active season,
+           not the current one. Operator owns final copy/styling/placement. -->
+      <div class="inactive-banner" role="status">
+        No {currentSeasonNorm} stats — showing <strong>{lastActiveSeasonNorm}</strong> (last active season) + career.
+      </div>
+    )}
     <div class="mast-card" style={`border-left-color: ${teamColor}; color: ${teamColor}; --team-c: ${teamColor}`}>
       <!-- Left: headshot + identity -->
       <div class="mast-left">

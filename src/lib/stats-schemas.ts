@@ -234,6 +234,16 @@ export const PlayerRecordSchema = z.object({
   playoff_sog:     z.number().int().nonnegative().nullable().optional(),
   playoff_ixg:     z.number().nullable().optional(),
   playoff_toi_sec: z.number().nullable().optional(),
+
+  // Inactive-player mode (Barkov class) — set by export_inactive_players.py.
+  // A player who missed the whole current season is synthesized from their last
+  // active season; this object is otherwise the same shape but sourced from that
+  // season's cohort. Optional/backward-compatible: a current-season export that
+  // predates the merge omits both → the page treats the player as active.
+  //   is_active === false          → render the "last active season" page mode.
+  //   last_active_season "20242025" → the 8-digit season the stats are from.
+  is_active:          z.boolean().optional(),
+  last_active_season: z.string().nullable().optional(),
 });
 
 export const PlayerRecordsSchema = z.array(PlayerRecordSchema);
