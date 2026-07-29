@@ -14,15 +14,21 @@ import { cardFooterText } from '../../../lib/card-footer';
 export async function getStaticPaths() {
   const players = loadPlayers();
 
+  // Current-cohort rank/percentile pools EXCLUDE inactive (last-active-season) players:
+  // they carry percentiles baked vs their OWN last-active cohort, so including them here
+  // would (a) give them meaningless current-season ranks and (b) nudge every active
+  // player's rank. Pages are still generated for ALL players (see `players.flatMap` below).
+  const rankPool = players.filter(p => p.is_active !== false);
+
   // HGBScore rank within pos_group
-  const forwards = [...players].filter(p => p.pos_group === 'F').sort((a, b) => b.avg_gs_centered - a.avg_gs_centered);
-  const defense  = [...players].filter(p => p.pos_group === 'D').sort((a, b) => b.avg_gs_centered - a.avg_gs_centered);
+  const forwards = [...rankPool].filter(p => p.pos_group === 'F').sort((a, b) => b.avg_gs_centered - a.avg_gs_centered);
+  const defense  = [...rankPool].filter(p => p.pos_group === 'D').sort((a, b) => b.avg_gs_centered - a.avg_gs_centered);
   const rankMap = new Map<number, { rank: number; total: number }>();
   forwards.forEach((p, i) => rankMap.set(p.player_id, { rank: i + 1, total: forwards.length }));
   defense.forEach( (p, i) => rankMap.set(p.player_id, { rank: i + 1, total: defense.length }));
 
   // RAPM rank within pos_group and overall
-  const withRapm    = players.filter(p => p.rapm != null);
+  const withRapm    = rankPool.filter(p => p.rapm != null);
   const rapmF       = [...withRapm].filter(p => p.pos_group === 'F').sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
   const rapmD       = [...withRapm].filter(p => p.pos_group === 'D').sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
   const rapmAll     = [...withRapm].sort((a, b) => (b.rapm ?? 0) - (a.rapm ?? 0));
@@ -32,7 +38,7 @@ export async function getStaticPaths() {
   rapmAll.forEach((p, i) => { const r = rapmRankMap.get(p.player_id); if (r) r.rankAll = i + 1; });
 
   // WAR percentile within pos_group (for card hero stat)
-  const withWar  = players.filter(p => p.war != null);
+  const withWar  = rankPool.filter(p => p.war != null);
   const warF     = [...withWar].filter(p => p.pos_group === 'F').sort((a, b) => (b.war ?? 0) - (a.war ?? 0));
   const warD     = [...withWar].filter(p => p.pos_group === 'D').sort((a, b) => (b.war ?? 0) - (a.war ?? 0));
   const warPctMap = new Map<number, number>();
@@ -83,8 +89,8 @@ export async function getStaticPaths() {
       war_pct: warPctMap.get(p.player_id) ?? p.current_war_pct ?? null,
       talent_pct: (p as any).hgb_rating_percentile ?? (p as any).talent_pct ?? null,
     });
-    const peers        = findPeers(players, player, 'war').map(mapPeer);
-    const peersRating  = findPeers(players, player, 'rating').map(mapPeer);
+    const peers        = findPeers(rankPool, player, 'war').map(mapPeer);
+    const peersRating  = findPeers(rankPool, player, 'rating').map(mapPeer);
     const warPct = warPctMap.get(player.player_id) ?? null;
     const playerSeasonStats = loadPlayerSeasonStats(player.player_id);
     const props = { player, playerGames, rankInfo, rapmRank, peers, peersRating, warPct, playerSeasonStats };
