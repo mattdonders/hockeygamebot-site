@@ -281,6 +281,14 @@ _cardFooters.talent.pre = `Current blend: ${currentSeasonNorm} + 3 prior seasons
 const isInactive = player.is_active === false;
 const lastActiveSeasonNorm = normalizeSeason(player.last_active_season ?? '') || currentSeasonNorm;
 
+// Inactive players are excluded from the LIVE current-season WAR cohort (warPct is null by
+// design — getStaticPaths builds rank pools from active players only). Their last-active
+// season still happened, so fall back to THAT season's own WAR percentile from
+// player_season_stats — mirroring how Impact/Talent already resolve — so WAR isn't the lone
+// blank tile/row on an inactive player's page.
+const _lastActiveWar = seasonStatsLookup.get(currentSeasonNorm)?.war_pct;
+const heroWarPct = warPct ?? (isInactive && _lastActiveWar != null ? Math.round(_lastActiveWar) : null);
+
 // Enrich each career season row with RAPM + HGB Rating + WAR + Impact from player_season_stats.
 // For 2025-26: override with authoritative values from players.json (same as page hero).
 // Historical seasons use simplified pipeline formula (different computation, labeled in footnote).
@@ -292,7 +300,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     ...cs,
     rapm_net_pct:   entry?.rapm_net_pct ?? null,
     hgb_rating_pct: isCurrent ? (player.hgb_rating_percentile ?? null) : (entry?.hgb_rating_pct ?? null),
-    war_pct:        isCurrent ? (warPct ?? null)                        : (entry?.war_pct        ?? null),
+    war_pct:        isCurrent ? (heroWarPct ?? null)                    : (entry?.war_pct        ?? null),
     impact_pct:     isCurrent ? Math.round(player.percentiles_vs_pos.game_score) : (entry?.impact_pct ?? null),
   };
 });
@@ -739,7 +747,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         <div class="hero-tile">
           <div class="tile-label">{currentSeasonNorm} WAR</div>
           <div class="tile-big" style={`color:${teamColor}`}>
-            {warPct != null ? `${warPct}%` : '—'}
+            {heroWarPct != null ? `${heroWarPct}%` : '—'}
           </div>
         </div>
         <div class="hero-tile">
