@@ -280,6 +280,10 @@ _cardFooters.talent.pre = `Current blend: ${currentSeasonNorm} + 3 prior seasons
 // See docs/plans/stats-missing-inactive-players-2026-07.md §4 + the report.
 const isInactive = player.is_active === false;
 const lastActiveSeasonNorm = normalizeSeason(player.last_active_season ?? '') || currentSeasonNorm;
+// The LEAGUE's current season (2025-26), distinct from `currentSeasonNorm` which is the
+// player's OWN most-recent season-of-record — for an inactive player those differ, so the
+// banner's "no games this season" clause must use the league season, not the player's.
+const leagueSeasonNorm = normalizeSeason(_meta.season);
 
 // Inactive players are excluded from the LIVE current-season WAR cohort (warPct is null by
 // design — getStaticPaths builds rank pools from active players only). Their last-active
@@ -315,15 +319,24 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
   currentPath={Astro.url.pathname}
 >
 <style is:global>
-    /* ── Inactive-player banner (STUB — operator owns final design) ──
-       Neutral placeholder so the "last active season" signal is visible in
-       preview; restyle/relocate to match the design system before shipping. */
+    /* ── Inactive-player banner (Option A — "quiet eyebrow", locked 2026-07-29) ──
+       Slim left-accent strip in the team color, matching the Puck Passport
+       anchor-note vernacular (border-left accent + surface bg + mono key).
+       Team color is applied inline via --team-c on the element. */
     .inactive-banner {
-      font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em;
-      color: var(--ink-70, var(--ink)); background: var(--surface-2, rgba(0,0,0,0.04));
-      border: 1px dashed var(--ink-14); border-radius: 6px;
-      padding: 8px 12px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      background: var(--surface); border-left: 3px solid var(--team-c, var(--ink));
+      padding: 9px 14px; margin-bottom: 12px;
     }
+    .inactive-banner .ib-key {
+      font-family: var(--mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--team-c, var(--ink)); white-space: nowrap;
+    }
+    .inactive-banner .ib-txt {
+      font-family: var(--body); font-size: 13px; color: var(--ink-70, var(--ink));
+    }
+    .inactive-banner .ib-txt strong { color: var(--ink); font-weight: 700; }
     /* ── MASTHEAD REDESIGN ── */
     .mast-card {
       background: var(--surface); border: 1px solid var(--ink-14);
@@ -714,10 +727,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       <a href="/stats">HGB Stats</a> / <a href="/stats/skaters">Players</a> / {player.first_name} {player.last_name}
     </div>
     {isInactive && (
-      <!-- STUB banner (design-gated): signals the page shows the last active season,
-           not the current one. Operator owns final copy/styling/placement. -->
-      <div class="inactive-banner" role="status">
-        No {currentSeasonNorm} stats — showing <strong>{lastActiveSeasonNorm}</strong> (last active season) + career.
+      <!-- Inactive banner (Option A — quiet eyebrow, locked 2026-07-29): signals the
+           page shows the last active season, not the current one. Team-colored accent. -->
+      <div class="inactive-banner" role="status" style={`--team-c: ${teamColor}`}>
+        <span class="ib-key">Last active · {lastActiveSeasonNorm}</span>
+        <span class="ib-txt">No {leagueSeasonNorm} games — showing <strong>{lastActiveSeasonNorm}</strong> stats + full career.</span>
       </div>
     )}
     <div class="mast-card" style={`border-left-color: ${teamColor}; color: ${teamColor}; --team-c: ${teamColor}`}>
