@@ -1288,20 +1288,22 @@ function mulberry32(a: number): () => number {
 }
 
 /**
- * Draw a WIDE "QR-noise band": a real, scannable QR (error-correction H, NO logo
- * overlay — clean modules) centred in `bandW`, embedded in a field of decorative
- * QR-module noise that fills the band to the left and right at the SAME cell size,
- * so the whole strip reads as one continuous QR texture with the real code inside.
+ * Draw a WIDE "QR-noise band": decorative QR-module noise fills the whole band as
+ * a BACKGROUND texture (dissolving into the cream at the edges), and the real,
+ * scannable QR (error-correction H, NO logo overlay — clean modules) sits inside a
+ * solid WHITE rounded card floating centred on top of that noise. The white card
+ * physically separates the crisp real code from the decorative field behind it, so
+ * the QR never reads muddy against the noise.
  *
- * Scannability is protected two ways: the real QR keeps its full WHITE quiet-zone
- * margin, and the decorative noise is kept a few modules clear of that margin — no
- * noise is ever painted over or beside the QR close enough to confuse a scanner.
+ * Scannability: the white card IS the quiet zone — the QR keeps a full ≥4-module
+ * white margin on every side inside the card, and the noise lives BEHIND the opaque
+ * card, so nothing decorative can ever crowd the code. The card carries a soft drop
+ * shadow + faint hairline border so it reads as floating above the texture.
  *
  * The noise is seeded deterministically from `gameId` (a given stub always renders
- * the identical field), and it DISSOLVES into the cream ticket at the band edges —
- * a soft alpha fade toward both horizontal ends (and a gentler vertical fade) so
- * there is no hard-edged rectangle; the texture emerges from the QR and melts back
- * into the cardstock. The real QR (centre) stays fully opaque and crisp.
+ * the identical field). It peaks behind/around the card and fades toward both
+ * horizontal ends (with a gentler vertical fade) so the texture emerges from behind
+ * the card and melts back into the cardstock — no hard-edged rectangle.
  */
 function drawQrNoiseBand(
   ctx: CanvasRenderingContext2D,
@@ -1317,36 +1319,25 @@ function drawQrNoiseBand(
   qr.addData(url);
   qr.make();
   const count = qr.getModuleCount();
-  const QUIET = 4; // standard 4-module quiet zone (kept white → scannable margin)
+  const QUIET = 4; // ≥4-module white quiet zone inside the card → scannable margin
   const totalMods = count + QUIET * 2;
-  const cell = bandH / totalMods; // module pixel size — drives BOTH the QR and the noise
-  const qrBox = totalMods * cell; // == bandH (the QR square fills the band vertically)
-  const qrX = x + (bandW - qrBox) / 2; // centre the real QR horizontally
-  const qrY = y;
 
-  // real QR — white quiet-zone card + crisp black modules (fully opaque)
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(qrX, qrY, qrBox, qrBox);
-  ctx.fillStyle = '#000000';
-  for (let row = 0; row < count; row++) {
-    for (let col = 0; col < count; col++) {
-      if (qr.isDark(row, col)) {
-        // +0.4 overlap avoids hairline seams between modules at 3× export scale
-        ctx.fillRect(qrX + (col + QUIET) * cell, qrY + (row + QUIET) * cell, cell + 0.4, cell + 0.4);
-      }
-    }
-  }
+  // The white card is a square that fits the band height (minus a small margin so
+  // its shadow reads). The QR + its full quiet zone live inside it.
+  const boxMargin = 3;
+  const boxSize = bandH - boxMargin * 2;
+  const cell = boxSize / totalMods; // module size — drives BOTH the QR and the noise
+  const boxX = x + (bandW - boxSize) / 2; // centre the card horizontally
+  const boxY = y + boxMargin;
 
-  // decorative module-noise across the whole band, on the SAME cell grid.
-  // Keep it clear of the QR's white card by a small margin so nothing crowds the
-  // quiet zone. Alpha fades to 0 at the outer horizontal ends and softens top/bottom.
+  // ── decorative module-noise BACKGROUND across the whole band, on the same cell
+  //    grid. Drawn FIRST so the opaque white card sits on top. Alpha peaks in the
+  //    middle (behind/around the card) and fades to 0 at the outer horizontal ends,
+  //    with a gentler vertical fade, so the texture melts into the cream. ──
   const rand = mulberry32(hashSeed(gameId));
-  const keepPad = 2 * cell; // clearance around the QR card
-  const koL = qrX - keepPad;
-  const koR = qrX + qrBox + keepPad;
   const cols = Math.ceil(bandW / cell);
   const rows = Math.ceil(bandH / cell);
+  const midX = x + bandW / 2;
   const midY = y + bandH / 2;
   ctx.fillStyle = ink;
   for (let r = 0; r < rows; r++) {
@@ -1356,26 +1347,48 @@ function drawQrNoiseBand(
       const on = rand() < 0.5; // ~QR density
       const jitter = rand(); // per-cell alpha jitter (advance the stream regardless)
       if (!on) continue;
-      const cxm = cx + cell / 2;
-      // horizontal fade: 0 at the band's outer edge, 1 at the QR card's edge.
-      let ah: number;
-      if (cxm < qrX) ah = (cxm - x) / (qrX - x);
-      else if (cxm > qrX + qrBox) ah = (x + bandW - cxm) / (x + bandW - (qrX + qrBox));
-      else continue; // inside the QR column — never covered by noise
-      // skip the keep-out band immediately beside the QR card
-      if (cxm > koL && cxm < koR) continue;
-      ah = Math.max(0, Math.min(1, ah));
-      ah = ah ** 1.5; // ease so noise stays faint longer near the edge, then ramps
+      // horizontal fade: 1 in the centre, 0 at the outer edges (eased)
+      const dh = Math.abs(cx + cell / 2 - midX) / (bandW / 2);
+      let ah = Math.max(0, Math.min(1, 1 - dh));
+      ah = ah ** 1.4;
       // gentle vertical fade (edges ~0.35 of centre)
       const dv = Math.abs(cy + cell / 2 - midY) / (bandH / 2);
       const av = 1 - 0.65 * dv * dv;
-      const alpha = 0.9 * ah * av * (0.7 + 0.3 * jitter);
+      const alpha = 0.6 * ah * av * (0.7 + 0.3 * jitter);
       if (alpha <= 0.02) continue;
       ctx.globalAlpha = alpha;
+      // +0.4 overlap avoids hairline seams between modules at 3× export scale
       ctx.fillRect(cx, cy, cell + 0.4, cell + 0.4);
     }
   }
   ctx.globalAlpha = 1;
+
+  // ── white card (the quiet zone) floating on the noise: soft shadow, then a faint
+  //    hairline border so it reads as lifted above the texture ──
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.28)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 2;
+  rrect(ctx, boxX, boxY, boxSize, boxSize, 6);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.restore();
+  rrect(ctx, boxX + 0.5, boxY + 0.5, boxSize - 1, boxSize - 1, 6);
+  ctx.strokeStyle = 'rgba(20,20,15,0.14)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // ── crisp real QR inside the card (offset by the QUIET-module white margin) ──
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000000';
+  for (let row = 0; row < count; row++) {
+    for (let col = 0; col < count; col++) {
+      if (qr.isDark(row, col)) {
+        // +0.4 overlap avoids hairline seams between modules at 3× export scale
+        ctx.fillRect(boxX + (col + QUIET) * cell, boxY + (row + QUIET) * cell, cell + 0.4, cell + 0.4);
+      }
+    }
+  }
 }
 
 /** DECORATIVE ONLY — PDF417-look stacked band (NOT a functional code). Wired
