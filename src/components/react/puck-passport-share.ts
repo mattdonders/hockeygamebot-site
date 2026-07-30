@@ -1588,3 +1588,31 @@ function drawPdf417Stub(
     }
   }
 }
+
+/**
+ * Composite N ticket stubs side by side into one wide canvas — the X/Twitter share
+ * format. A single tall 9:16 stub center-crops to a sliver in the X timeline; two
+ * stubs side by side is ~1.125:1 (near-square) and previews UNCROPPED in-feed, while
+ * also reading as a "collection" ("the games I've been to"). Reuses drawTicketStub
+ * per cell (each keeps its own QR → the user's Passport), so there's one source of
+ * truth for a stub's look. `gutter` is the cream seam between cells.
+ */
+export async function drawStubGrid(
+  cells: TicketStubOpts[],
+  gutter = 20,
+  bg = '#efeee8',
+): Promise<HTMLCanvasElement> {
+  if (cells.length === 0) throw new Error('drawStubGrid: need at least one stub');
+  const canvases = await Promise.all(cells.map((o) => drawTicketStub(o)));
+  const w = canvases[0].width;
+  const h = canvases[0].height;
+  const out = document.createElement('canvas');
+  out.width = w * canvases.length + gutter * (canvases.length - 1);
+  out.height = h;
+  const ctx = out.getContext('2d');
+  if (!ctx) throw new Error('drawStubGrid: no 2d context');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, out.width, out.height);
+  canvases.forEach((c, i) => ctx.drawImage(c, i * (w + gutter), 0));
+  return out;
+}

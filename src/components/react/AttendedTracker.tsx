@@ -50,7 +50,7 @@ import {
   type TierBadgeView,
   type BadgeEarnedGame,
 } from './puck-passport-badges';
-import { drawPassportCard, drawTicketStub, type PassportShareData } from './puck-passport-share';
+import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
 
 const API = 'https://api.hockeygamebot.com';
@@ -70,6 +70,8 @@ const SUMMARY_NUDGE_AT = 10;
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
 // logged the game. Cross-device games fall back to /v1/config + game_results.
 const DETAILS_KEY = 'hgb_puck_passport_details_v1';
+// Whether the featured-stub hero is collapsed (per-browser UI pref, not synced).
+const HERO_COLLAPSE_KEY = 'hgb_pp_hero_collapsed';
 
 // Rooting-perspective anchor preference. LOGGED-IN users store the anchor SERVER-side
 // (PUT /v1/account/prefs — see writeAnchor); this localStorage key is the LOGGED-OUT
@@ -143,6 +145,13 @@ type D1AttendedRow = {
   venue: string | null;
   last_period_type: string | null; // REG | OT | SO | (playoff OT variants)
   is_manual?: number | boolean | null; // 1/true for manually-logged games
+  // Server-resolved DISPLAY identity (teamDisplayById) — knows relocated/defunct
+  // franchises the client /v1/config (current 32) does not. Optional: absent on an
+  // api that predates this, so mapD1Row falls back to config → String(id).
+  home_team_abbrev?: string | null;
+  home_team_name?: string | null;
+  away_team_abbrev?: string | null;
+  away_team_name?: string | null;
 };
 
 /** team_id → abbrev/name, from GET /v1/config. */
@@ -385,6 +394,15 @@ function summaryCacheKey(gameIds: string[]): string {
   return Array.from(new Set(gameIds)).sort().join(',');
 }
 
+const STUB_DATE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "2017-12-29" → "Dec 29, 2017". Pure string parse (no Date() — avoids a TZ shift
+ *  that can render the wrong day). Returns the input unchanged if it isn't YYYY-MM-DD. */
+function fmtStubDate(d: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d ?? '');
+  if (!m) return d ?? '';
+  return `${STUB_DATE_MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}`;
+}
+
 /** The cached logged-out summary, or null. Returned with its key so the caller can
  *  confirm it still matches the current attended list before using it. */
 function readSummaryCache(): { key: string; summary: AttendedSummary } | null {
@@ -511,12 +529,21 @@ function mapD1Row(
   details: Record<string, AttendedGame>,
 ): AttendedGame {
   const snap = details[r.game_id];
-  const side = (id: number | null, score: number | null, snapSide?: TeamSide): TeamSide => {
+  const side = (
+    id: number | null,
+    score: number | null,
+    snapSide?: TeamSide,
+    // Server-resolved DISPLAY identity (teamDisplayById) — the SOLE source that
+    // knows relocated/defunct franchises (ARI 53, ATL 11, HFD 34…). Preferred over
+    // /v1/config, which is the current 32 only and would fall through to String(id).
+    serverAbbrev?: string | null,
+    serverName?: string | null,
+  ): TeamSide => {
     const info = id != null ? configMap.get(id) : undefined;
     return {
       id: id ?? snapSide?.id ?? 0,
-      abbrev: info?.abbrev ?? snapSide?.abbrev ?? (id != null ? String(id) : '?'),
-      name: info?.name ?? snapSide?.name ?? '',
+      abbrev: serverAbbrev ?? info?.abbrev ?? snapSide?.abbrev ?? (id != null ? String(id) : '?'),
+      name: serverName ?? info?.name ?? snapSide?.name ?? '',
       // /v1/config carries no short_name — only the local display snapshot does
       // (captured at add-time). Cross-device D1 rows without a snapshot fall back
       // to abbrev in the render helper (never blank).
@@ -529,8 +556,8 @@ function mapD1Row(
   return {
     game_id: r.game_id,
     date: r.game_date ?? snap?.date ?? '',
-    home: side(r.home_team_id, r.home_score, snap?.home),
-    away: side(r.away_team_id, r.away_score, snap?.away),
+    home: side(r.home_team_id, r.home_score, snap?.home, r.home_team_abbrev, r.home_team_name),
+    away: side(r.away_team_id, r.away_score, snap?.away, r.away_team_abbrev, r.away_team_name),
     // Prefer the server's game_results facts (cross-device / after a cache
     // clear the local snapshot is absent); fall back to the local snapshot.
     venue: r.venue ?? snap?.venue ?? null,
@@ -594,11 +621,23 @@ function splitForSummary(games: AttendedGame[]): { gameIds: string[]; manualGame
  *  layout — CSS (`.pp-team-full` / `.pp-team-abbr`) toggles which shows by
  *  breakpoint. When short_name is missing (old stored games / cross-device
  *  D1 rows), the abbrev fills BOTH spans so it shows at every width, never blank. */
-function teamMatchupLabel(shortName: string | null | undefined, abbrev: string): React.ReactElement {
-  const full = shortName && shortName.trim() ? shortName : abbrev;
+function teamMatchupLabel(
+  shortName: string | null | undefined,
+  abbrev: string,
+  // Full team name fallback ("New York Rangers") for the wide span when short_name is
+  // absent — cross-device D1 rows carry no short_name but DO carry the server-resolved
+  // name, so the wide layout shows a name, not the abbrev. Abbrev stays last-resort.
+  fullName?: string | null,
+): React.ReactElement {
+  const wide =
+    shortName && shortName.trim()
+      ? shortName
+      : fullName && fullName.trim()
+        ? fullName
+        : abbrev;
   return (
     <>
-      <span className="pp-team-full">{full}</span>
+      <span className="pp-team-full">{wide}</span>
       <span className="pp-team-abbr">{abbrev}</span>
     </>
   );
@@ -1392,6 +1431,10 @@ export default function AttendedTracker() {
   // Logged-in writes go to D1 (optimistic, rolled back on failure); logged-out
   // writes stay in localStorage. A display snapshot is always cached so the
   // logged-in (id-only) source can still render venue/OT on this device.
+  // The just-logged game, for the inline "make a stub" log-time prompt. Cleared on
+  // dismiss, on share, or when that game is removed. Set by every add path.
+  const [justAdded, setJustAdded] = useState<AttendedGame | null>(null);
+
   const addGame = useCallback(
     (raw: RawGame) => {
       const snap: AttendedGame = {
@@ -1405,6 +1448,9 @@ export default function AttendedTracker() {
         added_at: new Date().toISOString(),
       };
       commitDetail(snap);
+      // Highest-intent moment: offer a ticket stub the instant a game is logged.
+      // (Milestone-aware copy is resolved at render from the now-updated ordinals.)
+      setJustAdded(snap);
 
       if (isLoggedIn) {
         setD1Rows((prev) => {
@@ -1564,6 +1610,7 @@ export default function AttendedTracker() {
       away_score: awayScore,
     };
     commitDetail(snap);
+    setJustAdded(snap);
 
     if (isLoggedIn) {
       setD1Rows((prev) => {
@@ -2304,17 +2351,23 @@ export default function AttendedTracker() {
     const gameOrd = new Map<string, number>();
     const arenaOrd = new Map<string, number>();
     const venuePos = new Map<string, number>();
+    // The FIRST game logged at each distinct venue — the "new arena" moment. Drives
+    // the featured-hero ranking + the log-time milestone copy.
+    const firstAtArena = new Set<string>();
     let distinct = 0;
     sorted.forEach((g, i) => {
       gameOrd.set(g.game_id, i + 1);
       const v = g.venue?.trim();
       if (v) {
         const key = v.toLowerCase();
-        if (!venuePos.has(key)) venuePos.set(key, ++distinct);
+        if (!venuePos.has(key)) {
+          venuePos.set(key, ++distinct);
+          firstAtArena.add(g.game_id);
+        }
         arenaOrd.set(g.game_id, venuePos.get(key)!);
       }
     });
-    return { gameOrd, arenaOrd };
+    return { gameOrd, arenaOrd, firstAtArena };
   }, [games]);
 
   // game_id → earned badge display labels (owner-only; the public projection
@@ -2333,50 +2386,58 @@ export default function AttendedTracker() {
     return m;
   }, [catalog]);
 
+  // The exact opts a stub render needs, for a given game. Shared by the per-row
+  // share action AND the featured-hero preview so the two can never drift.
+  const stubOptsFor = useCallback(
+    (g: AttendedGame) => ({
+      game: g,
+      anchor: summary?.anchor ?? null,
+      handle: passportPublic && passportHandle ? passportHandle : undefined,
+      badges: badgesByGame.get(g.game_id) ?? [],
+      gameOrdinal: stubOrdinals.gameOrd.get(g.game_id) ?? null,
+      arenaOrdinal: stubOrdinals.arenaOrd.get(g.game_id) ?? null,
+      // Default code: 'qr' = the fade-into-cream band (clean, the QR is the obvious
+      // thing to scan). Swap to 'qr-boxnoise' (one-big-QR) or 'qr-plain' (white
+      // rectangle) here — all three live in drawQrNoiseBand.
+      codeStyle: 'qr' as const,
+    }),
+    [summary, passportHandle, passportPublic, badgesByGame, stubOrdinals],
+  );
+
+  // Preload EVERY face+weight drawTicketStub draws (silent-fallback-font guard) so a
+  // cold first render never falls back to a system font. Shared by the row action +
+  // the hero preview. Barlow Condensed 700 (headers/scores) AND 600 (detail values);
+  // Barlow 600 (team city); JetBrains Mono 500 (labels/serial) AND 400 (tagline).
+  const primeStubFonts = useCallback(async () => {
+    try {
+      const fs = (document as any).fonts;
+      if (fs?.load) {
+        await Promise.all(
+          [
+            '700 22px "Barlow Condensed"',
+            '700 32px "Barlow Condensed"',
+            '600 14px "Barlow Condensed"',
+            '600 10px "Barlow"',
+            '500 8px "JetBrains Mono"',
+            '400 9px "JetBrains Mono"',
+          ].map((f) => fs.load(f).catch(() => {})),
+        );
+        await fs.ready;
+      }
+    } catch {
+      /* non-fatal — draw with whatever is loaded */
+    }
+  }, []);
+
   const handleStub = useCallback(
     async (r: AttendedGame) => {
       // Reuse the wired `share_click` event — the stub IS a passport share action,
-      // and the telemetry endpoint accepts only its three known events (adding an
-      // unwired 'stub_click' would be silently dropped server-side).
+      // and the telemetry endpoint accepts only its three known events (an unwired
+      // 'stub_click' would be silently dropped server-side).
       trackEvent('share_click', { handle: passportHandle });
-      // Preload every face the stub draws (silent-fallback-font guard) AND the
-      // gold crest — drawTicketStub loads the crest itself, but priming fonts here
-      // mirrors the share-card pattern so the first render isn't a fallback font.
+      await primeStubFonts();
       try {
-        const fs = (document as any).fonts;
-        if (fs?.load) {
-          // EVERY face+weight drawTicketStub actually draws — so a cold first
-          // render never silently falls back. Barlow Condensed 700 (headers/scores)
-          // AND 600 (detail values); Barlow 600 (team city); JetBrains Mono 500
-          // (labels/serial) AND 400 (tagline/footer).
-          await Promise.all(
-            [
-              '700 22px "Barlow Condensed"',
-              '700 32px "Barlow Condensed"',
-              '600 14px "Barlow Condensed"',
-              '600 10px "Barlow"',
-              '500 8px "JetBrains Mono"',
-              '400 9px "JetBrains Mono"',
-            ].map((f) => fs.load(f).catch(() => {})),
-          );
-          await fs.ready;
-        }
-      } catch {
-        /* non-fatal — draw with whatever is loaded */
-      }
-      try {
-        const canvas = await drawTicketStub({
-          game: r,
-          anchor: summary?.anchor ?? null,
-          handle: passportPublic && passportHandle ? passportHandle : undefined,
-          badges: badgesByGame.get(r.game_id) ?? [],
-          gameOrdinal: stubOrdinals.gameOrd.get(r.game_id) ?? null,
-          arenaOrdinal: stubOrdinals.arenaOrd.get(r.game_id) ?? null,
-          // Default code: 'qr' = the fade-into-cream band (clean, the QR is the obvious
-          // thing to scan). Swap to 'qr-boxnoise' (one-big-QR) or 'qr-plain' (white
-          // rectangle) here — all three live in drawQrNoiseBand.
-          codeStyle: 'qr',
-        });
+        const canvas = await drawTicketStub(stubOptsFor(r));
         const exp = (window as any).HGB_Export;
         if (exp?.showCardModal) {
           exp.showCardModal(canvas, `puck-passport-${r.game_id}.png`);
@@ -2389,8 +2450,106 @@ export default function AttendedTracker() {
         setWriteError('Could not build the ticket stub — please try again.');
       }
     },
-    [summary, passportHandle, passportPublic, badgesByGame, stubOrdinals],
+    [passportHandle, primeStubFonts, stubOptsFor],
   );
+
+  // X/Twitter share: TWO RANDOM games composited side by side (~1.125:1), so the
+  // preview isn't center-cropped in-feed the way a single tall 9:16 stub is. Random
+  // (not "top 2") gives variety on repeat clicks. v2: let the user pick the two.
+  const handleGridShare = useCallback(
+    async () => {
+      if (games.length < 2) return;
+      const pool = [...games];
+      const [a] = pool.splice(Math.floor(Math.random() * pool.length), 1);
+      const b = pool[Math.floor(Math.random() * pool.length)];
+      const cells = [a, b];
+      trackEvent('share_click', { handle: passportHandle });
+      await primeStubFonts();
+      try {
+        const canvas = await drawStubGrid(cells.map(stubOptsFor));
+        const exp = (window as any).HGB_Export;
+        if (exp?.showCardModal) {
+          exp.showCardModal(canvas, `puck-passport-2up.png`);
+        } else {
+          console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
+          setWriteError('Could not open the 2-up graphic — please reload the page and try again.');
+        }
+      } catch (e) {
+        console.error('[PuckPassport] drawStubGrid failed', e);
+        setWriteError('Could not build the 2-up graphic — please try again.');
+      }
+    },
+    [games, passportHandle, primeStubFonts, stubOptsFor],
+  );
+
+  // ── Featured-stub hero: lead with the OUTPUT, not a buried button ─────────────
+  // Rank the collection by shareability so the hero always leads with the most
+  // "post-worthy" game: badge-bearing > milestone game # > new arena > most recent.
+  // All inputs are local (no network) — the hero can never disagree with the list.
+  const STUB_MILESTONES = [10, 25, 50, 100, 150, 200];
+  const notableGames = useMemo(() => {
+    const milestone = new Set(STUB_MILESTONES);
+    // Rooting perspective: prefer featuring a game the user's team WON (a loss is a
+    // deflating default showcase — that's what surfaced first before this). Only
+    // applies when there's a real anchor; a badge game still outranks it.
+    const anchor =
+      summary?.anchor && summary.anchor.source !== 'none' ? summary.anchor.abbrev : null;
+    const scored = games.map((g) => {
+      const nBadges = (badgesByGame.get(g.game_id) ?? []).length;
+      const gOrd = stubOrdinals.gameOrd.get(g.game_id) ?? null;
+      let score = nBadges * 100;
+      if (gOrd && milestone.has(gOrd)) score += 60;
+      if (stubOrdinals.firstAtArena.has(g.game_id)) score += 40;
+      if (anchor && (g.home.abbrev === anchor || g.away.abbrev === anchor)) {
+        const hs = g.home?.score;
+        const as = g.away?.score;
+        if (Number.isFinite(hs) && Number.isFinite(as) && hs !== as) {
+          const anchorWon = (g.home.abbrev === anchor) === (hs > as);
+          score += anchorWon ? 50 : -20;
+        }
+      }
+      return { g, score, date: String(g.date ?? '') };
+    });
+    // Highest score first; the newer game breaks ties (more top-of-mind to share).
+    scored.sort((a, b) => b.score - a.score || b.date.localeCompare(a.date));
+    return scored.map((s) => s.g);
+  }, [games, badgesByGame, stubOrdinals, summary]);
+
+  const [featuredIdx, setFeaturedIdx] = useState(0);
+  const featuredGame =
+    notableGames.length > 0 ? notableGames[featuredIdx % notableGames.length] : null;
+
+  // Collapsible hero: it leads with the shareable artifact (discovery), but a tall
+  // preview eats above-the-fold space for a returning user who's already seen it.
+  // Expanded by default (new users get the aha); collapse state persists per-browser.
+  const [heroCollapsed, setHeroCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setHeroCollapsed(localStorage.getItem(HERO_COLLAPSE_KEY) === '1');
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+  const toggleHero = () =>
+    setHeroCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(HERO_COLLAPSE_KEY, next ? '1' : '0');
+      } catch {
+        /* non-fatal */
+      }
+      return next;
+    });
+
+  // A one-phrase "why this game is notable" label (drives the log-time prompt copy).
+  const milestoneNoteFor = (gameId: string): string | null => {
+    const gOrd = stubOrdinals.gameOrd.get(gameId);
+    if (gOrd && STUB_MILESTONES.includes(gOrd)) return `your ${gOrd}th game`;
+    if (stubOrdinals.firstAtArena.has(gameId)) return 'a new arena';
+    const b = badgesByGame.get(gameId);
+    if (b && b.length) return b[0];
+    return null;
+  };
 
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
@@ -2421,7 +2580,7 @@ export default function AttendedTracker() {
                 color: win === t.abbrev ? 'var(--ink)' : 'var(--ink-56)',
               }}
             >
-              {teamMatchupLabel(t.short_name, t.abbrev)}
+              {teamMatchupLabel(t.short_name, t.abbrev, t.name)}
             </span>
           );
           return (
@@ -2817,6 +2976,102 @@ export default function AttendedTracker() {
         <div className="att-unverified-note">
           {viewUnverifiedCount} game{viewUnverifiedCount === 1 ? '' : 's'} added manually — counts toward Games,
           Arenas and Team records only; goals, shots, players and badges are limited.
+        </div>
+      ) : null}
+
+      {/* Featured-stub hero — lead with the shareable ARTIFACT. The per-game stub is
+          the viral unit (event-tied, others recognize the game); the passport-share
+          bar below stays as the whole-collection flex. */}
+      {!empty && featuredGame ? (
+        <div className={`att-hero${heroCollapsed ? ' att-hero-collapsed' : ''}`}>
+          <div className="att-hero-head">
+            <div className="att-hero-headings">
+              {!heroCollapsed ? <span className="att-hero-eyebrow">Share where you've been</span> : null}
+              <h3 className="att-hero-title">Your ticket stub</h3>
+            </div>
+            <button
+              className="att-hero-toggle"
+              type="button"
+              onClick={toggleHero}
+              aria-expanded={!heroCollapsed}
+              title={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
+            >
+              {heroCollapsed ? 'Show ▾' : 'Hide ▴'}
+            </button>
+          </div>
+          {!heroCollapsed ? (
+            <div className="att-hero-body">
+              <p className="att-hero-sub">
+                {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
+                {featuredGame.home.name || featuredGame.home.abbrev}
+                {featuredGame.date ? ` · ${fmtStubDate(featuredGame.date)}` : ''}
+              </p>
+              <div className="att-hero-actions">
+                <button className="att-hero-share" type="button" onClick={() => handleStub(featuredGame)}>
+                  🎟 Share this stub
+                </button>
+                {games.length > 1 ? (
+                  <button
+                    className="att-hero-grid"
+                    type="button"
+                    title="Two random games side by side — sized for X/Twitter (no crop)"
+                    onClick={handleGridShare}
+                  >
+                    2 games for X
+                  </button>
+                ) : null}
+                {notableGames.length > 1 ? (
+                  <button
+                    className="att-hero-cycle"
+                    type="button"
+                    onClick={() => setFeaturedIdx((i) => (i + 1) % notableGames.length)}
+                  >
+                    Pick another →
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Log-time / milestone prompt — fires the instant a game is added (highest
+          intent). Milestone-aware copy when the new game is a 10th/25th/… or a new
+          arena. Dismissible; auto-hides if that game is removed. */}
+      {justAdded && games.some((g) => g.game_id === justAdded.game_id) ? (
+        <div className="att-logprompt">
+          <div className="att-logprompt-text">
+            <strong>
+              Added {justAdded.away.abbrev} @ {justAdded.home.abbrev}.
+            </strong>{' '}
+            {(() => {
+              const note = milestoneNoteFor(justAdded.game_id);
+              return note
+                ? `That's ${note} — make a ticket stub to share it.`
+                : 'Make a ticket stub to share this game.';
+            })()}
+          </div>
+          <div className="att-logprompt-actions">
+            <button
+              className="att-logprompt-share"
+              type="button"
+              onClick={() => {
+                const g = justAdded;
+                setJustAdded(null);
+                handleStub(g);
+              }}
+            >
+              🎟 Make a stub
+            </button>
+            <button
+              className="att-logprompt-dismiss"
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setJustAdded(null)}
+            >
+              ✕
+            </button>
+          </div>
         </div>
       ) : null}
 

@@ -35,6 +35,27 @@ export default function PublicPassportPanel({ handle, isPublic, onHandleChange, 
   const [savingPublic, setSavingPublic] = useState(false);
   const [publicError, setPublicError] = useState<string | null>(null);
 
+  // Collapsible (mirrors the ticket-stub hero) so a returning user's above-the-fold
+  // goes to Add Games. State persists per-browser.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem('hgb_pp_public_collapsed') === '1');
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+  const toggleCollapsed = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem('hgb_pp_public_collapsed', next ? '1' : '0');
+      } catch {
+        /* non-fatal */
+      }
+      return next;
+    });
+
   const togglePublic = useCallback(async () => {
     if (savingPublic) return;
     const next = !isPublic;
@@ -138,14 +159,27 @@ export default function PublicPassportPanel({ handle, isPublic, onHandleChange, 
     avail.state === 'ok' && !saving && draft.trim().toLowerCase() !== (handle ?? '');
 
   return (
-    <section className="pp-panel">
+    <section className={collapsed ? 'pp-panel pp-panel-collapsed' : 'pp-panel'}>
       <div className="pp-panel-head">
-        <span className="pp-panel-label">Your public passport</span>
-        <span className={isPublic ? 'pp-panel-status on' : 'pp-panel-status'}>
-          {isPublic ? 'Public' : 'Private'}
-        </span>
+        <div className="pp-panel-headings">
+          <span className="pp-panel-label">Your public passport</span>
+          <span className={isPublic ? 'pp-panel-status on' : 'pp-panel-status'}>
+            {isPublic ? 'Public' : 'Private'}
+          </span>
+        </div>
+        <button
+          className="pp-panel-toggle"
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Show public passport' : 'Hide public passport'}
+        >
+          {collapsed ? 'Show ▾' : 'Hide ▴'}
+        </button>
       </div>
 
+      {collapsed ? null : (
+      <>
       {/* URL + copy */}
       <div className="pp-url-row">
         <span className={isPublic ? 'pp-url' : 'pp-url pp-url-private'}>
@@ -227,6 +261,8 @@ export default function PublicPassportPanel({ handle, isPublic, onHandleChange, 
           </div>
         )}
       </div>
+      </>
+      )}
     </section>
   );
 }
