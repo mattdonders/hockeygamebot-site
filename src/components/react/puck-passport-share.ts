@@ -1113,17 +1113,24 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   // Intentional logged-out share-funnel fallback: a shareable stub with no
   // attributable handle still points at the generic passport URL (operator's call).
   if (handle) {
-    // left: PASSPORT HOLDER · @handle
+    // Holder = a MATCHED PAIR with the collection stat on the right: a bold display
+    // value on top, a mono caption beneath. @handle sits at the SAME size + baseline
+    // as the "37TH GAME" hero and "PASSPORT HOLDER" drops to the caption row level
+    // with "6TH ARENA ATTENDED" — so the two columns read as one balanced row (was
+    // a lonely oversized 16px handle floating over a tiny label).
     ctx.textAlign = 'left';
-    ctx.font = mono(7.5, 500);
+    ctx.font = disp(12.5, 700);
+    ctx.fillStyle = INK;
+    ctx.save();
+    ctx.letterSpacing = '0.4px';
+    ctx.fillText(`@${handle}`, px + padX, y + 20);
+    ctx.restore();
+    ctx.font = mono(8, 500);
     ctx.fillStyle = inkA(0.55);
     ctx.save();
-    ctx.letterSpacing = '0.9px';
-    ctx.fillText('PASSPORT HOLDER', px + padX, y + 18);
+    ctx.letterSpacing = '0.5px';
+    ctx.fillText('PASSPORT HOLDER', px + padX, y + 33);
     ctx.restore();
-    ctx.font = disp(16, 700);
-    ctx.fillStyle = INK;
-    ctx.fillText(`@${handle}`, px + padX, y + 35);
     // right: collection stat opposite the holder line
     drawCollectionStat('right', px + passW - padX);
   } else {
