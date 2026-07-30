@@ -874,8 +874,8 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   ctx.restore();
 
   // ══ MASTHEAD (compact, centred): crest medallion + wordmark + tagline ══
-  const mastY = 20;
-  const discR = 23; // 46px disc
+  const mastY = 18;
+  const discR = 26; // 52px disc (bigger medallion)
   const wordmark = 'PUCK PASSPORT';
   const tagline = 'PROOF YOU WERE THERE';
   ctx.font = disp(22, 700);
@@ -901,7 +901,7 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     ctx.beginPath();
     ctx.arc(discCx, discCy, discR - 1.5, 0, Math.PI * 2);
     ctx.clip();
-    const cs = 48;
+    const cs = 62;
     ctx.drawImage(crest, discCx - cs / 2, discCy - cs / 2, cs, cs);
     ctx.restore();
   }
@@ -1035,7 +1035,7 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
         ctx.fill();
       }
       // fit the logo into the box (padded), preserving its aspect ratio
-      const inset = 4;
+      const inset = 2;
       const bx = CHIP - inset * 2;
       const iw = (logo.img as any).width || (logo.img as any).naturalWidth || bx;
       const ih = (logo.img as any).height || (logo.img as any).naturalHeight || bx;
