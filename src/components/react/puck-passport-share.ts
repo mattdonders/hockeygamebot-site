@@ -844,7 +844,6 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   // We lay out the pass sections top-down, measuring as we go, then draw the
   // rounded cream body underneath at the final height.
   const px = passX; // pass left
-  const cx = px + passW / 2;
   const padX = 14;
 
   // Pre-compute section geometry --------------------------------------------------
