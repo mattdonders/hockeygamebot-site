@@ -2345,14 +2345,18 @@ export default function AttendedTracker() {
       try {
         const fs = (document as any).fonts;
         if (fs?.load) {
+          // EVERY face+weight drawTicketStub actually draws — so a cold first
+          // render never silently falls back. Barlow Condensed 700 (headers/scores)
+          // AND 600 (detail values); Barlow 600 (team city); JetBrains Mono 500
+          // (labels/serial) AND 400 (tagline/footer).
           await Promise.all(
             [
               '700 22px "Barlow Condensed"',
               '700 32px "Barlow Condensed"',
-              '600 14px "Barlow"',
+              '600 14px "Barlow Condensed"',
               '600 10px "Barlow"',
-              '700 11px "JetBrains Mono"',
               '500 8px "JetBrains Mono"',
+              '400 9px "JetBrains Mono"',
             ].map((f) => fs.load(f).catch(() => {})),
           );
           await fs.ready;
