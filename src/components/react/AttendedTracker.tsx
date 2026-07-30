@@ -2539,40 +2539,6 @@ export default function AttendedTracker() {
     return null;
   };
 
-  // Lazily render the featured game as a real stub preview (scaled down via CSS).
-  // Runs AFTER paint (effect), never blocking first render — the draw loads a crest,
-  // a QR and team logos, so it must not sit on the page-load critical path.
-  const heroRef = useRef<HTMLDivElement | null>(null);
-  const [heroReady, setHeroReady] = useState(false);
-  useEffect(() => {
-    if (!featuredGame || heroCollapsed) return; // collapsed → skip the draw entirely
-    let cancelled = false;
-    setHeroReady(false);
-    (async () => {
-      await primeStubFonts();
-      try {
-        const canvas = await drawTicketStub(stubOptsFor(featuredGame));
-        if (cancelled) return;
-        canvas.className = 'att-hero-canvas';
-        canvas.setAttribute('role', 'img');
-        canvas.setAttribute(
-          'aria-label',
-          `Ticket stub preview: ${featuredGame.away.abbrev} at ${featuredGame.home.abbrev}`,
-        );
-        const host = heroRef.current;
-        if (host) {
-          host.replaceChildren(canvas);
-          setHeroReady(true);
-        }
-      } catch (e) {
-        console.error('[PuckPassport] featured stub preview failed', e);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [featuredGame, heroCollapsed, primeStubFonts, stubOptsFor]);
-
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
     () => [
@@ -3023,40 +2989,34 @@ export default function AttendedTracker() {
           </div>
           {!heroCollapsed ? (
             <div className="att-hero-body">
-              <div className="att-hero-copy">
-                <p className="att-hero-sub">
-                  {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
-                  {featuredGame.home.name || featuredGame.home.abbrev}
-                  {featuredGame.date ? ` · ${fmtStubDate(featuredGame.date)}` : ''}
-                </p>
-                <div className="att-hero-actions">
-                  <button className="att-hero-share" type="button" onClick={() => handleStub(featuredGame)}>
-                    🎟 Share this stub
+              <p className="att-hero-sub">
+                {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
+                {featuredGame.home.name || featuredGame.home.abbrev}
+                {featuredGame.date ? ` · ${fmtStubDate(featuredGame.date)}` : ''}
+              </p>
+              <div className="att-hero-actions">
+                <button className="att-hero-share" type="button" onClick={() => handleStub(featuredGame)}>
+                  🎟 Share this stub
+                </button>
+                {games.length > 1 ? (
+                  <button
+                    className="att-hero-grid"
+                    type="button"
+                    title="Two random games side by side — sized for X/Twitter (no crop)"
+                    onClick={handleGridShare}
+                  >
+                    2 games for X
                   </button>
-                  {games.length > 1 ? (
-                    <button
-                      className="att-hero-grid"
-                      type="button"
-                      title="Two random games side by side — sized for X/Twitter (no crop)"
-                      onClick={handleGridShare}
-                    >
-                      2 games for X
-                    </button>
-                  ) : null}
-                  {notableGames.length > 1 ? (
-                    <button
-                      className="att-hero-cycle"
-                      type="button"
-                      onClick={() => setFeaturedIdx((i) => (i + 1) % notableGames.length)}
-                    >
-                      Pick another →
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <div className="att-hero-preview">
-                <div className="att-hero-canvas-host" ref={heroRef} aria-busy={!heroReady} />
-                {!heroReady ? <span className="att-hero-loading">Rendering…</span> : null}
+                ) : null}
+                {notableGames.length > 1 ? (
+                  <button
+                    className="att-hero-cycle"
+                    type="button"
+                    onClick={() => setFeaturedIdx((i) => (i + 1) % notableGames.length)}
+                  >
+                    Pick another →
+                  </button>
+                ) : null}
               </div>
             </div>
           ) : null}
