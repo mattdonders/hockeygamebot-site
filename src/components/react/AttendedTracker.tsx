@@ -50,7 +50,7 @@ import {
   type TierBadgeView,
   type BadgeEarnedGame,
 } from './puck-passport-badges';
-import { drawPassportCard, type PassportShareData } from './puck-passport-share';
+import { drawPassportCard, drawTicketStub, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
 
 const API = 'https://api.hockeygamebot.com';
@@ -2282,6 +2282,98 @@ export default function AttendedTracker() {
     }
   }, [catalog, viewRecords, viewCounters, viewArenaBadge, viewBoxIncomplete, viewUnverifiedCount, passportHandle, passportPublic]);
 
+  // ── Ticket-stub share (per-game canvas PNG) ──────────────────────────────────
+  // Per-game collection ordinals for the stub's holder line ("37TH GAME" / "6TH
+  // ARENA ATTENDED"). Chronological: gameOrdinal = this game's 1-based position in
+  // the date-sorted collection; arenaOrdinal = the venue's first-visit position
+  // among distinct arenas. Derived from the same `games` the table renders — no
+  // network — so the stub can never disagree with the dashboard.
+  const stubOrdinals = useMemo(() => {
+    const sorted = [...games].sort((a, b) => a.date.localeCompare(b.date) || a.game_id.localeCompare(b.game_id));
+    const gameOrd = new Map<string, number>();
+    const arenaOrd = new Map<string, number>();
+    const venuePos = new Map<string, number>();
+    let distinct = 0;
+    sorted.forEach((g, i) => {
+      gameOrd.set(g.game_id, i + 1);
+      const v = g.venue?.trim();
+      if (v) {
+        const key = v.toLowerCase();
+        if (!venuePos.has(key)) venuePos.set(key, ++distinct);
+        arenaOrd.set(g.game_id, venuePos.get(key)!);
+      }
+    });
+    return { gameOrd, arenaOrd };
+  }, [games]);
+
+  // game_id → earned badge display labels (owner-only; the public projection
+  // strips badges.earned[].games, so this map is empty for public/other passports
+  // and the stub simply renders no stamps — never a crash).
+  const badgesByGame = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const c of catalog) {
+      if (!c.earned || !c.games) continue;
+      for (const eg of c.games) {
+        const arr = m.get(eg.game_id) ?? [];
+        arr.push(c.label);
+        m.set(eg.game_id, arr);
+      }
+    }
+    return m;
+  }, [catalog]);
+
+  const handleStub = useCallback(
+    async (r: AttendedGame) => {
+      // Reuse the wired `share_click` event — the stub IS a passport share action,
+      // and the telemetry endpoint accepts only its three known events (adding an
+      // unwired 'stub_click' would be silently dropped server-side).
+      trackEvent('share_click', { handle: passportHandle });
+      // Preload every face the stub draws (silent-fallback-font guard) AND the
+      // gold crest — drawTicketStub loads the crest itself, but priming fonts here
+      // mirrors the share-card pattern so the first render isn't a fallback font.
+      try {
+        const fs = (document as any).fonts;
+        if (fs?.load) {
+          await Promise.all(
+            [
+              '700 22px "Barlow Condensed"',
+              '700 32px "Barlow Condensed"',
+              '600 14px "Barlow"',
+              '600 10px "Barlow"',
+              '700 11px "JetBrains Mono"',
+              '500 8px "JetBrains Mono"',
+            ].map((f) => fs.load(f).catch(() => {})),
+          );
+          await fs.ready;
+        }
+      } catch {
+        /* non-fatal — draw with whatever is loaded */
+      }
+      try {
+        const canvas = await drawTicketStub({
+          game: r,
+          anchor: summary?.anchor ?? null,
+          handle: passportPublic && passportHandle ? passportHandle : undefined,
+          badges: badgesByGame.get(r.game_id) ?? [],
+          gameOrdinal: stubOrdinals.gameOrd.get(r.game_id) ?? null,
+          arenaOrdinal: stubOrdinals.arenaOrd.get(r.game_id) ?? null,
+          codeStyle: 'qr',
+        });
+        const exp = (window as any).HGB_Export;
+        if (exp?.showCardModal) {
+          exp.showCardModal(canvas, `puck-passport-${r.game_id}.png`);
+        } else {
+          console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
+          setWriteError('Could not open the ticket stub — please reload the page and try again.');
+        }
+      } catch (e) {
+        console.error('[PuckPassport] drawTicketStub failed', e);
+        setWriteError('Could not build the ticket stub — please try again.');
+      }
+    },
+    [summary, passportHandle, passportPublic, badgesByGame, stubOrdinals],
+  );
+
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
     () => [
@@ -2379,28 +2471,41 @@ export default function AttendedTracker() {
           ),
       },
       {
-        id: 'remove',
+        id: 'actions',
         header: '',
         accessor: () => '',
         align: 'center',
         exportInclude: false,
-        width: 44,
+        width: 84,
         cell: (_, r) => (
-          <button
-            className="att-remove"
-            title="Remove from attended"
-            aria-label={`Remove ${r.away.abbrev} at ${r.home.abbrev}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              removeGame(r.game_id);
-            }}
-          >
-            ✕
-          </button>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button
+              className="att-stub"
+              title="Create a ticket-stub graphic for this game"
+              aria-label={`Ticket stub for ${r.away.abbrev} at ${r.home.abbrev}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleStub(r);
+              }}
+            >
+              🎟 Stub
+            </button>
+            <button
+              className="att-remove"
+              title="Remove from attended"
+              aria-label={`Remove ${r.away.abbrev} at ${r.home.abbrev}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                removeGame(r.game_id);
+              }}
+            >
+              ✕
+            </button>
+          </div>
         ),
       },
     ],
-    [removeGame],
+    [removeGame, handleStub],
   );
 
   const seenCols = useMemo<HGBColumnDef<SeenPlayerRow>[]>(
