@@ -42,6 +42,8 @@
 
 import { DOMAIN_UPPER, FOOTER_STYLE } from '../../lib/card-footer';
 import { normalizePeriod } from './puck-passport-badges';
+import { pickTeamColor } from '../../lib/team-colors';
+import qrcode from 'qrcode-generator';
 
 const BG = '#EFEEE8';
 const SURFACE = '#FFFFFF';
@@ -538,4 +540,755 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   });
 
   return canvas;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TICKET STUB  —  drawTicketStub()
+//  A shareable, downloadable ticket-stub graphic for a SINGLE attended game.
+//  Nostalgic boarding-pass / ticket-stub FORM (perforation, "ADMIT ONE",
+//  serial, scannable code) in HGB's clean cream+ink system, on a team-colour
+//  9:16 story background. Design LOCKED — this is a faithful canvas port of the
+//  v8 mockup (360×640 → exported at 1080×1920, 3× scale).
+//
+//  Spec + mockup:
+//    hgb-docs/docs/plans/puck-passport-ticket-stub-2026-07.md
+//    (mockup: ticket-stub-mockup.html "pass v8, game-first, 9:16")
+//
+//  DIFFERENCES FROM THE MOCKUP (data-driven, flagged honestly):
+//   • The mockup's "Puck Drop · 7:30 PM ET" cell has NO backing data (AttendedGame
+//     carries only a date, no faceoff time). Rather than fabricate a time, that
+//     cell becomes "SEASON" (derived from the game_id). Fail-loud, not fake.
+//   • Per-team CONTRAST treatments (spec §5.4): white text on a team-colour fill
+//     is illegible for pale/yellow teams (NSH, VGK, BOS, NSH gold…). Fills pick a
+//     readable ink (dark vs white) by luminance; team accents on cream are darkened
+//     when too light; the story gradient's top stop is darkened for pale teams so
+//     the white masthead stays legible. See readableInk / accentOnCream / storyTop.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Minimal per-game shape the stub needs (subset of AttendedGame). */
+export interface TicketStubTeam {
+  abbrev: string;
+  name: string;
+  short_name?: string | null;
+  score: number;
+}
+export interface TicketStubGame {
+  game_id: string;
+  date: string; // YYYY-MM-DD (hockey date)
+  home: TicketStubTeam;
+  away: TicketStubTeam;
+  venue: string | null;
+  last_period_type: string | null; // REG | OT | SO | 2OT …
+  status: string;
+  is_manual?: boolean;
+  home_score?: number | null;
+  away_score?: number | null;
+}
+/** Resolved rooting anchor (from the passport summary), used for the team colour. */
+export interface TicketStubAnchor {
+  team_id: number;
+  abbrev: string;
+  source: 'explicit' | 'inferred' | 'none';
+}
+export interface TicketStubOpts {
+  game: TicketStubGame;
+  /** Rooting anchor → team colour when it's one of the two teams; else home. */
+  anchor?: TicketStubAnchor | null;
+  /** Public @handle (no leading @). Drives the code URL + the holder line. */
+  handle?: string | null;
+  /** Badge display labels earned that game (owner-only; empty for public/others). */
+  badges?: string[];
+  /** This game's chronological ordinal in the collection ("37TH GAME"). */
+  gameOrdinal?: number | null;
+  /** This venue's ordinal among distinct arenas ("6TH ARENA ATTENDED"). */
+  arenaOrdinal?: number | null;
+  /** Code style — QR (default, phone-scannable) or the PDF417 decorative stub. */
+  codeStyle?: 'qr' | 'pdf417';
+  /** Crest image URL (default the committed gold crest). Overridable for tests. */
+  crestUrl?: string;
+}
+
+// ── colour helpers (per-team contrast) ───────────────────────────────────────
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+function rgbToHex(r: number, g: number, b: number): string {
+  const c = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+/** Perceptual relative luminance (sRGB, 0–1). */
+function luminance(hex: string): number {
+  const [r, g, b] = hexToRgb(hex).map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+/** Mix two hex colours (t=0 → a, t=1 → b). */
+function mix(a: string, b: string, t: number): string {
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  return rgbToHex(ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t);
+}
+const darken = (hex: string, t: number) => mix(hex, '#000000', t);
+/** WCAG contrast ratio between two colours (1–21). */
+function contrastRatio(a: string, b: string): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
+  return (hi + 0.05) / (lo + 0.05);
+}
+/** Readable text colour to sit ON a team-colour fill: whichever of white / dark
+ *  ink has the higher contrast against the fill. A fixed luminance threshold
+ *  mis-picks white on mid-tones (silver #A2AAAD), so choose by actual contrast. */
+function readableInk(bg: string): string {
+  return contrastRatio('#ffffff', bg) >= contrastRatio('#14140f', bg) ? '#ffffff' : '#14140f';
+}
+/** A team accent usable as TEXT on the cream cardstock — darkened when too light
+ *  (yellow/gold teams) so it stays legible against #fbf9f3. */
+function accentOnCream(hex: string): string {
+  let c = hex;
+  // Keep darkening toward black until it's dark enough to read on cream.
+  while (luminance(c) > 0.3) c = darken(c, 0.25);
+  return c;
+}
+
+// ── string / format helpers ──────────────────────────────────────────────────
+function ordinal(n: number): string {
+  const s = ['TH', 'ST', 'ND', 'RD'];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+/** Season token "2022-23" from an NHL game_id's leading year. Null when non-numeric. */
+function seasonFromGameId(gameId: string): string | null {
+  const y = parseInt(gameId.slice(0, 4), 10);
+  if (!Number.isFinite(y) || y < 1917 || y > 2100) return null;
+  return `${y}-${String((y + 1) % 100).padStart(2, '0')}`;
+}
+/** Deterministic serial "PP-<base36(game_id)>". Falls back for manual ids. */
+function stubSerial(gameId: string): string {
+  const n = Number(gameId);
+  if (Number.isFinite(n) && n > 0) return `PP-${n.toString(36).toUpperCase()}`;
+  return `PP-${gameId.replace(/[^a-z0-9]/gi, '').slice(-6).toUpperCase() || 'MANUAL'}`;
+}
+/** Split a full team name into { city, nick } using short_name when present. */
+function splitTeamName(name: string, shortName?: string | null): { city: string; nick: string } {
+  const nick = shortName && shortName.trim() ? shortName.trim() : name.slice(name.lastIndexOf(' ') + 1);
+  let city = name;
+  if (name.toLowerCase().endsWith(nick.toLowerCase())) city = name.slice(0, name.length - nick.length).trim();
+  else if (name.includes(' ')) city = name.slice(0, name.lastIndexOf(' ')).trim();
+  return { city: city || name, nick };
+}
+/** "Wed · May 3, 2023" from a YYYY-MM-DD hockey date (parsed as local, no TZ shift). */
+function formatStubDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+  const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+  return `${wd} · ${mo} ${d.getDate()}, ${d.getFullYear()}`;
+}
+/** Adaptive 4th detail cell (spec §3): playoff round · game → preseason → regular. */
+function adaptiveDetail(gameId: string): { label: string; value: string } {
+  const tt = gameId.slice(4, 6);
+  if (tt === '03') {
+    const last4 = gameId.slice(6);
+    const round = last4[1];
+    const game = last4[3];
+    if (round && game) return { label: 'Round', value: `Playoffs R${round} · G${game}` };
+    return { label: 'Round', value: 'Playoffs' };
+  }
+  if (tt === '01') return { label: 'Game Type', value: 'Preseason' };
+  return { label: 'Game Type', value: 'Regular Season' };
+}
+
+/** Load an image and resolve once decoded. Rejects loud on error (no silent blank). */
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    // crossOrigin lets a same-origin canvas stay untainted; harmless for local assets.
+    try {
+      (img as any).crossOrigin = 'anonymous';
+    } catch {
+      /* node-canvas Image has no crossOrigin — ignore */
+    }
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`[TicketStub] crest failed to load: ${url}`));
+    img.src = url;
+  });
+}
+
+/**
+ * Render the ticket-stub share graphic for one attended game.
+ * Returns a 1080×1920 (true 9:16) canvas ready for window.HGB_Export.showCardModal.
+ *
+ * Async because it must fully load the gold crest BEFORE drawing (showCardModal
+ * snapshots the canvas synchronously — a not-yet-loaded crest would render blank).
+ */
+export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasElement> {
+  const { game, anchor, handle, badges = [], gameOrdinal, arenaOrdinal } = opts;
+  const codeStyle = opts.codeStyle ?? 'qr';
+  const crestUrl = opts.crestUrl ?? '/puck-passport/crest-gold.png';
+
+  // ── team colour (spec colour rule) ──
+  // anchor if it exists, isn't 'none', AND is one of the two teams; else home.
+  const anchorAbbrev =
+    anchor && anchor.source !== 'none' && (anchor.abbrev === game.home.abbrev || anchor.abbrev === game.away.abbrev)
+      ? anchor.abbrev
+      : game.home.abbrev;
+  const teamRaw = pickTeamColor(anchorAbbrev);
+  // Story gradient: darken the top stop for pale teams so white text stays legible.
+  // Darken the gradient's top stop for pale/mid teams (yellow, silver, light blue)
+  // so the white masthead stays legible; darkening toward black preserves hue.
+  const storyTop = luminance(teamRaw) > 0.32 ? darken(teamRaw, 0.5) : teamRaw;
+  const storyDk = darken(storyTop, 0.62);
+  // The team colour used as a solid header/final/chip FILL (kept vivid).
+  const teamFill = teamRaw;
+  const onFill = readableInk(teamFill); // readable text on that fill
+  const accentCream = accentOnCream(teamRaw); // team accent as text on cream
+
+  const GOLD = '#e7c66b';
+  const CREAM = '#fbf9f3';
+  const INK = '#14140f';
+  const inkA = (a: number) => `rgba(20,20,15,${a})`;
+  const whiteA = (a: number) => `rgba(255,255,255,${a})`;
+
+  // ── canvas (true 9:16, 3× the 360×640 mockup) ──
+  const SCALE = 3;
+  const W = 360;
+  const H = 640;
+  const canvas = document.createElement('canvas');
+  canvas.width = W * SCALE;
+  canvas.height = H * SCALE;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(SCALE, SCALE);
+  ctx.textBaseline = 'alphabetic';
+
+  // fonts
+  const disp = (px: number, wt = 700) => `${wt} ${px}px "Barlow Condensed", "Oswald", sans-serif`;
+  const body = (px: number, wt = 500) => `${wt} ${px}px "Barlow", sans-serif`;
+  const mono = (px: number, wt = 500) => `${wt} ${px}px "JetBrains Mono", monospace`;
+
+  // preload crest (fail-loud if missing → we still draw the disc, sans emblem)
+  let crest: HTMLImageElement | null = null;
+  try {
+    crest = await loadImage(crestUrl);
+  } catch (e) {
+    console.error(e);
+  }
+
+  // ══ BACKGROUND: 168deg team gradient + faint diagonal weave ══
+  const g = ctx.createLinearGradient(W * 0.1, 0, W * 0.9, H);
+  g.addColorStop(0, storyTop);
+  g.addColorStop(0.62, storyDk);
+  g.addColorStop(1, '#170406');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // diagonal weave overlay (opacity ~.05)
+  ctx.save();
+  ctx.globalAlpha = 0.05;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1;
+  for (let d = -H; d < W; d += 26) {
+    ctx.beginPath();
+    ctx.moveTo(d, 0);
+    ctx.lineTo(d + H, H);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // ══ MASTHEAD (compact, centred): crest medallion + wordmark + tagline ══
+  const mastY = 20;
+  const discR = 23; // 46px disc
+  const wordmark = 'PUCK PASSPORT';
+  const tagline = 'PROOF YOU WERE THERE';
+  ctx.font = disp(22, 700);
+  const wmW = ctx.measureText(wordmark).width;
+  const gap = 10;
+  const groupW = discR * 2 + gap + wmW;
+  const groupX = (W - groupW) / 2;
+  const discCx = groupX + discR;
+  const discCy = mastY + discR;
+  // disc: cream fill + gold ring
+  ctx.beginPath();
+  ctx.arc(discCx, discCy, discR, 0, Math.PI * 2);
+  ctx.fillStyle = CREAM;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = GOLD;
+  ctx.stroke();
+  if (crest) {
+    const cs = 38;
+    ctx.drawImage(crest, discCx - cs / 2, discCy - cs / 2, cs, cs);
+  }
+  // wordmark + tagline (left-aligned, vertically centred against the disc)
+  const wmX = groupX + discR * 2 + gap;
+  ctx.textAlign = 'left';
+  ctx.font = disp(22, 700);
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(wordmark, wmX, discCy + 3);
+  ctx.font = mono(8, 400);
+  ctx.fillStyle = GOLD;
+  ctx.save();
+  ctx.letterSpacing = '1.4px';
+  ctx.fillText(tagline, wmX + 1, discCy + 15);
+  ctx.restore();
+
+  // ══ THE PASS (cream, rounded, hero) ══
+  const passW = 314;
+  const passX = (W - passW) / 2;
+  const passTop = mastY + discR * 2 + 16; // masthead + headroom
+
+  // We lay out the pass sections top-down, measuring as we go, then draw the
+  // rounded cream body underneath at the final height.
+  const px = passX; // pass left
+  const cx = px + passW / 2;
+  const padX = 14;
+
+  // Pre-compute section geometry --------------------------------------------------
+  const HD_H = 26; // header strip
+  // scoreboard
+  const BOARD_PAD_T = 14;
+  const ROW_H = 40;
+  const ROW_GAP = 11;
+  const FINAL_GAP = 11;
+  const FINAL_H = 20;
+  const BOARD_PAD_B = 12;
+  const boardH = BOARD_PAD_T + ROW_H * 2 + ROW_GAP + FINAL_GAP + FINAL_H + BOARD_PAD_B;
+  // details grid (2 rows)
+  const ROWS_PAD_T = 12;
+  const FROW_H = 34;
+  const rowsH = ROWS_PAD_T + FROW_H * 2 + 4;
+  // holder
+  const HOLDER_H = 40;
+  // stamps (badges) — one wrapping row; hide the block when none
+  const hasStamps = badges.length > 0;
+  const STAMPS_H = hasStamps ? 34 : 6;
+  // souvenir stub
+  const BP_PAD_T = 12;
+  const BP_LBL_H = 18;
+  const codeH = codeStyle === 'qr' ? 62 : 52;
+  const BP_PAD_B = 13;
+  const bpH = BP_PAD_T + BP_LBL_H + codeH + BP_PAD_B;
+
+  const passH = HD_H + boardH + rowsH + HOLDER_H + STAMPS_H + bpH;
+
+  // draw cream body (rounded, clipped) + soft shadow
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 30;
+  ctx.shadowOffsetY = 12;
+  rrect(ctx, px, passTop, passW, passH, 15);
+  ctx.fillStyle = CREAM;
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  rrect(ctx, px, passTop, passW, passH, 15);
+  ctx.clip();
+
+  let y = passTop;
+
+  // ── header strip (team fill) ──
+  ctx.fillStyle = teamFill;
+  ctx.fillRect(px, y, passW, HD_H);
+  ctx.textBaseline = 'middle';
+  ctx.font = mono(8, 400);
+  ctx.fillStyle = onFill === '#ffffff' ? whiteA(0.85) : inkA(0.75);
+  ctx.textAlign = 'left';
+  ctx.save();
+  ctx.letterSpacing = '1px';
+  ctx.fillText('ISSUED BY HOCKEYGAMEBOT', px + padX, y + HD_H / 2 + 0.5);
+  ctx.restore();
+  const season = seasonFromGameId(game.game_id);
+  ctx.font = disp(13, 700);
+  ctx.fillStyle = onFill;
+  ctx.textAlign = 'right';
+  ctx.fillText(season ? `NHL · ${season}` : 'NHL', px + passW - padX, y + HD_H / 2 + 0.5);
+  y += HD_H;
+
+  // ── scoreboard (the hero) ──
+  const bg2 = ctx.createLinearGradient(0, y, 0, y + boardH);
+  bg2.addColorStop(0, '#faf7f0');
+  bg2.addColorStop(1, '#efe9db');
+  ctx.fillStyle = bg2;
+  ctx.fillRect(px, y, passW, boardH);
+
+  // resolve scores / winner (guards: manual w/o scores, non-final)
+  const hasScores =
+    !(game.is_manual && (game.home_score == null || game.away_score == null)) &&
+    (game.is_manual || game.status === 'final');
+  const homeScore = game.home.score;
+  const awayScore = game.away.score;
+  const winner: 'home' | 'away' | null = !hasScores
+    ? null
+    : homeScore > awayScore
+      ? 'home'
+      : awayScore > homeScore
+        ? 'away'
+        : null;
+
+  const drawTeamRow = (team: TicketStubTeam, rowY: number, isLoser: boolean, score: number) => {
+    const chipColor = pickTeamColor(team.abbrev);
+    const chipInk = readableInk(chipColor);
+    // colour chip
+    rrect(ctx, px + padX, rowY, 40, 40, 7);
+    ctx.fillStyle = isLoser ? mix(chipColor, '#efe9db', 0.45) : chipColor;
+    ctx.fill();
+    ctx.font = disp(13, 700);
+    ctx.fillStyle = isLoser ? inkA(0.5) : chipInk;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(team.abbrev, px + padX + 20, rowY + 21);
+    // city / nick
+    const { city, nick } = splitTeamName(team.name, team.short_name);
+    const tx = px + padX + 40 + 11;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = body(10, 600);
+    ctx.fillStyle = isLoser ? inkA(0.5) : inkA(0.6);
+    ctx.save();
+    ctx.letterSpacing = '0.5px';
+    ctx.fillText(city.toUpperCase(), tx, rowY + 13);
+    ctx.restore();
+    // score width first, so a long nick ("GOLDEN KNIGHTS") shrinks to fit the
+    // gap before the score instead of overlapping it.
+    const scoreStr = hasScores ? String(score) : '–';
+    ctx.font = disp(32, 700);
+    const scoreW = ctx.measureText(scoreStr).width;
+    const nickMaxW = px + passW - padX - scoreW - 12 - tx;
+    const nickText = nick.toUpperCase();
+    const nickPx = fitFont(ctx, nickText, (p) => disp(p, 700), 25, nickMaxW, 15);
+    ctx.font = disp(nickPx, 700);
+    ctx.fillStyle = isLoser ? inkA(0.6) : INK;
+    ctx.fillText(truncate(ctx, nickText, nickMaxW), tx, rowY + 37);
+    // score (right)
+    ctx.font = disp(32, 700);
+    ctx.fillStyle = isLoser ? inkA(0.6) : INK;
+    ctx.textAlign = 'right';
+    ctx.fillText(scoreStr, px + passW - padX, rowY + 35);
+    ctx.textAlign = 'left';
+  };
+
+  let by = y + BOARD_PAD_T;
+  // away row (top), then home row — matches "away @ home"
+  drawTeamRow(game.away, by, winner === 'home', awayScore);
+  by += ROW_H + ROW_GAP;
+  drawTeamRow(game.home, by, winner === 'away', homeScore);
+  by += ROW_H;
+
+  // final tag
+  const np = normalizePeriod(game.last_period_type);
+  let finalText: string;
+  if (!hasScores) {
+    finalText = game.status === 'final' ? 'FINAL' : 'SCHEDULED';
+  } else if (winner) {
+    const wNick = splitTeamName(
+      winner === 'home' ? game.home.name : game.away.name,
+      winner === 'home' ? game.home.short_name : game.away.short_name,
+    ).nick.toUpperCase();
+    const otTag =
+      np.code === 'REG' ? '' : np.code === 'SO' ? ' IN SHOOTOUT' : ` IN ${np.label}`;
+    finalText = `FINAL · ${wNick} WIN${otTag}`;
+  } else {
+    finalText = 'FINAL · TIE';
+  }
+  const fy = by + FINAL_GAP;
+  ctx.font = disp(12, 700);
+  ctx.save();
+  ctx.letterSpacing = '0.6px';
+  const ftW = ctx.measureText(finalText).width;
+  rrect(ctx, px + padX, fy, ftW + 20, FINAL_H, 3);
+  ctx.fillStyle = teamFill;
+  ctx.fill();
+  ctx.fillStyle = onFill;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText(finalText, px + padX + 10, fy + FINAL_H / 2 + 0.5);
+  ctx.restore();
+  // board bottom hairline
+  y += boardH;
+  ctx.fillStyle = inkA(0.24);
+  ctx.fillRect(px, y - 1, passW, 1);
+
+  // ── details grid (2×2) ──
+  const detDate = { label: 'Date', value: formatStubDate(game.date) };
+  const detSeason = { label: 'Season', value: season ?? '—' };
+  const detArena = { label: 'Arena', value: game.venue ?? 'Venue TBD' };
+  const detAdapt = adaptiveDetail(game.game_id);
+  // Returns the rendered value width so a paired field can claim the remaining
+  // room. Value font shrinks (14→9) to fit maxW before any ellipsis — long arena
+  // names ("Prudential Center") stay whole instead of truncating early.
+  const drawField = (
+    f: { label: string; value: string },
+    anchorX: number,
+    fyy: number,
+    align: 'left' | 'right',
+    accent: boolean,
+    maxW: number,
+  ): number => {
+    ctx.textAlign = align;
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = mono(8, 500);
+    ctx.fillStyle = accent ? accentCream : inkA(0.55);
+    ctx.save();
+    ctx.letterSpacing = '0.8px';
+    ctx.fillText(f.label.toUpperCase(), anchorX, fyy);
+    ctx.restore();
+    const val = f.value.toUpperCase();
+    const vpx = fitFont(ctx, val, (p) => disp(p, 600), 14, maxW, 9);
+    ctx.font = disp(vpx, 600);
+    ctx.fillStyle = INK;
+    const clipped = truncate(ctx, val, maxW);
+    ctx.fillText(clipped, anchorX, fyy + 15);
+    return ctx.measureText(clipped).width;
+  };
+  const gutter = 12; // min gap between the two columns
+  let ry = y + ROWS_PAD_T + 8;
+  // top row: date (left) gets the lion's share; season (right) is short.
+  const seasonW = drawField(detSeason, px + passW - padX, ry, 'right', false, passW * 0.42);
+  drawField(detDate, px + padX, ry, 'left', false, passW - padX * 2 - seasonW - gutter);
+  ry += FROW_H;
+  // bottom row: measure the adaptive right field, then give arena the rest.
+  const adaptW = drawField(detAdapt, px + passW - padX, ry, 'right', true, passW * 0.46);
+  drawField(detArena, px + padX, ry, 'left', false, passW - padX * 2 - adaptW - gutter);
+  y += rowsH;
+
+  // ── holder (ruled annotation) ──
+  ctx.strokeStyle = inkA(0.24);
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(px + padX, y + 2);
+  ctx.lineTo(px + passW - padX, y + 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // left: PASSPORT HOLDER · @handle
+  ctx.textAlign = 'left';
+  ctx.font = mono(7.5, 500);
+  ctx.fillStyle = inkA(0.55);
+  ctx.save();
+  ctx.letterSpacing = '0.9px';
+  ctx.fillText('PASSPORT HOLDER', px + padX, y + 18);
+  ctx.restore();
+  ctx.font = disp(16, 700);
+  ctx.fillStyle = INK;
+  ctx.fillText(handle ? `@${handle}` : '@you', px + padX, y + 35);
+  // right: bold collection stat + quiet secondary
+  ctx.textAlign = 'right';
+  if (gameOrdinal && gameOrdinal > 0) {
+    ctx.font = disp(12.5, 700);
+    ctx.fillStyle = accentCream;
+    ctx.save();
+    ctx.letterSpacing = '0.4px';
+    ctx.fillText(`${ordinal(gameOrdinal)} GAME`, px + passW - padX, y + 20);
+    ctx.restore();
+  }
+  if (arenaOrdinal && arenaOrdinal > 0) {
+    ctx.font = mono(8, 500);
+    ctx.fillStyle = inkA(0.55);
+    ctx.save();
+    ctx.letterSpacing = '0.5px';
+    ctx.fillText(`${ordinal(arenaOrdinal)} ARENA ATTENDED`, px + passW - padX, y + 33);
+    ctx.restore();
+  }
+  ctx.textAlign = 'left';
+  y += HOLDER_H;
+
+  // ── badge stamps ──
+  if (hasStamps) {
+    let sx = px + padX;
+    const sy = y + 4;
+    ctx.textBaseline = 'middle';
+    for (const label of badges) {
+      const txt = label.toUpperCase();
+      ctx.font = disp(9, 700);
+      ctx.save();
+      ctx.letterSpacing = '0.5px';
+      const tw = ctx.measureText(txt).width;
+      const chipW = tw + 16;
+      if (sx + chipW > px + passW - padX && sx > px + padX) {
+        ctx.restore();
+        break; // one row only (mockup); overflow chips dropped rather than wrap ugly
+      }
+      rrect(ctx, sx, sy, chipW, 18, 4);
+      ctx.fillStyle = whiteA(0.4);
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = accentCream;
+      ctx.stroke();
+      ctx.fillStyle = accentCream;
+      ctx.textAlign = 'left';
+      ctx.fillText(txt, sx + 8, sy + 10);
+      ctx.restore();
+      sx += chipW + 6;
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+  y += STAMPS_H;
+
+  // ── souvenir stub (perforation + code) ──
+  // dashed tear line
+  ctx.strokeStyle = inkA(0.4);
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(px, y);
+  ctx.lineTo(px + passW, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // notches (team-colour circles straddling the edges → ticket-tear illusion)
+  ctx.fillStyle = teamFill;
+  ctx.beginPath();
+  ctx.arc(px, y, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(px + passW, y, 8, 0, Math.PI * 2);
+  ctx.fill();
+  // label row: ADMIT ONE · SCAN TO VIEW   +   serial
+  const serial = stubSerial(game.game_id);
+  const bpY = y + BP_PAD_T;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.font = disp(11, 700);
+  ctx.fillStyle = INK;
+  ctx.save();
+  ctx.letterSpacing = '0.6px';
+  ctx.fillText('ADMIT ONE · SCAN TO VIEW', px + padX, bpY + 10);
+  ctx.restore();
+  ctx.textAlign = 'right';
+  ctx.font = mono(8.5, 500);
+  ctx.fillStyle = inkA(0.55);
+  ctx.fillText(serial, px + passW - padX, bpY + 10);
+  ctx.textAlign = 'left';
+
+  // code slot (contained; QR square or PDF417 wide band)
+  const codeY = bpY + BP_LBL_H;
+  const codeUrl = `https://hockeygamebot.com/puck-passport${handle ? `/@${handle}` : ''}`;
+  if (codeStyle === 'qr') {
+    drawBrandedQr(ctx, codeUrl, px + padX, codeY, codeH, crest, CREAM);
+  } else {
+    drawPdf417Stub(ctx, px + padX, codeY, passW - padX * 2, codeH);
+  }
+
+  ctx.restore(); // end pass clip
+
+  // ══ SIGNATURE FOOTER (tiny, muted, pulled safely inward) ══
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = mono(9, 400);
+  ctx.save();
+  ctx.letterSpacing = '0.5px';
+  const sig1 = 'Created with ';
+  const sig2 = 'Puck Passport';
+  const sig3 = ` · ${DOMAIN_UPPER.toLowerCase()}`;
+  // measure to centre the mixed-weight line
+  const w1 = ctx.measureText(sig1).width;
+  ctx.font = mono(9, 700);
+  const w2 = ctx.measureText(sig2).width;
+  ctx.font = mono(9, 400);
+  const w3 = ctx.measureText(sig3).width;
+  const total = w1 + w2 + w3;
+  let sxp = W / 2 - total / 2;
+  const sigY = H - 22;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = whiteA(0.6);
+  ctx.fillText(sig1, sxp, sigY);
+  sxp += w1;
+  ctx.font = mono(9, 700);
+  ctx.fillStyle = whiteA(0.85);
+  ctx.fillText(sig2, sxp, sigY);
+  sxp += w2;
+  ctx.font = mono(9, 400);
+  ctx.fillStyle = whiteA(0.6);
+  ctx.fillText(sig3, sxp, sigY);
+  ctx.restore();
+
+  return canvas;
+}
+
+// ── code renderers ────────────────────────────────────────────────────────────
+
+/** Draw a scannable QR (error-correction H) with the gold crest branded into a
+ *  white keep-out box at the centre. Square, left-aligned in the code slot. */
+function drawBrandedQr(
+  ctx: CanvasRenderingContext2D,
+  url: string,
+  x: number,
+  y: number,
+  size: number,
+  crest: HTMLImageElement | null,
+  cream: string,
+) {
+  const qr = qrcode(0, 'H'); // auto version, highest EC (tolerates the centre logo)
+  qr.addData(url);
+  qr.make();
+  const count = qr.getModuleCount();
+  const cell = size / count;
+  // white quiet-zone background for scannability
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = '#000000';
+  for (let row = 0; row < count; row++) {
+    for (let col = 0; col < count; col++) {
+      if (qr.isDark(row, col)) {
+        // +0.5 overlap avoids hairline seams between modules at 3× export scale
+        ctx.fillRect(x + col * cell, y + row * cell, cell + 0.5, cell + 0.5);
+      }
+    }
+  }
+  // branded centre: white keep-out box + gold crest (level-H tolerates ~20% loss)
+  const logo = size * 0.26;
+  const lx = x + size / 2 - logo / 2;
+  const ly = y + size / 2 - logo / 2;
+  const pad = 2;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(lx - pad, ly - pad, logo + pad * 2, logo + pad * 2);
+  // cream disc under the crest (matches the masthead medallion)
+  ctx.beginPath();
+  ctx.arc(x + size / 2, y + size / 2, logo / 2, 0, Math.PI * 2);
+  ctx.fillStyle = cream;
+  ctx.fill();
+  if (crest) ctx.drawImage(crest, lx, ly, logo, logo);
+}
+
+/** DECORATIVE ONLY — PDF417-look stacked band (NOT a functional code). Wired
+ *  behind codeStyle:'pdf417' so switching is one line; swap in a real PDF417
+ *  encoder here when a clean zero-dep lib is chosen (spec §7). */
+function drawPdf417Stub(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(20,20,15,0.24)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  // TODO(pdf417): replace this decorative band with a real PDF417 encoder.
+  const rows = 4;
+  const rh = (h - 8) / rows;
+  ctx.fillStyle = '#14140f';
+  // deterministic pseudo-bars per row (not encoding anything real)
+  const patterns = [
+    [2, 1, 3, 2, 1, 4, 2, 2],
+    [3, 2, 1, 4, 3, 2, 1, 3],
+    [2, 3, 3, 1, 2, 3, 2, 2],
+    [2, 1, 3, 2, 1, 4, 2, 2],
+  ];
+  for (let r = 0; r < rows; r++) {
+    let bx = x + 4;
+    const rowY = y + 4 + r * rh;
+    const pat = patterns[r % patterns.length];
+    let i = 0;
+    while (bx < x + w - 4) {
+      const bw = pat[i % pat.length];
+      if (i % 2 === 0) ctx.fillRect(bx, rowY, bw, rh - 2);
+      bx += bw;
+      i++;
+    }
+  }
 }
