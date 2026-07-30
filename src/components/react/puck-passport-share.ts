@@ -1068,17 +1068,23 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   ctx.lineTo(px + passW - padX, y + 2);
   ctx.stroke();
   ctx.setLineDash([]);
-  // left: PASSPORT HOLDER · @handle
-  ctx.textAlign = 'left';
-  ctx.font = mono(7.5, 500);
-  ctx.fillStyle = inkA(0.55);
-  ctx.save();
-  ctx.letterSpacing = '0.9px';
-  ctx.fillText('PASSPORT HOLDER', px + padX, y + 18);
-  ctx.restore();
-  ctx.font = disp(16, 700);
-  ctx.fillStyle = INK;
-  ctx.fillText(handle ? `@${handle}` : '@you', px + padX, y + 35);
+  // left: PASSPORT HOLDER · @handle — only when the passport is public with a
+  // handle. No handle (logged-out / private) ⇒ DROP the whole holder line rather
+  // than print a placeholder "@you"; the right-side collection stat still renders.
+  // Intentional logged-out share-funnel fallback: a shareable stub with no
+  // attributable handle still points at the generic passport URL (operator's call).
+  if (handle) {
+    ctx.textAlign = 'left';
+    ctx.font = mono(7.5, 500);
+    ctx.fillStyle = inkA(0.55);
+    ctx.save();
+    ctx.letterSpacing = '0.9px';
+    ctx.fillText('PASSPORT HOLDER', px + padX, y + 18);
+    ctx.restore();
+    ctx.font = disp(16, 700);
+    ctx.fillStyle = INK;
+    ctx.fillText(`@${handle}`, px + padX, y + 35);
+  }
   // right: bold collection stat + quiet secondary
   ctx.textAlign = 'right';
   if (gameOrdinal && gameOrdinal > 0) {
@@ -1169,6 +1175,8 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
 
   // code slot (contained; QR square or PDF417 wide band)
   const codeY = bpY + BP_LBL_H;
+  // No handle ⇒ encode the GENERIC passport URL (never "/@undefined"): a
+  // logged-out/private stub is still shareable and funnels to the product page.
   const codeUrl = `https://hockeygamebot.com/puck-passport${handle ? `/@${handle}` : ''}`;
   if (codeStyle === 'qr') {
     drawBrandedQr(ctx, codeUrl, px + padX, codeY, codeH, crest, CREAM);
