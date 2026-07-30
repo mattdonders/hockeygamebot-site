@@ -50,7 +50,7 @@ import {
   type TierBadgeView,
   type BadgeEarnedGame,
 } from './puck-passport-badges';
-import { drawPassportCard, drawTicketStub, type PassportShareData } from './puck-passport-share';
+import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
 
 const API = 'https://api.hockeygamebot.com';
@@ -383,6 +383,15 @@ function writeAttended(games: AttendedGame[]): void {
  *  removing one yields a new key (cache miss → refetch). */
 function summaryCacheKey(gameIds: string[]): string {
   return Array.from(new Set(gameIds)).sort().join(',');
+}
+
+const STUB_DATE_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "2017-12-29" → "Dec 29, 2017". Pure string parse (no Date() — avoids a TZ shift
+ *  that can render the wrong day). Returns the input unchanged if it isn't YYYY-MM-DD. */
+function fmtStubDate(d: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d ?? '');
+  if (!m) return d ?? '';
+  return `${STUB_DATE_MONTHS[+m[2] - 1]} ${+m[3]}, ${m[1]}`;
 }
 
 /** The cached logged-out summary, or null. Returned with its key so the caller can
@@ -2414,6 +2423,31 @@ export default function AttendedTracker() {
     [passportHandle, primeStubFonts, stubOptsFor],
   );
 
+  // X/Twitter share: two most-notable games composited side by side (~1.125:1), so
+  // the preview isn't center-cropped in-feed the way a single tall 9:16 stub is.
+  const handleGridShare = useCallback(
+    async (picks: AttendedGame[]) => {
+      const cells = picks.slice(0, 2);
+      if (cells.length < 2) return;
+      trackEvent('share_click', { handle: passportHandle });
+      await primeStubFonts();
+      try {
+        const canvas = await drawStubGrid(cells.map(stubOptsFor));
+        const exp = (window as any).HGB_Export;
+        if (exp?.showCardModal) {
+          exp.showCardModal(canvas, `puck-passport-2up.png`);
+        } else {
+          console.error('[PuckPassport] window.HGB_Export.showCardModal unavailable — is /js/table-export.js loaded?');
+          setWriteError('Could not open the 2-up graphic — please reload the page and try again.');
+        }
+      } catch (e) {
+        console.error('[PuckPassport] drawStubGrid failed', e);
+        setWriteError('Could not build the 2-up graphic — please try again.');
+      }
+    },
+    [passportHandle, primeStubFonts, stubOptsFor],
+  );
+
   // ── Featured-stub hero: lead with the OUTPUT, not a buried button ─────────────
   // Rank the collection by shareability so the hero always leads with the most
   // "post-worthy" game: badge-bearing > milestone game # > new arena > most recent.
@@ -2421,18 +2455,31 @@ export default function AttendedTracker() {
   const STUB_MILESTONES = [10, 25, 50, 100, 150, 200];
   const notableGames = useMemo(() => {
     const milestone = new Set(STUB_MILESTONES);
+    // Rooting perspective: prefer featuring a game the user's team WON (a loss is a
+    // deflating default showcase — that's what surfaced first before this). Only
+    // applies when there's a real anchor; a badge game still outranks it.
+    const anchor =
+      summary?.anchor && summary.anchor.source !== 'none' ? summary.anchor.abbrev : null;
     const scored = games.map((g) => {
       const nBadges = (badgesByGame.get(g.game_id) ?? []).length;
       const gOrd = stubOrdinals.gameOrd.get(g.game_id) ?? null;
       let score = nBadges * 100;
       if (gOrd && milestone.has(gOrd)) score += 60;
       if (stubOrdinals.firstAtArena.has(g.game_id)) score += 40;
+      if (anchor && (g.home.abbrev === anchor || g.away.abbrev === anchor)) {
+        const hs = g.home?.score;
+        const as = g.away?.score;
+        if (Number.isFinite(hs) && Number.isFinite(as) && hs !== as) {
+          const anchorWon = (g.home.abbrev === anchor) === (hs > as);
+          score += anchorWon ? 50 : -20;
+        }
+      }
       return { g, score, date: String(g.date ?? '') };
     });
     // Highest score first; the newer game breaks ties (more top-of-mind to share).
     scored.sort((a, b) => b.score - a.score || b.date.localeCompare(a.date));
     return scored.map((s) => s.g);
-  }, [games, badgesByGame, stubOrdinals]);
+  }, [games, badgesByGame, stubOrdinals, summary]);
 
   const [featuredIdx, setFeaturedIdx] = useState(0);
   const featuredGame =
@@ -2919,14 +2966,25 @@ export default function AttendedTracker() {
             <span className="att-hero-eyebrow">Share where you've been</span>
             <h3 className="att-hero-title">Your ticket stub</h3>
             <p className="att-hero-sub">
-              A shareable graphic for {featuredGame.away.abbrev} @ {featuredGame.home.abbrev}
-              {featuredGame.date ? ` · ${featuredGame.date}` : ''}. Post it to your story —
-              the QR sends friends to your Passport.
+              A shareable graphic for {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
+              {featuredGame.home.name || featuredGame.home.abbrev}
+              {featuredGame.date ? ` · ${fmtStubDate(featuredGame.date)}` : ''}. Post it to your
+              story — the QR sends friends to your Passport.
             </p>
             <div className="att-hero-actions">
               <button className="att-hero-share" type="button" onClick={() => handleStub(featuredGame)}>
                 🎟 Share this stub
               </button>
+              {notableGames.length > 1 ? (
+                <button
+                  className="att-hero-grid"
+                  type="button"
+                  title="Two of your top games side by side — fits X/Twitter without cropping"
+                  onClick={() => handleGridShare(notableGames)}
+                >
+                  2-up for X
+                </button>
+              ) : null}
               {notableGames.length > 1 ? (
                 <button
                   className="att-hero-cycle"
