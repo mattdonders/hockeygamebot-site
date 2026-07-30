@@ -711,7 +711,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     try {
       (img as any).crossOrigin = 'anonymous';
     } catch {
-      /* node-canvas Image has no crossOrigin — ignore */
+      /* some Image implementations lack a settable crossOrigin — ignore */
     }
     // Bounded wait: a stalled crest request would otherwise hang drawTicketStub
     // forever (it awaits this before drawing). On timeout, clear handlers + reject
