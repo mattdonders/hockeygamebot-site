@@ -713,8 +713,21 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     } catch {
       /* node-canvas Image has no crossOrigin — ignore */
     }
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`[TicketStub] crest failed to load: ${url}`));
+    // Bounded wait: a stalled crest request would otherwise hang drawTicketStub
+    // forever (it awaits this before drawing). On timeout, clear handlers + reject
+    // so the caller's catch draws the disc sans emblem.
+    const timer = setTimeout(() => {
+      img.onload = img.onerror = null;
+      reject(new Error(`[TicketStub] crest load timed out (7s): ${url}`));
+    }, 7000);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error(`[TicketStub] crest failed to load: ${url}`));
+    };
     img.src = url;
   });
 }
