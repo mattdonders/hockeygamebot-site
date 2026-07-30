@@ -1086,12 +1086,34 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   ctx.lineTo(px + passW - padX, y + 2);
   ctx.stroke();
   ctx.setLineDash([]);
-  // left: PASSPORT HOLDER · @handle — only when the passport is public with a
-  // handle. No handle (logged-out / private) ⇒ DROP the whole holder line rather
-  // than print a placeholder "@you"; the right-side collection stat still renders.
+  // The collection stat (Nth GAME + Nth ARENA). When a handle is present it sits
+  // right-aligned opposite the PASSPORT HOLDER · @handle line; when there's NO
+  // handle (logged-out / private) the holder line is dropped, so the stat instead
+  // LEFT-aligns into that freed column — no empty half, no lopsided right-only row.
+  const drawCollectionStat = (align: 'left' | 'right', anchorX: number) => {
+    ctx.textAlign = align;
+    if (gameOrdinal && gameOrdinal > 0) {
+      ctx.font = disp(12.5, 700);
+      ctx.fillStyle = accentCream;
+      ctx.save();
+      ctx.letterSpacing = '0.4px';
+      ctx.fillText(`${ordinal(gameOrdinal)} GAME`, anchorX, y + 20);
+      ctx.restore();
+    }
+    if (arenaOrdinal && arenaOrdinal > 0) {
+      ctx.font = mono(8, 500);
+      ctx.fillStyle = inkA(0.55);
+      ctx.save();
+      ctx.letterSpacing = '0.5px';
+      ctx.fillText(`${ordinal(arenaOrdinal)} ARENA ATTENDED`, anchorX, y + 33);
+      ctx.restore();
+    }
+    ctx.textAlign = 'left';
+  };
   // Intentional logged-out share-funnel fallback: a shareable stub with no
   // attributable handle still points at the generic passport URL (operator's call).
   if (handle) {
+    // left: PASSPORT HOLDER · @handle
     ctx.textAlign = 'left';
     ctx.font = mono(7.5, 500);
     ctx.fillStyle = inkA(0.55);
@@ -1102,24 +1124,11 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     ctx.font = disp(16, 700);
     ctx.fillStyle = INK;
     ctx.fillText(`@${handle}`, px + padX, y + 35);
-  }
-  // right: bold collection stat + quiet secondary
-  ctx.textAlign = 'right';
-  if (gameOrdinal && gameOrdinal > 0) {
-    ctx.font = disp(12.5, 700);
-    ctx.fillStyle = accentCream;
-    ctx.save();
-    ctx.letterSpacing = '0.4px';
-    ctx.fillText(`${ordinal(gameOrdinal)} GAME`, px + passW - padX, y + 20);
-    ctx.restore();
-  }
-  if (arenaOrdinal && arenaOrdinal > 0) {
-    ctx.font = mono(8, 500);
-    ctx.fillStyle = inkA(0.55);
-    ctx.save();
-    ctx.letterSpacing = '0.5px';
-    ctx.fillText(`${ordinal(arenaOrdinal)} ARENA ATTENDED`, px + passW - padX, y + 33);
-    ctx.restore();
+    // right: collection stat opposite the holder line
+    drawCollectionStat('right', px + passW - padX);
+  } else {
+    // no handle → reflow the stat to the left so the row isn't lopsided
+    drawCollectionStat('left', px + padX);
   }
   ctx.textAlign = 'left';
   y += HOLDER_H;
