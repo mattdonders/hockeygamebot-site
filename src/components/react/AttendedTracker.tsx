@@ -143,6 +143,13 @@ type D1AttendedRow = {
   venue: string | null;
   last_period_type: string | null; // REG | OT | SO | (playoff OT variants)
   is_manual?: number | boolean | null; // 1/true for manually-logged games
+  // Server-resolved DISPLAY identity (teamDisplayById) — knows relocated/defunct
+  // franchises the client /v1/config (current 32) does not. Optional: absent on an
+  // api that predates this, so mapD1Row falls back to config → String(id).
+  home_team_abbrev?: string | null;
+  home_team_name?: string | null;
+  away_team_abbrev?: string | null;
+  away_team_name?: string | null;
 };
 
 /** team_id → abbrev/name, from GET /v1/config. */
@@ -520,12 +527,21 @@ function mapD1Row(
   details: Record<string, AttendedGame>,
 ): AttendedGame {
   const snap = details[r.game_id];
-  const side = (id: number | null, score: number | null, snapSide?: TeamSide): TeamSide => {
+  const side = (
+    id: number | null,
+    score: number | null,
+    snapSide?: TeamSide,
+    // Server-resolved DISPLAY identity (teamDisplayById) — the SOLE source that
+    // knows relocated/defunct franchises (ARI 53, ATL 11, HFD 34…). Preferred over
+    // /v1/config, which is the current 32 only and would fall through to String(id).
+    serverAbbrev?: string | null,
+    serverName?: string | null,
+  ): TeamSide => {
     const info = id != null ? configMap.get(id) : undefined;
     return {
       id: id ?? snapSide?.id ?? 0,
-      abbrev: info?.abbrev ?? snapSide?.abbrev ?? (id != null ? String(id) : '?'),
-      name: info?.name ?? snapSide?.name ?? '',
+      abbrev: serverAbbrev ?? info?.abbrev ?? snapSide?.abbrev ?? (id != null ? String(id) : '?'),
+      name: serverName ?? info?.name ?? snapSide?.name ?? '',
       // /v1/config carries no short_name — only the local display snapshot does
       // (captured at add-time). Cross-device D1 rows without a snapshot fall back
       // to abbrev in the render helper (never blank).
@@ -538,8 +554,8 @@ function mapD1Row(
   return {
     game_id: r.game_id,
     date: r.game_date ?? snap?.date ?? '',
-    home: side(r.home_team_id, r.home_score, snap?.home),
-    away: side(r.away_team_id, r.away_score, snap?.away),
+    home: side(r.home_team_id, r.home_score, snap?.home, r.home_team_abbrev, r.home_team_name),
+    away: side(r.away_team_id, r.away_score, snap?.away, r.away_team_abbrev, r.away_team_name),
     // Prefer the server's game_results facts (cross-device / after a cache
     // clear the local snapshot is absent); fall back to the local snapshot.
     venue: r.venue ?? snap?.venue ?? null,
