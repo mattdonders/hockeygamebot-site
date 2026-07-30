@@ -357,7 +357,14 @@ function readAttended(): AttendedGame[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
-    return Array.isArray(raw) ? raw : [];
+    if (!Array.isArray(raw)) return [];
+    // Sanitize: an old/corrupt persisted row missing a string game_id or date would
+    // crash the whole tracker downstream (sorts call .localeCompare on them). Drop
+    // any row without both — a malformed row can never be rendered anyway.
+    return raw.filter(
+      (r): r is AttendedGame =>
+        r != null && typeof r.game_id === 'string' && typeof r.date === 'string',
+    );
   } catch {
     return [];
   }
@@ -2289,7 +2296,11 @@ export default function AttendedTracker() {
   // among distinct arenas. Derived from the same `games` the table renders — no
   // network — so the stub can never disagree with the dashboard.
   const stubOrdinals = useMemo(() => {
-    const sorted = [...games].sort((a, b) => a.date.localeCompare(b.date) || a.game_id.localeCompare(b.game_id));
+    const sorted = [...games].sort(
+      (a, b) =>
+        String(a.date ?? '').localeCompare(String(b.date ?? '')) ||
+        String(a.game_id ?? '').localeCompare(String(b.game_id ?? '')),
+    );
     const gameOrd = new Map<string, number>();
     const arenaOrd = new Map<string, number>();
     const venuePos = new Map<string, number>();
