@@ -621,11 +621,23 @@ function splitForSummary(games: AttendedGame[]): { gameIds: string[]; manualGame
  *  layout — CSS (`.pp-team-full` / `.pp-team-abbr`) toggles which shows by
  *  breakpoint. When short_name is missing (old stored games / cross-device
  *  D1 rows), the abbrev fills BOTH spans so it shows at every width, never blank. */
-function teamMatchupLabel(shortName: string | null | undefined, abbrev: string): React.ReactElement {
-  const full = shortName && shortName.trim() ? shortName : abbrev;
+function teamMatchupLabel(
+  shortName: string | null | undefined,
+  abbrev: string,
+  // Full team name fallback ("New York Rangers") for the wide span when short_name is
+  // absent — cross-device D1 rows carry no short_name but DO carry the server-resolved
+  // name, so the wide layout shows a name, not the abbrev. Abbrev stays last-resort.
+  fullName?: string | null,
+): React.ReactElement {
+  const wide =
+    shortName && shortName.trim()
+      ? shortName
+      : fullName && fullName.trim()
+        ? fullName
+        : abbrev;
   return (
     <>
-      <span className="pp-team-full">{full}</span>
+      <span className="pp-team-full">{wide}</span>
       <span className="pp-team-abbr">{abbrev}</span>
     </>
   );
@@ -2568,7 +2580,7 @@ export default function AttendedTracker() {
                 color: win === t.abbrev ? 'var(--ink)' : 'var(--ink-56)',
               }}
             >
-              {teamMatchupLabel(t.short_name, t.abbrev)}
+              {teamMatchupLabel(t.short_name, t.abbrev, t.name)}
             </span>
           );
           return (
