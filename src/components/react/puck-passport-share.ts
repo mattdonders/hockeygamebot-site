@@ -604,7 +604,7 @@ export interface TicketStubOpts {
   /** This venue's ordinal among distinct arenas ("6TH ARENA ATTENDED"). */
   arenaOrdinal?: number | null;
   /** Code style — QR (default, phone-scannable) or the PDF417 decorative stub. */
-  codeStyle?: 'qr' | 'qr-plain' | 'pdf417';
+  codeStyle?: 'qr' | 'qr-plain' | 'qr-boxnoise' | 'pdf417';
   /** Crest image URL (default the committed gold crest). Overridable for tests. */
   crestUrl?: string;
   /** Team-logo URL resolver (default `/logos/<ABBREV>_light.svg`). Overridable for
@@ -1306,12 +1306,13 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   // No handle ⇒ encode the GENERIC passport URL (never "/@undefined"): a
   // logged-out/private stub is still shareable and funnels to the product page.
   const codeUrl = `https://hockeygamebot.com/puck-passport${handle ? `/@${handle}` : ''}`;
-  if (codeStyle === 'qr' || codeStyle === 'qr-plain') {
+  if (codeStyle === 'qr' || codeStyle === 'qr-plain' || codeStyle === 'qr-boxnoise') {
     // Reserve the bottom of the code region for the human-readable URL; the band
     // (real QR + decorative noise, or a plain white rectangle) fills the rest.
     const URL_STRIP = 15;
     const bandH = codeH - URL_STRIP;
-    drawQrNoiseBand(ctx, codeUrl, game.game_id, px + padX, codeY, passW - padX * 2, bandH, INK, codeStyle === 'qr-plain');
+    const qrMode = codeStyle === 'qr-plain' ? 'plain' : codeStyle === 'qr-boxnoise' ? 'boxnoise' : 'fade';
+    drawQrNoiseBand(ctx, codeUrl, game.game_id, px + padX, codeY, passW - padX * 2, bandH, INK, qrMode);
     // human-readable URL beneath the band (protocol stripped for width)
     ctx.font = mono(7.5, 500);
     ctx.fillStyle = inkA(0.5);
@@ -1415,7 +1416,7 @@ function drawQrNoiseBand(
   bandW: number,
   bandH: number,
   ink: string,
-  plain = false,
+  mode: 'fade' | 'plain' | 'boxnoise' = 'fade',
 ) {
   const qr = qrcode(0, 'H'); // auto version, highest EC — clean (no logo keep-out)
   qr.addData(url);
@@ -1431,13 +1432,19 @@ function drawQrNoiseBand(
   const cell = boxSize / totalMods; // module size — drives BOTH the QR and the noise
   const boxX = x + (bandW - boxSize) / 2; // centre the card horizontally
   const boxY = y + boxMargin;
+  // pixel origin of the QR proper (after its QUIET-module margin) — noise aligns to this
+  const qOriginX = boxX + QUIET * cell;
+  const qOriginY = boxY + QUIET * cell;
 
   // ── decorative module-noise BACKGROUND across the whole band, on the same cell
   //    grid. Drawn FIRST so the opaque white card sits on top. Alpha peaks in the
   //    middle (behind/around the card) and fades to 0 at the outer horizontal ends,
   //    with a gentler vertical fade, so the texture melts into the cream. ──
-  if (!plain) {
-    const rand = mulberry32(hashSeed(gameId));
+  const rand = mulberry32(hashSeed(gameId));
+
+  // MODE 'fade': decorative noise across the whole band, dissolving into the cream
+  // at the edges (the floating white square card below holds the QR).
+  if (mode === 'fade') {
     const cols = Math.ceil(bandW / cell);
     const rows = Math.ceil(bandH / cell);
     const midX = x + bandW / 2;
@@ -1447,44 +1454,82 @@ function drawQrNoiseBand(
       for (let c = 0; c < cols; c++) {
         const cx = x + c * cell;
         const cy = y + r * cell;
-        const on = rand() < 0.5; // ~QR density
-        const jitter = rand(); // per-cell alpha jitter (advance the stream regardless)
+        const on = rand() < 0.5;
+        const jitter = rand();
         if (!on) continue;
-        // horizontal fade: 1 in the centre, 0 at the outer edges (eased)
         const dh = Math.abs(cx + cell / 2 - midX) / (bandW / 2);
         let ah = Math.max(0, Math.min(1, 1 - dh));
         ah = ah ** 1.4;
-        // gentle vertical fade (edges ~0.35 of centre)
         const dv = Math.abs(cy + cell / 2 - midY) / (bandH / 2);
         const av = 1 - 0.65 * dv * dv;
         const alpha = 0.6 * ah * av * (0.7 + 0.3 * jitter);
         if (alpha <= 0.02) continue;
         ctx.globalAlpha = alpha;
-        // +0.4 overlap avoids hairline seams between modules at 3× export scale
         ctx.fillRect(cx, cy, cell + 0.4, cell + 0.4);
       }
     }
     ctx.globalAlpha = 1;
   }
 
-  // ── the white card holding the QR. In 'plain' mode it's a full-width rectangle
-  //    (QR centred, the side padding IS the quiet zone) with no noise behind; in
-  //    the default mode it's a square floating on the noise field. Soft shadow +
-  //    faint hairline border either way. ──
+  // white container: 'fade' = square card floating on the noise; 'plain'/'boxnoise'
+  // = full-width rounded rectangle. Soft shadow + faint hairline border.
+  const fullRect = mode !== 'fade';
+  const cardX = fullRect ? x : boxX;
+  const cardY = fullRect ? y : boxY;
+  const cardW = fullRect ? bandW : boxSize;
+  const cardH = fullRect ? bandH : boxSize;
+  // box-noise is a hard-edged barcode panel: square corners, no soft shadow.
+  const cardR = mode === 'boxnoise' ? 0 : fullRect ? 8 : 6;
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.28)';
-  ctx.shadowBlur = 8;
-  ctx.shadowOffsetY = 2;
-  if (plain) rrect(ctx, x, y, bandW, bandH, 8);
-  else rrect(ctx, boxX, boxY, boxSize, boxSize, 6);
+  if (mode !== 'boxnoise') {
+    ctx.shadowColor = 'rgba(0,0,0,0.28)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+  }
+  rrect(ctx, cardX, cardY, cardW, cardH, cardR);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.restore();
-  if (plain) rrect(ctx, x + 0.5, y + 0.5, bandW - 1, bandH - 1, 8);
-  else rrect(ctx, boxX + 0.5, boxY + 0.5, boxSize - 1, boxSize - 1, 6);
-  ctx.strokeStyle = 'rgba(20,20,15,0.14)';
+  rrect(ctx, cardX + 0.5, cardY + 0.5, cardW - 1, cardH - 1, cardR);
+  ctx.strokeStyle = mode === 'boxnoise' ? 'rgba(20,20,15,0.30)' : 'rgba(20,20,15,0.14)';
   ctx.lineWidth = 1;
   ctx.stroke();
+
+  // MODE 'boxnoise': fill the white rectangle with bounded noise (clipped to it),
+  // then punch a white keep-out square behind the centred QR (its quiet zone).
+  if (mode === 'boxnoise') {
+    ctx.save();
+    rrect(ctx, cardX, cardY, cardW, cardH, cardR);
+    ctx.clip();
+    // Solid-black noise on the SAME crisp grid as the QR so the whole panel reads as
+    // one big QR code — matching the real modules' darkness AND density (no fade).
+    ctx.fillStyle = '#000000';
+    const c0 = Math.floor((x - qOriginX) / cell);
+    const c1 = Math.ceil((x + bandW - qOriginX) / cell);
+    const r0 = Math.floor((y - qOriginY) / cell);
+    const r1 = Math.ceil((y + bandH - qOriginY) / cell);
+    for (let r = r0; r < r1; r++) {
+      for (let c = c0; c < c1; c++) {
+        const on = rand() < 0.5;
+        rand(); // keep PRNG parity with the fade path
+        if (!on) continue;
+        const mx = Math.round(qOriginX + c * cell);
+        const my = Math.round(qOriginY + r * cell);
+        const mw = Math.round(qOriginX + (c + 1) * cell) - mx;
+        const mh = Math.round(qOriginY + (r + 1) * cell) - my;
+        ctx.fillRect(mx, my, mw, mh);
+      }
+    }
+    ctx.restore();
+    // TIGHT white quiet-zone keep-out behind the QR — just enough margin to scan,
+    // so the QR reads as embedded IN the noise (not floating in a big white square).
+    const qzM = 2; // modules of quiet zone (min for reliable scan)
+    const qkX = boxX + (QUIET - qzM) * cell;
+    const qkY = boxY + (QUIET - qzM) * cell;
+    const qkS = (count + qzM * 2) * cell;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(qkX, qkY, qkS, qkS);
+  }
 
   // ── crisp real QR inside the card (offset by the QUIET-module white margin) ──
   // Snap every module to integer pixel edges (round both edges, not origin+size) so
@@ -1492,8 +1537,6 @@ function drawQrNoiseBand(
   // real scanners. qOriginX/Y are the pixel origin of the QR proper (after quiet zone).
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#000000';
-  const qOriginX = boxX + QUIET * cell;
-  const qOriginY = boxY + QUIET * cell;
   for (let row = 0; row < count; row++) {
     for (let col = 0; col < count; col++) {
       if (!qr.isDark(row, col)) continue;

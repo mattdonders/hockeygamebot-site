@@ -2372,7 +2372,9 @@ export default function AttendedTracker() {
           badges: badgesByGame.get(r.game_id) ?? [],
           gameOrdinal: stubOrdinals.gameOrd.get(r.game_id) ?? null,
           arenaOrdinal: stubOrdinals.arenaOrd.get(r.game_id) ?? null,
-          codeStyle: 'qr',
+          // Default code: the "one big QR" box-noise panel. Swap to 'qr' (fade band)
+          // or 'qr-plain' (clean white rectangle) here — all three live in drawQrNoiseBand.
+          codeStyle: 'qr-boxnoise',
         });
         const exp = (window as any).HGB_Export;
         if (exp?.showCardModal) {
