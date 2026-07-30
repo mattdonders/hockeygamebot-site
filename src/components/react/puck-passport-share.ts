@@ -557,7 +557,8 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
 //  DIFFERENCES FROM THE MOCKUP (data-driven, flagged honestly):
 //   • The mockup's "Puck Drop · 7:30 PM ET" cell has NO backing data (AttendedGame
 //     carries only a date, no faceoff time). Rather than fabricate a time, that
-//     cell becomes "SEASON" (derived from the game_id). Fail-loud, not fake.
+//     cell is dropped: the details grid holds Date + Game-Type + Arena, and the
+//     season shows once in the header ("NHL · <season>"). Fail-loud, not fake.
 //   • Per-team CONTRAST treatments (spec §5.4): white text on a team-colour fill
 //     is illegible for pale/yellow teams (NSH, VGK, BOS, NSH gold…). Fills pick a
 //     readable ink (dark vs white) by luminance; team accents on cream are darkened
@@ -1031,7 +1032,6 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
 
   // ── details grid (2×2) ──
   const detDate = { label: 'Date', value: formatStubDate(game.date) };
-  const detSeason = { label: 'Season', value: season ?? '—' };
   const detArena = { label: 'Arena', value: game.venue ?? 'Venue TBD' };
   const detAdapt = adaptiveDetail(game.game_id);
   // Returns the rendered value width so a paired field can claim the remaining
@@ -1063,13 +1063,15 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   };
   const gutter = 12; // min gap between the two columns
   let ry = y + ROWS_PAD_T + 8;
-  // top row: date (left) gets the lion's share; season (right) is short.
-  const seasonW = drawField(detSeason, px + passW - padX, ry, 'right', false, passW * 0.42);
-  drawField(detDate, px + padX, ry, 'left', false, passW - padX * 2 - seasonW - gutter);
-  ry += FROW_H;
-  // bottom row: measure the adaptive right field, then give arena the rest.
+  // top row: date (left) + game-type/round (right, accent). Season is NOT repeated
+  // here — it lives once in the header ("NHL · <season>"); this cell holds the
+  // adaptive game-type field instead. (The mockup's puck-drop time has no backing
+  // data, so it is never fabricated.)
   const adaptW = drawField(detAdapt, px + passW - padX, ry, 'right', true, passW * 0.46);
-  drawField(detArena, px + padX, ry, 'left', false, passW - padX * 2 - adaptW - gutter);
+  drawField(detDate, px + padX, ry, 'left', false, passW - padX * 2 - adaptW - gutter);
+  ry += FROW_H;
+  // bottom row: arena across the full width (its own row now the grid is 3 fields).
+  drawField(detArena, px + padX, ry, 'left', false, passW - padX * 2);
   y += rowsH;
 
   // ── holder (ruled annotation) ──
