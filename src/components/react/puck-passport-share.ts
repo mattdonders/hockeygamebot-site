@@ -607,6 +607,9 @@ export interface TicketStubOpts {
   codeStyle?: 'qr' | 'pdf417';
   /** Crest image URL (default the committed gold crest). Overridable for tests. */
   crestUrl?: string;
+  /** Team-logo URL resolver (default `/logos/<ABBREV>_light.svg`). Overridable for
+   *  tests / non-browser harnesses that must feed data URIs. */
+  logoUrlFor?: (abbrev: string) => string;
 }
 
 // ── colour helpers (per-team contrast) ───────────────────────────────────────
@@ -719,7 +722,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     // so the caller's catch draws the disc sans emblem.
     const timer = setTimeout(() => {
       img.onload = img.onerror = null;
-      reject(new Error(`[TicketStub] crest load timed out (7s): ${url}`));
+      reject(new Error(`[TicketStub] image load timed out (7s): ${url}`));
     }, 7000);
     img.onload = () => {
       clearTimeout(timer);
@@ -727,10 +730,47 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     };
     img.onerror = () => {
       clearTimeout(timer);
-      reject(new Error(`[TicketStub] crest failed to load: ${url}`));
+      reject(new Error(`[TicketStub] image failed to load: ${url}`));
     };
     img.src = url;
   });
+}
+
+/** Does this team logo read on the cream scoreboard? Renders the logo offscreen,
+ *  composites each opaque pixel over cream (#faf7f0), and measures the fraction
+ *  that clears a modest WCAG contrast (≥1.6) against the cream. Near-white logos
+ *  (few visible pixels) return false → the caller backs them with a colour tile so
+ *  they never vanish. Measurement failure fails SAFE-VISIBLE (assume it reads). */
+function logoReadsOnCream(img: HTMLImageElement): boolean {
+  try {
+    const S = 48;
+    const off = document.createElement('canvas');
+    off.width = S;
+    off.height = S;
+    const octx = off.getContext('2d');
+    if (!octx) return true;
+    const iw = (img as any).width || (img as any).naturalWidth || S;
+    const ih = (img as any).height || (img as any).naturalHeight || S;
+    const scale = Math.min(S / iw, S / ih);
+    const w = iw * scale;
+    const h = ih * scale;
+    octx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+    const d = octx.getImageData(0, 0, S, S).data;
+    let opaque = 0;
+    let visible = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3] / 255;
+      if (a < 0.35) continue;
+      opaque++;
+      const r = d[i] * a + 0xfa * (1 - a);
+      const g = d[i + 1] * a + 0xf7 * (1 - a);
+      const b = d[i + 2] * a + 0xf0 * (1 - a);
+      if (contrastRatio(rgbToHex(r, g, b), '#faf7f0') >= 1.6) visible++;
+    }
+    return opaque === 0 ? false : visible / opaque >= 0.55;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -791,6 +831,27 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   } catch (e) {
     console.error(e);
   }
+
+  // preload BOTH team logos (must be decoded before showCardModal snapshots the
+  // canvas). Each resolves to the image + a contrast verdict on the cream board;
+  // a missing/failed file → null, and drawTeamRow falls back to the colour chip.
+  const logoUrlFor = opts.logoUrlFor ?? ((ab: string) => `/logos/${ab.toUpperCase()}_light.svg`);
+  const logos: Record<string, { img: HTMLImageElement; needsTile: boolean } | null> = {};
+  await Promise.all(
+    [game.away.abbrev, game.home.abbrev].map(async (ab) => {
+      if (ab in logos) return; // same team twice (shouldn't happen) — load once
+      try {
+        const img = await loadImage(logoUrlFor(ab));
+        const readable = logoReadsOnCream(img);
+        if (!readable)
+          console.warn(`[TicketStub] ${ab} logo reads low-contrast on cream — backing with a colour tile.`);
+        logos[ab] = { img, needsTile: !readable };
+      } catch (e) {
+        console.error(e);
+        logos[ab] = null; // fall back to the colour abbrev chip
+      }
+    }),
+  );
 
   // ══ BACKGROUND: 168deg team gradient + faint diagonal weave ══
   const g = ctx.createLinearGradient(W * 0.1, 0, W * 0.9, H);
@@ -952,16 +1013,41 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
 
   const drawTeamRow = (team: TicketStubTeam, rowY: number, isLoser: boolean, score: number) => {
     const chipColor = pickTeamColor(team.abbrev);
-    const chipInk = readableInk(chipColor);
-    // colour chip
-    rrect(ctx, px + padX, rowY, 40, 40, 7);
-    ctx.fillStyle = isLoser ? mix(chipColor, '#efe9db', 0.45) : chipColor;
-    ctx.fill();
-    ctx.font = disp(13, 700);
-    ctx.fillStyle = isLoser ? inkA(0.5) : chipInk;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(team.abbrev, px + padX + 20, rowY + 21);
+    const CHIP = 40;
+    const chipX = px + padX;
+    const logo = logos[team.abbrev];
+    if (logo && logo.img) {
+      // real team logo in the chip box. Losers dim to preserve the winner emphasis.
+      ctx.save();
+      if (isLoser) ctx.globalAlpha = 0.5;
+      if (logo.needsTile) {
+        // near-white logo would vanish on cream → subtle team-colour tile behind it
+        rrect(ctx, chipX, rowY, CHIP, CHIP, 7);
+        ctx.fillStyle = isLoser ? mix(chipColor, '#efe9db', 0.45) : chipColor;
+        ctx.fill();
+      }
+      // fit the logo into the box (padded), preserving its aspect ratio
+      const inset = 4;
+      const bx = CHIP - inset * 2;
+      const iw = (logo.img as any).width || (logo.img as any).naturalWidth || bx;
+      const ih = (logo.img as any).height || (logo.img as any).naturalHeight || bx;
+      const s = Math.min(bx / iw, bx / ih);
+      const lw = iw * s;
+      const lh = ih * s;
+      ctx.drawImage(logo.img, chipX + (CHIP - lw) / 2, rowY + (CHIP - lh) / 2, lw, lh);
+      ctx.restore();
+    } else {
+      // no logo file → original colour chip + abbrev (fail-loud fallback)
+      const chipInk = readableInk(chipColor);
+      rrect(ctx, chipX, rowY, CHIP, CHIP, 7);
+      ctx.fillStyle = isLoser ? mix(chipColor, '#efe9db', 0.45) : chipColor;
+      ctx.fill();
+      ctx.font = disp(13, 700);
+      ctx.fillStyle = isLoser ? inkA(0.5) : chipInk;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(team.abbrev, chipX + 20, rowY + 21);
+    }
     // city / nick
     const { city, nick } = splitTeamName(team.name, team.short_name);
     const tx = px + padX + 40 + 11;
