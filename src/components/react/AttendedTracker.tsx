@@ -3006,25 +3006,24 @@ export default function AttendedTracker() {
           bar below stays as the whole-collection flex. */}
       {!empty && featuredGame ? (
         <div className={`att-hero${heroCollapsed ? ' att-hero-collapsed' : ''}`}>
-          <div className="att-hero-copy">
-            <div className="att-hero-head">
-              <div>
-                <span className="att-hero-eyebrow">Share where you've been</span>
-                <h3 className="att-hero-title">Your ticket stub</h3>
-              </div>
-              <button
-                className="att-hero-toggle"
-                type="button"
-                onClick={toggleHero}
-                aria-expanded={!heroCollapsed}
-                aria-label={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
-                title={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
-              >
-                {heroCollapsed ? '▾' : '▴'}
-              </button>
+          <div className="att-hero-head">
+            <div className="att-hero-headings">
+              {!heroCollapsed ? <span className="att-hero-eyebrow">Share where you've been</span> : null}
+              <h3 className="att-hero-title">Your ticket stub</h3>
             </div>
-            {!heroCollapsed ? (
-              <>
+            <button
+              className="att-hero-toggle"
+              type="button"
+              onClick={toggleHero}
+              aria-expanded={!heroCollapsed}
+              title={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
+            >
+              {heroCollapsed ? 'Show ▾' : 'Hide ▴'}
+            </button>
+          </div>
+          {!heroCollapsed ? (
+            <div className="att-hero-body">
+              <div className="att-hero-copy">
                 <p className="att-hero-sub">
                   {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
                   {featuredGame.home.name || featuredGame.home.abbrev}
@@ -3054,13 +3053,11 @@ export default function AttendedTracker() {
                     </button>
                   ) : null}
                 </div>
-              </>
-            ) : null}
-          </div>
-          {!heroCollapsed ? (
-            <div className="att-hero-preview">
-              <div className="att-hero-canvas-host" ref={heroRef} aria-busy={!heroReady} />
-              {!heroReady ? <span className="att-hero-loading">Rendering…</span> : null}
+              </div>
+              <div className="att-hero-preview">
+                <div className="att-hero-canvas-host" ref={heroRef} aria-busy={!heroReady} />
+                {!heroReady ? <span className="att-hero-loading">Rendering…</span> : null}
+              </div>
             </div>
           ) : null}
         </div>
