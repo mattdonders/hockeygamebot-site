@@ -882,7 +882,10 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   // souvenir stub
   const BP_PAD_T = 12;
   const BP_LBL_H = 18;
-  const codeH = codeStyle === 'qr' ? 62 : 52;
+  // QR path = a WIDE "QR-noise band" (real QR centred in a field of decorative
+  // module-noise that fades into the cream), taller than the old square so the
+  // real QR keeps enough resolution to scan; PDF417 keeps its short band.
+  const codeH = codeStyle === 'qr' ? 84 : 52;
   const BP_PAD_B = 13;
   const bpH = BP_PAD_T + BP_LBL_H + codeH + BP_PAD_B;
 
@@ -1188,13 +1191,31 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   ctx.fillText(serial, px + passW - padX, bpY + 10);
   ctx.textAlign = 'left';
 
-  // code slot (contained; QR square or PDF417 wide band)
+  // code slot (QR-noise band or PDF417 wide band — both span the pass width)
   const codeY = bpY + BP_LBL_H;
   // No handle ⇒ encode the GENERIC passport URL (never "/@undefined"): a
   // logged-out/private stub is still shareable and funnels to the product page.
   const codeUrl = `https://hockeygamebot.com/puck-passport${handle ? `/@${handle}` : ''}`;
   if (codeStyle === 'qr') {
-    drawBrandedQr(ctx, codeUrl, px + padX, codeY, codeH, crest, CREAM);
+    // Reserve the bottom of the code region for the human-readable URL; the band
+    // (real QR + decorative noise) fills the rest.
+    const URL_STRIP = 15;
+    const bandH = codeH - URL_STRIP;
+    drawQrNoiseBand(ctx, codeUrl, game.game_id, px + padX, codeY, passW - padX * 2, bandH, INK);
+    // human-readable URL beneath the band (protocol stripped for width)
+    ctx.font = mono(7.5, 500);
+    ctx.fillStyle = inkA(0.5);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.save();
+    ctx.letterSpacing = '0.3px';
+    ctx.fillText(
+      truncate(ctx, codeUrl.replace(/^https?:\/\//, ''), passW - padX * 2),
+      px + passW / 2,
+      codeY + bandH + 11,
+    );
+    ctx.restore();
+    ctx.textAlign = 'left';
   } else {
     drawPdf417Stub(ctx, px + padX, codeY, passW - padX * 2, codeH);
   }
@@ -1237,47 +1258,115 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
 
 // ── code renderers ────────────────────────────────────────────────────────────
 
-/** Draw a scannable QR (error-correction H) with the gold crest branded into a
- *  white keep-out box at the centre. Square, left-aligned in the code slot. */
-function drawBrandedQr(
+/** FNV-1a hash → 32-bit uint seed. Stable across calls for a given string. */
+function hashSeed(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+/** mulberry32 PRNG → deterministic [0,1) stream from a uint seed. */
+function mulberry32(a: number): () => number {
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Draw a WIDE "QR-noise band": a real, scannable QR (error-correction H, NO logo
+ * overlay — clean modules) centred in `bandW`, embedded in a field of decorative
+ * QR-module noise that fills the band to the left and right at the SAME cell size,
+ * so the whole strip reads as one continuous QR texture with the real code inside.
+ *
+ * Scannability is protected two ways: the real QR keeps its full WHITE quiet-zone
+ * margin, and the decorative noise is kept a few modules clear of that margin — no
+ * noise is ever painted over or beside the QR close enough to confuse a scanner.
+ *
+ * The noise is seeded deterministically from `gameId` (a given stub always renders
+ * the identical field), and it DISSOLVES into the cream ticket at the band edges —
+ * a soft alpha fade toward both horizontal ends (and a gentler vertical fade) so
+ * there is no hard-edged rectangle; the texture emerges from the QR and melts back
+ * into the cardstock. The real QR (centre) stays fully opaque and crisp.
+ */
+function drawQrNoiseBand(
   ctx: CanvasRenderingContext2D,
   url: string,
+  gameId: string,
   x: number,
   y: number,
-  size: number,
-  crest: HTMLImageElement | null,
-  cream: string,
+  bandW: number,
+  bandH: number,
+  ink: string,
 ) {
-  const qr = qrcode(0, 'H'); // auto version, highest EC (tolerates the centre logo)
+  const qr = qrcode(0, 'H'); // auto version, highest EC — clean (no logo keep-out)
   qr.addData(url);
   qr.make();
   const count = qr.getModuleCount();
-  const cell = size / count;
-  // white quiet-zone background for scannability
+  const QUIET = 4; // standard 4-module quiet zone (kept white → scannable margin)
+  const totalMods = count + QUIET * 2;
+  const cell = bandH / totalMods; // module pixel size — drives BOTH the QR and the noise
+  const qrBox = totalMods * cell; // == bandH (the QR square fills the band vertically)
+  const qrX = x + (bandW - qrBox) / 2; // centre the real QR horizontally
+  const qrY = y;
+
+  // real QR — white quiet-zone card + crisp black modules (fully opaque)
+  ctx.globalAlpha = 1;
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(x, y, size, size);
+  ctx.fillRect(qrX, qrY, qrBox, qrBox);
   ctx.fillStyle = '#000000';
   for (let row = 0; row < count; row++) {
     for (let col = 0; col < count; col++) {
       if (qr.isDark(row, col)) {
-        // +0.5 overlap avoids hairline seams between modules at 3× export scale
-        ctx.fillRect(x + col * cell, y + row * cell, cell + 0.5, cell + 0.5);
+        // +0.4 overlap avoids hairline seams between modules at 3× export scale
+        ctx.fillRect(qrX + (col + QUIET) * cell, qrY + (row + QUIET) * cell, cell + 0.4, cell + 0.4);
       }
     }
   }
-  // branded centre: white keep-out box + gold crest (level-H tolerates ~20% loss)
-  const logo = size * 0.26;
-  const lx = x + size / 2 - logo / 2;
-  const ly = y + size / 2 - logo / 2;
-  const pad = 2;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(lx - pad, ly - pad, logo + pad * 2, logo + pad * 2);
-  // cream disc under the crest (matches the masthead medallion)
-  ctx.beginPath();
-  ctx.arc(x + size / 2, y + size / 2, logo / 2, 0, Math.PI * 2);
-  ctx.fillStyle = cream;
-  ctx.fill();
-  if (crest) ctx.drawImage(crest, lx, ly, logo, logo);
+
+  // decorative module-noise across the whole band, on the SAME cell grid.
+  // Keep it clear of the QR's white card by a small margin so nothing crowds the
+  // quiet zone. Alpha fades to 0 at the outer horizontal ends and softens top/bottom.
+  const rand = mulberry32(hashSeed(gameId));
+  const keepPad = 2 * cell; // clearance around the QR card
+  const koL = qrX - keepPad;
+  const koR = qrX + qrBox + keepPad;
+  const cols = Math.ceil(bandW / cell);
+  const rows = Math.ceil(bandH / cell);
+  const midY = y + bandH / 2;
+  ctx.fillStyle = ink;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cx = x + c * cell;
+      const cy = y + r * cell;
+      const on = rand() < 0.5; // ~QR density
+      const jitter = rand(); // per-cell alpha jitter (advance the stream regardless)
+      if (!on) continue;
+      const cxm = cx + cell / 2;
+      // horizontal fade: 0 at the band's outer edge, 1 at the QR card's edge.
+      let ah: number;
+      if (cxm < qrX) ah = (cxm - x) / (qrX - x);
+      else if (cxm > qrX + qrBox) ah = (x + bandW - cxm) / (x + bandW - (qrX + qrBox));
+      else continue; // inside the QR column — never covered by noise
+      // skip the keep-out band immediately beside the QR card
+      if (cxm > koL && cxm < koR) continue;
+      ah = Math.max(0, Math.min(1, ah));
+      ah = ah ** 1.5; // ease so noise stays faint longer near the edge, then ramps
+      // gentle vertical fade (edges ~0.35 of centre)
+      const dv = Math.abs(cy + cell / 2 - midY) / (bandH / 2);
+      const av = 1 - 0.65 * dv * dv;
+      const alpha = 0.9 * ah * av * (0.7 + 0.3 * jitter);
+      if (alpha <= 0.02) continue;
+      ctx.globalAlpha = alpha;
+      ctx.fillRect(cx, cy, cell + 0.4, cell + 0.4);
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 /** DECORATIVE ONLY — PDF417-look stacked band (NOT a functional code). Wired
