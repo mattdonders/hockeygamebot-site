@@ -604,7 +604,7 @@ export interface TicketStubOpts {
   /** This venue's ordinal among distinct arenas ("6TH ARENA ATTENDED"). */
   arenaOrdinal?: number | null;
   /** Code style — QR (default, phone-scannable) or the PDF417 decorative stub. */
-  codeStyle?: 'qr' | 'pdf417';
+  codeStyle?: 'qr' | 'qr-plain' | 'pdf417';
   /** Crest image URL (default the committed gold crest). Overridable for tests. */
   crestUrl?: string;
   /** Team-logo URL resolver (default `/logos/<ABBREV>_light.svg`). Overridable for
@@ -894,8 +894,16 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   ctx.strokeStyle = GOLD;
   ctx.stroke();
   if (crest) {
-    const cs = 38;
+    // Clip to just inside the gold ring, then draw the emblem larger so it fills
+    // the disc (the crest PNG carries its own transparent margin, so a small draw
+    // size looked tiny). Clip prevents any spill onto the ring.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(discCx, discCy, discR - 1.5, 0, Math.PI * 2);
+    ctx.clip();
+    const cs = 48;
     ctx.drawImage(crest, discCx - cs / 2, discCy - cs / 2, cs, cs);
+    ctx.restore();
   }
   // wordmark + tagline (left-aligned, vertically centred against the disc)
   const wmX = groupX + discR * 2 + gap;
@@ -946,7 +954,7 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   // QR path = a WIDE "QR-noise band" (real QR centred in a field of decorative
   // module-noise that fades into the cream), taller than the old square so the
   // real QR keeps enough resolution to scan; PDF417 keeps its short band.
-  const codeH = codeStyle === 'qr' ? 84 : 52;
+  const codeH = codeStyle === 'pdf417' ? 52 : 84;
   const BP_PAD_B = 13;
   const bpH = BP_PAD_T + BP_LBL_H + codeH + BP_PAD_B;
 
@@ -1298,12 +1306,12 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   // No handle ⇒ encode the GENERIC passport URL (never "/@undefined"): a
   // logged-out/private stub is still shareable and funnels to the product page.
   const codeUrl = `https://hockeygamebot.com/puck-passport${handle ? `/@${handle}` : ''}`;
-  if (codeStyle === 'qr') {
+  if (codeStyle === 'qr' || codeStyle === 'qr-plain') {
     // Reserve the bottom of the code region for the human-readable URL; the band
-    // (real QR + decorative noise) fills the rest.
+    // (real QR + decorative noise, or a plain white rectangle) fills the rest.
     const URL_STRIP = 15;
     const bandH = codeH - URL_STRIP;
-    drawQrNoiseBand(ctx, codeUrl, game.game_id, px + padX, codeY, passW - padX * 2, bandH, INK);
+    drawQrNoiseBand(ctx, codeUrl, game.game_id, px + padX, codeY, passW - padX * 2, bandH, INK, codeStyle === 'qr-plain');
     // human-readable URL beneath the band (protocol stripped for width)
     ctx.font = mono(7.5, 500);
     ctx.fillStyle = inkA(0.5);
@@ -1407,6 +1415,7 @@ function drawQrNoiseBand(
   bandW: number,
   bandH: number,
   ink: string,
+  plain = false,
 ) {
   const qr = qrcode(0, 'H'); // auto version, highest EC — clean (no logo keep-out)
   qr.addData(url);
@@ -1427,59 +1436,72 @@ function drawQrNoiseBand(
   //    grid. Drawn FIRST so the opaque white card sits on top. Alpha peaks in the
   //    middle (behind/around the card) and fades to 0 at the outer horizontal ends,
   //    with a gentler vertical fade, so the texture melts into the cream. ──
-  const rand = mulberry32(hashSeed(gameId));
-  const cols = Math.ceil(bandW / cell);
-  const rows = Math.ceil(bandH / cell);
-  const midX = x + bandW / 2;
-  const midY = y + bandH / 2;
-  ctx.fillStyle = ink;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cx = x + c * cell;
-      const cy = y + r * cell;
-      const on = rand() < 0.5; // ~QR density
-      const jitter = rand(); // per-cell alpha jitter (advance the stream regardless)
-      if (!on) continue;
-      // horizontal fade: 1 in the centre, 0 at the outer edges (eased)
-      const dh = Math.abs(cx + cell / 2 - midX) / (bandW / 2);
-      let ah = Math.max(0, Math.min(1, 1 - dh));
-      ah = ah ** 1.4;
-      // gentle vertical fade (edges ~0.35 of centre)
-      const dv = Math.abs(cy + cell / 2 - midY) / (bandH / 2);
-      const av = 1 - 0.65 * dv * dv;
-      const alpha = 0.6 * ah * av * (0.7 + 0.3 * jitter);
-      if (alpha <= 0.02) continue;
-      ctx.globalAlpha = alpha;
-      // +0.4 overlap avoids hairline seams between modules at 3× export scale
-      ctx.fillRect(cx, cy, cell + 0.4, cell + 0.4);
+  if (!plain) {
+    const rand = mulberry32(hashSeed(gameId));
+    const cols = Math.ceil(bandW / cell);
+    const rows = Math.ceil(bandH / cell);
+    const midX = x + bandW / 2;
+    const midY = y + bandH / 2;
+    ctx.fillStyle = ink;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cx = x + c * cell;
+        const cy = y + r * cell;
+        const on = rand() < 0.5; // ~QR density
+        const jitter = rand(); // per-cell alpha jitter (advance the stream regardless)
+        if (!on) continue;
+        // horizontal fade: 1 in the centre, 0 at the outer edges (eased)
+        const dh = Math.abs(cx + cell / 2 - midX) / (bandW / 2);
+        let ah = Math.max(0, Math.min(1, 1 - dh));
+        ah = ah ** 1.4;
+        // gentle vertical fade (edges ~0.35 of centre)
+        const dv = Math.abs(cy + cell / 2 - midY) / (bandH / 2);
+        const av = 1 - 0.65 * dv * dv;
+        const alpha = 0.6 * ah * av * (0.7 + 0.3 * jitter);
+        if (alpha <= 0.02) continue;
+        ctx.globalAlpha = alpha;
+        // +0.4 overlap avoids hairline seams between modules at 3× export scale
+        ctx.fillRect(cx, cy, cell + 0.4, cell + 0.4);
+      }
     }
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
 
-  // ── white card (the quiet zone) floating on the noise: soft shadow, then a faint
-  //    hairline border so it reads as lifted above the texture ──
+  // ── the white card holding the QR. In 'plain' mode it's a full-width rectangle
+  //    (QR centred, the side padding IS the quiet zone) with no noise behind; in
+  //    the default mode it's a square floating on the noise field. Soft shadow +
+  //    faint hairline border either way. ──
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.28)';
   ctx.shadowBlur = 8;
   ctx.shadowOffsetY = 2;
-  rrect(ctx, boxX, boxY, boxSize, boxSize, 6);
+  if (plain) rrect(ctx, x, y, bandW, bandH, 8);
+  else rrect(ctx, boxX, boxY, boxSize, boxSize, 6);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.restore();
-  rrect(ctx, boxX + 0.5, boxY + 0.5, boxSize - 1, boxSize - 1, 6);
+  if (plain) rrect(ctx, x + 0.5, y + 0.5, bandW - 1, bandH - 1, 8);
+  else rrect(ctx, boxX + 0.5, boxY + 0.5, boxSize - 1, boxSize - 1, 6);
   ctx.strokeStyle = 'rgba(20,20,15,0.14)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
   // ── crisp real QR inside the card (offset by the QUIET-module white margin) ──
+  // Snap every module to integer pixel edges (round both edges, not origin+size) so
+  // modules are pixel-crisp with no gaps/overlap — anti-aliased/soft modules fail
+  // real scanners. qOriginX/Y are the pixel origin of the QR proper (after quiet zone).
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#000000';
+  const qOriginX = boxX + QUIET * cell;
+  const qOriginY = boxY + QUIET * cell;
   for (let row = 0; row < count; row++) {
     for (let col = 0; col < count; col++) {
-      if (qr.isDark(row, col)) {
-        // +0.4 overlap avoids hairline seams between modules at 3× export scale
-        ctx.fillRect(boxX + (col + QUIET) * cell, boxY + (row + QUIET) * cell, cell + 0.4, cell + 0.4);
-      }
+      if (!qr.isDark(row, col)) continue;
+      const mx = Math.round(qOriginX + col * cell);
+      const my = Math.round(qOriginY + row * cell);
+      const mw = Math.round(qOriginX + (col + 1) * cell) - mx;
+      const mh = Math.round(qOriginY + (row + 1) * cell) - my;
+      ctx.fillRect(mx, my, mw, mh);
     }
   }
 }
