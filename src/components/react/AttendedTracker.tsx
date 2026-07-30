@@ -70,6 +70,8 @@ const SUMMARY_NUDGE_AT = 10;
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
 // logged the game. Cross-device games fall back to /v1/config + game_results.
 const DETAILS_KEY = 'hgb_puck_passport_details_v1';
+// Whether the featured-stub hero is collapsed (per-browser UI pref, not synced).
+const HERO_COLLAPSE_KEY = 'hgb_pp_hero_collapsed';
 
 // Rooting-perspective anchor preference. LOGGED-IN users store the anchor SERVER-side
 // (PUT /v1/account/prefs — see writeAnchor); this localStorage key is the LOGGED-OUT
@@ -2439,12 +2441,16 @@ export default function AttendedTracker() {
     [passportHandle, primeStubFonts, stubOptsFor],
   );
 
-  // X/Twitter share: two most-notable games composited side by side (~1.125:1), so
-  // the preview isn't center-cropped in-feed the way a single tall 9:16 stub is.
+  // X/Twitter share: TWO RANDOM games composited side by side (~1.125:1), so the
+  // preview isn't center-cropped in-feed the way a single tall 9:16 stub is. Random
+  // (not "top 2") gives variety on repeat clicks. v2: let the user pick the two.
   const handleGridShare = useCallback(
-    async (picks: AttendedGame[]) => {
-      const cells = picks.slice(0, 2);
-      if (cells.length < 2) return;
+    async () => {
+      if (games.length < 2) return;
+      const pool = [...games];
+      const [a] = pool.splice(Math.floor(Math.random() * pool.length), 1);
+      const b = pool[Math.floor(Math.random() * pool.length)];
+      const cells = [a, b];
       trackEvent('share_click', { handle: passportHandle });
       await primeStubFonts();
       try {
@@ -2461,7 +2467,7 @@ export default function AttendedTracker() {
         setWriteError('Could not build the 2-up graphic — please try again.');
       }
     },
-    [passportHandle, primeStubFonts, stubOptsFor],
+    [games, passportHandle, primeStubFonts, stubOptsFor],
   );
 
   // ── Featured-stub hero: lead with the OUTPUT, not a buried button ─────────────
@@ -2501,6 +2507,28 @@ export default function AttendedTracker() {
   const featuredGame =
     notableGames.length > 0 ? notableGames[featuredIdx % notableGames.length] : null;
 
+  // Collapsible hero: it leads with the shareable artifact (discovery), but a tall
+  // preview eats above-the-fold space for a returning user who's already seen it.
+  // Expanded by default (new users get the aha); collapse state persists per-browser.
+  const [heroCollapsed, setHeroCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setHeroCollapsed(localStorage.getItem(HERO_COLLAPSE_KEY) === '1');
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+  const toggleHero = () =>
+    setHeroCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(HERO_COLLAPSE_KEY, next ? '1' : '0');
+      } catch {
+        /* non-fatal */
+      }
+      return next;
+    });
+
   // A one-phrase "why this game is notable" label (drives the log-time prompt copy).
   const milestoneNoteFor = (gameId: string): string | null => {
     const gOrd = stubOrdinals.gameOrd.get(gameId);
@@ -2517,7 +2545,7 @@ export default function AttendedTracker() {
   const heroRef = useRef<HTMLDivElement | null>(null);
   const [heroReady, setHeroReady] = useState(false);
   useEffect(() => {
-    if (!featuredGame) return;
+    if (!featuredGame || heroCollapsed) return; // collapsed → skip the draw entirely
     let cancelled = false;
     setHeroReady(false);
     (async () => {
@@ -2543,7 +2571,7 @@ export default function AttendedTracker() {
     return () => {
       cancelled = true;
     };
-  }, [featuredGame, primeStubFonts, stubOptsFor]);
+  }, [featuredGame, heroCollapsed, primeStubFonts, stubOptsFor]);
 
   // ── Column defs ──────────────────────────────────────────────────────────────
   const gameCols = useMemo<HGBColumnDef<AttendedGame>[]>(
@@ -2977,45 +3005,64 @@ export default function AttendedTracker() {
           the viral unit (event-tied, others recognize the game); the passport-share
           bar below stays as the whole-collection flex. */}
       {!empty && featuredGame ? (
-        <div className="att-hero">
+        <div className={`att-hero${heroCollapsed ? ' att-hero-collapsed' : ''}`}>
           <div className="att-hero-copy">
-            <span className="att-hero-eyebrow">Share where you've been</span>
-            <h3 className="att-hero-title">Your ticket stub</h3>
-            <p className="att-hero-sub">
-              A shareable graphic for {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
-              {featuredGame.home.name || featuredGame.home.abbrev}
-              {featuredGame.date ? ` · ${fmtStubDate(featuredGame.date)}` : ''}. Post it to your
-              story — the QR sends friends to your Passport.
-            </p>
-            <div className="att-hero-actions">
-              <button className="att-hero-share" type="button" onClick={() => handleStub(featuredGame)}>
-                🎟 Share this stub
+            <div className="att-hero-head">
+              <div>
+                <span className="att-hero-eyebrow">Share where you've been</span>
+                <h3 className="att-hero-title">Your ticket stub</h3>
+              </div>
+              <button
+                className="att-hero-toggle"
+                type="button"
+                onClick={toggleHero}
+                aria-expanded={!heroCollapsed}
+                aria-label={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
+                title={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
+              >
+                {heroCollapsed ? '▾' : '▴'}
               </button>
-              {notableGames.length > 1 ? (
-                <button
-                  className="att-hero-grid"
-                  type="button"
-                  title="Two of your top games side by side — fits X/Twitter without cropping"
-                  onClick={() => handleGridShare(notableGames)}
-                >
-                  2-up for X
-                </button>
-              ) : null}
-              {notableGames.length > 1 ? (
-                <button
-                  className="att-hero-cycle"
-                  type="button"
-                  onClick={() => setFeaturedIdx((i) => (i + 1) % notableGames.length)}
-                >
-                  Pick another game →
-                </button>
-              ) : null}
             </div>
+            {!heroCollapsed ? (
+              <>
+                <p className="att-hero-sub">
+                  {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
+                  {featuredGame.home.name || featuredGame.home.abbrev}
+                  {featuredGame.date ? ` · ${fmtStubDate(featuredGame.date)}` : ''}
+                </p>
+                <div className="att-hero-actions">
+                  <button className="att-hero-share" type="button" onClick={() => handleStub(featuredGame)}>
+                    🎟 Share this stub
+                  </button>
+                  {games.length > 1 ? (
+                    <button
+                      className="att-hero-grid"
+                      type="button"
+                      title="Two random games side by side — sized for X/Twitter (no crop)"
+                      onClick={handleGridShare}
+                    >
+                      2 games for X
+                    </button>
+                  ) : null}
+                  {notableGames.length > 1 ? (
+                    <button
+                      className="att-hero-cycle"
+                      type="button"
+                      onClick={() => setFeaturedIdx((i) => (i + 1) % notableGames.length)}
+                    >
+                      Pick another →
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
           </div>
-          <div className="att-hero-preview">
-            <div className="att-hero-canvas-host" ref={heroRef} aria-busy={!heroReady} />
-            {!heroReady ? <span className="att-hero-loading">Rendering…</span> : null}
-          </div>
+          {!heroCollapsed ? (
+            <div className="att-hero-preview">
+              <div className="att-hero-canvas-host" ref={heroRef} aria-busy={!heroReady} />
+              {!heroReady ? <span className="att-hero-loading">Rendering…</span> : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
