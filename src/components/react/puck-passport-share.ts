@@ -914,12 +914,17 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   ctx.fillStyle = bg2;
   ctx.fillRect(px, y, passW, boardH);
 
-  // resolve scores / winner (guards: manual w/o scores, non-final)
+  // resolve scores / winner (guards: manual w/o scores, non-final, PARTIAL scores).
+  // Only treat scores as present when BOTH are finite numbers — a final game with
+  // one score undefined would otherwise render the literal "undefined" and resolve
+  // a bogus "FINAL · TIE". Partial ⇒ dashes + neutral status (no winner, no TIE).
+  const homeScore = game.home?.score ?? NaN;
+  const awayScore = game.away?.score ?? NaN;
+  const bothScoresFinite = Number.isFinite(homeScore) && Number.isFinite(awayScore);
   const hasScores =
+    bothScoresFinite &&
     !(game.is_manual && (game.home_score == null || game.away_score == null)) &&
     (game.is_manual || game.status === 'final');
-  const homeScore = game.home.score;
-  const awayScore = game.away.score;
   const winner: 'home' | 'away' | null = !hasScores
     ? null
     : homeScore > awayScore
