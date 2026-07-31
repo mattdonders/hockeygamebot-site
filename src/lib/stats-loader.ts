@@ -308,6 +308,10 @@ export type PlayerSeasonEntry = {
   // Future fields — pipeline not yet writing these; handle null gracefully
   hgb_rating_pct?: number | null;
   war_pct?: number | null;
+  // "limited_toi" when war_pct is null because the season's 5v5 TOI fell
+  // under the RAPM fit's inclusion floor — not a data gap. See hgb-analytics
+  // compute_historical_season_ratings.py.
+  war_status?: 'limited_toi' | null;
   impact_pct?: number | null;
   limited?: boolean;
   // Strength-state splits
