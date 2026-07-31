@@ -33,6 +33,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
+import { nhlGameType } from '../../lib/nhl-game-type';
 import { readPhotoDate, readPhotoGps, type GpsCoord } from '../../lib/exif-date';
 import { nearestArena } from '../../lib/arena-match';
 import { harvestDates } from '../../lib/import-dates';
@@ -663,19 +664,9 @@ function winnerAbbrev(g: AttendedGame): string | null {
 }
 
 /** Parse NHL game_id: SSSSTTNNNN → game-type digit pair. */
+/** Chip label for a game's type. Taxonomy lives in ONE place — see nhl-game-type.ts. */
 function gameTypeLabel(gameId: string): string {
-  // Manual games carry no NHL id → no type to read.
-  if (!gameId || gameId.startsWith('manual-')) return '';
-  const tt = gameId.slice(4, 6);
-  if (tt === '01') return 'PRE';
-  if (tt === '02') return ''; // regular season — no chip (the common case)
-  if (tt === '03') return 'PLAYOFF';
-  if (tt === '04') return 'ALL-STAR';
-  // FAIL LOUD: an unrecognised type must never silently render as "regular season"
-  // (that's how All-Star games were mislabelled — reported by a user 2026-07-31).
-  // Surface the raw code so a new taxonomy value is visible instead of swallowed.
-  console.warn(`[PuckPassport] unknown NHL game type "${tt}" in game_id ${gameId} — labelling it verbatim.`);
-  return `TYPE ${tt}`;
+  return nhlGameType(gameId).chip;
 }
 
 // ── Players-seen aggregate row (games seen + goals) ──────────────────────────────
