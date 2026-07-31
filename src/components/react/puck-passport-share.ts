@@ -693,8 +693,12 @@ function formatStubDate(iso: string): string {
   const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
   return `${wd} · ${mo} ${d.getDate()}, ${d.getFullYear()}`;
 }
-/** Adaptive 4th detail cell (spec §3): playoff round · game → preseason → regular. */
+/** Adaptive 4th detail cell (spec §3): playoff round · game → preseason → all-star →
+ *  regular. NEVER silently defaults to "Regular Season" for an unknown type — that's
+ *  how All-Star games shipped mislabelled (user report, 2026-07-31). */
 function adaptiveDetail(gameId: string): { label: string; value: string } {
+  // Manual games have no NHL id; the caller renders them without a type claim.
+  if (!gameId || gameId.startsWith('manual-')) return { label: 'Game Type', value: '—' };
   const tt = gameId.slice(4, 6);
   if (tt === '03') {
     const last4 = gameId.slice(6);
@@ -704,7 +708,11 @@ function adaptiveDetail(gameId: string): { label: string; value: string } {
     return { label: 'Round', value: 'Playoffs' };
   }
   if (tt === '01') return { label: 'Game Type', value: 'Preseason' };
-  return { label: 'Game Type', value: 'Regular Season' };
+  if (tt === '02') return { label: 'Game Type', value: 'Regular Season' };
+  if (tt === '04') return { label: 'Game Type', value: 'All-Star' };
+  // Unknown taxonomy value — say so rather than fabricate "Regular Season".
+  console.warn(`[PuckPassport] unknown NHL game type "${tt}" in game_id ${gameId} — stub shows it verbatim.`);
+  return { label: 'Game Type', value: `Type ${tt}` };
 }
 
 /** Load an image and resolve once decoded. Rejects loud on error (no silent blank). */

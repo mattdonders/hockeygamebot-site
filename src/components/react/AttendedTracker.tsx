@@ -664,10 +664,18 @@ function winnerAbbrev(g: AttendedGame): string | null {
 
 /** Parse NHL game_id: SSSSTTNNNN → game-type digit pair. */
 function gameTypeLabel(gameId: string): string {
+  // Manual games carry no NHL id → no type to read.
+  if (!gameId || gameId.startsWith('manual-')) return '';
   const tt = gameId.slice(4, 6);
   if (tt === '01') return 'PRE';
+  if (tt === '02') return ''; // regular season — no chip (the common case)
   if (tt === '03') return 'PLAYOFF';
-  return ''; // 02 regular — no chip
+  if (tt === '04') return 'ALL-STAR';
+  // FAIL LOUD: an unrecognised type must never silently render as "regular season"
+  // (that's how All-Star games were mislabelled — reported by a user 2026-07-31).
+  // Surface the raw code so a new taxonomy value is visible instead of swallowed.
+  console.warn(`[PuckPassport] unknown NHL game type "${tt}" in game_id ${gameId} — labelling it verbatim.`);
+  return `TYPE ${tt}`;
 }
 
 // ── Players-seen aggregate row (games seen + goals) ──────────────────────────────
