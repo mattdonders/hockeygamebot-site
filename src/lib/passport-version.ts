@@ -40,7 +40,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     items: [
       'Turn any game you’ve logged into a shareable ticket stub — final score, date, arena, your game and arena number, and the badges you earned that night.',
       'Post it to your story: the stub’s QR code sends friends straight to your Passport.',
-      'Sharing on X? Post two games side by side in one image — sized to show in full, no cropping.',
+      'On X, post two games side by side in one image — sized to show in full, no cropping.',
     ],
   },
   {
