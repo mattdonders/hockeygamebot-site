@@ -33,6 +33,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import HGBTable, { type HGBColumnDef, NAME_FONT_SIZE, CELL_FONT_SIZE, TEAM_LOGO_STYLE, teamLogoSrc } from './HGBTable';
 import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
+import { nhlGameType } from '../../lib/nhl-game-type';
 import { readPhotoDate, readPhotoGps, type GpsCoord } from '../../lib/exif-date';
 import { nearestArena } from '../../lib/arena-match';
 import { harvestDates } from '../../lib/import-dates';
@@ -663,11 +664,9 @@ function winnerAbbrev(g: AttendedGame): string | null {
 }
 
 /** Parse NHL game_id: SSSSTTNNNN → game-type digit pair. */
+/** Chip label for a game's type. Taxonomy lives in ONE place — see nhl-game-type.ts. */
 function gameTypeLabel(gameId: string): string {
-  const tt = gameId.slice(4, 6);
-  if (tt === '01') return 'PRE';
-  if (tt === '03') return 'PLAYOFF';
-  return ''; // 02 regular — no chip
+  return nhlGameType(gameId).chip;
 }
 
 // ── Players-seen aggregate row (games seen + goals) ──────────────────────────────

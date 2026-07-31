@@ -43,6 +43,7 @@
 import { DOMAIN_UPPER, FOOTER_STYLE } from '../../lib/card-footer';
 import { normalizePeriod } from './puck-passport-badges';
 import { pickTeamColor } from '../../lib/team-colors';
+import { nhlGameType } from '../../lib/nhl-game-type';
 import qrcode from 'qrcode-generator';
 
 const BG = '#EFEEE8';
@@ -693,18 +694,20 @@ function formatStubDate(iso: string): string {
   const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
   return `${wd} · ${mo} ${d.getDate()}, ${d.getFullYear()}`;
 }
-/** Adaptive 4th detail cell (spec §3): playoff round · game → preseason → regular. */
+/** Adaptive 4th detail cell (spec §3): playoff round · game, else the game type.
+ *  The type taxonomy lives in ONE place (nhl-game-type.ts) so a future code is a
+ *  single-line change and never silently renders as "Regular Season". */
 function adaptiveDetail(gameId: string): { label: string; value: string } {
-  const tt = gameId.slice(4, 6);
-  if (tt === '03') {
+  const t = nhlGameType(gameId);
+  // Playoffs get the richer round·game treatment when the id encodes it.
+  if (t.kind === 'playoff') {
     const last4 = gameId.slice(6);
     const round = last4[1];
     const game = last4[3];
     if (round && game) return { label: 'Round', value: `Playoffs R${round} · G${game}` };
     return { label: 'Round', value: 'Playoffs' };
   }
-  if (tt === '01') return { label: 'Game Type', value: 'Preseason' };
-  return { label: 'Game Type', value: 'Regular Season' };
+  return { label: 'Game Type', value: t.label };
 }
 
 /** Load an image and resolve once decoded. Rejects loud on error (no silent blank). */
