@@ -14,7 +14,7 @@
 
 export type NhlGameType = {
   /** Stable key for the type. `unknown` for anything not in the taxonomy. */
-  kind: 'preseason' | 'regular' | 'playoff' | 'allstar' | 'unknown' | 'none';
+  kind: 'preseason' | 'regular' | 'playoff' | 'allstar' | 'tournament' | 'unknown' | 'none';
   /** Long label for prose surfaces (e.g. the ticket stub's "Game Type" cell). */
   label: string;
   /** Short ALL-CAPS chip label; '' means "don't show a chip" (the regular-season case). */
@@ -48,6 +48,12 @@ export function nhlGameType(gameId: string | null | undefined): NhlGameType {
       return { kind: 'playoff', label: 'Playoffs', chip: 'PLAYOFF', code };
     case '04':
       return { kind: 'allstar', label: 'All-Star', chip: 'ALL-STAR', code };
+    // Best-on-best / international tournaments run under NHL game ids. Confirmed by
+    // production data: 2024190002 = "4 Nations Face-Off" at Centre Bell (2025-02-13).
+    // Labelled generically — one observed tournament isn't enough to claim code 19
+    // ALWAYS means 4 Nations, and the event's real name is carried by special_event.
+    case '19':
+      return { kind: 'tournament', label: 'Tournament', chip: 'TOURNAMENT', code };
     default:
       // FAIL LOUD, ONCE per code. Rendering "Regular Season" here would present bad
       // data as confident truth; showing the raw code is visibly imperfect, honest,
