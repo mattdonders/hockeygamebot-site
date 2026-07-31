@@ -11,7 +11,7 @@
  */
 
 /** Current Puck Passport product version. Bump this + add a CHANGELOG entry. */
-export const PUCK_PASSPORT_VERSION = '1.1';
+export const PUCK_PASSPORT_VERSION = '1.2';
 
 /** localStorage key holding the last version whose notes the user has seen. */
 export const LAST_SEEN_KEY = 'hgb_pp_last_seen_version';
@@ -33,6 +33,16 @@ export type ChangelogEntry = {
  * raise PUCK_PASSPORT_VERSION to match its `version`.
  */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.2',
+    date: '2026-07-30',
+    title: 'Ticket stubs — proof you were there',
+    items: [
+      'Turn any game you’ve logged into a shareable ticket stub — final score, date, arena, your game and arena number, and the badges you earned that night.',
+      'Post it to your story: the stub’s QR code sends friends straight to your Passport.',
+      'Sharing on X? Post two games side by side in one image — sized to show in full, no cropping.',
+    ],
+  },
   {
     version: '1.1',
     date: '2026-07-28',
