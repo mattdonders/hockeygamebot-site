@@ -2232,8 +2232,10 @@ export default function AttendedTracker() {
   const handleShare = useCallback(async () => {
     // Anonymous telemetry: record the Share action. Fire-and-forget — pass the
     // user's own handle when it's in state (real logins), else omit. Never awaited,
-    // never throws (see lib/track.ts).
-    trackEvent('share_click', { handle: passportHandle });
+    // never throws (see lib/track.ts). `meta` distinguishes WHICH share unit fired —
+    // all three (passport card / ticket stub / 2-up grid) share the one allowlisted
+    // `share_click` event, so without it the funnel conflates them.
+    trackEvent('share_click', { handle: passportHandle, meta: { unit: 'passport' } });
 
     // Everything below reads from the VIEW aggregates — the same server-summary
     // source the page renders from — so the card is correct in BOTH auth states.
@@ -2432,9 +2434,10 @@ export default function AttendedTracker() {
   const handleStub = useCallback(
     async (r: AttendedGame) => {
       // Reuse the wired `share_click` event — the stub IS a passport share action,
-      // and the telemetry endpoint accepts only its three known events (an unwired
-      // 'stub_click' would be silently dropped server-side).
-      trackEvent('share_click', { handle: passportHandle });
+      // and the telemetry endpoint accepts only its known events (an unwired
+      // 'stub_click' would be silently dropped server-side). `meta` carries WHICH
+      // unit fired so stub shares are separable from passport-card shares.
+      trackEvent('share_click', { handle: passportHandle, meta: { unit: 'stub' } });
       await primeStubFonts();
       try {
         const canvas = await drawTicketStub(stubOptsFor(r));
@@ -2463,7 +2466,7 @@ export default function AttendedTracker() {
       const [a] = pool.splice(Math.floor(Math.random() * pool.length), 1);
       const b = pool[Math.floor(Math.random() * pool.length)];
       const cells = [a, b];
-      trackEvent('share_click', { handle: passportHandle });
+      trackEvent('share_click', { handle: passportHandle, meta: { unit: 'grid' } });
       await primeStubFonts();
       try {
         const canvas = await drawStubGrid(cells.map(stubOptsFor));
