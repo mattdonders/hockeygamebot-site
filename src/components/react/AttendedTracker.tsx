@@ -53,6 +53,8 @@ import {
 } from './puck-passport-badges';
 import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
+import { isFeatureEnabled } from '../../lib/feature-flags';
+import TonightGameCard from './TonightGameCard';
 
 const API = 'https://api.hockeygamebot.com';
 const STORAGE_KEY = 'hgb_puck_passport_games';
@@ -94,11 +96,11 @@ const MAX_SUMMARY_RETRIES = 1;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type TeamSide = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
+export type TeamSide = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
 
 /** The persisted shape — enough to render the game LIST (matchup / score / venue
  *  / OT chip) with zero network. Aggregates come from the server summary. */
-type AttendedGame = {
+export type AttendedGame = {
   game_id: string;
   date: string; // YYYY-MM-DD (hockey date)
   home: TeamSide;
@@ -204,13 +206,13 @@ type TeamRecordsAnchored = {
 
 /** The resolved anchor + how it was chosen (drives the banner). null pre-anchor
  *  or when the api hasn't shipped the field yet (graceful fallback → neutral). */
-type SummaryAnchor = {
+export type SummaryAnchor = {
   team_id: number;
   abbrev: string;
   source: 'explicit' | 'inferred' | 'none';
 };
 
-type AttendedSummary = {
+export type AttendedSummary = {
   counters: { games: number; periods: number; goals: number; shots: number; players_seen: number };
   // W-L-OTL neutral ledger (otl added server-side). `otl` may be absent on an
   // older api deploy — the render tolerates it (graceful fallback).
@@ -280,8 +282,8 @@ type AttendedSummary = {
 type ViewRecord = { key: string; label: string; value: string; sub: string; total_time?: string | null };
 
 // Raw shapes from /v1/games/today
-type RawTeam = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
-type RawGame = {
+export type RawTeam = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
+export type RawGame = {
   game_id: string;
   date: string;
   home_team: RawTeam;
@@ -491,17 +493,40 @@ async function fetchD1Attended(): Promise<D1AttendedRow[] | null> {
   }
 }
 
-/** POST /v1/account/attended (upsert). Returns true on success. */
-async function postAttended(gameId: string): Promise<boolean> {
+/** What THIS log newly unlocked (badges / first-ever arena / crossed milestone),
+ *  plus the resulting totals. Only ever populated when `?earned=1` is requested AND
+ *  the row was newly created (a retry/double-tap must not re-announce a badge the
+ *  user already has). See hgb-api `deriveEarned` — the client never re-derives this. */
+export type EarnedDelta = {
+  earned: { badges: string[]; new_arena: boolean; milestones: string[] };
+  current: { games: number; arenas: number };
+};
+
+/** POST /v1/account/attended (upsert). Pass `earned: true` (the Tonight card's one
+ *  opt-in log) to also get back what this log newly unlocked — costs the server one
+ *  extra summary computation, so it's off by default (bulk add doesn't pay it). */
+async function postAttended(
+  gameId: string,
+  opts: { earned?: boolean } = {},
+): Promise<{ ok: boolean; earned?: EarnedDelta }> {
   try {
-    const r = await apiFetch(`${API}/v1/account/attended`, {
+    const url = new URL(`${API}/v1/account/attended`);
+    if (opts.earned) url.searchParams.set('earned', '1');
+    const r = await apiFetch(url.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ game_id: gameId }),
     });
-    return r.ok;
+    if (!r.ok) return { ok: false };
+    if (!opts.earned) return { ok: true };
+    try {
+      const data = await r.json();
+      return { ok: true, earned: data?.earned && data?.current ? (data as EarnedDelta) : undefined };
+    } catch {
+      return { ok: true }; // parse failure must not fail the attend — it already landed
+    }
   } catch {
-    return false;
+    return { ok: false };
   }
 }
 
@@ -1309,7 +1334,7 @@ export default function AttendedTracker() {
         // Upsert each into D1; server dedupes on (user_id, game_id).
         let allOk = true;
         for (const g of local) {
-          const ok = g.is_manual ? await postManualAttended(toManualGame(g)) : await postAttended(g.game_id);
+          const ok = g.is_manual ? await postManualAttended(toManualGame(g)) : (await postAttended(g.game_id)).ok;
           if (!ok) allOk = false;
         }
         if (cancelled) return;
@@ -1435,7 +1460,7 @@ export default function AttendedTracker() {
   const [justAdded, setJustAdded] = useState<AttendedGame | null>(null);
 
   const addGame = useCallback(
-    (raw: RawGame) => {
+    (raw: RawGame, opts: { earned?: boolean } = {}): Promise<EarnedDelta | undefined> => {
       const snap: AttendedGame = {
         game_id: raw.game_id,
         date: raw.date,
@@ -1472,14 +1497,15 @@ export default function AttendedTracker() {
           };
           return [row, ...rows];
         });
-        return postAttended(raw.game_id).then((ok) => {
+        return postAttended(raw.game_id, opts).then(({ ok, earned }) => {
           if (ok) {
             setWriteError(null);
             loadSummary(); // refetch aggregates from the server (anti-divergence)
-          } else {
-            setWriteError('Could not save that game to your account — check your connection and try again.');
-            setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
+            return earned;
           }
+          setWriteError('Could not save that game to your account — check your connection and try again.');
+          setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
+          return undefined;
         });
       }
       setLocalGames((prev) => {
@@ -1488,7 +1514,7 @@ export default function AttendedTracker() {
         writeAttended(next);
         return next;
       });
-      return Promise.resolve();
+      return Promise.resolve(undefined);
     },
     [isLoggedIn, commitDetail, loadSummary],
   );
@@ -2525,6 +2551,10 @@ export default function AttendedTracker() {
   // preview eats above-the-fold space for a returning user who's already seen it.
   // Expanded by default (new users get the aha); collapse state persists per-browser.
   const [heroCollapsed, setHeroCollapsed] = useState(false);
+  // Tonight's Game leads when it has something to show — the stub hero auto-collapses
+  // rather than competing for the same above-the-fold slot (spec: hero precedence).
+  const [tonightActive, setTonightActive] = useState(false);
+  const tonightEnabled = isFeatureEnabled('tonight');
   useEffect(() => {
     try {
       setHeroCollapsed(localStorage.getItem(HERO_COLLAPSE_KEY) === '1');
@@ -2981,11 +3011,25 @@ export default function AttendedTracker() {
         </div>
       ) : null}
 
+      {tonightEnabled ? (
+        <TonightGameCard
+          games={games}
+          summary={summary}
+          isLoggedIn={isLoggedIn}
+          anchor={serverAnchor && serverAnchor.source !== 'none' ? serverAnchor.abbrev : null}
+          stubOrdinals={stubOrdinals}
+          addGame={addGame}
+          removeGame={removeGame}
+          handleStub={handleStub}
+          onActiveChange={setTonightActive}
+        />
+      ) : null}
+
       {/* Featured-stub hero — lead with the shareable ARTIFACT. The per-game stub is
           the viral unit (event-tied, others recognize the game); the passport-share
           bar below stays as the whole-collection flex. */}
       {!empty && featuredGame ? (
-        <div className={`att-hero${heroCollapsed ? ' att-hero-collapsed' : ''}`}>
+        <div className={`att-hero${heroCollapsed || tonightActive ? ' att-hero-collapsed' : ''}`}>
           <div className="att-hero-head">
             <div className="att-hero-headings">
               {!heroCollapsed ? <span className="att-hero-eyebrow">Share where you've been</span> : null}
