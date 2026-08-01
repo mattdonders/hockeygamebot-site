@@ -72,9 +72,11 @@ function dismissExpiry(g: TonightGame): string {
   return new Date(t + 30 * 60 * 60 * 1000).toISOString(); // start/date + 30h
 }
 
+// Away–home score only — the abbreviations are already shown in tn-teams
+// immediately above this, in the same away@home order.
 function scoreLine(g: TonightGame): string | null {
   if (g.status !== 'live' && g.status !== 'final') return null;
-  return `${g.away.abbrev} ${g.away.score}, ${g.home.abbrev} ${g.home.score}`;
+  return `${g.away.score}–${g.home.score}`;
 }
 
 function isMorningAfter(g: TonightGame, now: Date): boolean {
@@ -410,7 +412,13 @@ export default function TonightGameCard({
   // ── Live / final / morning-after — loggable ─────────────────────────────────
   const morning = isMorningAfter(game, new Date());
   const eyebrowLabel = morning ? 'Last night · Final' : game.status === 'live' ? 'Tonight · Live' : 'Tonight · Final';
-  const askCopy = isFirstGame ? 'Start your passport with tonight\'s game?' : 'Were you at this game?';
+  // "Tonight's" reads wrong the morning after — we don't know the time of day the
+  // user opened this, only that the game itself wasn't tonight per the calendar.
+  const askCopy = isFirstGame
+    ? morning
+      ? 'Start your passport with this game?'
+      : "Start your passport with tonight's game?"
+    : 'Were you at this game?';
   const score = scoreLine(game);
   const geoConfirmed = candidate.source === 'geo';
 
