@@ -376,6 +376,7 @@ export default function TonightGameCard({
           onUse={requestGeo}
           onNotNow={notNowGeo}
           busy={geoBusy}
+          standalone
         />
       </div>
     );
@@ -525,14 +526,18 @@ function GeoPreprompt({
   onUse,
   onNotNow,
   busy,
+  standalone,
 }: {
   text?: string;
   onUse: () => void;
   onNotNow: () => void;
   busy: boolean;
+  /** Rendered with no game info above it (bootstrap discovery) — drop the divider
+   *  border, which otherwise only makes sense separating this from that content. */
+  standalone?: boolean;
 }) {
   return (
-    <div className="tn-geo-preprompt">
+    <div className={standalone ? 'tn-geo-preprompt standalone' : 'tn-geo-preprompt'}>
       <div className="tn-geo-txt">
         {text ??
           "📍 Find tonight's game automatically? Allow location and we'll detect the arena you're at, so you can log in one tap. Your location never leaves your device."}
