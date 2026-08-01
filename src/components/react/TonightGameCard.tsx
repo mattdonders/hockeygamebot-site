@@ -185,15 +185,21 @@ export default function TonightGameCard({
   const alreadyLogged = candidate ? games.some((g) => g.game_id === candidate.game.game_id) : false;
   const isFirstGame = games.length === 0 && !alreadyLogged;
 
-  // Bootstrap gap: a user with no rooting-team anchor set can only ever get a candidate
-  // via geolocation, but the geo pre-prompt normally only renders INSIDE an already-
-  // resolved candidate card. Without this, the exact "zero-game passport" first-use case
-  // the spec calls out (§4) can never surface a card at all. Team-agnostic on purpose —
-  // it never names a specific matchup, so it isn't the generic "some game is on tonight"
-  // card the spec bans; it's a generic PROMPT for a still-unknown game.
+  // Bootstrap gap: without a geo match, the only other path to a candidate is the
+  // rooting-team anchor — but that's a guess that may not even apply tonight (no
+  // anchor, or an anchor whose team isn't playing). Either way `pickCandidate` has
+  // already returned null by the time we get here, so `!candidate` alone captures
+  // "nothing to show yet, but geolocation might still find something" — no need to
+  // additionally gate on `!anchor`, which wrongly stayed silent forever for a
+  // signed-in user whose anchor simply doesn't match tonight's game. The geo
+  // pre-prompt normally only renders INSIDE an already-resolved candidate card;
+  // without this, the exact "zero-game passport" first-use case the spec calls out
+  // (§4) can never surface a card at all. Team-agnostic on purpose — it never names
+  // a specific matchup, so it isn't the generic "some game is on tonight" card the
+  // spec bans; it's a generic PROMPT for a still-unknown game.
   const hasEligibleGames = !!resp && Array.isArray(resp.games) && resp.games.some((g) => !dismissed.has(g.game_id));
   const showDiscovery =
-    !candidate && !anchor && !coords && !geoNotNow && !geoResolved && !geoAutoPending && hasEligibleGames;
+    !candidate && !coords && !geoNotNow && !geoResolved && !geoAutoPending && hasEligibleGames;
 
   // "Newly earned" badges for a logged-out celebration resolve once the public
   // summary catches up (no server delta path for anon users) — diff against the
