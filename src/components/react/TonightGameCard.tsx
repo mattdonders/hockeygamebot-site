@@ -130,8 +130,15 @@ export default function TonightGameCard({
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // Off-season / QA override: ?tonightDate=YYYY-MM-DD (&tonightNow=ISO) points the
+    // card at a real past game day instead of the live clock, since there's no way to
+    // exercise this component end-to-end when nothing is actually being played tonight.
+    // Debug-only — absent by default, and only ever read client-side.
+    const params = new URLSearchParams(window.location.search);
+    const debugDate = params.get('tonightDate') ?? undefined;
+    const debugNow = params.get('tonightNow') ?? undefined;
     const load = async () => {
-      const data = await fetchTonight();
+      const data = await fetchTonight({ date: debugDate, now: debugNow });
       if (cancelled) return;
       setResp(data);
       timer = setTimeout(load, POLL_MS);
