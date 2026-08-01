@@ -41,7 +41,7 @@ type Props = {
   isLoggedIn: boolean;
   anchor: string | null; // rooting-team abbrev, or null (no anchor / neutral)
   stubOrdinals: StubOrdinals;
-  addGame: (raw: RawGame, opts?: { earned?: boolean }) => Promise<EarnedDelta | undefined>;
+  addGame: (raw: RawGame, opts?: { earned?: boolean }) => Promise<{ ok: boolean; earned?: EarnedDelta }>;
   removeGame: (gameId: string) => Promise<void>;
   handleStub: (g: AttendedGame) => Promise<void>;
   /** Fires whenever this card transitions between rendering something and rendering
@@ -78,7 +78,10 @@ function scoreLine(g: TonightGame): string | null {
 }
 
 function isMorningAfter(g: TonightGame, now: Date): boolean {
-  const today = now.toISOString().slice(0, 10);
+  // Local date, not UTC — g.date is the hockey/local game date, and comparing it
+  // against now.toISOString()'s UTC date mislabels a still-live West Coast evening
+  // game as "last night" the moment UTC rolls over mid-game.
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   return g.date !== today;
 }
 
@@ -216,24 +219,36 @@ export default function TonightGameCard({
       try {
         preLogBadgeIdsRef.current = new Set((summary?.badges?.earned ?? []).map((b) => b.id));
         const raw = toRawGame(g);
-        const delta = await addGame(raw, { earned: isLoggedIn });
+        // "new arena" pre-computed from the CURRENT (pre-add) games list — this
+        // game's own venue isn't in `games` yet, so this is the same "first at
+        // this venue" check the ordinal memo does, without waiting on it to
+        // re-derive from the post-add list (which a stale closure can't see).
+        const venue = g.venue?.trim().toLowerCase();
+        const newArena = !!venue && !games.some((existing) => existing.venue?.trim().toLowerCase() === venue);
+        const { ok, earned } = await addGame(raw, { earned: isLoggedIn });
+        if (!ok) {
+          // Genuine write failure (logged-in only — logged-out writes can't fail).
+          // addGame already rolled back and surfaced the shared writeError banner;
+          // don't celebrate a log that didn't happen.
+          return;
+        }
         setCelebrating(g.game_id);
-        if (delta) {
+        if (earned) {
           const labelFor = new Map((summary?.badges?.catalog ?? []).map((c) => [c.id, c.label]));
           setCelebrationExtras({
-            badges: delta.earned.badges.map((id) => labelFor.get(id) ?? id),
+            badges: earned.earned.badges.map((id) => labelFor.get(id) ?? id),
             badgesPending: false,
-            newArena: delta.earned.new_arena,
+            newArena: earned.earned.new_arena,
           });
         } else {
-          setCelebrationExtras({ badges: [], badgesPending: true, newArena: stubOrdinals.firstAtArena.has(g.game_id) });
+          setCelebrationExtras({ badges: [], badgesPending: true, newArena });
         }
       } finally {
         mutatingRef.current = false;
         setPhase('idle');
       }
     },
-    [addGame, isLoggedIn, summary, stubOrdinals],
+    [addGame, isLoggedIn, summary, games],
   );
 
   const doUndo = useCallback(
