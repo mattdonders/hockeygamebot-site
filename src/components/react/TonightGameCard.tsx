@@ -373,12 +373,13 @@ export default function TonightGameCard({
     );
   }
 
-  // ── Bootstrap discovery: no anchor, no geo yet, but a game is eligible tonight ──
+  // ── Bootstrap discovery: no candidate yet (no geo, and anchor didn't match or
+  // doesn't exist), but a game is eligible tonight ──────────────────────────────
   if (showDiscovery) {
     return (
       <div className="tn">
         <GeoPreprompt
-          text="📍 Find tonight's game? Use location to detect the arena and game you're at. Your location stays on this device."
+          text="📍 Want to make it easier to check into games? Grant location access and Puck Passport will automatically detect when you're near an arena with a game that day. Your location stays on this device."
           onUse={requestGeo}
           onNotNow={notNowGeo}
           busy={geoBusy}
