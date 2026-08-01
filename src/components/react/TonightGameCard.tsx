@@ -29,6 +29,18 @@ import type { AttendedGame, AttendedSummary, RawGame, EarnedDelta } from './Atte
 const POLL_MS = 60_000; // catch pre→open transitions / score updates without a reload
 const GEO_NOTNOW_KEY = 'hgb_pp_tonight_geo_notnow'; // sessionStorage: "Not now" this session only
 
+/** The same `?tonightNow=` off-season/QA override `fetchTonight` reads (see the
+ *  polling effect below), but resolved to millis for dismissal math. Without this,
+ *  dismissing a debug-dated (e.g. April) game gets compared against the REAL clock
+ *  (e.g. August) by `readDismissed`, reads as already-expired, and silently no-ops —
+ *  making "Not this one" untestable in the off-season. Undefined in production. */
+function debugNowMs(): number | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const raw = new URLSearchParams(window.location.search).get('tonightNow');
+  const t = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(t) ? t : undefined;
+}
+
 export type StubOrdinals = {
   gameOrd: Map<string, number>;
   arenaOrd: Map<string, number>;
@@ -99,7 +111,7 @@ export default function TonightGameCard({
   onActiveChange,
 }: Props) {
   const [resp, setResp] = useState<TonightResponse | null>(null);
-  const [dismissed, setDismissed] = useState<Set<string>>(() => readDismissed());
+  const [dismissed, setDismissed] = useState<Set<string>>(() => readDismissed(debugNowMs()));
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [geoBusy, setGeoBusy] = useState(false);
   const [showGeoPreprompt, setShowGeoPreprompt] = useState(false);
@@ -277,22 +289,22 @@ export default function TonightGameCard({
 
   const doDismiss = useCallback((g: TonightGame) => {
     const expiresAt = dismissExpiry(g);
-    dismissGame(g.game_id, expiresAt);
-    setDismissed(readDismissed());
+    dismissGame(g.game_id, expiresAt, debugNowMs());
+    setDismissed(readDismissed(debugNowMs()));
     setSessionUndo({ gameId: g.game_id, expiresAt });
   }, []);
 
   const doUndismiss = useCallback((gameId: string) => {
     undismissGame(gameId);
-    setDismissed(readDismissed());
+    setDismissed(readDismissed(debugNowMs()));
     setSessionUndo(null);
   }, []);
 
   const doDone = useCallback((g: TonightGame) => {
     // "Done" hides the card for the rest of tonight's window — same mechanism as
     // "Not this one", just reached from the logged side.
-    dismissGame(g.game_id, dismissExpiry(g));
-    setDismissed(readDismissed());
+    dismissGame(g.game_id, dismissExpiry(g), debugNowMs());
+    setDismissed(readDismissed(debugNowMs()));
     setCelebrating(null);
     setCelebrationExtras(null);
   }, []);
