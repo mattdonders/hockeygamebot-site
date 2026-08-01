@@ -1460,7 +1460,7 @@ export default function AttendedTracker() {
   const [justAdded, setJustAdded] = useState<AttendedGame | null>(null);
 
   const addGame = useCallback(
-    (raw: RawGame, opts: { earned?: boolean } = {}): Promise<EarnedDelta | undefined> => {
+    (raw: RawGame, opts: { earned?: boolean } = {}): Promise<{ ok: boolean; earned?: EarnedDelta }> => {
       const snap: AttendedGame = {
         game_id: raw.game_id,
         date: raw.date,
@@ -1501,11 +1501,11 @@ export default function AttendedTracker() {
           if (ok) {
             setWriteError(null);
             loadSummary(); // refetch aggregates from the server (anti-divergence)
-            return earned;
+            return { ok: true, earned };
           }
           setWriteError('Could not save that game to your account — check your connection and try again.');
           setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
-          return undefined;
+          return { ok: false };
         });
       }
       setLocalGames((prev) => {
@@ -1514,7 +1514,7 @@ export default function AttendedTracker() {
         writeAttended(next);
         return next;
       });
-      return Promise.resolve(undefined);
+      return Promise.resolve({ ok: true });
     },
     [isLoggedIn, commitDetail, loadSummary],
   );
