@@ -3032,20 +3032,22 @@ export default function AttendedTracker() {
         <div className={`att-hero${heroCollapsed || tonightActive ? ' att-hero-collapsed' : ''}`}>
           <div className="att-hero-head">
             <div className="att-hero-headings">
-              {!heroCollapsed ? <span className="att-hero-eyebrow">Share where you've been</span> : null}
+              {!heroCollapsed && !tonightActive ? <span className="att-hero-eyebrow">Share where you've been</span> : null}
               <h3 className="att-hero-title">Your ticket stub</h3>
             </div>
-            <button
-              className="att-hero-toggle"
-              type="button"
-              onClick={toggleHero}
-              aria-expanded={!heroCollapsed}
-              title={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
-            >
-              {heroCollapsed ? 'Show ▾' : 'Hide ▴'}
-            </button>
+            {tonightActive ? null : (
+              <button
+                className="att-hero-toggle"
+                type="button"
+                onClick={toggleHero}
+                aria-expanded={!heroCollapsed}
+                title={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
+              >
+                {heroCollapsed ? 'Show ▾' : 'Hide ▴'}
+              </button>
+            )}
           </div>
-          {!heroCollapsed ? (
+          {!heroCollapsed && !tonightActive ? (
             <div className="att-hero-body">
               <p className="att-hero-sub">
                 {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
