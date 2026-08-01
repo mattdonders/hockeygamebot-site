@@ -11,6 +11,7 @@
 
 ## Pending Action Items
 
+- [ ] **LTD badge is illegible / unexplained** (`src/pages/stats/player/[slug].astro`, all 3 card variants — Season/Talent/History): the gray "LTD" label for TOI-gated prior seasons (< 500 5v5 min, `war_status: "limited_toi"`) blends into the card background and gives no context for what it means. Needs a real visual treatment (badge/pill, tooltip, or footnote legend) that reads as "why this is blank" rather than looking broken or like a rendering bug. **Do not touch this while a site feature branch is in progress** — pick up once the current in-flight branch lands. See [Image] from 2026-08-01 for the current (bad) look on Collin Graf's card.
 - [ ] **Mathematical hero alignment (card centering)** — replace the hardcoded y-offsets in the player Talent+Shotmap hero (and ideally all card heroes) with measured centering: `ctx.measureText().actualBoundingBoxAscent/Descent` → sum `eyebrow + gap + number + gap + sublabel`, center that stack in the hero region. Auto-centers for any value (95% / 100% / —). First attempt (commit `4d5bcd3`) mis-positioned the big number OVER the eyebrow on the LIVE card and was reverted (`ecd2595`) — likely font-not-loaded-when-measured or a descent-handling bug. Redo carefully and **render-test before shipping** (await `document.fonts`, verify across 1/2/3-char values). Target: week of 2026-07-07.
 - [ ] **Denser single-year card story** ("what's next" — build from what's *ours*, not JFresh's): the single-season card blurs with the multi-year Talent card because they share a layout; JFresh differentiates via AllThreeZones *manual tracking* micro-stats we don't have. Our untapped edge = **NHL Edge** micro-data (already on the Season card) + **shot-level data** (coordinates, danger zones, shot types, rebound sequences in `data/shot_sequences.json`). Lean into that for a distinctly-HGB dense single-year layer.
 - [ ] **Sync Kraken (SEA) color in the BOT repo**: applied `#99D9D9 → #355464` (Boundless Blue) to site `team-colors.ts` + `public/js/hgb-charts.js`; the canonical `utils/team_details.py` in the **hockeygamebot bot repo** still needs the same one-liner (comment in team-colors.ts flags all 3).
@@ -151,6 +152,10 @@ Currently a beta page with a leaderboard table + EV Off vs EV Def scatter plot. 
 - [ ] Rename page from "Interactive Analytics" to "Explore" or "Viz"
 - [ ] Tooltip on hover showing player name + full stat breakdown
 - [ ] Axis selector dropdowns (x-axis stat, y-axis stat) — tableau-style
+
+## Tonight's Game (Puck Passport) — Follow-ups
+
+- [ ] **Review geolocation strategy with ChatGPT** before considering the feature done: when to ask, what we persist (`hgb_pp_tonight_geo_granted` in localStorage, `hgb_pp_tonight_geo_notnow` in sessionStorage) and for how long, and how aggressively we re-nag for permission across sessions. Prompted by fixing `showDiscovery`'s anchor gate (2026-08-01) and rewording the prompt to a general "make check-ins easier" pitch — want a second opinion on whether the current persistence/re-ask balance is right before it ships.
 
 ## Proposals
 
