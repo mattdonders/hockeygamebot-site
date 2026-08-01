@@ -28,6 +28,7 @@ import type { AttendedGame, AttendedSummary, RawGame, EarnedDelta } from './Atte
 
 const POLL_MS = 60_000; // catch pre→open transitions / score updates without a reload
 const GEO_NOTNOW_KEY = 'hgb_pp_tonight_geo_notnow'; // sessionStorage: "Not now" this session only
+const GEO_GRANTED_KEY = 'hgb_pp_tonight_geo_granted'; // localStorage: location succeeded before — reacquire silently on future loads
 
 /** The same `?tonightNow=` off-season/QA override `fetchTonight` reads (see the
  *  polling effect below), but resolved to millis for dismissal math. Without this,
@@ -120,6 +121,18 @@ export default function TonightGameCard({
   // completion, success or failure? Without this, a denied/no-match attempt would leave
   // `coords` null forever and the discovery prompt would keep re-showing every render.
   const [geoResolved, setGeoResolved] = useState(false);
+  // A prior visit got a real position (GEO_GRANTED_KEY set) — the browser itself already
+  // remembers the permission grant silently, so re-showing "USE MY LOCATION" and making
+  // the user tap it again on every fresh load is us re-asking a question the browser
+  // already answered. This gates the discovery/pre-prompt UI shut while that silent
+  // reacquire is in flight, so it never flashes before `requestGeo()` resolves below.
+  const [geoAutoPending, setGeoAutoPending] = useState<boolean>(() => {
+    try {
+      return typeof window !== 'undefined' && window.localStorage.getItem(GEO_GRANTED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const [sessionUndo, setSessionUndo] = useState<{ gameId: string; expiresAt: string } | null>(null);
   const [phase, setPhase] = useState<'idle' | 'pending'>('idle');
   const [celebrating, setCelebrating] = useState<string | null>(null); // game_id, once logged this visit
@@ -179,7 +192,8 @@ export default function TonightGameCard({
   // it never names a specific matchup, so it isn't the generic "some game is on tonight"
   // card the spec bans; it's a generic PROMPT for a still-unknown game.
   const hasEligibleGames = !!resp && Array.isArray(resp.games) && resp.games.some((g) => !dismissed.has(g.game_id));
-  const showDiscovery = !candidate && !anchor && !coords && !geoNotNow && !geoResolved && hasEligibleGames;
+  const showDiscovery =
+    !candidate && !anchor && !coords && !geoNotNow && !geoResolved && !geoAutoPending && hasEligibleGames;
 
   // "Newly earned" badges for a logged-out celebration resolve once the public
   // summary catches up (no server delta path for anon users) — diff against the
@@ -205,6 +219,7 @@ export default function TonightGameCard({
   const requestGeo = useCallback(() => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setGeoResolved(true); // no geolocation API — never re-offer the discovery prompt
+      setGeoAutoPending(false);
       return; // silent — §6.4
     }
     setGeoBusy(true);
@@ -212,14 +227,37 @@ export default function TonightGameCard({
       (pos) => {
         setGeoBusy(false);
         setGeoResolved(true);
+        setGeoAutoPending(false);
         setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        try {
+          window.localStorage.setItem(GEO_GRANTED_KEY, '1');
+        } catch {
+          /* storage blocked — just means we'll re-prompt next visit instead of auto-reacquiring */
+        }
       },
-      () => {
+      (err) => {
         setGeoBusy(false); // denied/unavailable/timeout — no error, no toast (§6.4)
         setGeoResolved(true); // don't re-show the discovery prompt after a failed attempt
+        setGeoAutoPending(false);
+        // Only PERMISSION_DENIED means the earlier grant is actually gone — a timeout or
+        // transient unavailability shouldn't nuke the "try again silently next time" flag.
+        if (err.code === err.PERMISSION_DENIED) {
+          try {
+            window.localStorage.removeItem(GEO_GRANTED_KEY);
+          } catch {
+            /* non-fatal */
+          }
+        }
       },
       { maximumAge: 5 * 60_000, timeout: 8_000 },
     );
+  }, []);
+
+  // Silently reacquire location on mount if a prior visit already got one — see
+  // `geoAutoPending` above. Runs once; `requestGeo` clears the flag on every exit path.
+  useEffect(() => {
+    if (geoAutoPending) requestGeo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const notNowGeo = useCallback(() => {
@@ -360,7 +398,7 @@ export default function TonightGameCard({
           {game.away.abbrev} <span className="at">@</span> {game.home.abbrev}
         </div>
         {game.venue ? <div className="where">{game.venue}</div> : null}
-        {game.arena && !coords && !geoNotNow ? (
+        {game.arena && !coords && !geoNotNow && !geoAutoPending ? (
           <button type="button" className="tn-geo-btn spacer" onClick={() => setShowGeoPreprompt(true)}>
             Use my location
           </button>
@@ -464,7 +502,7 @@ export default function TonightGameCard({
           Not this one
         </button>
       </div>
-      {!geoConfirmed && game.arena && !coords && !geoNotNow ? (
+      {!geoConfirmed && game.arena && !coords && !geoNotNow && !geoAutoPending ? (
         <div className="tn-geo">
           <div className="tn-geo-txt">
             <b>Near the arena?</b> Use location to confirm this game.
