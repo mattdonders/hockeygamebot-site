@@ -396,7 +396,11 @@ export default function TonightGameCard({
   const showCelebration = loggedThisVisit || alreadyLogged;
 
   // ── Pre-game: informational strip only — no logging affordance (spec decision 1) ──
-  if (game.window === 'pre' && !showCelebration) {
+  // Gate on `game.loggable`, not `game.window`, per the server-owned-write-gate
+  // contract in tonight-client.ts — today the two are always in lockstep (windowFor
+  // sets loggable:true iff window:'open'), but this is the field that means "may
+  // write", and inferring it from window duplicates server logic client-side.
+  if (!game.loggable && !showCelebration) {
     return (
       <div className="tn tn-strip">
         <div className="when">
