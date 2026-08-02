@@ -214,7 +214,13 @@ export default function TonightGameCard({
     Array.isArray(resp.games) &&
     resp.games.some((g) => !dismissed.has(g.game_id) && g.arena?.lat != null && g.arena?.lon != null);
   const showDiscovery =
-    !effectiveCandidate && !coords && !promptSuppressed && !geoResolved && !geoAutoPending && hasEligibleGames;
+    !effectiveCandidate &&
+    !coords &&
+    !promptSuppressed &&
+    !geoResolved &&
+    !geoAutoPending &&
+    hasEligibleGames &&
+    hasGeoMatchableGames;
 
   // "Newly earned" badges for a logged-out celebration resolve once the public
   // summary catches up (no server delta path for anon users) — diff against the
