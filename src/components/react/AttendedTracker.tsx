@@ -35,7 +35,8 @@ import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { nhlGameType } from '../../lib/nhl-game-type';
 import { readPhotoDate, readPhotoGps, type GpsCoord } from '../../lib/exif-date';
-import { nearestArena } from '../../lib/arena-match';
+import { nearestArena, haversineKm } from '../../lib/arena-match';
+import { readGeoPreference, recordGrant, disableGeo, type GeoPrefState } from '../../lib/geo-preference';
 import { harvestDates } from '../../lib/import-dates';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import PublicPassportPanel from './PublicPassportPanel';
@@ -297,6 +298,10 @@ type ViewRecord = { key: string; label: string; value: string; sub: string; tota
 
 // Raw shapes from /v1/games/today
 export type RawTeam = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
+/** Canonical home-arena identity + coords, added to /v1/games/today alongside
+ *  /v1/passport/tonight (see tonight-client.ts's TonightArena) — same shape,
+ *  same server-side `arenaForGame()` helper. null for an unrecognised home abbrev. */
+export type RawArena = { abbrev: string; name: string; lat: number; lon: number };
 export type RawGame = {
   game_id: string;
   date: string;
@@ -305,6 +310,7 @@ export type RawGame = {
   venue: string | null;
   last_period_type: string | null;
   status: string;
+  arena?: RawArena | null;
 };
 
 // ── Add-flow shared helpers ─────────────────────────────────────────────────────
@@ -320,6 +326,7 @@ function toRawGames(data: any): RawGame[] {
     venue: g.venue ?? null,
     last_period_type: g.last_period_type ?? null,
     status: g.status,
+    arena: g.arena ?? null,
   }));
 }
 
@@ -1262,9 +1269,9 @@ export default function AttendedTracker() {
   // historical players; players.json backfills a properly-cased name. Non-fatal.
   const [nameMap, setNameMap] = useState<Map<number, string> | null>(null);
 
-  // Add-games flow — mode toggle: team-first (default, matches fan recall), date, or
-  // bulk import (photos / pasted list).
-  const [addMode, setAddMode] = useState<'team' | 'date' | 'import'>('team');
+  // Add-games flow — mode toggle: team-first (default, matches fan recall), date,
+  // location, or bulk import (photos / pasted list).
+  const [addMode, setAddMode] = useState<'team' | 'date' | 'location' | 'import'>('team');
 
   // Count-up replay: bumping this token re-runs the 0→total roll on every tally.
   // Fired by clicking the Games counter (an opt-in "watch it add up" moment) — the
@@ -1279,6 +1286,102 @@ export default function AttendedTracker() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [matchupFilter, setMatchupFilter] = useState('');
+
+  // By-Location sub-flow. Fully decoupled from Tonight's Game card's geo state
+  // machine (geo-preference.ts) — this is an on-demand, ephemeral GPS request
+  // with no suppression ladder, always reachable regardless of that card's
+  // state. It reads/writes the SAME localStorage preference (single shared
+  // on/off toggle), it just never gates ITS OWN prompt on it.
+  const todayStr = () => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  };
+  const [geoPrefState, setGeoPrefState] = useState<GeoPrefState>(() => readGeoPreference().state);
+  const [locDate, setLocDate] = useState<string>(() => todayStr());
+  const [locCoords, setLocCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [locBusy, setLocBusy] = useState(false);
+  const [locResults, setLocResults] = useState<RawGame[] | null>(null);
+  const [locLoading, setLocLoading] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
+
+  const fetchGamesForDate = useCallback(async (d: string): Promise<RawGame[]> => {
+    const res = await fetch(`${API}/v1/games/today?date=${d}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return toRawGames(await res.json());
+  }, []);
+
+  const findByLocation = useCallback(
+    async (coords: { lat: number; lon: number }, d: string) => {
+      setLocLoading(true);
+      setLocError(null);
+      try {
+        const games = await fetchGamesForDate(d);
+        const withDist = games
+          .map((g) => ({
+            g,
+            km: g.arena ? haversineKm(coords.lat, coords.lon, g.arena.lat, g.arena.lon) : null,
+          }))
+          .sort((a, b) => {
+            if (a.km != null && b.km != null) return a.km - b.km;
+            if (a.km != null) return -1;
+            if (b.km != null) return 1;
+            return a.g.date < b.g.date ? -1 : a.g.date > b.g.date ? 1 : 0;
+          });
+        setLocResults(withDist.map((x) => x.g));
+      } catch {
+        setLocError('Could not load games for that date. Please try again.');
+        setLocResults(null);
+      } finally {
+        setLocLoading(false);
+      }
+    },
+    [fetchGamesForDate],
+  );
+
+  const useMyLocation = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setLocError('Location isn’t available in this browser — try By Team or By Date instead.');
+      return;
+    }
+    setLocBusy(true);
+    setLocError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocBusy(false);
+        const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        setLocCoords(coords);
+        if (readGeoPreference().state !== 'enabled') {
+          recordGrant();
+          setGeoPrefState('enabled');
+        }
+        findByLocation(coords, locDate);
+      },
+      () => {
+        // Denial/timeout/unavailable — transient, no ladder/backoff writes. This
+        // is an explicit on-demand ask, not the auto-reacquire Tonight's Game
+        // gates behind canPromptNow(); a "no" here means nothing about that.
+        setLocBusy(false);
+        setLocError('Couldn’t get your location — try By Team or By Date instead.');
+      },
+      { maximumAge: 5 * 60_000, timeout: 8_000 },
+    );
+  }, [findByLocation, locDate]);
+
+  const toggleLocationDetection = useCallback(() => {
+    if (geoPrefState === 'enabled') {
+      disableGeo();
+      setGeoPrefState('disabled');
+    } else {
+      useMyLocation();
+    }
+  }, [geoPrefState, useMyLocation]);
+
+  // Re-run the search for a changed date using the coords already on hand — no
+  // new browser permission prompt, since we already have a fix for this visit.
+  const refetchByLocationDate = useCallback(() => {
+    if (!locCoords) return;
+    findByLocation(locCoords, locDate);
+  }, [locCoords, locDate, findByLocation]);
 
   // By-Team sub-flow
   const seasonOptions = useMemo(() => buildSeasonOptions(), []);
@@ -3200,6 +3303,14 @@ export default function AttendedTracker() {
           </button>
           <button
             role="tab"
+            aria-selected={addMode === 'location'}
+            className={addMode === 'location' ? 'att-mode-btn active' : 'att-mode-btn'}
+            onClick={() => setAddMode('location')}
+          >
+            By Location
+          </button>
+          <button
+            role="tab"
             aria-selected={addMode === 'import'}
             className={addMode === 'import' ? 'att-mode-btn active' : 'att-mode-btn'}
             onClick={() => setAddMode('import')}
@@ -3519,6 +3630,94 @@ export default function AttendedTracker() {
                   </div>
                 )}
               </>
+            ) : null}
+          </>
+        ) : addMode === 'location' ? (
+          /* ── BY LOCATION — on-demand GPS, always reachable regardless of the
+             Tonight's Game card's own suppression/backoff state ──────────────── */
+          <>
+            <div className="tn-privacy">
+              📍 Automatic detection: {geoPrefState === 'enabled' ? 'On' : 'Off'} ·{' '}
+              <button type="button" className="btn-text" disabled={locBusy} onClick={toggleLocationDetection}>
+                {geoPrefState === 'enabled' ? 'Turn off' : 'Turn on'}
+              </button>
+            </div>
+            <div className="att-add-controls">
+              <label className="att-date-field">
+                <span className="att-date-label">Date</span>
+                <input
+                  type="date"
+                  className="att-date"
+                  value={locDate}
+                  onChange={(e) => {
+                    setLocDate(e.target.value);
+                  }}
+                  aria-label="Date"
+                />
+              </label>
+              {locCoords ? (
+                <button className="att-btn" onClick={refetchByLocationDate} disabled={locLoading}>
+                  {locLoading ? 'Loading…' : 'Find games'}
+                </button>
+              ) : (
+                <button className="att-btn" onClick={useMyLocation} disabled={locBusy || locLoading}>
+                  {locBusy || locLoading ? 'Locating…' : 'Use my location'}
+                </button>
+              )}
+            </div>
+            <div className="att-add-hint">
+              Uses your device's location to find the game nearest you on the selected date.
+              Your coordinates stay on this device.
+            </div>
+
+            {locError ? <div className="att-banner att-banner-warn">{locError}</div> : null}
+
+            {locResults != null ? (
+              locResults.length === 0 ? (
+                <div className="att-add-empty">No NHL games on {locDate}.</div>
+              ) : (
+                <div className="att-add-results">
+                  {locResults.map((g) => {
+                    const already = attendedIds.has(g.game_id);
+                    const awayColor = pickTeamColor(g.away_team.abbrev);
+                    const homeColor = pickTeamColor(g.home_team.abbrev);
+                    const km = g.arena && locCoords ? haversineKm(locCoords.lat, locCoords.lon, g.arena.lat, g.arena.lon) : null;
+                    return (
+                      <div className="att-add-row" key={g.game_id}>
+                        <div className="att-add-info">
+                          <span className="att-add-line">
+                            <span className="att-add-teams">
+                              <span style={{ color: awayColor, fontWeight: 700 }}>
+                                {teamMatchupLabel(g.away_team.short_name, g.away_team.abbrev)}
+                              </span>
+                              <span className="att-add-at">@</span>
+                              <span style={{ color: homeColor, fontWeight: 700 }}>
+                                {teamMatchupLabel(g.home_team.short_name, g.home_team.abbrev)}
+                              </span>
+                            </span>
+                            <span className="att-add-score">
+                              {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
+                            </span>
+                          </span>
+                          <span className="att-add-meta">
+                            <span className="att-add-date">{g.date}</span>
+                            {g.venue ? <span className="att-add-venue">{g.venue}</span> : null}
+                            {km != null ? <span className="att-add-venue">{km < 1 ? '<1 km' : `${km.toFixed(1)} km`}</span> : null}
+                          </span>
+                        </div>
+                        <button
+                          className={already ? 'att-add-btn added' : 'att-add-btn'}
+                          onClick={() => toggleSearchResult(g, already)}
+                          disabled={mutatingIds.has(g.game_id)}
+                          title={already ? 'Remove from your attended games' : undefined}
+                        >
+                          {already ? '✓ Added' : '+ Attended'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             ) : null}
           </>
         ) : (
