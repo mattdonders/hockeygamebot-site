@@ -47,6 +47,8 @@ import {
   badgeBlurb,
   type CatalogBadge,
   type TierBadgeView,
+  type ArenaRungView,
+  arenaMeterLabel,
   type BadgeEarnedGame,
 } from './puck-passport-badges';
 import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData } from './puck-passport-share';
@@ -222,7 +224,18 @@ type AttendedSummary = {
   // (≤ 32, the /32 collection meter); distinct_buildings = every distinct building
   // visited (can EXCEED 32 — relocations, neutral-site games); teams_seen = the
   // current-team ids collected, used to colour the per-team pips.
-  arenas: { home_rinks: number; total: number; distinct_buildings: number; teams_seen: number[] };
+  arenas: {
+    home_rinks: number;
+    total: number;
+    distinct_buildings: number;
+    teams_seen: number[];
+    // The /32 ladder's rung, bucketed from home_rinks (2026-08-02). Optional so an
+    // older Worker degrades to the bare "N of 32 collected" rather than a wrong rung.
+    rung?: number;
+    rung_name?: string;
+    next_threshold?: number | null;
+    next_rung_name?: string | null;
+  };
   players_seen: {
     player_id: number;
     name: string | null;
@@ -2118,6 +2131,18 @@ export default function AttendedTracker() {
   // Home-rinks collection: home_rinks/32 drives the meter + badge; teams_seen (a
   // set of current-team ids) colours the per-team pips; distinct_buildings is the
   // honest "every building visited" total (can exceed 32).
+  // Narrow the wire `arenas` to just the four ladder fields, or undefined when the
+  // Worker predates them (never a fabricated rung — the label omits it instead).
+  const arenaRungOf = (a: AttendedSummary['arenas']): ArenaRungView | undefined =>
+    a.rung == null || a.rung_name == null
+      ? undefined
+      : {
+          rung: a.rung,
+          rung_name: a.rung_name,
+          next_threshold: a.next_threshold ?? null,
+          next_rung_name: a.next_rung_name ?? null,
+        };
+
   const viewArenas = useMemo(
     () =>
       summary
@@ -2126,8 +2151,9 @@ export default function AttendedTracker() {
             total: summary.arenas.total,
             distinctBuildings: summary.arenas.distinct_buildings,
             teamsSeen: new Set(summary.arenas.teams_seen ?? []),
+            rung: arenaRungOf(summary.arenas),
           }
-        : { homeRinks: 0, total: 32, distinctBuildings: 0, teamsSeen: new Set<number>() },
+        : { homeRinks: 0, total: 32, distinctBuildings: 0, teamsSeen: new Set<number>(), rung: undefined },
     [summary],
   );
   const viewArenaBadge = summary
@@ -3918,8 +3944,10 @@ export default function AttendedTracker() {
             <section className="att-section">
               <div className="att-section-head">
                 <span className="att-section-label">NHL Home Arenas — {viewArenas.homeRinks} / {viewArenas.total}</span>
+                {/* Rung name lives here rather than in a sixth badge chip: the chip
+                    would restate the very number in the label beside it. */}
                 <span className="att-section-meta">
-                  {viewArenas.homeRinks} of {viewArenas.total} collected
+                  {arenaMeterLabel(viewArenas.homeRinks, viewArenas.total, viewArenas.rung)}
                 </span>
               </div>
               {/* One pip per current NHL team, alphabetical. Filled in that team's

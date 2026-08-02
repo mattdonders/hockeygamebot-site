@@ -17,6 +17,7 @@ const LOCAL_PRESETS_KEY = 'hgb_filter_presets';
 
 // ── Prefs shape ───────────────────────────────────────────────────────────────
 
+import type { TierStatId } from '../components/react/puck-passport-badges';
 export type FilterSnapshot = {
   tab: string;
   fromSeason: string;
@@ -186,6 +187,13 @@ export type PassportArenas = {
   total: number;
   distinct_buildings: number;
   teams_seen: number[];
+  /** The arena ladder's rung, bucketed from home_rinks (2026-08-02 — this replaced
+   *  the 'tier-arenas' chip, which restated this same meter). Optional so a client
+   *  running against an older Worker degrades to the bare "N of 32 collected". */
+  rung?: number;
+  rung_name?: string;
+  next_threshold?: number | null;
+  next_rung_name?: string | null;
 };
 export type PassportTeamRecord = { abbrev: string; name: string; w: number; l: number };
 export type PublicPassport = {
@@ -199,9 +207,11 @@ export type PublicPassport = {
   arenas: PassportArenas;
   team_records: PassportTeamRecord[];
 };
-/** Mirrors TierBadgeView in puck-passport-badges.ts (the wire shape). */
+/** Mirrors TierBadgeView in puck-passport-badges.ts (the wire shape). `id` reuses
+ *  that module's union rather than a bare `string`, so a consumer typed against
+ *  TierBadgeView accepts this directly instead of needing a cast. */
 export type PassportTier = {
-  id: string;
+  id: TierStatId;
   label: string;
   family: 'tier';
   earned: boolean;

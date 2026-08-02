@@ -394,10 +394,39 @@ function matchupLabel(g: { away: { abbrev?: string }; home: { abbrev?: string } 
 // POST /v1/account/attended/summary accepts an empty game_ids list and returns the
 // all-locked zero summary.
 
-export type TierStatId = 'tier-games' | 'tier-goals' | 'tier-shots' | 'tier-players' | 'tier-arenas';
+// NOTE (2026-08-02): 'tier-arenas' is deliberately NOT here. The arena ladder was a
+// fifth chip restating the /32 meter that sits right below it, so the server dropped
+// the chip and moved the rung onto `arenas` itself (rung/rung_name/next_threshold/
+// next_rung_name — see arenaMeterLabel below). Adding it back here would re-create
+// the duplicate.
+export type TierStatId = 'tier-games' | 'tier-goals' | 'tier-shots' | 'tier-players';
+
+/** The arena ladder's rung, as it rides on `summary.arenas` (NOT on `tiers`). Only
+ *  the four fields a LABEL can use — no `progress` copy and no bar `fraction`, so
+ *  this cannot be mistaken for a tier chip. */
+export interface ArenaRungView {
+  rung: number; // 0..5 (0 = below Rung I)
+  rung_name: string;
+  next_threshold: number | null; // null when maxed (32/32)
+  next_rung_name: string | null;
+}
+
+/** Second line for the "NHL Home Arenas" meter, e.g. "THE 32 CLUB" (maxed),
+ *  "ROOKIE - 4 to Veteran" (earned), "6 of 32 collected - 4 to Rookie" (locked).
+ *
+ *  Rung 0 must NOT print `rung_name`: at rung 0 the server sets it to the Rung-I
+ *  name as a CHASE TARGET, so showing it would award a Rookie badge to someone who
+ *  hasn't earned it. */
+export function arenaMeterLabel(homeRinks: number, total: number, r: ArenaRungView | undefined): string {
+  const collected = `${homeRinks} of ${total} collected`;
+  if (!r) return collected; // pre-deploy payload without the rung fields
+  if (r.next_threshold == null) return r.rung_name.toUpperCase();
+  const togo = `${r.next_threshold - homeRinks} to ${r.next_rung_name}`;
+  return r.rung >= 1 ? `${r.rung_name.toUpperCase()} - ${togo}` : `${collected} - ${togo}`;
+}
 
 /** One tiered badge as the SERVER computes it (`summary.tiers[]`) — the HIGHEST
- *  earned rung, one entry per stat (never five), always all 5 stats with the
+ *  earned rung, one entry per stat (never five), always all 4 stats with the
  *  unearned ones flagged so the UI ghosts rather than omits them.
  *  Snake_case because it is the wire shape, not a local view model. */
 export interface TierBadgeView {
