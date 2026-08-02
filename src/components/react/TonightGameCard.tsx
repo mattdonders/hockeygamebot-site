@@ -19,7 +19,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchTonight, type TonightGame, type TonightResponse } from '../../lib/tonight-client';
 import {
   pickCandidate,
-  makeManualCandidate,
   readDismissed,
   dismissGame,
   undismissGame,
@@ -36,7 +35,6 @@ import {
   readFreshFix,
   type GeoPrefState,
 } from '../../lib/geo-preference';
-import TonightGamePicker from './TonightGamePicker';
 import type { AttendedGame, AttendedSummary, RawGame, EarnedDelta } from './AttendedTracker';
 
 const POLL_MS = 60_000; // catch pre→open transitions / score updates without a reload
@@ -134,7 +132,6 @@ export default function TonightGameCard({
   // 'unset'/'deferred'/'suppressed' show no status line at all (see geo-preference.ts docblock).
   const [geoPrefState, setGeoPrefState] = useState<GeoPrefState>(() => readGeoPreference(debugNowMs() ?? Date.now()).state);
   const [manualCandidate, setManualCandidate] = useState<Candidate | null>(null);
-  const [showPicker, setShowPicker] = useState(false);
   // Has a geolocation attempt from the bootstrap discovery prompt (below) already run to
   // completion, success or failure? Without this, a denied/no-match attempt would leave
   // `coords` null forever and the discovery prompt would keep re-showing every render.
@@ -425,21 +422,9 @@ export default function TonightGameCard({
           text="📍 Want to make it easier to check into games? Grant location access and Puck Passport will automatically detect when you're near an arena with a game that day. Your location stays on this device."
           onUse={requestGeo}
           onNotNow={notNowGeo}
-          onFindManually={() => setShowPicker(true)}
           busy={geoBusy}
           standalone
         />
-        {showPicker && resp ? (
-          <TonightGamePicker
-            games={resp.games}
-            loggedGameIds={new Set(games.map((g) => g.game_id))}
-            onPick={(g) => {
-              setManualCandidate(makeManualCandidate(g, resp.games));
-              setShowPicker(false);
-            }}
-            onClose={() => setShowPicker(false)}
-          />
-        ) : null}
       </div>
     );
   }
