@@ -52,7 +52,14 @@ function write(pref: GeoPreference): void {
 export function readGeoPreference(nowMs: number = Date.now()): GeoPreference {
   if (typeof window === 'undefined') return defaults(nowMs);
 
-  const raw = window.localStorage.getItem(PREF_KEY);
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(PREF_KEY);
+  } catch {
+    // Storage blocked (private mode / SecurityError) — fail safe to defaults
+    // rather than crashing the flagged Tonight card's init.
+    return defaults(nowMs);
+  }
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
@@ -150,16 +157,23 @@ export function disableGeo(nowMs: number = Date.now()): void {
 /** May we show the discovery/pre-prompt right now? */
 export function canPromptNow(nowMs: number = Date.now()): boolean {
   const pref = readGeoPreference(nowMs);
-  if (pref.state === 'disabled' || pref.state === 'suppressed') return false;
+  if (pref.state === 'disabled') return false; // explicit "Turn off" — never auto-prompt
   try {
     if (typeof window !== 'undefined' && window.sessionStorage.getItem(NOTNOW_SESSION_KEY) === '1') return false;
   } catch {
     /* non-fatal — treat as not muted */
   }
   if (pref.nextPromptAt) {
+    // A real backoff window is set (2nd/3rd decline, or a permission denial) — honor its
+    // expiry even though state is 'suppressed'. Without this check running BEFORE the
+    // bare state==='suppressed' case below, recordPermissionDenied's documented 30-day
+    // backoff would never actually expire, since both it and the 4th+-decline indefinite
+    // suppression share the same `state` value.
     const t = Date.parse(pref.nextPromptAt);
     if (Number.isFinite(t) && nowMs < t) return false;
+    return true;
   }
+  if (pref.state === 'suppressed') return false; // indefinite (4th+ decline) — no expiry set
   return true;
 }
 
