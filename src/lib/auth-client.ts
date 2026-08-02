@@ -17,6 +17,7 @@ const LOCAL_PRESETS_KEY = 'hgb_filter_presets';
 
 // ── Prefs shape ───────────────────────────────────────────────────────────────
 
+import type { TierStatId } from '../components/react/puck-passport-badges';
 export type FilterSnapshot = {
   tab: string;
   fromSeason: string;
@@ -186,14 +187,42 @@ export type PassportArenas = {
   total: number;
   distinct_buildings: number;
   teams_seen: number[];
+  /** The arena ladder's rung, bucketed from home_rinks (2026-08-02 — this replaced
+   *  the 'tier-arenas' chip, which restated this same meter). Optional so a client
+   *  running against an older Worker degrades to the bare "N of 32 collected". */
+  rung?: number;
+  rung_name?: string;
+  next_threshold?: number | null;
+  next_rung_name?: string | null;
 };
 export type PassportTeamRecord = { abbrev: string; name: string; w: number; l: number };
 export type PublicPassport = {
   handle: string;
   counters: PassportCounters;
   badges: { earned: unknown[]; catalog: PassportBadge[] };
+  /** Cumulative stat ladders, server-computed. Optional because a passport served
+   *  by a Worker deployed before 2026-08-02 won't carry it — the page renders an
+   *  empty tier section rather than fabricating one. */
+  tiers?: PassportTier[];
   arenas: PassportArenas;
   team_records: PassportTeamRecord[];
+};
+/** Mirrors TierBadgeView in puck-passport-badges.ts (the wire shape). `id` reuses
+ *  that module's union rather than a bare `string`, so a consumer typed against
+ *  TierBadgeView accepts this directly instead of needing a cast. */
+export type PassportTier = {
+  id: TierStatId;
+  label: string;
+  family: 'tier';
+  earned: boolean;
+  maxed: boolean;
+  rung: number;
+  rung_name: string;
+  value: number;
+  next_threshold: number | null;
+  next_rung_name: string | null;
+  progress: string;
+  fraction: number;
 };
 
 /** GET /v1/passport/:handle (public, no auth). Returns the projection, or null

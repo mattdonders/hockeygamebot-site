@@ -377,49 +377,58 @@ function matchupLabel(g: { away: { abbrev?: string }; home: { abbrev?: string } 
 // Home rinks' top rung gets its own name ("The 32 Club") instead of Hall of
 // Fame — a deliberately different flex (travel breadth, not volume).
 //
-// Ownership note (anti-divergence): UNLIKE the event badges above (which are
-// per-game predicates), these are a pure bucketing of counters the summary
-// ALREADY delivers as server-truth (`summary.counters` + `summary.arenas.
-// home_rinks`). No new fact is computed here — only which of 5 static
-// thresholds an already-server-owned number has crossed. Same category of
-// client-side derivation as formatRarity() bucketing count/total above, which
-// is why this stays client-side with no server change (see build report).
+// Ownership: SERVER (moved 2026-08-02). The thresholds, rung names, progress copy
+// and bar fraction all live in hgb-api's attended_summary.js and arrive on the
+// payload as `summary.tiers`. This file keeps only the TYPE.
+//
+// It was built client-side on 2026-07-25 with a comment arguing that bucketing an
+// already-server-owned counter isn't a new fact and so needn't move. True as far as
+// it goes, but it missed what the spec had already decided: the approved scope doc
+// (hgb-docs/docs/plans/puck-passport-tiered-badges-2026-07.md, "Implementation")
+// says to put the tier computation on the server and have the site render it, and
+// to VERIFY badge ownership before building rather than reintroducing client-side
+// badge math. Two costs followed — the threshold table had to be copied into each
+// new client, and the server-rendered OG card could not show tiers at all.
+//
+// Do not re-add a local computeTierBadges here. The empty state does NOT need one:
+// POST /v1/account/attended/summary accepts an empty game_ids list and returns the
+// all-locked zero summary.
 
-export type TierStatId = 'tier-games' | 'tier-goals' | 'tier-shots' | 'tier-players' | 'tier-arenas';
+// NOTE (2026-08-02): 'tier-arenas' is deliberately NOT here. The arena ladder was a
+// fifth chip restating the /32 meter that sits right below it, so the server dropped
+// the chip and moved the rung onto `arenas` itself (rung/rung_name/next_threshold/
+// next_rung_name — see arenaMeterLabel below). Adding it back here would re-create
+// the duplicate.
+export type TierStatId = 'tier-games' | 'tier-goals' | 'tier-shots' | 'tier-players';
 
-/** Rung I → V naming ladder, reused across the volume stats (Games/Goals/Shots/
- *  Players). Home rinks overrides Rung V with its own name (see TIER_STATS). */
-const TIER_LADDER = ['Rookie', 'Veteran', 'All-Star', 'Legend', 'Hall of Fame'] as const;
-
-export interface TierStatDef {
-  id: TierStatId;
-  label: string; // e.g. 'Games' — shown as the chip's top label
-  /** The 5 rung thresholds, Rung I..V (value >= thresholds[i] ⇒ rung i+1 earned). */
-  thresholds: readonly [number, number, number, number, number];
-  /** Rung names, Rung I..V. Volume stats reuse TIER_LADDER; arenas overrides Rung V. */
-  rungNames: readonly [string, string, string, string, string];
+/** The arena ladder's rung, as it rides on `summary.arenas` (NOT on `tiers`). Only
+ *  the four fields a LABEL can use — no `progress` copy and no bar `fraction`, so
+ *  this cannot be mistaken for a tier chip. */
+export interface ArenaRungView {
+  rung: number; // 0..5 (0 = below Rung I)
+  rung_name: string;
+  next_threshold: number | null; // null when maxed (32/32)
+  next_rung_name: string | null;
 }
 
-/** Thresholds calibrated to observed per-game rates (scope doc): Games/Goals/
- *  Shots/Players share the same games-equivalents (10/25/50/100/250) so a user
- *  levels up coherently across them; Arenas is a deliberately separate axis
- *  (travel breadth) capped at the real /32 collection. */
-export const TIER_STATS: TierStatDef[] = [
-  { id: 'tier-games', label: 'Games', thresholds: [10, 25, 50, 100, 250], rungNames: TIER_LADDER },
-  { id: 'tier-goals', label: 'Goals', thresholds: [50, 150, 300, 600, 1500], rungNames: TIER_LADDER },
-  { id: 'tier-shots', label: 'Shots', thresholds: [500, 1500, 3000, 6000, 15000], rungNames: TIER_LADDER },
-  { id: 'tier-players', label: 'Players', thresholds: [100, 300, 600, 1000, 2000], rungNames: TIER_LADDER },
-  {
-    id: 'tier-arenas',
-    label: 'Arenas',
-    thresholds: [5, 10, 16, 24, 32],
-    // Rung V (32/32) is its own name — "The 32 Club" — never "Hall of Fame".
-    rungNames: ['Rookie', 'Veteran', 'All-Star', 'Legend', 'The 32 Club'],
-  },
-];
+/** Second line for the "NHL Home Arenas" meter, e.g. "THE 32 CLUB" (maxed),
+ *  "ROOKIE - 4 to Veteran" (earned), "6 of 32 collected - 4 to Rookie" (locked).
+ *
+ *  Rung 0 must NOT print `rung_name`: at rung 0 the server sets it to the Rung-I
+ *  name as a CHASE TARGET, so showing it would award a Rookie badge to someone who
+ *  hasn't earned it. */
+export function arenaMeterLabel(homeRinks: number, total: number, r: ArenaRungView | undefined): string {
+  const collected = `${homeRinks} of ${total} collected`;
+  if (!r) return collected; // pre-deploy payload without the rung fields
+  if (r.next_threshold == null) return r.rung_name.toUpperCase();
+  const togo = `${r.next_threshold - homeRinks} to ${r.next_rung_name}`;
+  return r.rung >= 1 ? `${r.rung_name.toUpperCase()} - ${togo}` : `${collected} - ${togo}`;
+}
 
-/** One tiered badge's render-ready view: the HIGHEST earned rung (one badge per
- *  stat, not five — per spec behavior), plus progress-to-next copy. */
+/** One tiered badge as the SERVER computes it (`summary.tiers[]`) — the HIGHEST
+ *  earned rung, one entry per stat (never five), always all 4 stats with the
+ *  unearned ones flagged so the UI ghosts rather than omits them.
+ *  Snake_case because it is the wire shape, not a local view model. */
 export interface TierBadgeView {
   id: TierStatId;
   label: string;
@@ -428,66 +437,18 @@ export interface TierBadgeView {
   maxed: boolean; // rung 5 (top rung) reached — no "next" to chase
   rung: number; // 0..5 (0 = below Rung I, locked)
   /** Current rung's name (earned), or the Rung-I name as the chase target (locked). */
-  rungName: string;
+  rung_name: string;
   value: number; // the raw counter value this badge is bucketed from
-  nextThreshold: number | null; // null when maxed
-  nextRungName: string | null; // null when maxed
+  next_threshold: number | null; // null when maxed
+  next_rung_name: string | null; // null when maxed
   /** Ready-to-render second line, e.g. "312 / 600 to Legend" (earned), "7 / 10 to
    *  Rookie" (locked), or "1,500 goals" (maxed). The rung name is rendered separately
    *  on the chip, so it is NOT repeated here (kept short so narrow share-card rows
    *  don't truncate). */
   progress: string;
-}
-
-function formatCount(n: number): string {
-  return n.toLocaleString('en-US');
-}
-
-/** Compute one tiered badge's view from a raw counter value. Pure + deterministic
- *  (see ownership note above) — no new fact is computed, only bucketing. */
-export function computeTierBadge(def: TierStatDef, rawValue: number): TierBadgeView {
-  const value = Math.max(0, Math.floor(rawValue || 0));
-  let rung = 0;
-  for (let i = 0; i < def.thresholds.length; i++) {
-    if (value >= def.thresholds[i]) rung = i + 1;
-  }
-  const earned = rung > 0;
-  const maxed = rung >= def.thresholds.length;
-  // Locked (rung 0): the "chase" target is Rung I's name/threshold.
-  const rungName = earned ? def.rungNames[rung - 1] : def.rungNames[0];
-  const nextThreshold = maxed ? null : def.thresholds[rung]; // thresholds[rung] = next rung's bar
-  const nextRungName = maxed ? null : def.rungNames[rung];
-
-  // The rung name shows separately on the chip — do NOT repeat it here (it made the
-  // earned/maxed line long enough to truncate on narrow share-card rows).
-  let progress: string;
-  if (maxed) {
-    progress = `${formatCount(value)} ${def.label.toLowerCase()}`;
-  } else if (earned) {
-    progress = `${formatCount(value)} / ${formatCount(nextThreshold as number)} to ${nextRungName}`;
-  } else {
-    progress = `${formatCount(value)} / ${formatCount(nextThreshold as number)} to ${rungName}`;
-  }
-
-  return { id: def.id, label: def.label, family: 'tier', earned, maxed, rung, rungName, value, nextThreshold, nextRungName, progress };
-}
-
-/** Build all 5 tiered badges from the summary's counters + home rinks — ALWAYS
- *  one entry per stat (locked/ghost when rung 0), matching "one badge per stat"
- *  (never five per stat). Takes plain numbers so both the server-summary path
- *  and the empty/logged-out path (zeros) share this one builder. */
-export function computeTierBadges(
-  counters: { games: number; goals: number; shots: number; players_seen: number },
-  homeRinks: number,
-): TierBadgeView[] {
-  const valueById: Record<TierStatId, number> = {
-    'tier-games': counters.games,
-    'tier-goals': counters.goals,
-    'tier-shots': counters.shots,
-    'tier-players': counters.players_seen,
-    'tier-arenas': homeRinks,
-  };
-  return TIER_STATS.map((def) => computeTierBadge(def, valueById[def.id]));
+  /** 0..1 fill of the CURRENT rung's span — NOT of the whole ladder, or every early
+   *  bar would read as empty. Render it; don't re-derive it from thresholds. */
+  fraction: number;
 }
 
 /** The record inputs carry a bit more than BadgeGame (team abbrevs + date) so the

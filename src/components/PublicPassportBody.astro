@@ -18,10 +18,9 @@ import {
   sortCatalog,
   parseOneInN,
   badgeBlurb,
-  computeTierBadges,
-  TIER_STATS,
   type CatalogBadge,
   type TierBadgeView,
+  arenaMeterLabel,
 } from './react/puck-passport-badges';
 import type { PublicPassport as PassportData, PassportBadge } from '../lib/auth-client';
 
@@ -61,31 +60,13 @@ const arenas = data.arenas;
 const homeRinksEarned = arenas.home_rinks > 0;
 
 // ── Milestone Tiers (cumulative stat ladders) ────────────────────────────────
-// ANTI-DIVERGENCE: this is a PURE client/render-time bucketing of counters the
-// server already delivered (same category as the display badges above) — no new
-// fact is derived, only which of 5 static thresholds an already-server-owned
-// number has crossed. The thresholds/ladder live in puck-passport-badges.ts and
-// are imported (never duplicated), so the dashboard, iOS, and this public page
-// can never disagree. computeTierBadges takes plain numbers, so it runs fine in
-// the worker (no React) exactly like the dashboard's useMemo.
-const tierBadges: TierBadgeView[] = computeTierBadges(
-  { games: c.games, goals: c.goals, shots: c.shots, players_seen: c.players_seen },
-  arenas.home_rinks,
-);
-const tierThresholdsById = new Map(TIER_STATS.map((d) => [d.id, d.thresholds]));
+// Server-computed (`tiers` on the public projection) since 2026-08-02 and rendered
+// verbatim — thresholds, rung names, progress copy and bar fill all arrive ready.
+// This page used to bucket the counters itself from an imported threshold table;
+// the server owns it now so the dashboard, this page, the share card and iOS
+// cannot draw different ladders from the same numbers.
+const tierBadges: TierBadgeView[] = data.tiers ?? [];
 const earnedTierCount = tierBadges.filter((b) => b.earned).length;
-
-/** Progress fraction toward the NEXT rung (full bar when maxed) — mirrors the
- *  dashboard's renderTierBadge frac math so both surfaces fill identically. */
-function tierFrac(b: TierBadgeView): number {
-  if (b.maxed) return 1;
-  const thresholds = tierThresholdsById.get(b.id);
-  const prevThreshold = b.rung > 0 && thresholds ? thresholds[b.rung - 1] : 0;
-  if (b.nextThreshold) {
-    return Math.max(0, Math.min(1, (b.value - prevThreshold) / (b.nextThreshold - prevThreshold)));
-  }
-  return 0;
-}
 ---
 
 <div class="att-root">
@@ -181,14 +162,15 @@ function tierFrac(b: TierBadgeView): number {
     <div class="att-badges">
       {
         tierBadges.map((b) => {
-          const frac = tierFrac(b);
+          // Server-computed fill of the CURRENT rung's span — rendered, not re-derived.
+          const frac = b.fraction;
           return b.earned ? (
             <div class="att-badge" data-family="tier">
               <div class="att-badge-top">
                 <span class="att-badge-label">{b.label}</span>
                 <span class="att-badge-count">{b.value.toLocaleString('en-US')}</span>
               </div>
-              <span class="att-tier-rung">{b.rungName}</span>
+              <span class="att-tier-rung">{b.rung_name}</span>
               <div class="att-tier-bar">
                 <div class="att-tier-bar-fill" style={`width:${Math.round(frac * 100)}%`}></div>
               </div>
@@ -200,7 +182,7 @@ function tierFrac(b: TierBadgeView): number {
                 <span class="att-badge-label">{b.label}</span>
                 <span class="att-badge-ghost-tag">Locked</span>
               </div>
-              <span class="att-tier-rung">{b.rungName}</span>
+              <span class="att-tier-rung">{b.rung_name}</span>
               <div class="att-tier-bar">
                 <div class="att-tier-bar-fill" style={`width:${Math.round(frac * 100)}%`}></div>
               </div>
@@ -242,7 +224,22 @@ function tierFrac(b: TierBadgeView): number {
     <section class="att-section">
       <div class="att-section-head">
         <span class="att-section-label">NHL Home Arenas — {arenas.home_rinks} / {arenas.total}</span>
-        <span class="att-section-meta">{arenas.home_rinks} of {arenas.total} collected</span>
+        <span class="att-section-meta">
+          {
+            arenaMeterLabel(
+              arenas.home_rinks,
+              arenas.total,
+              arenas.rung == null || arenas.rung_name == null
+                ? undefined
+                : {
+                    rung: arenas.rung,
+                    rung_name: arenas.rung_name,
+                    next_threshold: arenas.next_threshold ?? null,
+                    next_rung_name: arenas.next_rung_name ?? null,
+                  },
+            )
+          }
+        </span>
       </div>
       <div class="att-rinks">
         {

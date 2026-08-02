@@ -45,10 +45,10 @@ import {
   parseOneInN,
   normalizePeriod,
   badgeBlurb,
-  computeTierBadges,
-  TIER_STATS,
   type CatalogBadge,
   type TierBadgeView,
+  type ArenaRungView,
+  arenaMeterLabel,
   type BadgeEarnedGame,
 } from './puck-passport-badges';
 import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData } from './puck-passport-share';
@@ -224,7 +224,18 @@ type AttendedSummary = {
   // (≤ 32, the /32 collection meter); distinct_buildings = every distinct building
   // visited (can EXCEED 32 — relocations, neutral-site games); teams_seen = the
   // current-team ids collected, used to colour the per-team pips.
-  arenas: { home_rinks: number; total: number; distinct_buildings: number; teams_seen: number[] };
+  arenas: {
+    home_rinks: number;
+    total: number;
+    distinct_buildings: number;
+    teams_seen: number[];
+    // The /32 ladder's rung, bucketed from home_rinks (2026-08-02). Optional so an
+    // older Worker degrades to the bare "N of 32 collected" rather than a wrong rung.
+    rung?: number;
+    rung_name?: string;
+    next_threshold?: number | null;
+    next_rung_name?: string | null;
+  };
   players_seen: {
     player_id: number;
     name: string | null;
@@ -266,6 +277,9 @@ type AttendedSummary = {
       total?: number;
     }[];
   };
+  // Cumulative stat ladders (Games/Goals/Shots/Players/Arenas). Always all 5,
+  // locked ones included — server-computed since 2026-08-02 (was client-side).
+  tiers: TierBadgeView[];
   milestones: SummaryMilestone[];
   box_incomplete: boolean;
   missing_box_game_ids: string[];
@@ -1124,12 +1138,13 @@ export default function AttendedTracker() {
       healTimerRef.current = null;
     }
     const seq = ++summaryReqSeqRef.current;
-    if (all.length === 0) {
-      setSummary(null);
-      setSummaryError(false);
-      finishHeal();
-      return;
-    }
+    // NOTE: zero games is NOT an early return. The empty state still needs the
+    // server's zero summary, because that is where the all-locked tier ladders come
+    // from (POST accepts an empty game_ids list and answers without touching D1 or
+    // the NHL API — the cheapest request the endpoint serves). Returning early here
+    // is what previously forced a local copy of the tier thresholds into every
+    // client. It still short-circuits the heal window, which only concerns games.
+    if (all.length === 0) finishHeal();
     // Split into NHL ids + manual games, enforcing the COMBINED cap (the public
     // endpoint caps game_ids.length + manual_games.length — see SUMMARY_ID_CAP).
     const { gameIds, manualGames } = splitForSummary(all);
@@ -2116,6 +2131,18 @@ export default function AttendedTracker() {
   // Home-rinks collection: home_rinks/32 drives the meter + badge; teams_seen (a
   // set of current-team ids) colours the per-team pips; distinct_buildings is the
   // honest "every building visited" total (can exceed 32).
+  // Narrow the wire `arenas` to just the four ladder fields, or undefined when the
+  // Worker predates them (never a fabricated rung — the label omits it instead).
+  const arenaRungOf = (a: AttendedSummary['arenas']): ArenaRungView | undefined =>
+    a.rung == null || a.rung_name == null
+      ? undefined
+      : {
+          rung: a.rung,
+          rung_name: a.rung_name,
+          next_threshold: a.next_threshold ?? null,
+          next_rung_name: a.next_rung_name ?? null,
+        };
+
   const viewArenas = useMemo(
     () =>
       summary
@@ -2124,8 +2151,9 @@ export default function AttendedTracker() {
             total: summary.arenas.total,
             distinctBuildings: summary.arenas.distinct_buildings,
             teamsSeen: new Set(summary.arenas.teams_seen ?? []),
+            rung: arenaRungOf(summary.arenas),
           }
-        : { homeRinks: 0, total: 32, distinctBuildings: 0, teamsSeen: new Set<number>() },
+        : { homeRinks: 0, total: 32, distinctBuildings: 0, teamsSeen: new Set<number>(), rung: undefined },
     [summary],
   );
   const viewArenaBadge = summary
@@ -2200,26 +2228,16 @@ export default function AttendedTracker() {
   // shown honestly: nothing is "earned", every chip is a locked chase.
   const ghostCatalog = useMemo<CatalogBadge[]>(() => sortCatalog(buildLocalCatalog([], {})), []);
 
-  // Tiered milestone badges (Games/Goals/Shots/Players/Arenas ladders) — a pure
-  // client-side bucketing of the counters the summary already delivers (see the
-  // ownership note in puck-passport-badges.ts). Always 5 entries, locked/ghost
-  // when a stat hasn't reached Rung I yet; zeros before the summary lands / in
-  // the empty state so the wall renders as an honest all-locked chase.
-  const tierBadges = useMemo<TierBadgeView[]>(
-    () =>
-      computeTierBadges(
-        summary
-          ? {
-              games: summary.counters.games,
-              goals: summary.counters.goals,
-              shots: summary.counters.shots,
-              players_seen: summary.counters.players_seen,
-            }
-          : { games: 0, goals: 0, shots: 0, players_seen: 0 },
-        summary ? summary.arenas.home_rinks : 0,
-      ),
-    [summary],
-  );
+  // Tiered milestone badges (Games/Goals/Shots/Players/Arenas ladders) — SERVER-
+  // computed since 2026-08-02, rendered verbatim. Always 5 entries, locked/ghost
+  // when a stat hasn't reached Rung I yet.
+  //
+  // Empty until the summary lands, INCLUDING for a user with no games: the empty
+  // state fetches the zero summary (POST with an empty game_ids list) rather than
+  // hand-rolling an all-locked wall from a local threshold table. The section is
+  // gated on this being non-empty, so a brief flash of nothing is correct — a
+  // fabricated ladder would not be.
+  const tierBadges: TierBadgeView[] = summary?.tiers ?? [];
 
   // Milestones Witnessed — server-provided (same payload in both auth states).
   const milestones = summary ? summary.milestones : [];
@@ -2291,7 +2309,7 @@ export default function AttendedTracker() {
       },
       tiers: tierBadges.map((b) => ({
         label: b.label,
-        rungName: b.rungName,
+        rungName: b.rung_name,
         earned: b.earned,
         progress: b.progress,
       })),
@@ -2834,30 +2852,21 @@ export default function AttendedTracker() {
     );
   };
 
-  // Rung thresholds by stat id — for the progress-bar's "start of range" edge
-  // (thresholds[rung-1], or 0 below Rung I). TIER_STATS is static config.
-  const tierThresholdsById = useMemo(() => new Map(TIER_STATS.map((d) => [d.id, d.thresholds])), []);
-
   // One tiered milestone badge — the highest earned rung (or the Rung-I chase
   // when locked), with a progress bar toward the next rung. Mirrors the
   // .att-badge chip shell so the wall reads as one system with the event badges.
   const renderTierBadge = (b: TierBadgeView) => {
-    // Progress fraction toward the NEXT rung (or a full bar when maxed) — the
-    // "how close am I" read at a glance, on top of the mono progress line.
-    const thresholds = tierThresholdsById.get(b.id);
-    const prevThreshold = b.rung > 0 && thresholds ? thresholds[b.rung - 1] : 0;
-    const frac = b.maxed
-      ? 1
-      : b.nextThreshold
-        ? Math.max(0, Math.min(1, (b.value - prevThreshold) / (b.nextThreshold - prevThreshold)))
-        : 0;
+    // Fill of the CURRENT rung's span, server-computed (`fraction`). This used to
+    // be re-derived here from a local threshold table; the server owns it now so
+    // the dashboard, the share card and iOS can't draw three different bars.
+    const frac = b.fraction;
     return b.earned ? (
       <div className="att-badge" data-family="tier" key={b.id}>
         <div className="att-badge-top">
           <span className="att-badge-label">{b.label}</span>
           <span className="att-badge-count">{b.value.toLocaleString('en-US')}</span>
         </div>
-        <span className="att-tier-rung">{b.rungName}</span>
+        <span className="att-tier-rung">{b.rung_name}</span>
         <div className="att-tier-bar">
           <div className="att-tier-bar-fill" style={{ width: `${Math.round(frac * 100)}%` }} />
         </div>
@@ -2869,7 +2878,7 @@ export default function AttendedTracker() {
           <span className="att-badge-label">{b.label}</span>
           <span className="att-badge-ghost-tag">Locked</span>
         </div>
-        <span className="att-tier-rung">{b.rungName}</span>
+        <span className="att-tier-rung">{b.rung_name}</span>
         <div className="att-tier-bar">
           <div className="att-tier-bar-fill" style={{ width: `${Math.round(frac * 100)}%` }} />
         </div>
@@ -3707,14 +3716,21 @@ export default function AttendedTracker() {
             <div className="att-badges">{ghostCatalog.map(renderCatalogBadge)}</div>
           </section>
 
-          {/* Milestone Tiers — cumulative stat ladders, all locked at zero */}
-          <section className="att-section">
-            <div className="att-section-head">
-              <span className="att-section-label">Milestone Tiers</span>
-              <span className="att-section-meta">0 of {tierBadges.length}</span>
-            </div>
-            <div className="att-badges">{tierBadges.map(renderTierBadge)}</div>
-          </section>
+          {/* Milestone Tiers — cumulative stat ladders, all locked at zero. Gated on
+              the zero summary having landed: these are server-computed, so before it
+              arrives there is nothing honest to draw. Unlike the ghost BADGE catalog
+              above (still built locally), the ladders are never fabricated here. */}
+          {tierBadges.length > 0 && (
+            <section className="att-section">
+              <div className="att-section-head">
+                <span className="att-section-label">Milestone Tiers</span>
+                <span className="att-section-meta">
+                  {tierBadges.filter((b) => b.earned).length} of {tierBadges.length}
+                </span>
+              </div>
+              <div className="att-badges">{tierBadges.map(renderTierBadge)}</div>
+            </section>
+          )}
 
           {/* All 32 arena pips grey — the collection meter at zero */}
           <section className="att-section">
@@ -3928,8 +3944,10 @@ export default function AttendedTracker() {
             <section className="att-section">
               <div className="att-section-head">
                 <span className="att-section-label">NHL Home Arenas — {viewArenas.homeRinks} / {viewArenas.total}</span>
+                {/* Rung name lives here rather than in a sixth badge chip: the chip
+                    would restate the very number in the label beside it. */}
                 <span className="att-section-meta">
-                  {viewArenas.homeRinks} of {viewArenas.total} collected
+                  {arenaMeterLabel(viewArenas.homeRinks, viewArenas.total, viewArenas.rung)}
                 </span>
               </div>
               {/* One pip per current NHL team, alphabetical. Filled in that team's
