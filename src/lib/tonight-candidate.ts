@@ -47,8 +47,10 @@ function gameAtMyArena(
 }
 
 /** Why this candidate was chosen — reported as `tonight_candidate_source` so we can tell
- *  whether geolocation is doing anything in the wild or everyone is falling back. */
-export type CandidateSource = 'geo' | 'rooting_team';
+ *  whether geolocation is doing anything in the wild or everyone is falling back.
+ *  'manual' is the user explicitly picking from the "Find my game" list — never a guess,
+ *  so it outranks both automatic sources once set (see TonightGameCard's precedence). */
+export type CandidateSource = 'geo' | 'rooting_team' | 'manual';
 
 export type Candidate = {
   game: TonightGame;
@@ -95,6 +97,12 @@ export function pickCandidate(
 
   // 3. No defensible candidate.
   return null;
+}
+
+/** The user explicitly picked `game` from the "Find my game" list — not a guess,
+ *  so this always outranks whatever `pickCandidate` would have inferred. */
+export function makeManualCandidate(game: TonightGame, games: TonightGame[]): Candidate {
+  return { game, source: 'manual', alternatives: games.filter((g) => g !== game) };
 }
 
 // ── Dismissals ──────────────────────────────────────────────────────────────────

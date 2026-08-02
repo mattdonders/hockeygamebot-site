@@ -19,16 +19,27 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchTonight, type TonightGame, type TonightResponse } from '../../lib/tonight-client';
 import {
   pickCandidate,
+  makeManualCandidate,
   readDismissed,
   dismissGame,
   undismissGame,
   type Candidate,
 } from '../../lib/tonight-candidate';
+import {
+  readGeoPreference,
+  recordGrant,
+  recordDecline,
+  recordPermissionDenied,
+  disableGeo,
+  canPromptNow,
+  recordFreshFix,
+  readFreshFix,
+  type GeoPrefState,
+} from '../../lib/geo-preference';
+import TonightGamePicker from './TonightGamePicker';
 import type { AttendedGame, AttendedSummary, RawGame, EarnedDelta } from './AttendedTracker';
 
 const POLL_MS = 60_000; // catch pre→open transitions / score updates without a reload
-const GEO_NOTNOW_KEY = 'hgb_pp_tonight_geo_notnow'; // sessionStorage: "Not now" this session only
-const GEO_GRANTED_KEY = 'hgb_pp_tonight_geo_granted'; // localStorage: location succeeded before — reacquire silently on future loads
 
 /** The same `?tonightNow=` off-season/QA override `fetchTonight` reads (see the
  *  polling effect below), but resolved to millis for dismissal math. Without this,
@@ -116,23 +127,28 @@ export default function TonightGameCard({
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [geoBusy, setGeoBusy] = useState(false);
   const [showGeoPreprompt, setShowGeoPreprompt] = useState(false);
-  const [geoNotNow, setGeoNotNow] = useState(false);
+  // Mirrors geo-preference.ts's canPromptNow() — recomputed (not re-read fresh) after
+  // every mutating call below so the component re-renders without needing a poll.
+  const [promptSuppressed, setPromptSuppressed] = useState<boolean>(() => !canPromptNow(debugNowMs() ?? Date.now()));
+  // Drives the visible on/off status line — only 'enabled'/'disabled' render anything;
+  // 'unset'/'deferred'/'suppressed' show no status line at all (see geo-preference.ts docblock).
+  const [geoPrefState, setGeoPrefState] = useState<GeoPrefState>(() => readGeoPreference(debugNowMs() ?? Date.now()).state);
+  const [manualCandidate, setManualCandidate] = useState<Candidate | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
   // Has a geolocation attempt from the bootstrap discovery prompt (below) already run to
   // completion, success or failure? Without this, a denied/no-match attempt would leave
   // `coords` null forever and the discovery prompt would keep re-showing every render.
   const [geoResolved, setGeoResolved] = useState(false);
-  // A prior visit got a real position (GEO_GRANTED_KEY set) — the browser itself already
+  // A prior visit got a real position (state==='enabled') — the browser itself already
   // remembers the permission grant silently, so re-showing "USE MY LOCATION" and making
   // the user tap it again on every fresh load is us re-asking a question the browser
   // already answered. This gates the discovery/pre-prompt UI shut while that silent
   // reacquire is in flight, so it never flashes before `requestGeo()` resolves below.
-  const [geoAutoPending, setGeoAutoPending] = useState<boolean>(() => {
-    try {
-      return typeof window !== 'undefined' && window.localStorage.getItem(GEO_GRANTED_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
+  // The actual reacquire is further gated (hasEligibleGames/hasGeoMatchableGames/fresh-fix
+  // cache) in the effect below — this flag alone no longer triggers a GPS call.
+  const [geoAutoPending, setGeoAutoPending] = useState<boolean>(
+    () => readGeoPreference(debugNowMs() ?? Date.now()).state === 'enabled',
+  );
   const [sessionUndo, setSessionUndo] = useState<{ gameId: string; expiresAt: string } | null>(null);
   const [phase, setPhase] = useState<'idle' | 'pending'>('idle');
   const [celebrating, setCelebrating] = useState<string | null>(null); // game_id, once logged this visit
@@ -143,14 +159,6 @@ export default function TonightGameCard({
   } | null>(null);
   const preLogBadgeIdsRef = useRef<Set<string> | null>(null);
   const mutatingRef = useRef(false); // synchronous double-tap guard — mirrors AttendedTracker's toggleSearchResult lock
-
-  useEffect(() => {
-    try {
-      setGeoNotNow(sessionStorage.getItem(GEO_NOTNOW_KEY) === '1');
-    } catch {
-      /* private mode — pre-prompt just shows every time this session */
-    }
-  }, []);
 
   // Fetch candidates on mount, then poll — a pre-game card must become loggable at
   // puck drop without a manual reload, and a live score should keep moving.
@@ -182,7 +190,11 @@ export default function TonightGameCard({
     return pickCandidate(resp.games, anchor, coords, dismissed);
   }, [resp, anchor, coords, dismissed]);
 
-  const alreadyLogged = candidate ? games.some((g) => g.game_id === candidate.game.game_id) : false;
+  // Explicit user intent always wins over inference, and is never displaced by a
+  // later-resolving geo match — see tonight-candidate.ts's makeManualCandidate docblock.
+  const effectiveCandidate = manualCandidate ?? candidate;
+
+  const alreadyLogged = effectiveCandidate ? games.some((g) => g.game_id === effectiveCandidate.game.game_id) : false;
   const isFirstGame = games.length === 0 && !alreadyLogged;
 
   // Bootstrap gap: without a geo match, the only other path to a candidate is the
@@ -198,8 +210,14 @@ export default function TonightGameCard({
   // a specific matchup, so it isn't the generic "some game is on tonight" card the
   // spec bans; it's a generic PROMPT for a still-unknown game.
   const hasEligibleGames = !!resp && Array.isArray(resp.games) && resp.games.some((g) => !dismissed.has(g.game_id));
+  // GPS can only ever help if at least one eligible game actually has arena coordinates —
+  // otherwise there's nothing to match against and querying it is pure noise.
+  const hasGeoMatchableGames =
+    !!resp &&
+    Array.isArray(resp.games) &&
+    resp.games.some((g) => !dismissed.has(g.game_id) && g.arena?.lat != null && g.arena?.lon != null);
   const showDiscovery =
-    !candidate && !coords && !geoNotNow && !geoResolved && !geoAutoPending && hasEligibleGames;
+    !effectiveCandidate && !coords && !promptSuppressed && !geoResolved && !geoAutoPending && hasEligibleGames;
 
   // "Newly earned" badges for a logged-out celebration resolve once the public
   // summary catches up (no server delta path for anon users) — diff against the
@@ -217,7 +235,7 @@ export default function TonightGameCard({
     );
   }, [summary, celebrationExtras]);
 
-  const active = !!candidate || !!sessionUndo || showDiscovery;
+  const active = !!effectiveCandidate || !!sessionUndo || showDiscovery;
   useEffect(() => {
     onActiveChange?.(active);
   }, [active, onActiveChange]);
@@ -231,49 +249,72 @@ export default function TonightGameCard({
     setGeoBusy(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        const nowMs = debugNowMs() ?? Date.now();
         setGeoBusy(false);
         setGeoResolved(true);
         setGeoAutoPending(false);
         setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
-        try {
-          window.localStorage.setItem(GEO_GRANTED_KEY, '1');
-        } catch {
-          /* storage blocked — just means we'll re-prompt next visit instead of auto-reacquiring */
-        }
+        recordGrant(nowMs);
+        recordFreshFix(pos.coords.latitude, pos.coords.longitude, nowMs);
+        setGeoPrefState('enabled');
+        setPromptSuppressed(!canPromptNow(nowMs));
       },
       (err) => {
+        const nowMs = debugNowMs() ?? Date.now();
         setGeoBusy(false); // denied/unavailable/timeout — no error, no toast (§6.4)
         setGeoResolved(true); // don't re-show the discovery prompt after a failed attempt
         setGeoAutoPending(false);
-        // Only PERMISSION_DENIED means the earlier grant is actually gone — a timeout or
-        // transient unavailability shouldn't nuke the "try again silently next time" flag.
+        // A real browser denial gets real backoff. Timeout/unavailable is transient and
+        // retryable next load — the persisted preference must not change for those.
         if (err.code === err.PERMISSION_DENIED) {
-          try {
-            window.localStorage.removeItem(GEO_GRANTED_KEY);
-          } catch {
-            /* non-fatal */
-          }
+          recordPermissionDenied(nowMs);
+          setGeoPrefState('suppressed');
+          setPromptSuppressed(!canPromptNow(nowMs));
         }
       },
       { maximumAge: 5 * 60_000, timeout: 8_000 },
     );
   }, []);
 
-  // Silently reacquire location on mount if a prior visit already got one — see
-  // `geoAutoPending` above. Runs once; `requestGeo` clears the flag on every exit path.
+  // Silently reacquire location on mount if a prior visit already granted it — but only
+  // once `resp` has loaded, and only if there's actually something GPS could match against
+  // and no fresh fix from earlier this same visit already covers it. The old version fired
+  // unconditionally on mount whenever the legacy grant flag was set, polling the user's GPS
+  // even on nights with zero eligible games — that was the confirmed live bug this replaces.
+  const autoReacquireDoneRef = useRef(false);
   useEffect(() => {
-    if (geoAutoPending) requestGeo();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (autoReacquireDoneRef.current) return;
+    if (!resp) return; // wait for the schedule to load before deciding anything
+    autoReacquireDoneRef.current = true;
+    if (!geoAutoPending) return;
+    if (!hasEligibleGames || !hasGeoMatchableGames) {
+      setGeoAutoPending(false);
+      return;
+    }
+    const nowMs = debugNowMs() ?? Date.now();
+    const fresh = readFreshFix(nowMs);
+    if (fresh) {
+      setCoords(fresh);
+      setGeoResolved(true);
+      setGeoAutoPending(false);
+      return;
+    }
+    requestGeo();
+  }, [resp, geoAutoPending, hasEligibleGames, hasGeoMatchableGames, requestGeo]);
 
   const notNowGeo = useCallback(() => {
     setShowGeoPreprompt(false);
-    setGeoNotNow(true);
-    try {
-      sessionStorage.setItem(GEO_NOTNOW_KEY, '1');
-    } catch {
-      /* non-fatal — will just re-offer next tap this session */
-    }
+    const nowMs = debugNowMs() ?? Date.now();
+    recordDecline(nowMs);
+    setPromptSuppressed(!canPromptNow(nowMs));
+  }, []);
+
+  const turnOffGeo = useCallback(() => {
+    const nowMs = debugNowMs() ?? Date.now();
+    disableGeo(nowMs);
+    setGeoPrefState('disabled');
+    setPromptSuppressed(!canPromptNow(nowMs));
+    setGeoAutoPending(false);
   }, []);
 
   const doLog = useCallback(
@@ -336,6 +377,7 @@ export default function TonightGameCard({
     dismissGame(g.game_id, expiresAt, debugNowMs());
     setDismissed(readDismissed(debugNowMs()));
     setSessionUndo({ gameId: g.game_id, expiresAt });
+    setManualCandidate(null); // "not this one" also un-sticks an explicit manual pick
   }, []);
 
   const doUndismiss = useCallback((gameId: string) => {
@@ -351,6 +393,7 @@ export default function TonightGameCard({
     setDismissed(readDismissed(debugNowMs()));
     setCelebrating(null);
     setCelebrationExtras(null);
+    setManualCandidate(null);
   }, []);
 
   const doShare = useCallback(
@@ -362,7 +405,7 @@ export default function TonightGameCard({
   );
 
   // ── Session-only dismiss undo strip ─────────────────────────────────────────
-  if (sessionUndo && !candidate) {
+  if (sessionUndo && !effectiveCandidate) {
     return (
       <div className="tn-dismissed">
         <div className="txt">Tonight's game hidden.</div>
@@ -382,16 +425,28 @@ export default function TonightGameCard({
           text="📍 Want to make it easier to check into games? Grant location access and Puck Passport will automatically detect when you're near an arena with a game that day. Your location stays on this device."
           onUse={requestGeo}
           onNotNow={notNowGeo}
+          onFindManually={() => setShowPicker(true)}
           busy={geoBusy}
           standalone
         />
+        {showPicker && resp ? (
+          <TonightGamePicker
+            games={resp.games}
+            loggedGameIds={new Set(games.map((g) => g.game_id))}
+            onPick={(g) => {
+              setManualCandidate(makeManualCandidate(g, resp.games));
+              setShowPicker(false);
+            }}
+            onClose={() => setShowPicker(false)}
+          />
+        ) : null}
       </div>
     );
   }
 
-  if (!candidate) return null;
+  if (!effectiveCandidate) return null;
 
-  const { game } = candidate;
+  const { game } = effectiveCandidate;
   const loggedThisVisit = celebrating === game.game_id;
   const showCelebration = loggedThisVisit || alreadyLogged;
 
@@ -410,13 +465,14 @@ export default function TonightGameCard({
           {game.away.abbrev} <span className="at">@</span> {game.home.abbrev}
         </div>
         {game.venue ? <div className="where">{game.venue}</div> : null}
-        {game.arena && !coords && !geoNotNow && !geoAutoPending ? (
+        {game.arena && !coords && !promptSuppressed && !geoAutoPending && geoPrefState !== 'disabled' ? (
           <button type="button" className="tn-geo-btn spacer" onClick={() => setShowGeoPreprompt(true)}>
             Use my location
           </button>
         ) : null}
         <div className="gate">Logging opens at puck drop · your coordinates stay on this device.</div>
         {showGeoPreprompt ? <GeoPreprompt onUse={() => { setShowGeoPreprompt(false); requestGeo(); }} onNotNow={notNowGeo} busy={geoBusy} /> : null}
+        {!showGeoPreprompt ? <GeoStatusLine state={geoPrefState} onEnable={requestGeo} onDisable={turnOffGeo} busy={geoBusy} /> : null}
       </div>
     );
   }
@@ -482,7 +538,7 @@ export default function TonightGameCard({
       : "Start your passport with tonight's game?"
     : 'Were you at this game?';
   const score = scoreLine(game);
-  const geoConfirmed = candidate.source === 'geo';
+  const geoConfirmed = effectiveCandidate.source === 'geo';
 
   return (
     <div className="tn">
@@ -514,7 +570,7 @@ export default function TonightGameCard({
           Not this one
         </button>
       </div>
-      {!geoConfirmed && game.arena && !coords && !geoNotNow && !geoAutoPending ? (
+      {!geoConfirmed && game.arena && !coords && !promptSuppressed && !geoAutoPending && geoPrefState !== 'disabled' ? (
         <div className="tn-geo">
           <div className="tn-geo-txt">
             <b>Near the arena?</b> Use location to confirm this game.
@@ -528,6 +584,7 @@ export default function TonightGameCard({
           ) : null}
         </div>
       ) : null}
+      {!showGeoPreprompt ? <GeoStatusLine state={geoPrefState} onEnable={requestGeo} onDisable={turnOffGeo} busy={geoBusy} /> : null}
     </div>
   );
 }
@@ -536,12 +593,16 @@ function GeoPreprompt({
   text,
   onUse,
   onNotNow,
+  onFindManually,
   busy,
   standalone,
 }: {
   text?: string;
   onUse: () => void;
   onNotNow: () => void;
+  /** Only passed at the bootstrap-discovery call site — the escape hatch for someone who
+   *  declines/isn't geo-matched but still wants to log a game explicitly. */
+  onFindManually?: () => void;
   busy: boolean;
   /** Rendered with no game info above it (bootstrap discovery) — drop the divider
    *  border, which otherwise only makes sense separating this from that content. */
@@ -560,9 +621,50 @@ function GeoPreprompt({
         <button type="button" className="btn-text" onClick={onNotNow}>
           Not now
         </button>
+        {onFindManually ? (
+          <button type="button" className="btn-text" onClick={onFindManually}>
+            Find my game
+          </button>
+        ) : null}
       </div>
     </div>
   );
+}
+
+function GeoStatusLine({
+  state,
+  onEnable,
+  onDisable,
+  busy,
+}: {
+  state: GeoPrefState;
+  onEnable: () => void;
+  onDisable: () => void;
+  busy: boolean;
+}) {
+  if (state === 'enabled') {
+    return (
+      <div className="tn-privacy">
+        📍 Automatic detection: On ·{' '}
+        <button type="button" className="btn-text" onClick={onDisable}>
+          Turn off
+        </button>
+      </div>
+    );
+  }
+  if (state === 'disabled') {
+    return (
+      <div className="tn-privacy">
+        📍 Automatic detection: Off ·{' '}
+        <button type="button" className="btn-text" disabled={busy} onClick={onEnable}>
+          Turn on
+        </button>
+      </div>
+    );
+  }
+  // 'unset' / 'deferred' / 'suppressed' — the user never told us to turn anything off,
+  // so no status line claims otherwise.
+  return null;
 }
 
 function ordinal(n: number): string {
