@@ -6,7 +6,7 @@ import PlayerGameLogTable from '../../../components/react/PlayerGameLogTable';
 import { EntitySignals } from '../../../components/react/DashboardPersonalized';
 import { loadPlayers, loadPlayerGames, loadPlayerShots, loadMeta, loadPlayerSeasonStats, type GameLogEntry, type PlayerSummary, type PlayerShot, type PlayerSeasonStats } from '../../../lib/stats-loader';
 import { buildPlayerShotMapSVG } from '../../../lib/rink-svg';
-import { pickTeamColor, pickTeamColorRgb } from '../../../lib/team-colors';
+import { pickTeamColor, pickTeamColorRgb, pickTeamColorAlpha } from '../../../lib/team-colors';
 import { ageFromBirthDate } from '../../../lib/age';
 import EdgePanel from '../../../components/EdgePanel.astro';
 import { cardFooterText } from '../../../lib/card-footer';
@@ -266,6 +266,21 @@ seasonStatsSorted.forEach(e => {
 const currentSeasonNorm = normalizeSeason(seasonStatsSorted[0]?.season ?? '');
 _cardFooters.talent.pre = `Current blend: ${currentSeasonNorm} + 3 prior seasons · percentile `;
 
+// Cards are shared standalone (no surrounding page context) — if any of the
+// up-to-3 "PAST SINGLE-SEASON WAR" columns this page renders is flagged
+// provisional (gold "%*"), the footer must explain what the asterisk means
+// right on the card itself, not just in a tooltip that won't travel with it.
+const _hasProvisionalPrior = seasonStatsSorted.slice(0, 3).some((s: any, i: number) => {
+  const raw = i === 0 ? (warPct ?? s.war_pct ?? null) : (s.war_pct ?? null);
+  return raw != null && s.war_status === 'provisional';
+});
+if (_hasProvisionalPrior) {
+  _cardFooters.talent.post = ` · ${cardFooterText({ hgbStats: false, season: false, extra: '* provisional' })}`;
+}
+// Season card renders only the CURRENT season's WAR — same asterisk-needs-an-
+// explanation rule, keyed off whether that one season's war_status is provisional
+// (set below once _currentWarProvisional exists).
+
 // ── Inactive-player page mode (Barkov class) ─────────────────────────────────
 // A player who missed the WHOLE current season is emitted by
 // export_inactive_players.py with is_active === false and their object
@@ -291,7 +306,24 @@ const leagueSeasonNorm = normalizeSeason(_meta.season);
 // player_season_stats — mirroring how Impact/Talent already resolve — so WAR isn't the lone
 // blank tile/row on an inactive player's page.
 const _lastActiveWar = seasonStatsLookup.get(currentSeasonNorm)?.war_pct;
-const heroWarPct = warPct ?? (isInactive && _lastActiveWar != null ? Math.round(_lastActiveWar) : null);
+
+// Provisional current-season WAR: warPct is null (below the live-cohort floor —
+// getStaticPaths builds that cohort from active players only) but the underlying
+// season-stats row has a real war_pct flagged war_status==='provisional' — show
+// it (gold + asterisk), don't hide it, same treatment as the provisional
+// prior-season columns on the Talent card. Cards are shared standalone, so this
+// must also reach the header tile, career table, and Season/History/RAPM cards
+// below — not just the Talent card's own mini-timeline.
+const _currentSeasonEntry = seasonStatsSorted[0] as any;
+const _currentWarProvisional = warPct == null && !isInactive
+  && _currentSeasonEntry?.war_status === 'provisional' && _currentSeasonEntry?.war_pct != null;
+const heroWarPct = warPct
+  ?? (isInactive && _lastActiveWar != null ? Math.round(_lastActiveWar) : null)
+  ?? (_currentWarProvisional ? Math.round(_currentSeasonEntry.war_pct) : null);
+
+if (_currentWarProvisional) {
+  _cardFooters.season.post = ` · ${cardFooterText({ hgbStats: false, season: false, edgeData: true, extra: '* provisional' })}`;
+}
 
 // Enrich each career season row with RAPM + HGB Rating + WAR + Impact from player_season_stats.
 // For 2025-26: override with authoritative values from players.json (same as page hero).
@@ -305,6 +337,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     rapm_net_pct:   entry?.rapm_net_pct ?? null,
     hgb_rating_pct: isCurrent ? (player.hgb_rating_percentile ?? null) : (entry?.hgb_rating_pct ?? null),
     war_pct:        isCurrent ? (heroWarPct ?? null)                    : (entry?.war_pct        ?? null),
+    war_status:     isCurrent ? (_currentWarProvisional ? 'provisional' : null) : (entry?.war_status ?? null),
     impact_pct:     isCurrent ? Math.round(player.percentiles_vs_pos.game_score) : (entry?.impact_pct ?? null),
   };
 });
@@ -760,8 +793,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         </div>
         <div class="hero-tile">
           <div class="tile-label">{currentSeasonNorm} WAR</div>
-          <div class="tile-big" style={`color:${teamColor}`}>
-            {heroWarPct != null ? `${heroWarPct}%` : '—'}
+          <div class="tile-big" style={`color:${_currentWarProvisional ? pickTeamColorAlpha(player.team_abbrev, 0.62) : teamColor}`}>
+            {heroWarPct != null ? `${heroWarPct}%${_currentWarProvisional ? '*' : ''}` : '—'}
           </div>
         </div>
         <div class="hero-tile">
@@ -1164,7 +1197,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       team:        (s as any).team        ?? null,
       // For current season use authoritative players.json values (match page hero)
       hgb_rating_pct: isCurrent ? (player.hgb_rating_percentile ?? null) : (s.hgb_rating_pct ?? null),
-      war_pct:        isCurrent ? (warPct ?? null)                        : (s.war_pct        ?? null),
+      war_pct:        isCurrent ? (heroWarPct ?? null)                    : (s.war_pct        ?? null),
+      war_status:     isCurrent ? (_currentWarProvisional ? 'provisional' : null) : ((s as any).war_status ?? null),
       impact_pct:     isCurrent ? Math.round(player.percentiles_vs_pos.game_score) : (s.impact_pct ?? null),
       gp:             s.gp ?? null,
       gf_pct:         (_csMap.get(s.season) as any)?.gf_pct  ?? null,
@@ -1189,7 +1223,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     sweaterNumber:  (player as any).sweater_number   ?? null,
     currentSeason:          currentSeasonNorm,
     war:                    player.war,
-    warPct:                 warPct,
+    warPct:                 heroWarPct,
+    warProvisional:         _currentWarProvisional,
     hgb_rating:             player.hgb_rating ?? null,
     hgb_rating_percentile:  player.hgb_rating_percentile ?? null,
     hgb_rating_confidence:  player.hgb_rating_confidence ?? 'full',
@@ -1263,12 +1298,14 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // L3 seasons of WAR % for the right-half timeline (current + 2 prior).
     // Mirrors the seasons that feed the Talent blend.
     priorWar: (() => {
-      const out: {season: string, pct: number | null, limited?: boolean}[] = [];
+      const out: {season: string, pct: number | null, limited?: boolean, provisional?: boolean}[] = [];
       for (let i = 0; i < seasonStatsSorted.length && out.length < 3; i++) {
         const s = seasonStatsSorted[i] as any;
         const raw = i === 0 ? (warPct ?? s.war_pct ?? null) : (s.war_pct ?? null);
         if (raw != null) {
-          out.push({ season: s.season, pct: Math.round(raw) });
+          // provisional: real number, but pipeline hasn't cleared it to "official"
+          // yet (see hgb-analytics rapm_bootstrap.py design doc) — flag, don't hide.
+          out.push({ season: s.season, pct: Math.round(raw), provisional: s.war_status === 'provisional' });
         } else if (s.war_status === 'limited_toi') {
           out.push({ season: s.season, pct: null, limited: true });
         }
@@ -1290,6 +1327,15 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // ── shared color constants (used by all card drawing functions) ───────
     const INK    = '#0D0D14';
     const RED    = '#E8002D';
+    // Provisional ("flagged but real") WAR values use the team's OWN color,
+    // softened — never a fixed unrelated color, which would collide with teams
+    // whose own color is already gold-toned (e.g. VGK's #B4975A vs a fixed
+    // #B08400). Reads as "this team's color, dimmed" on every team's card.
+    function provisionalColor(teamHex) {
+      const h = teamHex || INK;
+      const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
+      return `rgba(${r},${g},${b},0.62)`;
+    }
     const INK48  = 'rgba(13,13,20,0.48)';
     const INK45  = 'rgba(13,13,20,0.45)';
     const INK32  = 'rgba(13,13,20,0.32)';
@@ -1574,7 +1620,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       // hero tiles
       const tileX = 100;
       const tiles = [
-        [D.warPct != null ? `${D.warPct}%` : '—', D.war != null ? `${D.war >= 0 ? '+' : ''}${D.war.toFixed(2)} WAR` : '—', TEAM_C],
+        [D.warPct != null ? `${D.warPct}%${D.warProvisional ? '*' : ''}` : '—', D.war != null ? `${D.war >= 0 ? '+' : ''}${D.war.toFixed(2)} WAR` : '—', D.warProvisional ? provisionalColor(TEAM_C) : TEAM_C],
         [D.impactPct != null ? `${Math.round(D.impactPct)}%` : '—', `${D.avgGsDisplay?.toFixed(2) ?? '—'} GS avg`, INK],
         [`${D.gp} GP`, `${D.totalG}G · ${D.totalA}A`, INK],
       ];
@@ -1659,6 +1705,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       }
       var isHistorical = !!seasonData;
       var isLimited = isHistorical && seasonData.limited;
+      var isProvisional = isHistorical ? seasonData.war_status === 'provisional' : !!D.warProvisional;
       // For the current season, we still want RAPM percentiles from allSeasons (they're not on D.percentiles)
       var currentSeasonEntry = !isHistorical
         ? (allSeasons.find(function(s) { return s.season === (selectedSeason || D.currentSeason); }) || null)
@@ -1772,7 +1819,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       var heroGp        = isHistorical ? (seasonData.gp || '—') : D.gp;
       // Percentile-only: no raw-value subtitles (only the season tag for historical / limited note).
       const heroTiles = [
-        { label: 'HGB WAR · ' + heroSeason,    pct: heroWarPct,    sub: isLimited ? 'limited sample' : '' },
+        { label: 'HGB WAR · ' + heroSeason,    pct: heroWarPct,    sub: isLimited ? 'limited sample' : (isProvisional ? 'provisional' : ''), provisional: isProvisional },
         { label: 'HGB IMPACT · ' + heroSeason, pct: heroImpPct,    sub: '' },
       ];
       // Two tiles now → much bigger numbers + larger labels so they survive
@@ -2081,7 +2128,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       var heroWarPct = _rnd(D.warPct);
       var heroImpPct = _rnd(D.impactPct);
       const heroTiles = [
-        { label: 'HGB WAR · ' + heroSeason,    pct: heroWarPct,  sub: '' },
+        { label: 'HGB WAR · ' + heroSeason,    pct: heroWarPct,  sub: D.warProvisional ? 'provisional' : '', provisional: D.warProvisional },
         { label: 'HGB IMPACT · ' + heroSeason, pct: heroImpPct,  sub: '' },
       ];
       for (let i = 0; i < heroTiles.length; i++) {
@@ -2092,8 +2139,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         ctx.fillText(t.label, tcx, y + 18);
         ctx.font = '900 58px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = t.pct != null ? TEAM_C : INK32;
-        ctx.fillText(t.pct != null ? t.pct + '%' : '—', tcx, y + 34);
+        ctx.fillStyle = t.pct != null ? (t.provisional ? provisionalColor(TEAM_C) : TEAM_C) : INK32;
+        ctx.fillText(t.pct != null ? t.pct + '%' + (t.provisional ? '*' : '') : '—', tcx, y + 34);
         ctx.font = '700 10px "JetBrains Mono", monospace';
         ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
         ctx.fillText(t.sub, tcx, y + 98);
@@ -2386,13 +2433,14 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
           const ccx = PAD + wi * colW + colW / 2;
           if (wi > 0) { ctx.fillStyle = INK06; ctx.fillRect(PAD + wi * colW, y + 26, 1, STRIP_H - 32); }
           if (entry.limited) {
-            ctx.font = '700 13px "JetBrains Mono", monospace';
-            ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-            ctx.fillText('LTD', ccx, y + 40);
+            ctx.font = '700 11px "JetBrains Mono", monospace';
+            ctx.fillStyle = INK; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+            drawWrappedLabelCentered(ctx, 'SMALL SAMPLE', ccx, y + 30, colW - 10, 13);
           } else {
             ctx.font = '800 28px "Barlow Condensed", sans-serif';
-            ctx.fillStyle = entry.pct != null ? INK : INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-            ctx.fillText(entry.pct != null ? entry.pct + '%' : '—', ccx, y + 40);
+            ctx.fillStyle = entry.provisional ? provisionalColor(TEAM_C) : (entry.pct != null ? INK : INK32);
+            ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+            ctx.fillText(entry.pct != null ? entry.pct + (entry.provisional ? '%*' : '%') : '—', ccx, y + 40);
           }
           ctx.font = '700 9px "JetBrains Mono", monospace';
           ctx.fillStyle = INK32; ctx.textBaseline = 'middle';
@@ -2711,13 +2759,14 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
           ctx.fillText(fmtSzn(entry.season), cx, SZN_Y);
           // Number — no arrows between columns
           if (entry.limited) {
-            ctx.font = '700 15px "JetBrains Mono", monospace';
-            ctx.fillStyle = INK32;
-            ctx.fillText('LTD', cx, NUM_Y);
+            ctx.font = '700 11px "JetBrains Mono", monospace';
+            ctx.fillStyle = INK; ctx.textBaseline = 'top';
+            drawWrappedLabelCentered(ctx, 'SMALL SAMPLE', cx, NUM_Y - 4, usable / cols.length - 6, 13);
           } else {
             ctx.font = `800 ${NUM_SZ}px "Barlow Condensed", sans-serif`;
-            ctx.fillStyle = INK;
-            ctx.fillText(String(entry.pct) + '%', cx, NUM_Y);
+            ctx.fillStyle = entry.provisional ? provisionalColor(TEAM_C) : INK;
+            ctx.textBaseline = 'top';
+            ctx.fillText(String(entry.pct) + (entry.provisional ? '%*' : '%'), cx, NUM_Y);
           }
         });
       }
@@ -3056,13 +3105,14 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
           ctx.fillText(fmtSznH(entry.season), cx, szn_y);
           // Percentile number (no arrows between columns — avoids implying trend causality)
           if (entry.limited) {
-            ctx.font = '700 18px "JetBrains Mono", monospace';
-            ctx.fillStyle = INK32;
-            ctx.fillText('LTD', cx, num_y);
+            ctx.font = '700 13px "JetBrains Mono", monospace';
+            ctx.fillStyle = INK; ctx.textBaseline = 'top';
+            drawWrappedLabelCentered(ctx, 'SMALL SAMPLE', cx, num_y + 4, usable / cols.length - 8, 15);
           } else {
             ctx.font = `800 ${NUM_SZ}px "Barlow Condensed", sans-serif`;
-            ctx.fillStyle = INK;
-            ctx.fillText(String(entry.pct) + '%', cx, num_y);
+            ctx.fillStyle = entry.provisional ? provisionalColor(TEAM_C) : INK;
+            ctx.textBaseline = 'top';
+            ctx.fillText(String(entry.pct) + (entry.provisional ? '%*' : '%'), cx, num_y);
           }
         });
       }
@@ -3588,11 +3638,12 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     const statW = (W - statX - PAD) / 3;
     const ratingPctVal = D.hgb_rating_percentile ?? null;
     const warPctVal  = D.warPct ?? Math.round(D.impactPct);
+    const warIsProvisional = D.warPct != null && D.warProvisional;
     const impPctVal  = Math.round(D.impactPct);
     // Percentile-only heroes (raw value subtitles dropped, matching Season/Talent cards).
     const heroStats  = [
       { label: 'HGB TALENT',      big: ratingPctVal != null ? ratingPctVal+'%' : '—' },
-      { label: 'HGB WAR',         big: warPctVal+'%' },
+      { label: 'HGB WAR',         big: warPctVal+'%'+(warIsProvisional ? '*' : ''), color: warIsProvisional ? provisionalColor(TEAM_C) : TEAM_C },
       { label: 'HGB GAME IMPACT', big: impPctVal+'%' },
     ];
     for (let i = 0; i < heroStats.length; i++) {
@@ -3603,7 +3654,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillStyle = INK32; ctx.textBaseline='top'; ctx.textAlign='center';
       ctx.fillText(hs.label, sx, y+14);
       ctx.font = '800 30px "Barlow Condensed",sans-serif';
-      ctx.fillStyle = TEAM_C; ctx.textBaseline='top';
+      ctx.fillStyle = hs.color ?? TEAM_C; ctx.textBaseline='top';
       ctx.fillText(hs.big, sx, y+27);
     }
     ctx.fillStyle = INK14; ctx.fillRect(0, y+HERO_H-1, W, 1);

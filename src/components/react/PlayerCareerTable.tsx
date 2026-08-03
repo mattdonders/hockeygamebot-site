@@ -8,6 +8,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { fmtSeasonLong } from '../../lib/format-season';
+import { pickTeamColorAlpha } from '../../lib/team-colors';
 import {
   useReactTable,
   getCoreRowModel,
@@ -37,6 +38,9 @@ export type CareerSeason = {
   // Enriched from player_season_stats — may be null until pipeline delivers
   rapm_net_pct?: number | null;
   war_pct?: number | null;
+  // 'provisional' = war_pct is a real number but hasn't cleared the pipeline's
+  // official-tier bar yet — shown flagged (gold + asterisk), not hidden.
+  war_status?: 'limited_toi' | 'provisional' | null;
 };
 
 // Playoff season row from player-season-stats (playoffs[] array). Shape differs
@@ -138,7 +142,7 @@ function normalizeSeasonKey(s: string | undefined): string {
   return s;
 }
 
-export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerName = 'Player', playerSlug = 'player', currentSeason, leaderboardHref }: Props) {
+export default function PlayerCareerTable({ seasons, playoffSeasons = [], playerTeam, playerName = 'Player', playerSlug = 'player', currentSeason, leaderboardHref }: Props) {
   const CURRENT_SEASON      = currentSeason ?? _FALLBACK_SEASON;
   const CURRENT_SEASON_NORM = currentSeason ? normalizeSeasonKey(currentSeason) : _FALLBACK_SEASON_NORM;
   const [isDark, setIsDark] = useState(false);
@@ -306,10 +310,13 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         accessorFn: (r) => r.war_pct ?? -1,
         cell: (info) => {
           const v = info.row.original.war_pct;
-          const color = rapmPctColor(v);
+          const provisional = info.row.original.war_status === 'provisional';
+          const color = provisional
+            ? pickTeamColorAlpha(info.row.original.team || playerTeam, 0.62)
+            : rapmPctColor(v);
           return (
             <span style={{ ...MONO, fontWeight: v != null ? 700 : 400, color }}>
-              {v == null ? '—' : `${Math.round(Number(v))}%`}
+              {v == null ? '—' : `${Math.round(Number(v))}%${provisional ? '*' : ''}`}
             </span>
           );
         },
@@ -495,6 +502,13 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
     const oneFmt = (v: any) => v != null ? `${Number(v).toFixed(1)}%` : '—';
     const pctColor = (v: any, _r: any, tok: any) => v == null ? null : v >= 55 ? tok.pos : v <= 45 ? tok.neg : null;
     const rankColor = (v: any, _r: any, tok: any) => v == null ? null : v >= 70 ? tok.pos : v <= 30 ? tok.neg : null;
+    // war_pct only — provisional rows get the softened-team-color + asterisk
+    // treatment shown elsewhere on the page, so the PNG export doesn't silently
+    // drop the flag.
+    const warFmt = (v: any, r: any) => v == null ? '—' : `${Math.round(Number(v))}%${r?.war_status === 'provisional' ? '*' : ''}`;
+    const warColor = (v: any, r: any, tok: any) => r?.war_status === 'provisional'
+      ? pickTeamColorAlpha(r?.team || playerTeam, 0.62)
+      : rankColor(v, r, tok);
     // Mark the active sort column so the export shows the arrow + bold header (matches HGBTable)
     const cur = sorting[0];
     const mark = (sortId: string) => ({
@@ -518,7 +532,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
       { label: 'TOI/GP',  key: 'toi_gp',         width: 78,  align: 'center', ...mark('toi_gp') },
       { label: 'GF%',     key: 'gf_pct',         width: 74,  align: 'center', format: oneFmt, color: pctColor, ...mark('gf_pct') },
       { label: 'xGF%',    key: 'xgf_pct',        width: 74,  align: 'center', format: oneFmt, color: pctColor, ...mark('xgf_pct') },
-      { label: 'WAR%',    key: 'war_pct',        width: 74,  align: 'center', format: pctFmt, color: rankColor, ...mark('war_pct') },
+      { label: 'WAR%',    key: 'war_pct',        width: 74,  align: 'center', format: warFmt, color: warColor, ...mark('war_pct') },
       { label: 'Impact%', key: 'impact_pct',     width: 80,  align: 'center', format: pctFmt, color: rankColor, ...mark('impact_pct') },
     ];
     exp.downloadTablePng({

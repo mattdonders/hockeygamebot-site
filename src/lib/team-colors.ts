@@ -35,3 +35,11 @@ export function pickTeamColorRgb(abbrev: string): string {
   const b = parseInt(hex.slice(4, 6), 16);
   return `${r},${g},${b}`;
 }
+
+/** Softened team color for "flagged but real" values (e.g. provisional WAR) —
+ *  the same hue as the team's own color, just muted via alpha, so it never
+ *  competes with a fixed unrelated color (e.g. a team whose own color is gold,
+ *  like VGK) and instead reads as "this team's color, dimmed" everywhere. */
+export function pickTeamColorAlpha(abbrev: string, alpha: number): string {
+  return `rgba(${pickTeamColorRgb(abbrev)}, ${alpha})`;
+}
