@@ -1356,12 +1356,21 @@ export default function AttendedTracker() {
         }
         findByLocation(coords, locDate);
       },
-      () => {
+      (err) => {
         // Denial/timeout/unavailable — transient, no ladder/backoff writes. This
         // is an explicit on-demand ask, not the auto-reacquire Tonight's Game
         // gates behind canPromptNow(); a "no" here means nothing about that.
         setLocBusy(false);
-        setLocError('Couldn’t get your location — try By Team or By Date instead.');
+        console.warn('[by-location] getCurrentPosition failed', err.code, err.message);
+        if (err.code === err.TIMEOUT) {
+          setLocError('Location took too long to respond — try again, or use By Team/By Date instead.');
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setLocError(
+            'Your device could not determine a location — check macOS System Settings → Privacy & Security → Location Services, or try By Team/By Date instead.',
+          );
+        } else {
+          setLocError('Couldn’t get your location — try By Team or By Date instead.');
+        }
       },
       { maximumAge: 5 * 60_000, timeout: 8_000 },
     );
