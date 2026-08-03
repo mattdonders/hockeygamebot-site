@@ -3636,11 +3636,21 @@ export default function AttendedTracker() {
           /* ── BY LOCATION — on-demand GPS, always reachable regardless of the
              Tonight's Game card's own suppression/backoff state ──────────────── */
           <>
-            <div className="tn-privacy">
-              📍 Automatic detection: {geoPrefState === 'enabled' ? 'On' : 'Off'} ·{' '}
-              <button type="button" className="btn-text" disabled={locBusy} onClick={toggleLocationDetection}>
-                {geoPrefState === 'enabled' ? 'Turn off' : 'Turn on'}
-              </button>
+            <div className="pp-actions att-loc-toggle-row">
+              <label className="pp-toggle">
+                <input
+                  type="checkbox"
+                  checked={geoPrefState === 'enabled'}
+                  disabled={locBusy}
+                  onChange={toggleLocationDetection}
+                />
+                <span className={geoPrefState === 'enabled' ? 'pp-toggle-track on' : 'pp-toggle-track'}>
+                  <span className="pp-toggle-knob" />
+                </span>
+                <span className="pp-toggle-label">
+                  📍 Automatic detection: {geoPrefState === 'enabled' ? 'On' : 'Off'}
+                </span>
+              </label>
             </div>
             <div className="att-add-controls">
               <label className="att-date-field">
@@ -3702,7 +3712,9 @@ export default function AttendedTracker() {
                           <span className="att-add-meta">
                             <span className="att-add-date">{g.date}</span>
                             {g.venue ? <span className="att-add-venue">{g.venue}</span> : null}
-                            {km != null ? <span className="att-add-venue">{km < 1 ? '<1 km' : `${km.toFixed(1)} km`}</span> : null}
+                            {km != null ? (
+                              <span className="att-add-dist">{km < 1 ? '<1 km' : `${km.toFixed(1)} km`}</span>
+                            ) : null}
                           </span>
                         </div>
                         <button
