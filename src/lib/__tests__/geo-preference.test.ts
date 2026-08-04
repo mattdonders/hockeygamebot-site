@@ -169,9 +169,9 @@ describe('recordPermissionDenied', () => {
     expect(canPromptNow(T0 + 30 * DAY)).toBe(true);
   });
 
-  it('does not increment declineCount', () => {
+  it('raises declineCount to the 3rd rung, so the next soft decline lands on 4 (indefinite)', () => {
     recordPermissionDenied(T0);
-    expect(readGeoPreference(T0).declineCount).toBe(0);
+    expect(readGeoPreference(T0).declineCount).toBe(3);
   });
 
   it('does NOT set the session mute, so the 30-day window is the only gate', () => {
@@ -179,15 +179,113 @@ describe('recordPermissionDenied', () => {
     expect(store.sessionStorage.getItem(NOTNOW_SESSION_KEY)).toBeNull();
   });
 
-  // Documents current behaviour, NOT an endorsement: a soft "not now" after a
-  // hard OS denial rewrites the record from scratch (declineCount 0 → 1), which
-  // downgrades the 30-day backoff to a session-only mute. See report.
-  it('a later soft decline downgrades the denial backoff to a session mute', () => {
+  // Positive control: the merge must not freeze state — a first-ever denial on a
+  // clean profile has to establish the suppression.
+  it('establishes suppression on a clean profile (positive control)', () => {
+    expect(readGeoPreference(T0).state).toBe('unset');
+    recordPermissionDenied(T0);
+    expect(readGeoPreference(T0)).toMatchObject({
+      state: 'suppressed',
+      nextPromptAt: new Date(T0 + 30 * DAY).toISOString(),
+    });
+    expect(canPromptNow(T0 + DAY)).toBe(false);
+  });
+
+  it('also establishes suppression over a prior enabled state', () => {
+    recordGrant(T0);
+    recordPermissionDenied(T0 + DAY);
+    expect(readGeoPreference(T0)).toMatchObject({
+      state: 'suppressed',
+      nextPromptAt: new Date(T0 + DAY + 30 * DAY).toISOString(),
+    });
+  });
+});
+
+describe('recordPermissionDenied — merge invariants (regressions)', () => {
+  // Failure mode 1: a soft decline right after a hard OS denial used to rewrite
+  // the record from scratch (declineCount 0 → 1) and downgrade the 30-day
+  // backoff to a session-only mute.
+  it('a later soft decline cannot weaken the denial backoff', () => {
     recordPermissionDenied(T0);
     recordDecline(T0 + DAY);
 
     const pref = readGeoPreference(T0);
-    expect(pref).toMatchObject({ state: 'deferred', declineCount: 1, nextPromptAt: null });
+    // count 3 + 1 = 4 → the indefinite rung, which is stronger, so it applies.
+    expect(pref).toMatchObject({ state: 'suppressed', declineCount: 4, nextPromptAt: null });
+    store.newSession();
+    expect(canPromptNow(T0 + 365 * DAY)).toBe(false);
+  });
+
+  it('a soft decline cannot shorten a running denial window even mid-ladder', () => {
+    // Force a mid-ladder record whose window is longer than the 2nd-decline +7d.
+    recordPermissionDenied(T0); // suppressed, +30d, count 3
+    store.localStorage.setItem(
+      PREF_KEY,
+      JSON.stringify({ ...readGeoPreference(T0), declineCount: 1 }),
+    );
+    recordDecline(T0 + DAY); // would be rung 2 → +7d from T0+DAY
+
+    const pref = readGeoPreference(T0);
+    expect(pref.state).toBe('suppressed');
+    expect(pref.nextPromptAt).toBe(new Date(T0 + 30 * DAY).toISOString()); // longer window kept
+    expect(canPromptNow(T0 + 20 * DAY)).toBe(false);
+  });
+
+  // Failure mode 2: repeated denials used to rewrite the same flat window.
+  // Decision: repeated denials EXTEND (re-base 30d on now), never regress.
+  it('repeated denials extend the window rather than regressing it', () => {
+    recordPermissionDenied(T0);
+    recordPermissionDenied(T0 + 10 * DAY);
+
+    const pref = readGeoPreference(T0);
+    expect(pref).toMatchObject({ state: 'suppressed', declineCount: 3 });
+    expect(pref.nextPromptAt).toBe(new Date(T0 + 40 * DAY).toISOString());
+    expect(canPromptNow(T0 + 39 * DAY)).toBe(false);
+    expect(canPromptNow(T0 + 40 * DAY)).toBe(true);
+  });
+
+  it('a stale re-fired denial cannot shorten the window it already set', () => {
+    recordPermissionDenied(T0 + 10 * DAY); // expires T0+40d
+    recordPermissionDenied(T0 + 11 * DAY); // expires T0+41d
+    // A denial evaluated with an EARLIER clock must not win.
+    recordPermissionDenied(T0);
+    expect(readGeoPreference(T0).nextPromptAt).toBe(new Date(T0 + 41 * DAY).toISOString());
+  });
+
+  // Failure mode 3a: explicit "Turn off" must survive a denial unchanged.
+  it('never downgrades an explicit disabled state', () => {
+    disableGeo(T0);
+    recordPermissionDenied(T0 + DAY);
+
+    expect(readGeoPreference(T0)).toMatchObject({ state: 'disabled', nextPromptAt: null });
+    expect(canPromptNow(T0 + 365 * DAY)).toBe(false);
+  });
+
+  it('a soft decline never downgrades an explicit disabled state either', () => {
+    disableGeo(T0);
+    recordDecline(T0 + DAY);
+    expect(readGeoPreference(T0)).toMatchObject({ state: 'disabled', nextPromptAt: null });
+  });
+
+  // Failure mode 3b: indefinite suppression must not gain a finite expiry.
+  it('never adds an expiry to an indefinite (4th-decline) suppression', () => {
+    for (let i = 0; i < 4; i += 1) recordDecline(T0 + i);
+    expect(readGeoPreference(T0)).toMatchObject({ state: 'suppressed', declineCount: 4, nextPromptAt: null });
+
+    recordPermissionDenied(T0 + DAY);
+
+    const pref = readGeoPreference(T0);
+    expect(pref).toMatchObject({ state: 'suppressed', nextPromptAt: null });
+    expect(pref.declineCount).toBe(4); // never rewound to 3
+    store.newSession();
+    expect(canPromptNow(T0 + 365 * DAY)).toBe(false);
+  });
+
+  // An explicit re-enable is a POSITIVE user action and still wins outright.
+  it('recordGrant still clears a denial-driven suppression', () => {
+    recordPermissionDenied(T0);
+    recordGrant(T0 + DAY);
+    expect(readGeoPreference(T0)).toMatchObject({ state: 'enabled', nextPromptAt: null });
     store.newSession();
     expect(canPromptNow(T0 + DAY)).toBe(true);
   });

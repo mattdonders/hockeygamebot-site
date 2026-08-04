@@ -94,6 +94,64 @@ export function readGeoPreference(nowMs: number = Date.now()): GeoPreference {
   return defaults(nowMs);
 }
 
+/**
+ * How restrictive a stored preference is. Every *negative* signal (soft
+ * decline, OS-level permission denial) is merged through `mergeRestriction`
+ * so it can only ever hold or raise this rank — never lower it. Without the
+ * ranking, whichever negative event fired LAST won outright, so a 1st soft
+ * "Not now" landing after a hard OS denial silently downgraded a 30-day
+ * block to a session-only mute.
+ *
+ *   4  disabled                       explicit user "Turn off"
+ *   3  suppressed, nextPromptAt null  indefinite (4th+ decline)
+ *   2  any state with a nextPromptAt  time-bounded backoff (ties break on expiry)
+ *   1  deferred, no nextPromptAt      session-only mute (1st decline)
+ *   0  unset / enabled                no restriction
+ *
+ * Positive user actions (`recordGrant`, `disableGeo`) deliberately bypass the
+ * merge: they're explicit, so they write straight through.
+ */
+function restrictionRank(pref: GeoPreference): number {
+  if (pref.state === 'disabled') return 4;
+  if (pref.state === 'suppressed' && !pref.nextPromptAt) return 3;
+  if (pref.nextPromptAt) return 2;
+  if (pref.state === 'deferred') return 1;
+  return 0;
+}
+
+function expiryMs(pref: GeoPreference): number {
+  const t = pref.nextPromptAt ? Date.parse(pref.nextPromptAt) : NaN;
+  return Number.isFinite(t) ? t : -Infinity;
+}
+
+/**
+ * Applies `candidate` only insofar as it does not weaken `existing`.
+ * `declineCount` is always carried forward as the max of the two, so the
+ * ladder can never rewind even when the state itself is held.
+ */
+function mergeRestriction(existing: GeoPreference, candidate: GeoPreference, nowMs: number): GeoPreference {
+  const declineCount = Math.max(existing.declineCount, candidate.declineCount);
+  const updatedAt = new Date(nowMs).toISOString();
+  const er = restrictionRank(existing);
+  const cr = restrictionRank(candidate);
+
+  // Existing is strictly stronger (disabled, or an indefinite suppression) —
+  // hold its state/expiry entirely.
+  if (er > cr) return { ...existing, declineCount, updatedAt, version: 1 };
+
+  if (er === cr && er === 2) {
+    // Both are time-bounded: keep whichever window runs longer, and prefer the
+    // harder 'suppressed' label if either side carries it.
+    const keepExisting = expiryMs(existing) >= expiryMs(candidate);
+    const base = keepExisting ? existing : candidate;
+    const state: GeoPrefState =
+      existing.state === 'suppressed' || candidate.state === 'suppressed' ? 'suppressed' : base.state;
+    return { ...base, state, declineCount, updatedAt, version: 1 };
+  }
+
+  return { ...candidate, declineCount, updatedAt, version: 1 };
+}
+
 /** A prior visit succeeded — turn automatic detection on. */
 export function recordGrant(nowMs: number = Date.now()): void {
   write({ ...readGeoPreference(nowMs), state: 'enabled', nextPromptAt: null, updatedAt: new Date(nowMs).toISOString() });
@@ -109,6 +167,10 @@ export function recordGrant(nowMs: number = Date.now()): void {
  *   3rd decline → nextPromptAt = +30d
  *   4th+        → 'suppressed', indefinitely, until the user explicitly
  *                 re-enables (NOT the same as an explicit 'disabled').
+ *
+ * The computed rung is merged through `mergeRestriction`, so a soft decline
+ * can never weaken a stronger state already in effect (an explicit 'disabled',
+ * an indefinite suppression, or a longer backoff window from an OS denial).
  */
 export function recordDecline(nowMs: number = Date.now()): void {
   const pref = readGeoPreference(nowMs);
@@ -131,22 +193,41 @@ export function recordDecline(nowMs: number = Date.now()): void {
   } else {
     next = { state: 'suppressed', declineCount, nextPromptAt: null, updatedAt: iso, version: 1 };
   }
-  write(next);
+  write(mergeRestriction(pref, next, nowMs));
 }
 
 /**
  * A real browser permission denial (not a soft in-app "not now", and never
  * a transient timeout/unavailable — those must leave the preference
  * untouched, since they're retryable next load). Gets real backoff.
+ *
+ * A denial is worth the SAME rung as the 3rd soft decline: 'suppressed' with a
+ * 30-day window, and `declineCount` raised to at least 3. Raising the count is
+ * what stops the next soft "Not now" from computing rung 1 and downgrading the
+ * block to a session-only mute; it also means the next soft decline correctly
+ * lands on the indefinite 4th rung.
+ *
+ * REPEATED denials EXTEND, they don't escalate: each one re-bases the 30-day
+ * window on `now` (via the merge's longer-window-wins rule) and holds
+ * declineCount at 3. Rationale — a denial usually reflects a standing OS/browser
+ * setting rather than fresh per-visit annoyance, so N denials shouldn't be
+ * harsher than N soft "no thanks" clicks. Escalation past 30 days stays reserved
+ * for the user actually dismissing our own in-app prompt again.
+ *
+ * Merged through `mergeRestriction`, so a denial can never downgrade an
+ * explicit 'disabled', add an expiry to an indefinite suppression, or shorten
+ * a longer window that's already running.
  */
 export function recordPermissionDenied(nowMs: number = Date.now()): void {
   const pref = readGeoPreference(nowMs);
-  write({
-    ...pref,
+  const candidate: GeoPreference = {
     state: 'suppressed',
+    declineCount: Math.max(pref.declineCount, 3),
     nextPromptAt: new Date(nowMs + THIRTY_DAYS_MS).toISOString(),
     updatedAt: new Date(nowMs).toISOString(),
-  });
+    version: 1,
+  };
+  write(mergeRestriction(pref, candidate, nowMs));
 }
 
 /** Explicit user "Turn off" — distinct from backoff-exhausted 'suppressed'. */

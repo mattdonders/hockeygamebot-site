@@ -27,9 +27,11 @@ import type { TonightGame } from './tonight-client';
  * only runs this ~20 lines of pure maths locally. Matching against a bundled table would
  * quietly reintroduce the second copy the design exists to avoid.
  *
- * Ambiguity guard mirrors arena-match.ts: if the two nearest are within 0.5km of each
- * other we refuse to guess. Real NHL buildings are >10km apart, so this only trips on
- * bad data — and a wrong arena means a wrong permanent record.
+ * Ambiguity guard mirrors arena-match.ts: if the two nearest arenas are within 0.5km of
+ * each other IN DISTANCE FROM THE DEVICE (i.e. the device is near-equidistant from both —
+ * not that the buildings are 0.5km apart) we refuse to guess. Real NHL buildings are
+ * >10km apart, so this only trips on bad data — and a wrong arena means a wrong
+ * permanent record.
  */
 function gameAtMyArena(
   games: TonightGame[],
@@ -108,7 +110,7 @@ export function makeManualCandidate(game: TonightGame, games: TonightGame[]): Ca
 // ── Dismissals ──────────────────────────────────────────────────────────────────
 // Per GAME, expiring with that game's window (spec, locked 2026-07-31). Keyed by
 // game_id — never by date or team — so dismissing one candidate cannot suppress another,
-// and expiry cleans itself up with no scheduled job. Persistent enough not to annoy,
+// and expiry cleans itself up on the next write with no scheduled job. Persistent enough not to annoy,
 // temporary enough not to punish.
 
 const DISMISS_KEY = 'hgb_pp_tonight_dismissed';
@@ -124,7 +126,10 @@ function readRaw(): DismissEntry[] {
   }
 }
 
-/** Currently-active dismissals, with expired entries dropped (and pruned on write). */
+/** Currently-active dismissals: expired entries are filtered out of the returned Set in
+ *  memory only — this never writes back. Actual pruning of the stored array happens on
+ *  WRITE (dismissGame drops expired entries; undismissGame rewrites without the undone
+ *  id), so an untouched store keeps stale entries until the next dismiss. */
 export function readDismissed(now: number = Date.now()): Set<string> {
   if (typeof window === 'undefined') return new Set();
   const live = readRaw().filter((e) => {
