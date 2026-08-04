@@ -26,6 +26,11 @@ export interface BadgeGame {
   away: { score: number };
   venue: string | null;
   special_event?: string | null; // event name (Stadium Series/Winter Classic/…) or null
+  /** True only when this game's play-by-play was fetched AND parsed (hgb-api
+   *  migration 0063). Gates the gordie-howe badge: a false/absent value means fight
+   *  data is UNKNOWN, not zero, so the badge declines to evaluate rather than
+   *  asserting "no fight". Mirrors `pbp_ok` in attended_summary.js. */
+  pbp_ok?: boolean;
 }
 
 /** One player's box-score line as needed for moment badges + records. */
@@ -38,6 +43,10 @@ export interface BadgePlayer {
   points: number;
   pim: number;
   sog: number;
+  /** Confirmed fighting majors by this player in this game, parsed from the NHL
+   *  play-by-play (hgb-api migration 0063). Only meaningful when the GAME's
+   *  `pbp_ok` is true — see the gordie-howe badge below. NOT derived from pim. */
+  fights: number;
 }
 
 /** Per-game derived box score. `undefined` ⇒ not hydrated (predicates fail-safe). */
@@ -158,10 +167,16 @@ export const BADGES: BadgeDef[] = [
     id: 'gordie-howe',
     label: 'Gordie Howe Hat Trick',
     family: 'moment',
-    blurb: 'You watched a player get a goal, an assist, and (likely) a fight.',
+    blurb: 'You watched a player get a goal, an assist, and a fight.',
     rarityHint: '1 in 40',
-    note: 'Estimated — a goal, an assist and 5+ PIM (fight heuristic, imperfect).',
-    earns: (_g, box) => anyPlayer(box, (p) => p.goals >= 1 && p.assists >= 1 && p.pim >= 5),
+    note: 'A goal, an assist and a confirmed fighting major in the same game.',
+    // MUST stay byte-for-byte equivalent to PLAYER_MOMENT_PREDS['gordie-howe'] +
+    // its pbp_ok gate in hgb-api src/endpoints/attended_summary.js. The old rule
+    // was `p.pim >= 5`, a proxy that three stacked minors clear with no fight
+    // (verified: game 2021020005, Landeskog — 1G/1A/6 PIM, zero majors). Real
+    // detection comes from confirmed play-by-play fighting majors; `pbp_ok` gates
+    // it so a game with unparsed play-by-play reads as unknown, not as "no fight".
+    earns: (g, box) => !!g.pbp_ok && anyPlayer(box, (p) => p.goals >= 1 && p.assists >= 1 && p.fights >= 1),
   },
   {
     id: 'three-point-night',
