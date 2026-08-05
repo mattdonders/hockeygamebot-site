@@ -683,7 +683,17 @@ function GeoStatusLine({
 /** `earned.earned.milestones` ids are wire-shape thresholds crossed by this log —
  *  `games-50`, `arenas-10` (see hgb-api `deriveEarned`'s GAME_MILESTONES/
  *  ARENA_MILESTONES) — not display labels. Unrecognized shapes render verbatim
- *  rather than being dropped, so a future milestone kind still shows *something*. */
+ *  rather than being dropped, so a future milestone kind still shows *something*.
+ *
+ *  PROVISIONAL COPY, not reviewed: verified 2026-08-04 that no canonical display
+ *  label exists anywhere for this exact id shape. Three independent, differently-
+ *  numbered "milestone" concepts already coexist in this codebase and none is
+ *  authoritative for the others — hgb-api's GAME_MILESTONES/ARENA_MILESTONES (this
+ *  formatter's source), hgb-api's separate tier-ladder rungs in
+ *  attended_summary.js (different thresholds, has its own `label`/`rung_name`),
+ *  and this file's own AttendedTracker.tsx STUB_MILESTONES/milestoneNoteFor
+ *  (~2647/2707, a third list). Do not treat "50th game"/"10th arena" as final
+ *  wording — defer to the supervised UI review round. */
 function formatMilestoneLabel(id: string): string {
   const [kind, raw] = id.split('-');
   const n = Number(raw);
