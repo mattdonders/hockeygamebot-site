@@ -84,16 +84,20 @@ if (handle) {
 }
 
 // Status + caching:
-//  - 200 (public passport): edge-cache 5 min (s-maxage) to absorb viral share
-//    traffic — public passports change rarely. No purge on a private-toggle, so
-//    a just-hidden passport can serve for up to 5 min; acceptable under the
-//    privacy model. 404/503 are deliberately NOT cached (a claim/publish or a
-//    recovered outage must reflect immediately, not after a stale window).
+//  - 200 (public passport): no-store. Privacy contract (see the API's
+//    passport.js / passport_card.js): a public→private toggle must take effect
+//    immediately on every controlled surface HockeyGameBot serves, and this SSR
+//    page's HTML directly embeds the passport's counters/badges/records into the
+//    markup and OG meta tags — an edge-cached copy here would keep disclosing a
+//    now-private passport to anyone hitting that PoP for up to the cache
+//    lifetime, independent of the upstream API already answering no-store.
+//    Public passports are cheap to re-render (one API fetch + one config
+//    fetch), so there's no meaningful cost to dropping the cache.
 //  - 503 (upstream failure): no-store so a transient outage is never cached as
 //    a deletion.
 //  - 404 (unknown/private miss): dynamic (uncached).
 if (passport) {
-  Astro.response.headers.set('Cache-Control', 'public, s-maxage=300');
+  Astro.response.headers.set('Cache-Control', 'no-store');
 } else if (upstreamError) {
   Astro.response.status = 503;
   Astro.response.headers.set('Cache-Control', 'no-store');
