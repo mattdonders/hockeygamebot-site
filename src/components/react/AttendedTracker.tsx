@@ -35,7 +35,8 @@ import { pickTeamColor } from '../../lib/team-colors';
 import { NHL_TEAMS, NHL_TEAM_NAMES } from '../../lib/nhl-teams';
 import { nhlGameType } from '../../lib/nhl-game-type';
 import { readPhotoDate, readPhotoGps, type GpsCoord } from '../../lib/exif-date';
-import { nearestArena } from '../../lib/arena-match';
+import { nearestArena, haversineKm } from '../../lib/arena-match';
+import { readGeoPreference, recordGrant, disableGeo, type GeoPrefState } from '../../lib/geo-preference';
 import { harvestDates } from '../../lib/import-dates';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import PublicPassportPanel from './PublicPassportPanel';
@@ -53,6 +54,8 @@ import {
 } from './puck-passport-badges';
 import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
+import { isFeatureEnabled } from '../../lib/feature-flags';
+import TonightGameCard from './TonightGameCard';
 
 const API = 'https://api.hockeygamebot.com';
 const STORAGE_KEY = 'hgb_puck_passport_games';
@@ -94,11 +97,11 @@ const MAX_SUMMARY_RETRIES = 1;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type TeamSide = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
+export type TeamSide = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
 
 /** The persisted shape — enough to render the game LIST (matchup / score / venue
  *  / OT chip) with zero network. Aggregates come from the server summary. */
-type AttendedGame = {
+export type AttendedGame = {
   game_id: string;
   date: string; // YYYY-MM-DD (hockey date)
   home: TeamSide;
@@ -204,13 +207,13 @@ type TeamRecordsAnchored = {
 
 /** The resolved anchor + how it was chosen (drives the banner). null pre-anchor
  *  or when the api hasn't shipped the field yet (graceful fallback → neutral). */
-type SummaryAnchor = {
+export type SummaryAnchor = {
   team_id: number;
   abbrev: string;
   source: 'explicit' | 'inferred' | 'none';
 };
 
-type AttendedSummary = {
+export type AttendedSummary = {
   counters: { games: number; periods: number; goals: number; shots: number; players_seen: number };
   // W-L-OTL neutral ledger (otl added server-side). `otl` may be absent on an
   // older api deploy — the render tolerates it (graceful fallback).
@@ -294,8 +297,12 @@ type AttendedSummary = {
 type ViewRecord = { key: string; label: string; value: string; sub: string; total_time?: string | null };
 
 // Raw shapes from /v1/games/today
-type RawTeam = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
-type RawGame = {
+export type RawTeam = { id: number; abbrev: string; name: string; short_name?: string | null; score: number };
+/** Canonical home-arena identity + coords, added to /v1/games/today alongside
+ *  /v1/passport/tonight (see tonight-client.ts's TonightArena) — same shape,
+ *  same server-side `arenaForGame()` helper. null for an unrecognised home abbrev. */
+export type RawArena = { abbrev: string; name: string; lat: number; lon: number };
+export type RawGame = {
   game_id: string;
   date: string;
   home_team: RawTeam;
@@ -303,6 +310,7 @@ type RawGame = {
   venue: string | null;
   last_period_type: string | null;
   status: string;
+  arena?: RawArena | null;
 };
 
 // ── Add-flow shared helpers ─────────────────────────────────────────────────────
@@ -318,6 +326,7 @@ function toRawGames(data: any): RawGame[] {
     venue: g.venue ?? null,
     last_period_type: g.last_period_type ?? null,
     status: g.status,
+    arena: g.arena ?? null,
   }));
 }
 
@@ -505,17 +514,40 @@ async function fetchD1Attended(): Promise<D1AttendedRow[] | null> {
   }
 }
 
-/** POST /v1/account/attended (upsert). Returns true on success. */
-async function postAttended(gameId: string): Promise<boolean> {
+/** What THIS log newly unlocked (badges / first-ever arena / crossed milestone),
+ *  plus the resulting totals. Only ever populated when `?earned=1` is requested AND
+ *  the row was newly created (a retry/double-tap must not re-announce a badge the
+ *  user already has). See hgb-api `deriveEarned` — the client never re-derives this. */
+export type EarnedDelta = {
+  earned: { badges: string[]; new_arena: boolean; milestones: string[] };
+  current: { games: number; arenas: number };
+};
+
+/** POST /v1/account/attended (upsert). Pass `earned: true` (the Tonight card's one
+ *  opt-in log) to also get back what this log newly unlocked — costs the server one
+ *  extra summary computation, so it's off by default (bulk add doesn't pay it). */
+async function postAttended(
+  gameId: string,
+  opts: { earned?: boolean } = {},
+): Promise<{ ok: boolean; earned?: EarnedDelta }> {
   try {
-    const r = await apiFetch(`${API}/v1/account/attended`, {
+    const url = new URL(`${API}/v1/account/attended`);
+    if (opts.earned) url.searchParams.set('earned', '1');
+    const r = await apiFetch(url.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ game_id: gameId }),
     });
-    return r.ok;
+    if (!r.ok) return { ok: false };
+    if (!opts.earned) return { ok: true };
+    try {
+      const data = await r.json();
+      return { ok: true, earned: data?.earned && data?.current ? (data as EarnedDelta) : undefined };
+    } catch {
+      return { ok: true }; // parse failure must not fail the attend — it already landed
+    }
   } catch {
-    return false;
+    return { ok: false };
   }
 }
 
@@ -1237,9 +1269,9 @@ export default function AttendedTracker() {
   // historical players; players.json backfills a properly-cased name. Non-fatal.
   const [nameMap, setNameMap] = useState<Map<number, string> | null>(null);
 
-  // Add-games flow — mode toggle: team-first (default, matches fan recall), date, or
-  // bulk import (photos / pasted list).
-  const [addMode, setAddMode] = useState<'team' | 'date' | 'import'>('team');
+  // Add-games flow — mode toggle: team-first (default, matches fan recall), date,
+  // location, or bulk import (photos / pasted list).
+  const [addMode, setAddMode] = useState<'team' | 'date' | 'location' | 'import'>('team');
 
   // Count-up replay: bumping this token re-runs the 0→total roll on every tally.
   // Fired by clicking the Games counter (an opt-in "watch it add up" moment) — the
@@ -1254,6 +1286,111 @@ export default function AttendedTracker() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [matchupFilter, setMatchupFilter] = useState('');
+
+  // By-Location sub-flow. Fully decoupled from Tonight's Game card's geo state
+  // machine (geo-preference.ts) — this is an on-demand, ephemeral GPS request
+  // with no suppression ladder, always reachable regardless of that card's
+  // state. It reads/writes the SAME localStorage preference (single shared
+  // on/off toggle), it just never gates ITS OWN prompt on it.
+  const todayStr = () => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  };
+  const [geoPrefState, setGeoPrefState] = useState<GeoPrefState>(() => readGeoPreference().state);
+  const [locDate, setLocDate] = useState<string>(() => todayStr());
+  const [locCoords, setLocCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [locBusy, setLocBusy] = useState(false);
+  const [locResults, setLocResults] = useState<RawGame[] | null>(null);
+  const [locLoading, setLocLoading] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
+
+  const fetchGamesForDate = useCallback(async (d: string): Promise<RawGame[]> => {
+    const res = await fetch(`${API}/v1/games/today?date=${d}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return toRawGames(await res.json());
+  }, []);
+
+  const findByLocation = useCallback(
+    async (coords: { lat: number; lon: number }, d: string) => {
+      setLocLoading(true);
+      setLocError(null);
+      try {
+        const games = await fetchGamesForDate(d);
+        const withDist = games
+          .map((g) => ({
+            g,
+            km: g.arena ? haversineKm(coords.lat, coords.lon, g.arena.lat, g.arena.lon) : null,
+          }))
+          .sort((a, b) => {
+            if (a.km != null && b.km != null) return a.km - b.km;
+            if (a.km != null) return -1;
+            if (b.km != null) return 1;
+            return a.g.date < b.g.date ? -1 : a.g.date > b.g.date ? 1 : 0;
+          });
+        setLocResults(withDist.map((x) => x.g));
+      } catch {
+        setLocError('Could not load games for that date. Please try again.');
+        setLocResults(null);
+      } finally {
+        setLocLoading(false);
+      }
+    },
+    [fetchGamesForDate],
+  );
+
+  const useMyLocation = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setLocError('Location isn’t available in this browser — try By Team or By Date instead.');
+      return;
+    }
+    setLocBusy(true);
+    setLocError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocBusy(false);
+        const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        setLocCoords(coords);
+        if (readGeoPreference().state !== 'enabled') {
+          recordGrant();
+          setGeoPrefState('enabled');
+        }
+        findByLocation(coords, locDate);
+      },
+      (err) => {
+        // Denial/timeout/unavailable — transient, no ladder/backoff writes. This
+        // is an explicit on-demand ask, not the auto-reacquire Tonight's Game
+        // gates behind canPromptNow(); a "no" here means nothing about that.
+        setLocBusy(false);
+        console.warn('[by-location] getCurrentPosition failed', err.code, err.message);
+        if (err.code === err.TIMEOUT) {
+          setLocError('Location took too long to respond — try again, or use By Team/By Date instead.');
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setLocError(
+            'Your device could not determine a location — check macOS System Settings → Privacy & Security → Location Services, or try By Team/By Date instead.',
+          );
+        } else {
+          setLocError('Couldn’t get your location — try By Team or By Date instead.');
+        }
+      },
+      { maximumAge: 5 * 60_000, timeout: 8_000 },
+    );
+  }, [findByLocation, locDate]);
+
+  const toggleLocationDetection = useCallback(() => {
+    if (geoPrefState === 'enabled') {
+      disableGeo();
+      setGeoPrefState('disabled');
+    } else {
+      useMyLocation();
+    }
+  }, [geoPrefState, useMyLocation]);
+
+  // Re-run the search for a changed date using the coords already on hand — no
+  // new browser permission prompt, since we already have a fix for this visit.
+  const refetchByLocationDate = useCallback(() => {
+    if (!locCoords) return;
+    findByLocation(locCoords, locDate);
+  }, [locCoords, locDate, findByLocation]);
 
   // By-Team sub-flow
   const seasonOptions = useMemo(() => buildSeasonOptions(), []);
@@ -1324,7 +1461,7 @@ export default function AttendedTracker() {
         // Upsert each into D1; server dedupes on (user_id, game_id).
         let allOk = true;
         for (const g of local) {
-          const ok = g.is_manual ? await postManualAttended(toManualGame(g)) : await postAttended(g.game_id);
+          const ok = g.is_manual ? await postManualAttended(toManualGame(g)) : (await postAttended(g.game_id)).ok;
           if (!ok) allOk = false;
         }
         if (cancelled) return;
@@ -1450,7 +1587,7 @@ export default function AttendedTracker() {
   const [justAdded, setJustAdded] = useState<AttendedGame | null>(null);
 
   const addGame = useCallback(
-    (raw: RawGame) => {
+    (raw: RawGame, opts: { earned?: boolean } = {}): Promise<{ ok: boolean; earned?: EarnedDelta }> => {
       const snap: AttendedGame = {
         game_id: raw.game_id,
         date: raw.date,
@@ -1487,14 +1624,15 @@ export default function AttendedTracker() {
           };
           return [row, ...rows];
         });
-        return postAttended(raw.game_id).then((ok) => {
+        return postAttended(raw.game_id, opts).then(({ ok, earned }) => {
           if (ok) {
             setWriteError(null);
             loadSummary(); // refetch aggregates from the server (anti-divergence)
-          } else {
-            setWriteError('Could not save that game to your account — check your connection and try again.');
-            setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
+            return { ok: true, earned };
           }
+          setWriteError('Could not save that game to your account — check your connection and try again.');
+          setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
+          return { ok: false };
         });
       }
       setLocalGames((prev) => {
@@ -1503,7 +1641,7 @@ export default function AttendedTracker() {
         writeAttended(next);
         return next;
       });
-      return Promise.resolve();
+      return Promise.resolve({ ok: true });
     },
     [isLoggedIn, commitDetail, loadSummary],
   );
@@ -2543,6 +2681,10 @@ export default function AttendedTracker() {
   // preview eats above-the-fold space for a returning user who's already seen it.
   // Expanded by default (new users get the aha); collapse state persists per-browser.
   const [heroCollapsed, setHeroCollapsed] = useState(false);
+  // Tonight's Game leads when it has something to show — the stub hero auto-collapses
+  // rather than competing for the same above-the-fold slot (spec: hero precedence).
+  const [tonightActive, setTonightActive] = useState(false);
+  const tonightEnabled = isFeatureEnabled('tonight');
   useEffect(() => {
     try {
       setHeroCollapsed(localStorage.getItem(HERO_COLLAPSE_KEY) === '1');
@@ -2990,27 +3132,43 @@ export default function AttendedTracker() {
         </div>
       ) : null}
 
+      {tonightEnabled ? (
+        <TonightGameCard
+          games={games}
+          summary={summary}
+          isLoggedIn={isLoggedIn}
+          anchor={serverAnchor && serverAnchor.source !== 'none' ? serverAnchor.abbrev : null}
+          stubOrdinals={stubOrdinals}
+          addGame={addGame}
+          removeGame={removeGame}
+          handleStub={handleStub}
+          onActiveChange={setTonightActive}
+        />
+      ) : null}
+
       {/* Featured-stub hero — lead with the shareable ARTIFACT. The per-game stub is
           the viral unit (event-tied, others recognize the game); the passport-share
           bar below stays as the whole-collection flex. */}
       {!empty && featuredGame ? (
-        <div className={`att-hero${heroCollapsed ? ' att-hero-collapsed' : ''}`}>
+        <div className={`att-hero${heroCollapsed || tonightActive ? ' att-hero-collapsed' : ''}`}>
           <div className="att-hero-head">
             <div className="att-hero-headings">
-              {!heroCollapsed ? <span className="att-hero-eyebrow">Share where you've been</span> : null}
+              {!heroCollapsed && !tonightActive ? <span className="att-hero-eyebrow">Share where you've been</span> : null}
               <h3 className="att-hero-title">Your ticket stub</h3>
             </div>
-            <button
-              className="att-hero-toggle"
-              type="button"
-              onClick={toggleHero}
-              aria-expanded={!heroCollapsed}
-              title={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
-            >
-              {heroCollapsed ? 'Show ▾' : 'Hide ▴'}
-            </button>
+            {tonightActive ? null : (
+              <button
+                className="att-hero-toggle"
+                type="button"
+                onClick={toggleHero}
+                aria-expanded={!heroCollapsed}
+                title={heroCollapsed ? 'Show ticket stub' : 'Hide ticket stub'}
+              >
+                {heroCollapsed ? 'Show ▾' : 'Hide ▴'}
+              </button>
+            )}
           </div>
-          {!heroCollapsed ? (
+          {!heroCollapsed && !tonightActive ? (
             <div className="att-hero-body">
               <p className="att-hero-sub">
                 {featuredGame.away.name || featuredGame.away.abbrev} @{' '}
@@ -3151,6 +3309,14 @@ export default function AttendedTracker() {
             onClick={() => setAddMode('date')}
           >
             By Date
+          </button>
+          <button
+            role="tab"
+            aria-selected={addMode === 'location'}
+            className={addMode === 'location' ? 'att-mode-btn active' : 'att-mode-btn'}
+            onClick={() => setAddMode('location')}
+          >
+            By Location
           </button>
           <button
             role="tab"
@@ -3473,6 +3639,106 @@ export default function AttendedTracker() {
                   </div>
                 )}
               </>
+            ) : null}
+          </>
+        ) : addMode === 'location' ? (
+          /* ── BY LOCATION — on-demand GPS, always reachable regardless of the
+             Tonight's Game card's own suppression/backoff state ──────────────── */
+          <>
+            <div className="pp-actions att-loc-toggle-row">
+              <label className="pp-toggle">
+                <input
+                  type="checkbox"
+                  checked={geoPrefState === 'enabled'}
+                  disabled={locBusy}
+                  onChange={toggleLocationDetection}
+                />
+                <span className={geoPrefState === 'enabled' ? 'pp-toggle-track on' : 'pp-toggle-track'}>
+                  <span className="pp-toggle-knob" />
+                </span>
+                <span className="pp-toggle-label">
+                  📍 Automatic detection: {geoPrefState === 'enabled' ? 'On' : 'Off'}
+                </span>
+              </label>
+            </div>
+            <div className="att-add-controls">
+              <label className="att-date-field">
+                <span className="att-date-label">Date</span>
+                <input
+                  type="date"
+                  className="att-date"
+                  value={locDate}
+                  onChange={(e) => {
+                    setLocDate(e.target.value);
+                  }}
+                  aria-label="Date"
+                />
+              </label>
+              {locCoords ? (
+                <button className="att-btn" onClick={refetchByLocationDate} disabled={locLoading}>
+                  {locLoading ? 'Loading…' : 'Find games'}
+                </button>
+              ) : (
+                <button className="att-btn" onClick={useMyLocation} disabled={locBusy || locLoading}>
+                  {locBusy || locLoading ? 'Locating…' : 'Use my location'}
+                </button>
+              )}
+            </div>
+            <div className="att-add-hint">
+              Uses your device's location to find the game nearest you on the selected date.
+              Your coordinates stay on this device.
+            </div>
+
+            {locError ? <div className="att-banner att-banner-warn">{locError}</div> : null}
+
+            {locResults != null ? (
+              locResults.length === 0 ? (
+                <div className="att-add-empty">No NHL games on {locDate}.</div>
+              ) : (
+                <div className="att-add-results">
+                  {locResults.map((g) => {
+                    const already = attendedIds.has(g.game_id);
+                    const awayColor = pickTeamColor(g.away_team.abbrev);
+                    const homeColor = pickTeamColor(g.home_team.abbrev);
+                    const km = g.arena && locCoords ? haversineKm(locCoords.lat, locCoords.lon, g.arena.lat, g.arena.lon) : null;
+                    return (
+                      <div className="att-add-row" key={g.game_id}>
+                        <div className="att-add-info">
+                          <span className="att-add-line">
+                            <span className="att-add-teams">
+                              <span style={{ color: awayColor, fontWeight: 700 }}>
+                                {teamMatchupLabel(g.away_team.short_name, g.away_team.abbrev)}
+                              </span>
+                              <span className="att-add-at">@</span>
+                              <span style={{ color: homeColor, fontWeight: 700 }}>
+                                {teamMatchupLabel(g.home_team.short_name, g.home_team.abbrev)}
+                              </span>
+                            </span>
+                            <span className="att-add-score">
+                              {g.status === 'final' ? `${g.away_team.score}–${g.home_team.score}` : g.status}
+                            </span>
+                          </span>
+                          <span className="att-add-meta">
+                            <span className="att-add-date">{g.date}</span>
+                            {g.venue ? <span className="att-add-venue">{g.venue}</span> : null}
+                            {km != null ? (
+                              <span className="att-add-dist">{km < 1 ? '<1 km' : `${km.toFixed(1)} km`}</span>
+                            ) : null}
+                          </span>
+                        </div>
+                        <button
+                          className={already ? 'att-add-btn added' : 'att-add-btn'}
+                          onClick={() => toggleSearchResult(g, already)}
+                          disabled={mutatingIds.has(g.game_id)}
+                          title={already ? 'Remove from your attended games' : undefined}
+                        >
+                          {already ? '✓ Added' : '+ Attended'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             ) : null}
           </>
         ) : (
