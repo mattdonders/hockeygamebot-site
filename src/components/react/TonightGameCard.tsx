@@ -153,6 +153,7 @@ export default function TonightGameCard({
     badges: string[];
     badgesPending: boolean;
     newArena: boolean;
+    milestones: string[];
   } | null>(null);
   const preLogBadgeIdsRef = useRef<Set<string> | null>(null);
   const mutatingRef = useRef(false); // synchronous double-tap guard — mirrors AttendedTracker's toggleSearchResult lock
@@ -236,6 +237,11 @@ export default function TonightGameCard({
     setCelebrationExtras((prev) =>
       prev ? { ...prev, badges: newly.map((id) => labelFor.get(id) ?? id), badgesPending: false } : prev,
     );
+    // Milestone tiers (games/arenas thresholds) have no public-summary reconciliation
+    // path the way badges do — `summary.milestones` is the unrelated "witnessed league
+    // milestones" feature, not "tiers this log crossed" — so an anonymous logger never
+    // gets a milestone delta. That's the same shape as `newArena`, which for the
+    // logged-in path comes from the server's `earned` delta and is left untouched here.
   }, [summary, celebrationExtras]);
 
   const active = !!effectiveCandidate || !!sessionUndo || showDiscovery;
@@ -348,9 +354,17 @@ export default function TonightGameCard({
             badges: earned.earned.badges.map((id) => labelFor.get(id) ?? id),
             badgesPending: false,
             newArena: earned.earned.new_arena,
+            // Multi-unlock: a single log can cross more than one threshold at once
+            // (e.g. a first-ever game AND a first-ever arena land on the same
+            // "games-1"/"arenas-1" tap) — render every id the server returned, not
+            // just the first, mirroring how `badges` above already maps the whole array.
+            milestones: earned.earned.milestones.map(formatMilestoneLabel),
           });
         } else {
-          setCelebrationExtras({ badges: [], badgesPending: true, newArena });
+          // Logged-out taps never request the `earned=1` delta (see postAttended),
+          // so there is nothing to reconcile milestones against later — see the note
+          // above the badge-reconciliation effect.
+          setCelebrationExtras({ badges: [], badgesPending: true, newArena, milestones: [] });
         }
       } finally {
         mutatingRef.current = false;
@@ -474,6 +488,7 @@ export default function TonightGameCard({
     const aOrd = stubOrdinals.arenaOrd.get(game.game_id);
     const isNewArena = loggedThisVisit ? celebrationExtras?.newArena : stubOrdinals.firstAtArena.has(game.game_id);
     const badges = loggedThisVisit ? celebrationExtras?.badges ?? [] : [];
+    const milestones = loggedThisVisit ? celebrationExtras?.milestones ?? [] : [];
     const headline = gOrd === 1 ? 'Your 1st NHL game' : gOrd ? `Your ${ordinal(gOrd)} game` : 'Logged';
     return (
       <div className="tn">
@@ -492,7 +507,7 @@ export default function TonightGameCard({
             Undo
           </button>
         </div>
-        {loggedThisVisit && (badges.length > 0 || isNewArena) ? (
+        {loggedThisVisit && (badges.length > 0 || isNewArena || milestones.length > 0) ? (
           <ul className="cel-list">
             {badges.map((label) => (
               <li key={label}>
@@ -504,6 +519,13 @@ export default function TonightGameCard({
                 <span className="mark">✦</span> {ordinal(aOrd)} arena{game.venue ? ` — ${game.venue}` : ''}
               </li>
             ) : null}
+            {/* Multi-unlock: every tier crossed by this one log gets its own row —
+                not just the first — same as the `badges` map above. */}
+            {milestones.map((label) => (
+              <li key={label}>
+                <span className="mark">✦</span> Milestone <span className="cel-badge">{label}</span>
+              </li>
+            ))}
           </ul>
         ) : null}
         <div className="tn-actions">
@@ -656,6 +678,19 @@ function GeoStatusLine({
   // 'unset' / 'deferred' / 'suppressed' — the user never told us to turn anything off,
   // so no status line claims otherwise.
   return null;
+}
+
+/** `earned.earned.milestones` ids are wire-shape thresholds crossed by this log —
+ *  `games-50`, `arenas-10` (see hgb-api `deriveEarned`'s GAME_MILESTONES/
+ *  ARENA_MILESTONES) — not display labels. Unrecognized shapes render verbatim
+ *  rather than being dropped, so a future milestone kind still shows *something*. */
+function formatMilestoneLabel(id: string): string {
+  const [kind, raw] = id.split('-');
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return id;
+  if (kind === 'games') return `${ordinal(n)} game`;
+  if (kind === 'arenas') return `${ordinal(n)} arena`;
+  return id;
 }
 
 function ordinal(n: number): string {
