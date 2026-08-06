@@ -40,6 +40,12 @@ const EMPTY_CHANGELOG: ChangelogResponse = { schema_version: 1, latest_sequence:
 /** GET /v1/passport/changelog. Fails closed (empty response) on any error —
  *  a broken/unreachable endpoint must never crash the Puck Passport page. */
 export async function fetchChangelog(): Promise<ChangelogResponse> {
+  // Preview-only: see passport-changelog-preview-fixture.ts. Statically false
+  // (and dead-code-eliminated) in every production build.
+  if (import.meta.env.PUBLIC_CHANGELOG_FIXTURE) {
+    const { PREVIEW_CHANGELOG_FIXTURE } = await import('./passport-changelog-preview-fixture');
+    return PREVIEW_CHANGELOG_FIXTURE;
+  }
   try {
     const r = await fetch(`${API_BASE}/v1/passport/changelog`);
     if (!r.ok) return EMPTY_CHANGELOG;
