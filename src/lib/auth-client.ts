@@ -36,6 +36,13 @@ export type Prefs = {
   tracked_teams: string[];
   tracked_players: number[];
   filter_presets: FilterPreset[];
+  /** Puck Passport "What's New" read cursor — highest changelog `sequence` this
+   *  account has acknowledged. null = unresolved (see passport-changelog.ts's
+   *  resolveSeenThrough, which needs account_created_at below to disambiguate). */
+  changelog_seen_through: number | null;
+  /** users.created_at (ISO string), or null. Only meaningful alongside a null
+   *  changelog_seen_through — see passport-changelog.ts. */
+  account_created_at: string | null;
 };
 
 // ── Session token ─────────────────────────────────────────────────────────────
@@ -247,6 +254,8 @@ const DEV_PREFS: Prefs = {
   tracked_teams: ['NJD', 'SJS'],
   tracked_players: [8484801, 8478460, 8481559, 8480800, 8480002], // Celebrini, Werenski, J. Hughes, Q. Hughes, Hischier
   filter_presets: [],
+  changelog_seen_through: null,
+  account_created_at: null,
 };
 
 function devPrefsRequested(): boolean {
@@ -270,6 +279,8 @@ export async function getPrefs(): Promise<Prefs | null> {
       tracked_teams: data.tracked_teams ?? [],
       tracked_players: data.tracked_players ?? [],
       filter_presets: data.filter_presets ?? [],
+      changelog_seen_through: data.changelog_seen_through ?? null,
+      account_created_at: data.account_created_at ?? null,
     };
   } catch {
     return null;
@@ -291,6 +302,8 @@ export async function putPrefs(body: Partial<Prefs>): Promise<Prefs | null> {
       tracked_teams: data.tracked_teams ?? [],
       tracked_players: data.tracked_players ?? [],
       filter_presets: data.filter_presets ?? [],
+      changelog_seen_through: data.changelog_seen_through ?? null,
+      account_created_at: data.account_created_at ?? null,
     };
   } catch {
     return null;

@@ -1,151 +1,22 @@
 /**
- * Puck Passport — versioning + changelog + "last seen" bookkeeping.
+ * Puck Passport — first-visit onboarding bookkeeping.
  *
- * Single source of truth for the Passport product version and its release notes.
- * Bumping the product is a ONE-LINE change: raise PUCK_PASSPORT_VERSION and
- * prepend a CHANGELOG entry. The onboarding / "What's New" modals on
- * /puck-passport read from here (see PassportOnboarding.tsx).
+ * Onboarding is now a SEPARATE concern from the changelog/"What's New" feed
+ * (see src/lib/passport-changelog.ts) — a one-time tour gated on a plain
+ * completed/not-completed flag, not a version comparison. It used to share a
+ * single `hgb_pp_last_seen_version` key with the changelog; that key is
+ * migrated (not discarded) into passport-changelog.ts's
+ * `hgb_pp_onboarding_completed` + `puck_passport_changelog_seen_through` keys
+ * via `migrateLegacyChangelogState()`, which callers must run before reading
+ * onboarding-completed state here.
  *
- * Persistence is localStorage-only tonight (per-device). The seam for a future
- * cross-device `lastSeen` (via the existing D1 prefs endpoint) is marked below.
+ * Persistence is localStorage-only (per-device) — this is a one-time local
+ * tour, not account state, so it deliberately does not sync across devices.
  */
 
-/** Current Puck Passport product version. Bump this + add a CHANGELOG entry. */
-export const PUCK_PASSPORT_VERSION = '1.2';
-
-/** localStorage key holding the last version whose notes the user has seen. */
-export const LAST_SEEN_KEY = 'hgb_pp_last_seen_version';
-
-export type ChangelogEntry = {
-  /** Semantic-ish version string, e.g. "1.0", "1.1". Compared numerically. */
-  version: string;
-  /** Human date, e.g. "2026-07-25". Display-only. */
-  date: string;
-  /** Short headline for the release. */
-  title: string;
-  /** Bullet points describing what shipped. */
-  items: string[];
-};
-
-/**
- * Release notes, NEWEST FIRST. The "What's New" modal shows every entry strictly
- * newer than the user's stored lastSeen. To ship a release: prepend an entry and
- * raise PUCK_PASSPORT_VERSION to match its `version`.
- */
-export const CHANGELOG: ChangelogEntry[] = [
-  {
-    version: '1.2',
-    date: '2026-07-30',
-    title: 'Ticket stubs — proof you were there',
-    items: [
-      'Turn any game you’ve logged into a shareable ticket stub — final score, date, arena, your game and arena number, and the badges you earned that night.',
-      'Post it to your story: the stub’s QR code sends friends straight to your Passport.',
-      'On X, post two games side by side in one image — sized to show in full, no cropping.',
-    ],
-  },
-  {
-    version: '1.1',
-    date: '2026-07-28',
-    title: 'Your record against every team',
-    items: [
-      'Team records now take your team’s perspective. Overtime and shootout losses split out.',
-      'Tap any badge to see the games behind it: matchup, date, and final score.',
-      'Older and relocated teams show their real names now. The Whalers are the Whalers again.',
-    ],
-  },
-  {
-    version: '1.0',
-    date: '2026-07-25',
-    title: 'Puck Passport is here',
-    items: [
-      'Track every NHL game you’ve been to in person — log by team + season or search by date.',
-      'Earn badges and level up milestone tiers as your history adds up.',
-      'Collect all 32 home rinks and see every arena you’ve visited.',
-      'Sign in to sync across devices and claim your own shareable passport.',
-    ],
-  },
-];
-
-/**
- * Compare two version strings numerically by dotted segments.
- * Returns <0 if a<b, 0 if equal, >0 if a>b. Missing segments count as 0
- * ("1.0" === "1.0.0"). Non-numeric segments coerce to 0 (never throws).
- */
-export function compareVersions(a: string, b: string): number {
-  const pa = String(a).split('.');
-  const pb = String(b).split('.');
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const na = Number(pa[i] ?? 0) || 0;
-    const nb = Number(pb[i] ?? 0) || 0;
-    if (na !== nb) return na - nb;
-  }
-  return 0;
-}
-
-/** CHANGELOG entries strictly newer than `sinceVersion` (newest first). */
-export function changelogSince(sinceVersion: string): ChangelogEntry[] {
-  return CHANGELOG.filter((e) => compareVersions(e.version, sinceVersion) > 0);
-}
-
-/**
- * Read the last-seen version from localStorage. SSR/private-mode safe: returns
- * null if unavailable or unset (which the caller treats as "first visit").
- *
- * TODO (D1 cross-device fast-follow): today `lastSeen` is per-device localStorage
- * only. To make onboarding/"What's New" honor dismissals across devices, read a
- * server-side `pp_last_seen_version` from the existing prefs endpoint
- * (GET /v1/account/prefs via auth-client) when logged in, falling back to this
- * localStorage value when logged out. Take the MAX of the two so a dismissal on
- * any device wins. Keep this localStorage path as the offline/logged-out default.
- */
-// In-memory fallback so a dismissal STICKS for the session even when localStorage
-// is blocked (private mode / quota) — otherwise the modal re-nags on a re-mount or
-// soft navigation (Codex, 2026-07-25). A hard reload with storage fully blocked
-// still can't persist — inherent, and the rarest edge — but within a session the
-// "never re-nag after dismiss" contract holds.
-let inMemoryLastSeen: string | null = null;
-
-export function readLastSeenVersion(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const stored = window.localStorage.getItem(LAST_SEEN_KEY);
-    if (stored !== null) return stored;
-  } catch {
-    /* fall through to the in-memory value */
-  }
-  return inMemoryLastSeen;
-}
-
-/**
- * Persist the last-seen version. No-ops safely if localStorage is unavailable
- * (private mode / quota / SSR) — the modal still closes in-memory either way.
- *
- * TODO (D1 cross-device fast-follow): when logged in, ALSO PATCH
- * `pp_last_seen_version` to the prefs endpoint so the dismissal follows the user
- * across devices (see readLastSeenVersion). Fire-and-forget; localStorage stays
- * the source of truth for logged-out users.
- */
-export function writeLastSeenVersion(version: string = PUCK_PASSPORT_VERSION): void {
-  if (typeof window === 'undefined') return;
-  inMemoryLastSeen = version; // always set — so the dismissal holds even if the write below throws
-  try {
-    window.localStorage.setItem(LAST_SEEN_KEY, version);
-  } catch {
-    /* private mode / quota — the in-memory fallback keeps it dismissed for the session */
-  }
-}
-
-export type PassportModalMode = 'onboarding' | 'whats-new' | null;
-
-/**
- * Decide which (if any) modal to show, given a stored lastSeen value.
- *   - null (no record)                 → 'onboarding' (first visit)
- *   - lastSeen < current version       → 'whats-new'
- *   - lastSeen >= current version      → null (nothing to show)
- */
-export function pickModalMode(lastSeen: string | null): PassportModalMode {
-  if (lastSeen == null) return 'onboarding';
-  if (compareVersions(lastSeen, PUCK_PASSPORT_VERSION) < 0) return 'whats-new';
-  return null;
-}
+export {
+  ONBOARDING_COMPLETED_KEY,
+  migrateLegacyChangelogState,
+  readOnboardingCompleted,
+  writeOnboardingCompleted,
+} from './passport-changelog';

@@ -14,6 +14,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { putAccountPublic, putHandle, checkHandleAvailable } from '../../lib/auth-client';
+import PassportWhatsNew from './PassportWhatsNew';
 
 const PUBLIC_HOST = 'hockeygamebot.com';
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
@@ -269,6 +270,10 @@ export default function PublicPassportPanel({ handle, isPublic, onHandleChange, 
             )}
           </div>
         )}
+      </div>
+
+      <div className="pp-whats-new-row">
+        <PassportWhatsNew />
       </div>
       </>
       )}

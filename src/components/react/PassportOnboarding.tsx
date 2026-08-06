@@ -1,69 +1,118 @@
 /**
- * PassportOnboarding — first-visit onboarding + "What's New" modals for
- * /puck-passport. A small, self-contained companion island (decoupled from the
- * large AttendedTracker) that decides, once per page load, whether to greet the
- * user based on their stored `lastSeen` version:
+ * PassportOnboarding — first-visit onboarding + compact "What's New"
+ * announcement for /puck-passport.
  *
- *   - First visit (no lastSeen)        → ONBOARDING modal (the 3-step how-to).
- *   - lastSeen < current version       → "What's New" modal (changelog delta).
- *   - lastSeen >= current version      → nothing.
+ * Two independent gates now (previously one version-string comparison):
+ *   - Onboarding: `hgb_pp_onboarding_completed` (passport-version.ts). First
+ *     visit on this device → the 3-step how-to tour.
+ *   - Changelog: `puck_passport_changelog_seen_through`, a monotonic sequence
+ *     cursor (passport-changelog.ts). Existing device/account with entries
+ *     newer than its cursor → the compact unread announcement below.
  *
- * Dismissing EITHER (primary button / X / backdrop / Esc) stamps
- * localStorage[hgb_pp_last_seen_version] = PUCK_PASSPORT_VERSION, so it never
- * shows again for this version. The onboarding CTA is guidance-only — it just
- * closes the modal, leaving the Add Games UI visible underneath (per the
- * operator: the CTA needs no scroll/action).
+ * Close semantics differ by action (plan §6):
+ *   - Explicit "Got it" / "×" → ACKNOWLEDGES: persists the cursor (or
+ *     onboarding-completed) so it never shows again for those entries.
+ *   - Backdrop click / Escape → closes WITHOUT acknowledging. The same
+ *     unread entries reappear next load. Onboarding has no "ambient" case in
+ *     practice (there's nothing to leave unread), but the same handler shape
+ *     is reused for both bodies.
  *
- * Guardrails: client-side only, no network. Renders null on the server / before
- * hydration, and safely no-ops if localStorage is unavailable.
+ * The PERMANENT "See all updates" history is a separate surface
+ * (PassportWhatsNew.tsx) — this modal only ever shows the unread delta.
+ *
+ * Guardrails: client-side only. Renders null on the server / before
+ * hydration, and safely degrades (no crash, nothing shown) if the changelog
+ * endpoint or localStorage is unavailable.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  changelogSince,
-  pickModalMode,
-  readLastSeenVersion,
-  writeLastSeenVersion,
-  type ChangelogEntry,
-  type PassportModalMode,
+  migrateLegacyChangelogState,
+  readOnboardingCompleted,
+  writeOnboardingCompleted,
 } from '../../lib/passport-version';
+import {
+  acknowledgeSeenThrough,
+  fetchChangelog,
+  mergeSeenThroughOnLogin,
+  readLocalSeenThrough,
+  resolveLocalSeenThrough,
+  unreadEntries,
+  type ChangelogEntry,
+} from '../../lib/passport-changelog';
+import { getSessionToken } from '../../lib/auth-client';
+
+type Mode = 'onboarding' | 'whats-new' | null;
 
 export default function PassportOnboarding() {
   // null until the mount effect resolves which modal (if any) to show. This keeps
   // SSR / first paint empty and avoids a flash before we've read localStorage.
-  const [mode, setMode] = useState<PassportModalMode>(null);
+  const [mode, setMode] = useState<Mode>(null);
   const [entries, setEntries] = useState<ChangelogEntry[]>([]);
+  const [latestSequence, setLatestSequence] = useState(0);
 
   useEffect(() => {
-    const lastSeen = readLastSeenVersion();
-    const next = pickModalMode(lastSeen);
-    if (next === 'whats-new') {
-      const delta = changelogSince(lastSeen ?? '0');
-      // Defensive: if the delta is somehow empty, there's nothing to show — treat
-      // as current and stamp, so we don't render an empty "What's New".
-      if (delta.length === 0) {
-        writeLastSeenVersion();
+    let cancelled = false;
+
+    (async () => {
+      migrateLegacyChangelogState();
+
+      if (!readOnboardingCompleted()) {
+        if (!cancelled) setMode('onboarding');
         return;
       }
-      setEntries(delta);
-    }
-    setMode(next);
+
+      // Existing user/device. Merge local + account cursors when logged in
+      // (mirrors auth-client's mergeLocalPresets lifecycle) before deciding
+      // what's unread.
+      if (getSessionToken()) {
+        await mergeSeenThroughOnLogin();
+      }
+      if (cancelled) return;
+
+      const changelog = await fetchChangelog();
+      if (cancelled) return;
+
+      const seenThrough = resolveLocalSeenThrough(readLocalSeenThrough());
+      const unread = unreadEntries(changelog.entries, seenThrough);
+      if (unread.length === 0) return; // nothing new — no modal
+
+      setEntries(unread);
+      setLatestSequence(changelog.latest_sequence);
+      setMode('whats-new');
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const dismiss = useCallback(() => {
-    writeLastSeenVersion(); // stamp current version → never shows again this version
+  const acknowledge = useCallback(() => {
+    if (mode === 'onboarding') {
+      writeOnboardingCompleted();
+      // New-device path (plan §3): a first-time user shouldn't see launch
+      // entries as unread the moment onboarding finishes. Best-effort —
+      // failure just leaves the cursor unset, resolved later via baseline.
+      fetchChangelog().then((c) => acknowledgeSeenThrough(c.latest_sequence));
+    } else if (mode === 'whats-new') {
+      acknowledgeSeenThrough(latestSequence);
+    }
+    setMode(null);
+  }, [mode, latestSequence]);
+
+  const dismissWithoutAcknowledging = useCallback(() => {
     setMode(null);
   }, []);
 
-  // Esc-to-close while a modal is open.
+  // Esc-to-close while a modal is open — ambient close, does not persist.
   useEffect(() => {
     if (!mode) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') dismiss();
+      if (e.key === 'Escape') dismissWithoutAcknowledging();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [mode, dismiss]);
+  }, [mode, dismissWithoutAcknowledging]);
 
   if (!mode) return null;
 
@@ -71,9 +120,10 @@ export default function PassportOnboarding() {
     <div
       className="pp-modal-overlay"
       role="presentation"
-      // Backdrop click (only when the click lands on the overlay itself, not the card).
+      // Backdrop click (only when the click lands on the overlay itself, not the
+      // card) — ambient close, does not persist.
       onClick={(e) => {
-        if (e.target === e.currentTarget) dismiss();
+        if (e.target === e.currentTarget) dismissWithoutAcknowledging();
       }}
     >
       <div
@@ -82,14 +132,14 @@ export default function PassportOnboarding() {
         aria-modal="true"
         aria-labelledby="pp-modal-title"
       >
-        <button type="button" className="pp-modal-close" aria-label="Close" onClick={dismiss}>
+        <button type="button" className="pp-modal-close" aria-label="Close" onClick={acknowledge}>
           ×
         </button>
 
         {mode === 'onboarding' ? (
-          <OnboardingBody onDismiss={dismiss} />
+          <OnboardingBody onDismiss={acknowledge} />
         ) : (
-          <WhatsNewBody entries={entries} onDismiss={dismiss} />
+          <WhatsNewBody entries={entries} onDismiss={acknowledge} />
         )}
       </div>
     </div>
@@ -139,8 +189,7 @@ function OnboardingBody({ onDismiss }: { onDismiss: () => void }) {
 }
 
 // ── Returning-user "What's New" ──────────────────────────────────────────────
-// Won't fire at launch (everyone is either brand-new → onboarding, or already
-// current). Lists CHANGELOG entries newer than the user's lastSeen.
+// Compact unread delta only — the full history lives in PassportWhatsNew.tsx.
 function WhatsNewBody({ entries, onDismiss }: { entries: ChangelogEntry[]; onDismiss: () => void }) {
   return (
     <>
@@ -151,16 +200,11 @@ function WhatsNewBody({ entries, onDismiss }: { entries: ChangelogEntry[]; onDis
 
       <div className="pp-modal-changelog">
         {entries.map((e) => (
-          <div className="pp-modal-release" key={e.version}>
+          <div className="pp-modal-release" key={e.id}>
             <div className="pp-modal-release-head">
-              <span className="pp-modal-release-ver">v{e.version}</span>
               <span className="pp-modal-release-title">{e.title}</span>
             </div>
-            <ul className="pp-modal-release-items">
-              {e.items.map((it, i) => (
-                <li key={i}>{it}</li>
-              ))}
-            </ul>
+            <p className="pp-modal-release-summary">{e.summary}</p>
           </div>
         ))}
       </div>
