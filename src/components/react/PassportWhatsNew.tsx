@@ -15,12 +15,15 @@
  * unread entries, so it can't trigger a write — no separate try/catch
  * needed. Already-current history (nothing unread) also performs no write.
  *
- * Mounted at the top level of the Puck Passport page (AttendedTracker.tsx,
- * right below the stats counters) rather than inside any collapsible/gated
- * panel — this is the ONE permanent entry point, visible signed in or
- * logged out, and unaffected by hiding the Public Passport section. See
- * docs/plans/puck-passport-whats-new-implementation-plan-2026-08-06.md and
- * the corrective-follow-up notes in the same plan directory (2026-08-06).
+ * Mounted as its own client:only island inside the hero card (puck-passport.astro
+ * `.att-mast-card`, next to `.att-eyebrow` in the `.att-mast-cardtop` row) rather
+ * than inside any collapsible/gated panel, and rather than in the AttendedTracker
+ * body island where it originally shipped — that placement floated as an orphaned
+ * text link between the stats counters and the rest of the page with no aligned
+ * edge (design review, 2026-08-06). This is the ONE permanent entry point,
+ * visible signed in or logged out, and unaffected by hiding the Public Passport
+ * section. Safe as a second island: no props, reads only localStorage, and
+ * already syncs cross-island via the `hgb:changelog-acknowledged` window event.
  *
  * Shows a small unread-count badge (styled off the existing `.cel-badge`
  * pill) when there are entries newer than the local cursor, computed on
