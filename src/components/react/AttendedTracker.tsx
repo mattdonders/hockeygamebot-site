@@ -40,6 +40,7 @@ import { readGeoPreference, recordGrant, disableGeo, type GeoPrefState } from '.
 import { harvestDates } from '../../lib/import-dates';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
 import PublicPassportPanel from './PublicPassportPanel';
+import PassportWhatsNew from './PassportWhatsNew';
 import {
   sortCatalog,
   buildLocalCatalog,
@@ -3123,6 +3124,12 @@ export default function AttendedTracker() {
           replayToken={replayToken}
         />
       </div>
+
+      {/* Permanent "What's new" entry point — page-level, always visible
+          (signed in or logged out, regardless of Public Passport's collapsed
+          state). This is the ONE entry point into the changelog history;
+          do not add another inside a collapsible/gated panel. */}
+      <PassportWhatsNew />
 
       {/* Honest footnote: manual games count for Games/Arena/Team record only. */}
       {viewUnverifiedCount > 0 ? (

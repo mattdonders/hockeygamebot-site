@@ -34,11 +34,18 @@ export type StorageHandles = {
   newSession(): void;
 };
 
-/** Installs a fake `window` with fresh storages. Call from `beforeEach`. */
+/**
+ * Installs a fake `window` with fresh storages. Call from `beforeEach`.
+ *
+ * Built on Node's built-in EventTarget so addEventListener/removeEventListener/
+ * dispatchEvent work — passport-changelog.ts dispatches a real CustomEvent
+ * (hgb:changelog-acknowledged) off `window` for cross-island sync.
+ */
 export function installFakeWindow(): StorageHandles {
   const localStorage = new MemoryStorage();
   let sessionStorage = new MemoryStorage();
-  const win = { localStorage, get sessionStorage() { return sessionStorage; } };
+  const win = Object.assign(new EventTarget(), { localStorage });
+  Object.defineProperty(win, 'sessionStorage', { get: () => sessionStorage, configurable: true });
   (globalThis as any).window = win;
   return {
     localStorage,

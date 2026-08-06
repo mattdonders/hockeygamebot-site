@@ -158,7 +158,9 @@ export function writeLocalSeenThrough(sequence: number): void {
  */
 export function acknowledgeSeenThrough(sequence: number): void {
   writeLocalSeenThrough(sequence);
-  if (typeof window === 'undefined' || !getSessionToken()) return;
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('hgb:changelog-acknowledged', { detail: { sequence } }));
+  if (!getSessionToken()) return;
   putPrefs({ changelog_seen_through: sequence })
     .then((result) => {
       if (!result) {

@@ -117,6 +117,23 @@ describe('local onboarding/cursor storage', () => {
 });
 
 describe('acknowledgeSeenThrough (immediate local + account write)', () => {
+  it('dispatches hgb:changelog-acknowledged with the sequence, signed in or out', async () => {
+    vi.doMock('../auth-client', () => ({
+      getSessionToken: () => null,
+      putPrefs: vi.fn(),
+      getPrefs: vi.fn(),
+      API_BASE: 'https://api.test',
+    }));
+    const m = await freshModule();
+    const handler = vi.fn();
+    window.addEventListener('hgb:changelog-acknowledged', handler);
+    m.acknowledgeSeenThrough(5);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][0].detail).toEqual({ sequence: 5 });
+    window.removeEventListener('hgb:changelog-acknowledged', handler);
+    vi.doUnmock('../auth-client');
+  });
+
   it('writes the local cursor synchronously even when logged out', async () => {
     vi.doMock('../auth-client', () => ({
       getSessionToken: () => null,
