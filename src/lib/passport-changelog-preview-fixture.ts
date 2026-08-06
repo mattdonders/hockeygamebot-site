@@ -2,8 +2,8 @@
  * PREVIEW/TEST INFRASTRUCTURE — NOT a data source for production.
  *
  * Only reachable when PUBLIC_CHANGELOG_FIXTURE is baked to `true` at build
- * time (astro.config.mjs, gated on Cloudflare Pages' auto-injected
- * CF_PAGES_BRANCH !== 'main'), which cannot happen in a production build.
+ * time (wrangler.toml's `[env.preview.vars]`, scoped to Cloudflare Pages'
+ * built-in "preview" environment), which cannot happen in a production build.
  *
  * Stands in for GET /v1/passport/changelog on Cloudflare Pages preview
  * deployments, where hgb-api's changelog endpoint isn't reachable yet (no

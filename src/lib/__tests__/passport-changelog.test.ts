@@ -207,3 +207,56 @@ describe('migrateLegacyChangelogState (one-time key split)', () => {
     expect(store.localStorage.getItem(LEGACY_KEY)).toBeNull();
   });
 });
+
+describe('fetchChangelog (fails closed — a broken/unreachable endpoint must never crash the page)', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('returns the empty changelog when the network request rejects', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('network down'));
+    const m = await freshModule();
+    await expect(m.fetchChangelog()).resolves.toEqual({
+      schema_version: 1,
+      latest_sequence: 0,
+      entries: [],
+    });
+  });
+
+  it('returns the empty changelog on a non-OK HTTP response', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    const m = await freshModule();
+    await expect(m.fetchChangelog()).resolves.toEqual({
+      schema_version: 1,
+      latest_sequence: 0,
+      entries: [],
+    });
+  });
+
+  it('returns the empty changelog on a malformed response body', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ oops: true }) });
+    const m = await freshModule();
+    await expect(m.fetchChangelog()).resolves.toEqual({
+      schema_version: 1,
+      latest_sequence: 0,
+      entries: [],
+    });
+  });
+
+  it('returns the empty changelog when response.json() itself throws', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => {
+        throw new Error('invalid JSON');
+      },
+    });
+    const m = await freshModule();
+    await expect(m.fetchChangelog()).resolves.toEqual({
+      schema_version: 1,
+      latest_sequence: 0,
+      entries: [],
+    });
+  });
+});
