@@ -3219,6 +3219,16 @@ export default function AttendedTracker() {
                 ? `That's ${note} — make a ticket stub to share it.`
                 : 'Make a ticket stub to share this game.';
             })()}
+            {passportPublic ? (
+              // Public Passport Delay disclosure
+              // (docs/plans/puck-passport-public-delay-design-2026-08.md §17.1) —
+              // only relevant when the account's passport is public; a private
+              // passport has nothing here to disclose.
+              <div className="att-logprompt-privacy">
+                Logged! It’s visible to you now. For privacy, new games appear on your public passport
+                after the next morning refresh.
+              </div>
+            ) : null}
           </div>
           <div className="att-logprompt-actions">
             <button

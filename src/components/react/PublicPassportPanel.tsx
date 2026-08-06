@@ -212,6 +212,15 @@ export default function PublicPassportPanel({ handle, isPublic, onHandleChange, 
         Public shows your totals, badges, arenas collected, and team records, never
         individual game dates or locations. Flip back to private anytime.
       </div>
+      {/* Public Passport Delay explainer — persistent, not dismissible (the delay
+          behavior is permanent as long as public sharing is on).
+          docs/plans/puck-passport-public-delay-design-2026-08.md §17.2 */}
+      <div className="pp-consent">
+        Public passports refresh each morning. New games — along with any badges,
+        milestones, and arena counts they unlock — are visible to you immediately, but
+        won’t appear on your public page until the next refresh. This helps prevent
+        your passport from revealing that you’re currently at an arena.
+      </div>
       {publicError ? <div className="pp-note err">{publicError}</div> : null}
 
       {/* Customize handle */}
