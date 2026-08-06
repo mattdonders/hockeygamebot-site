@@ -183,10 +183,16 @@ export function acknowledgeSeenThrough(sequence: number): void {
  */
 export const CHANGELOG_LAUNCH_TIMESTAMP = '2026-08-06T00:00:00Z';
 
-/** One less than the oldest launch entry's sequence (1), so both launch
- *  entries read as unread the first time an existing user/device resolves
- *  against this baseline. */
-export const CHANGELOG_LAUNCH_BASELINE_SEQUENCE = 0;
+/**
+ * One less than the oldest POST-launch entry's sequence (2, gordie-howe-fight-
+ * accuracy), so only entries announced at/after the changelog's own launch
+ * read as unread the first time an existing user/device resolves against this
+ * baseline. Sequence 1 (milestone-tiers) is a backfilled historical entry —
+ * it shipped to production before the changelog feature existed, so it must
+ * NOT read as unread; it's still visible in the permanent history, just not
+ * flagged as new. See docs/plans/puck-passport-whats-new-implementation-plan-2026-08-06.md §16.
+ */
+export const CHANGELOG_LAUNCH_BASELINE_SEQUENCE = 1;
 
 /**
  * Resolve a possibly-NULL SERVER cursor (plan §5's account_created_at vs.

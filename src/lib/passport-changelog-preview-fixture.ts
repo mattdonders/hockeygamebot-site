@@ -9,8 +9,15 @@
  * deployments, where hgb-api's changelog endpoint isn't reachable yet (no
  * preview D1/R2 in this account — see
  * docs/plans/puck-passport-whats-new-implementation-plan-2026-08-06.md).
- * Content mirrors hgb-api's data/passport-changelog.json verbatim (the two
- * real launch entries) so preview verification exercises real copy.
+ * Content mirrors hgb-api's data/passport-changelog.json verbatim (the
+ * backfilled historical entry plus the two real launch-day entries) so
+ * preview verification exercises real copy.
+ *
+ * Sequence 1 (milestone-tiers) is a BACKFILLED historical entry — it shipped
+ * to production (2026-08-02) before this changelog feature existed, so it
+ * sits below CHANGELOG_LAUNCH_BASELINE_SEQUENCE and must never read as
+ * unread; it's still visible in the permanent history, just not flagged as
+ * new. See docs/plans/puck-passport-whats-new-implementation-plan-2026-08-06.md §16.
  *
  * Delete this file (and its one call site in fetchChangelog) once hgb-api's
  * changelog endpoint is deployed somewhere preview builds can reach.
@@ -20,10 +27,10 @@ import type { ChangelogResponse } from './passport-changelog';
 
 export const PREVIEW_CHANGELOG_FIXTURE: ChangelogResponse = {
   schema_version: 1,
-  latest_sequence: 2,
+  latest_sequence: 3,
   entries: [
     {
-      sequence: 2,
+      sequence: 3,
       id: 'public-passport-privacy-delay',
       published_at: '2026-08-06T17:00:00Z',
       title: 'More privacy for public passports',
@@ -33,7 +40,7 @@ export const PREVIEW_CHANGELOG_FIXTURE: ChangelogResponse = {
       platforms: ['web', 'ios'],
     },
     {
-      sequence: 1,
+      sequence: 2,
       id: 'gordie-howe-fight-accuracy',
       published_at: '2026-08-06T16:00:00Z',
       title: 'More accurate Gordie Howe Hat Trick badges',
@@ -42,6 +49,17 @@ export const PREVIEW_CHANGELOG_FIXTURE: ChangelogResponse = {
       body: 'A Gordie Howe Hat Trick requires a goal, an assist, and a fight in the same game. Puck Passport previously estimated the fight portion using penalty-minute data.\n\nThe badge now uses confirmed fight events from game play-by-play whenever that data is available, making both new and previously logged games more accurate.',
       category: 'improved',
       platforms: ['web', 'ios'],
+    },
+    {
+      sequence: 1,
+      id: 'milestone-tiers',
+      published_at: '2026-08-02T09:00:00Z',
+      title: 'Milestone Tiers',
+      summary:
+        'Track your progress with five-rung milestone tiers across Games, Goals, Shots, Players, and Arenas.',
+      body: "Puck Passport now tracks five progress tiers — Rookie, Veteran, All-Star, Legend, and Hall of Fame — across Games, Goals, Shots, Players seen, and Arenas visited (Rung V for arenas is \"The 32 Club\"). Tiers are computed by the server and now appear on your public passport page too, not just your own dashboard.",
+      category: 'new',
+      platforms: ['web'],
     },
   ],
 };
