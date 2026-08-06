@@ -63,17 +63,6 @@ export default defineConfig({
   },
   integrations: [react(), sitemap(), devOnlyRoutes],
   vite: {
-    define: {
-      // Preview-only changelog fixture switch (src/lib/passport-changelog-preview-fixture.ts).
-      // CF_PAGES_BRANCH is auto-injected by Cloudflare Pages at build time — 'main' for the
-      // production build, the branch name for every preview build. Baking this to a literal
-      // boolean at build time means the fixture path can never be reached in a production
-      // build, with no dashboard configuration required. Local `astro dev`/`build` (where
-      // CF_PAGES_BRANCH is unset) also resolves to false.
-      'import.meta.env.PUBLIC_CHANGELOG_FIXTURE': JSON.stringify(
-        !!process.env.CF_PAGES_BRANCH && process.env.CF_PAGES_BRANCH !== 'main',
-      ),
-    },
     resolve: {
       dedupe: ['react', 'react-dom'],
       // @astrojs/react imports `react-dom/server`, which the package export map
