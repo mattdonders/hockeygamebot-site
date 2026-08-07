@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { claimPendingOwner, isForeignOwned, readPendingOwner, releasePendingOwner } from '../passport-local-ownership';
+import { readClaimedPending, setClaimedPending } from '../passport-local-ownership';
 import { installFakeWindow, uninstallFakeWindow, type StorageHandles } from './test-storage';
 
-const PENDING_OWNER_KEY = 'hgb_puck_passport_pending_owner_v1';
+const CLAIMED_PENDING_KEY = 'hgb_puck_passport_claimed_pending_v1';
+
+type Game = { game_id: string };
 
 let store: StorageHandles;
 
@@ -14,121 +16,102 @@ afterEach(() => {
   uninstallFakeWindow();
 });
 
-describe('readPendingOwner', () => {
-  it('returns null when nothing is stored (genuine anonymous history)', () => {
-    expect(readPendingOwner()).toBeNull();
+describe('readClaimedPending', () => {
+  it('returns [] when nothing is claimed for this account', () => {
+    expect(readClaimedPending('account-a')).toEqual([]);
   });
 
-  it('fails safe to null on corrupt JSON', () => {
-    store.localStorage.setItem(PENDING_OWNER_KEY, '{not json');
-    expect(readPendingOwner()).toBeNull();
+  it('fails safe to [] on corrupt JSON', () => {
+    store.localStorage.setItem(CLAIMED_PENDING_KEY, '{not json');
+    expect(readClaimedPending('account-a')).toEqual([]);
   });
 
-  it('fails safe to null on a malformed object (missing userId)', () => {
-    store.localStorage.setItem(PENDING_OWNER_KEY, JSON.stringify({ notUserId: 'account-a' }));
-    expect(readPendingOwner()).toBeNull();
+  it('fails safe to [] when the top-level value is an array, not a map', () => {
+    store.localStorage.setItem(CLAIMED_PENDING_KEY, JSON.stringify(['g1', 'g2']));
+    expect(readClaimedPending('account-a')).toEqual([]);
   });
 
-  it('fails safe to null on a non-string userId', () => {
-    store.localStorage.setItem(PENDING_OWNER_KEY, JSON.stringify({ userId: 42 }));
-    expect(readPendingOwner()).toBeNull();
+  it('fails safe to [] when this account has an entry that is not an array', () => {
+    store.localStorage.setItem(CLAIMED_PENDING_KEY, JSON.stringify({ 'account-a': 'oops' }));
+    expect(readClaimedPending('account-a')).toEqual([]);
   });
 
-  it('reflects a claim written by claimPendingOwner', () => {
-    claimPendingOwner('account-a');
-    expect(readPendingOwner()).toEqual({ userId: 'account-a' });
+  it('reflects records written by setClaimedPending', () => {
+    const games: Game[] = [{ game_id: 'g1' }, { game_id: 'g2' }];
+    setClaimedPending('account-a', games);
+    expect(readClaimedPending<Game>('account-a')).toEqual(games);
   });
 
   it('survives a simulated reload (localStorage persists, only sessionStorage resets)', () => {
-    claimPendingOwner('account-a');
+    setClaimedPending('account-a', [{ game_id: 'g1' }]);
     store.newSession();
-    expect(readPendingOwner()).toEqual({ userId: 'account-a' });
+    expect(readClaimedPending<Game>('account-a')).toEqual([{ game_id: 'g1' }]);
   });
 });
 
-describe('claimPendingOwner', () => {
-  it('is idempotent — reclaiming by the same owner leaves the same state', () => {
-    claimPendingOwner('account-a');
-    claimPendingOwner('account-a');
-    expect(readPendingOwner()).toEqual({ userId: 'account-a' });
+describe('setClaimedPending', () => {
+  it('fully replaces a prior claim for the same account (not an append)', () => {
+    setClaimedPending('account-a', [{ game_id: 'g1' }]);
+    setClaimedPending('account-a', [{ game_id: 'g2' }]);
+    expect(readClaimedPending<Game>('account-a')).toEqual([{ game_id: 'g2' }]);
   });
 
-  it('overwrites a prior claim when a new owner claims (used only for the same-account retry path)', () => {
-    claimPendingOwner('account-a');
-    claimPendingOwner('account-b');
-    expect(readPendingOwner()).toEqual({ userId: 'account-b' });
-  });
-});
-
-describe('releasePendingOwner', () => {
-  it('clears an existing claim', () => {
-    claimPendingOwner('account-a');
-    releasePendingOwner();
-    expect(readPendingOwner()).toBeNull();
+  it('clears the claim when given an empty array', () => {
+    setClaimedPending('account-a', [{ game_id: 'g1' }]);
+    setClaimedPending('account-a', []);
+    expect(readClaimedPending('account-a')).toEqual([]);
   });
 
-  it('is a safe no-op when nothing is claimed', () => {
-    expect(() => releasePendingOwner()).not.toThrow();
-    expect(readPendingOwner()).toBeNull();
-  });
-});
-
-describe('isForeignOwned — the cross-account contamination guard', () => {
-  it('is false for the anonymous viewer when nothing is claimed (ordinary anonymous history stays visible/mergeable)', () => {
-    expect(isForeignOwned(null)).toBe(false);
+  it('is a safe no-op when clearing an account with no existing claim', () => {
+    expect(() => setClaimedPending('account-a', [])).not.toThrow();
+    expect(readClaimedPending('account-a')).toEqual([]);
   });
 
-  it('is true for the anonymous viewer once ANY account has claimed the local list', () => {
-    claimPendingOwner('account-a');
-    expect(isForeignOwned(null)).toBe(true);
+  it('keys claims independently per account — the cross-account contamination guard', () => {
+    setClaimedPending('account-a', [{ game_id: 'a1' }]);
+    setClaimedPending('account-b', [{ game_id: 'b1' }]);
+    expect(readClaimedPending<Game>('account-a')).toEqual([{ game_id: 'a1' }]);
+    expect(readClaimedPending<Game>('account-b')).toEqual([{ game_id: 'b1' }]);
   });
 
-  it('is false for the SAME account retrying (resumes/sees its own pending data)', () => {
-    claimPendingOwner('account-a');
-    expect(isForeignOwned('account-a')).toBe(false);
-  });
-
-  it('is true for a DIFFERENT account signing in on the same browser (the regression scenario)', () => {
-    claimPendingOwner('account-a');
-    expect(isForeignOwned('account-b')).toBe(true);
-  });
-
-  it('is false again once the owning account fully syncs and releases the claim', () => {
-    claimPendingOwner('account-a');
-    releasePendingOwner();
-    expect(isForeignOwned('account-a')).toBe(false);
-    expect(isForeignOwned('account-b')).toBe(false);
-    expect(isForeignOwned(null)).toBe(false);
-  });
-
-  it('repeated reads do not themselves mutate or clear a claim (no accidental reset to anonymous)', () => {
-    claimPendingOwner('account-a');
-    isForeignOwned('account-b');
-    isForeignOwned(null);
-    isForeignOwned('account-a');
-    expect(readPendingOwner()).toEqual({ userId: 'account-a' });
+  it("clearing one account's claim does not disturb another account's claim", () => {
+    setClaimedPending('account-a', [{ game_id: 'a1' }]);
+    setClaimedPending('account-b', [{ game_id: 'b1' }]);
+    setClaimedPending('account-a', []);
+    expect(readClaimedPending('account-a')).toEqual([]);
+    expect(readClaimedPending<Game>('account-b')).toEqual([{ game_id: 'b1' }]);
   });
 });
 
-describe('end-to-end ownership lifecycle (mirrors the account.astro sign-out / re-login sequence)', () => {
-  it('claim persists through sign-out (no code path clears it except a successful same-owner sync)', () => {
-    // Account A's partial merge failure claims the list.
-    claimPendingOwner('account-a');
-    // Sign-out only clears the session token elsewhere; nothing here does that,
-    // by construction — this module is never touched by the sign-out handler.
-    expect(readPendingOwner()).toEqual({ userId: 'account-a' });
+describe('end-to-end ownership lifecycle', () => {
+  it('Scenario A — Account A pending records are never visible to Account B', () => {
+    // Account A's partial merge failure claims g1 for account-a.
+    setClaimedPending('account-a', [{ game_id: 'g1' }]);
+    // Account B signs in on the same browser; B's own claim slot is untouched.
+    expect(readClaimedPending('account-b')).toEqual([]);
+    // A's record is still exactly where it was.
+    expect(readClaimedPending<Game>('account-a')).toEqual([{ game_id: 'g1' }]);
+  });
 
-    // Account B signs in on the same browser.
-    expect(isForeignOwned('account-b')).toBe(true);
+  it('Scenario B — a claim for older records does not attach to a differently-keyed new anonymous record', () => {
+    // Account A has an older claimed/pending record.
+    setClaimedPending('account-a', [{ game_id: 'old-1' }]);
+    // A signs out. A new anonymous game is created — this module never sees
+    // it (it lives in AttendedTracker's separate, unscoped STORAGE_KEY), so
+    // it cannot inherit A's claim merely by A having one.
+    expect(readClaimedPending('account-c')).toEqual([]);
+    // A signs back in: A's own claim resumes untouched, unaffected by
+    // whatever anonymous history has accumulated in the meantime.
+    expect(readClaimedPending<Game>('account-a')).toEqual([{ game_id: 'old-1' }]);
+  });
 
-    // Account A signs back in later — the claim is still theirs to resume.
-    expect(isForeignOwned('account-a')).toBe(false);
-
-    // A's retry now fully succeeds — the claim is released.
-    releasePendingOwner();
-    expect(readPendingOwner()).toBeNull();
-
-    // A later, genuinely anonymous session syncs freely to whoever signs in next.
-    expect(isForeignOwned('account-c')).toBe(false);
+  it('Scenario D — Account A can resume and clear its retained pending records without data loss', () => {
+    setClaimedPending('account-a', [{ game_id: 'g1' }, { game_id: 'g2' }]);
+    // Retry: g1 now syncs, g2 still fails — full replace with only what's left.
+    setClaimedPending('account-a', [{ game_id: 'g2' }]);
+    expect(readClaimedPending<Game>('account-a')).toEqual([{ game_id: 'g2' }]);
+    // Final retry: everything syncs — claim clears, nothing left behind.
+    setClaimedPending('account-a', []);
+    expect(readClaimedPending('account-a')).toEqual([]);
   });
 });

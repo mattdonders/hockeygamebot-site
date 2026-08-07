@@ -39,7 +39,7 @@ import { nearestArena, haversineKm } from '../../lib/arena-match';
 import { readGeoPreference, recordGrant, disableGeo, type GeoPrefState } from '../../lib/geo-preference';
 import { harvestDates } from '../../lib/import-dates';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
-import { isForeignOwned, claimPendingOwner, releasePendingOwner } from '../../lib/passport-local-ownership';
+import { readClaimedPending, setClaimedPending } from '../../lib/passport-local-ownership';
 import PublicPassportPanel from './PublicPassportPanel';
 import {
   sortCatalog,
@@ -1442,12 +1442,12 @@ export default function AttendedTracker() {
       if (cancelled) return;
 
       if (!me) {
-        // A local list left behind by a PREVIOUS account's failed/partial
-        // merge (see passport-local-ownership.ts) is claimed, not genuine
-        // anonymous history — never surface it to an anonymous viewer on a
-        // shared/borrowed device. It is untouched on disk; it reappears the
-        // moment its owning account signs back in below.
-        setLocalGames(isForeignOwned(null) ? [] : readAttended());
+        // STORAGE_KEY is written to ONLY while logged out (see writeAttended
+        // call sites below), so it is by construction genuine, unclaimed
+        // anonymous history — a previous account's unsynced records live in
+        // a separate per-account sidecar (passport-local-ownership.ts) and
+        // are never mixed in here.
+        setLocalGames(readAttended());
         setIsLoggedIn(false);
         setHydrated(true);
         return;
@@ -1458,34 +1458,34 @@ export default function AttendedTracker() {
       setPassportPublic(me.user.is_public);
 
       // ── Merge-on-login (mirrors auth-client mergeLocalPresets) ──────────────
-      // A local list left behind by a DIFFERENT account's failed/partial merge
-      // must never be uploaded into this one — treat it as empty for merge
-      // purposes. It stays exactly as-is on disk (still claimed by its real
-      // owner) and is retried automatically the moment that owner signs back
-      // in; nothing here deletes it.
-      const local = isForeignOwned(me.user.id) ? [] : readAttended();
+      // Two sources feed this account's merge: genuine anonymous history
+      // (STORAGE_KEY — never claimed by anyone) and this SAME account's own
+      // records retained from a previous partial-sync failure (the
+      // per-account sidecar). A different account's retained records live
+      // under a different key and are never read here.
+      const myPending = readClaimedPending<AttendedGame>(me.user.id);
+      const anon = readAttended();
+      const local = [...myPending, ...anon];
       if (local.length > 0) {
         // Preserve each local game's display snapshot so venue/OT survive the
         // switch to the (id-only) D1 source on this device.
         for (const g of local) detailsRef.current[g.game_id] = g;
         writeDetails(detailsRef.current);
         // Upsert each into D1; server dedupes on (user_id, game_id).
-        let allOk = true;
+        const stillFailed: AttendedGame[] = [];
         for (const g of local) {
           const ok = g.is_manual ? await postManualAttended(toManualGame(g)) : (await postAttended(g.game_id)).ok;
-          if (!ok) allOk = false;
+          if (!ok) stillFailed.push(g);
         }
         if (cancelled) return;
-        // Only clear the local LIST once every game is safely in D1 (FAIL LOUD:
-        // never drop local data on a partial sync). Box + details caches stay.
-        if (allOk) {
-          writeAttended([]);
-          releasePendingOwner();
-        } else {
-          // Claim it for THIS account so a different account signing in next
-          // cannot pick it up (the isForeignOwned check above), while a retry
-          // by this same account still sees and resumes it normally.
-          claimPendingOwner(me.user.id);
+        // The anonymous list is always fully claimed by this attempt (success
+        // or fail) — anything that failed moves into THIS account's sidecar
+        // below rather than staying anonymous, so a different account can't
+        // pick it up next. FAIL LOUD: never drop local data on a partial
+        // sync. Box + details caches stay regardless of outcome.
+        writeAttended([]);
+        setClaimedPending(me.user.id, stillFailed);
+        if (stillFailed.length > 0) {
           setWriteError(
             'Some games saved in this browser could not be synced to your account — they are still on this device. Reload to retry.',
           );
