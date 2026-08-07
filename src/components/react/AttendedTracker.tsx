@@ -39,6 +39,7 @@ import { nearestArena, haversineKm } from '../../lib/arena-match';
 import { readGeoPreference, recordGrant, disableGeo, type GeoPrefState } from '../../lib/geo-preference';
 import { harvestDates } from '../../lib/import-dates';
 import { getMe, getSessionToken, apiFetch } from '../../lib/auth-client';
+import { isForeignOwned, claimPendingOwner, releasePendingOwner } from '../../lib/passport-local-ownership';
 import PublicPassportPanel from './PublicPassportPanel';
 import {
   sortCatalog,
@@ -1441,7 +1442,12 @@ export default function AttendedTracker() {
       if (cancelled) return;
 
       if (!me) {
-        setLocalGames(readAttended());
+        // A local list left behind by a PREVIOUS account's failed/partial
+        // merge (see passport-local-ownership.ts) is claimed, not genuine
+        // anonymous history — never surface it to an anonymous viewer on a
+        // shared/borrowed device. It is untouched on disk; it reappears the
+        // moment its owning account signs back in below.
+        setLocalGames(isForeignOwned(null) ? [] : readAttended());
         setIsLoggedIn(false);
         setHydrated(true);
         return;
@@ -1452,7 +1458,12 @@ export default function AttendedTracker() {
       setPassportPublic(me.user.is_public);
 
       // ── Merge-on-login (mirrors auth-client mergeLocalPresets) ──────────────
-      const local = readAttended();
+      // A local list left behind by a DIFFERENT account's failed/partial merge
+      // must never be uploaded into this one — treat it as empty for merge
+      // purposes. It stays exactly as-is on disk (still claimed by its real
+      // owner) and is retried automatically the moment that owner signs back
+      // in; nothing here deletes it.
+      const local = isForeignOwned(me.user.id) ? [] : readAttended();
       if (local.length > 0) {
         // Preserve each local game's display snapshot so venue/OT survive the
         // switch to the (id-only) D1 source on this device.
@@ -1467,11 +1478,18 @@ export default function AttendedTracker() {
         if (cancelled) return;
         // Only clear the local LIST once every game is safely in D1 (FAIL LOUD:
         // never drop local data on a partial sync). Box + details caches stay.
-        if (allOk) writeAttended([]);
-        else
+        if (allOk) {
+          writeAttended([]);
+          releasePendingOwner();
+        } else {
+          // Claim it for THIS account so a different account signing in next
+          // cannot pick it up (the isForeignOwned check above), while a retry
+          // by this same account still sees and resumes it normally.
+          claimPendingOwner(me.user.id);
           setWriteError(
             'Some games saved in this browser could not be synced to your account — they are still on this device. Reload to retry.',
           );
+        }
       }
 
       const rows = await fetchD1Attended();
