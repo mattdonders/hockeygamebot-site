@@ -15,6 +15,7 @@ import { API_BASE, getSessionToken } from '../../lib/auth-client';
 
 // ── Response shape (mirrors admin.js passportStats) ──────────────────────────────
 interface RefCount { ref: string; n: number }
+interface HourlyRefCount { hr: string; ref: string; n: number }
 interface MethodCount { method: string; n: number }
 interface TrendRow { hr: string; visits: number; handle_views: number; signups: number }
 interface TopPassport { handle: string; views: number }
@@ -24,7 +25,7 @@ interface Stats {
   users: { total: number; with_handle: number; public: number; new_24h: number; new_7d: number };
   funnel: Record<string, number>;
   signups: { last_1h: number; last_24h: number; last_7d: number; all_time: number; by_method: MethodCount[] };
-  channels: { visits_by_ref: RefCount[]; handle_views_by_ref: RefCount[] };
+  channels: { visits_by_ref: RefCount[]; handle_views_by_ref: RefCount[]; visits_by_ref_hourly: HourlyRefCount[] };
   trend_hourly: TrendRow[];
   top_passports: TopPassport[];
 }
@@ -74,6 +75,32 @@ function RefTable({ rows, unit }: { rows: RefCount[]; unit: string }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+function HourlyRefTable({ rows }: { rows: HourlyRefCount[] }) {
+  if (!rows.length) return <div style={C.empty}>No visits in the last 48h.</div>;
+  // Rows already arrive grouped by hour (query orders hr DESC, n DESC) — fold
+  // consecutive same-hour rows into one chip row per hour.
+  const byHour: { hr: string; refs: RefCount[] }[] = [];
+  for (const r of rows) {
+    const last = byHour[byHour.length - 1];
+    if (last && last.hr === r.hr) last.refs.push({ ref: r.ref, n: r.n });
+    else byHour.push({ hr: r.hr, refs: [{ ref: r.ref, n: r.n }] });
+  }
+  return (
+    <div>
+      {byHour.map((h) => (
+        <div key={h.hr} style={{ padding: '6px 8px', borderBottom: '1px solid var(--ink-06, #f0f0f4)' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{h.hr}</div>
+          {h.refs.map((r) => (
+            <span key={r.ref} style={{ ...C.chip, marginRight: 6, marginBottom: 4 }}>
+              {r.ref}: <strong>{fmt(r.n)}</strong>
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -164,8 +191,8 @@ export default function AdminDashboard() {
             <RefTable rows={d.channels.visits_by_ref} unit="visits" />
           </div>
           <div style={C.card}>
-            <div style={{ ...C.kpiSub, marginBottom: 8, fontWeight: 700 }}>Public-passport views — /@handle?ref=</div>
-            <RefTable rows={d.channels.handle_views_by_ref} unit="views" />
+            <div style={{ ...C.kpiSub, marginBottom: 8, fontWeight: 700 }}>Visits by channel — last 48h, hourly</div>
+            <HourlyRefTable rows={d.channels.visits_by_ref_hourly} />
           </div>
         </div>
       </div>
