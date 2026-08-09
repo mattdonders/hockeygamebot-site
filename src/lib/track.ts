@@ -4,8 +4,10 @@
  * Posts to the hgb-api telemetry endpoint (POST /v1/track → 204). The endpoint
  * accepts ONLY the client events wired today: `handle_view` (public passport page
  * view, with the viewed `handle` + `?ref=` attribution), `share_click` (the Puck
- * Passport tracker's Share action), and `visit` (a tracker page opened via a
- * `?ref=`-tagged link — channel attribution for the landing page itself).
+ * Passport tracker's Share action), `visit` (a tracker page opened via a
+ * `?ref=`-tagged link — channel attribution for the landing page itself), and
+ * `tonight_game` (Tonight's Game web flow milestones — see TonightGameCard.tsx;
+ * `meta.action` carries which milestone, e.g. `surfaced`/`write_succeeded`).
  *
  * Contract:
  *   - NEVER throws and NEVER returns a promise the caller must await — it is
@@ -18,7 +20,7 @@
 const API_BASE = 'https://api.hockeygamebot.com';
 const TRACK_URL = `${API_BASE}/v1/track`;
 
-export type TrackEvent = 'handle_view' | 'share_click' | 'visit';
+export type TrackEvent = 'handle_view' | 'share_click' | 'visit' | 'tonight_game';
 
 export interface TrackPayload {
   /** Handle in context (viewed passport, or the current user's own handle). */

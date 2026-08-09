@@ -107,6 +107,49 @@ export function makeManualCandidate(game: TonightGame, games: TonightGame[]): Ca
   return { game, source: 'manual', alternatives: games.filter((g) => g !== game) };
 }
 
+// ── Location-outcome classification (0R.5) ───────────────────────────────────────
+// When the user INTENTIONALLY invokes location discovery, four distinct outcomes are
+// user-actionable — see the spec's locked "A/B/C/D" list. Internal state names
+// (unset/deferred/suppressed, from geo-preference.ts) stay silent; these four do not.
+// Pulled out as a pure function so the mapping is unit-testable without a browser.
+export type LocationOutcome = 'permission_denied' | 'lookup_failed' | 'no_game' | 'found';
+
+export function classifyLocationOutcome(input: {
+  /** A. The browser/OS denied permission outright (geolocation error PERMISSION_DENIED). */
+  permissionDenied: boolean;
+  /** B. The lookup itself failed/timed out (POSITION_UNAVAILABLE / TIMEOUT) — not a denial. */
+  lookupFailed: boolean;
+  /** Did a position successfully resolve this attempt? */
+  hasCoords: boolean;
+  /** Given that position, did it land on a candidate via the geo source (see pickCandidate)? */
+  hasGeoCandidate: boolean;
+}): LocationOutcome | null {
+  if (input.permissionDenied) return 'permission_denied'; // A
+  if (input.lookupFailed) return 'lookup_failed'; // B
+  if (!input.hasCoords) return null; // no attempt has resolved yet — nothing to report
+  return input.hasGeoCandidate ? 'found' : 'no_game'; // D : C
+}
+
+/**
+ * Reachability gap (0R.5 follow-up, "#9"): the dedicated location-outcome messaging
+ * in TonightGameCard only renders when there is still NO candidate at all — but a
+ * rooting-team anchor can supply a fallback candidate even after geolocation
+ * genuinely failed (permission denied / lookup failed). Without this check, that
+ * failure is silently swallowed: the user just sees a normal anchor-based card and
+ * never learns location didn't work. `true` means: surface a brief, honest note
+ * ALONGSIDE the still-usable fallback candidate — never hide the candidate, never
+ * silently hide the failure either.
+ */
+export function isGeoFailedBehindFallback(input: {
+  locationOutcome: LocationOutcome | null;
+  /** `effectiveCandidate?.source`, or null when there is no candidate at all (in
+   *  which case the dedicated no-candidate messaging branch already handles it). */
+  candidateSource: CandidateSource | null;
+}): boolean {
+  if (input.locationOutcome !== 'permission_denied' && input.locationOutcome !== 'lookup_failed') return false;
+  return input.candidateSource !== null && input.candidateSource !== 'geo';
+}
+
 // ── Dismissals ──────────────────────────────────────────────────────────────────
 // Per GAME, expiring with that game's window (spec, locked 2026-07-31). Keyed by
 // game_id — never by date or team — so dismissing one candidate cannot suppress another,

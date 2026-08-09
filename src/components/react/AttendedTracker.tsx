@@ -55,6 +55,7 @@ import {
 import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
 import { isFeatureEnabled } from '../../lib/feature-flags';
+import { shouldShowLogPrompt, type AttendedAddSource } from '../../lib/attended-log-source';
 import TonightGameCard from './TonightGameCard';
 
 const API = 'https://api.hockeygamebot.com';
@@ -1587,7 +1588,10 @@ export default function AttendedTracker() {
   const [justAdded, setJustAdded] = useState<AttendedGame | null>(null);
 
   const addGame = useCallback(
-    (raw: RawGame, opts: { earned?: boolean } = {}): Promise<{ ok: boolean; earned?: EarnedDelta }> => {
+    (
+      raw: RawGame,
+      opts: { earned?: boolean; source?: AttendedAddSource } = {},
+    ): Promise<{ ok: boolean; earned?: EarnedDelta }> => {
       const snap: AttendedGame = {
         game_id: raw.game_id,
         date: raw.date,
@@ -1601,7 +1605,15 @@ export default function AttendedTracker() {
       commitDetail(snap);
       // Highest-intent moment: offer a ticket stub the instant a game is logged.
       // (Milestone-aware copy is resolved at render from the now-updated ordinals.)
-      setJustAdded(snap);
+      // EXCEPT the Tonight's Game path (0R.3): TonightGameCard already renders its
+      // own consolidated in-card result surface (the cel-list, with its own "Share
+      // ticket stub" CTA) for that same write. Surfacing THIS global prompt too would
+      // double-confirm one logical write with two success surfaces. Manual/search/
+      // import adds (source omitted, 'manual', or 'import') still get it — that's the
+      // only result surface those paths have.
+      if (shouldShowLogPrompt(opts.source)) {
+        setJustAdded(snap);
+      }
 
       if (isLoggedIn) {
         setD1Rows((prev) => {
@@ -2139,7 +2151,11 @@ export default function AttendedTracker() {
       for (const id of selectedIds) {
         if (attended.has(id)) continue;
         const g = byId.get(id);
-        if (g) addGame(g);
+        // 0R.4: a multi-select "Add N games" fan-out is a bulk/historical add, not a
+        // live Tonight log — tag it 'import' so it stays on the quiet att-logprompt
+        // path (never live-style celebratory framing) even though it still reuses
+        // addGame's single-game write pipeline per item.
+        if (g) addGame(g, { source: 'import' });
       }
       setSelectedIds(new Set());
     },
@@ -3204,19 +3220,27 @@ export default function AttendedTracker() {
         </div>
       ) : null}
 
-      {/* Log-time / milestone prompt — fires the instant a game is added (highest
-          intent). Milestone-aware copy when the new game is a 10th/25th/… or a new
-          arena. Dismissible; auto-hides if that game is removed. */}
+      {/* Log-time / milestone prompt — fires for MANUAL/SEARCH/IMPORT adds (0R.3 gates
+          the Tonight path out of this entirely — see addGame's `source` param; that
+          path gets its own in-card cel-list instead, never this).
+          0R.4 (locked): these are historical adds, possibly logged well after the
+          game itself, so the tone stays a quiet "Passport updated" — it may still
+          surface a real milestone the write crossed, but never frames it as though
+          it just happened live tonight. Dismissible; auto-hides if that game is removed. */}
       {justAdded && games.some((g) => g.game_id === justAdded.game_id) ? (
         <div className="att-logprompt">
           <div className="att-logprompt-text">
             <strong>
-              Added {justAdded.away.abbrev} @ {justAdded.home.abbrev}.
+              Passport updated — added {justAdded.away.abbrev} @ {justAdded.home.abbrev}.
             </strong>{' '}
             {(() => {
               const note = milestoneNoteFor(justAdded.game_id);
+              // #8: never "Now at ..." — that reads as present-tense/live attendance,
+              // wrong for a historical add that may have happened years ago. "That's"
+              // reports the milestone as a fact about the collection, not a claim
+              // about where the user is right now.
               return note
-                ? `That's ${note} — make a ticket stub to share it.`
+                ? `That's ${note}. Make a ticket stub if you'd like to share it.`
                 : 'Make a ticket stub to share this game.';
             })()}
             {passportPublic ? (
@@ -3225,8 +3249,8 @@ export default function AttendedTracker() {
               // only relevant when the account's passport is public; a private
               // passport has nothing here to disclose.
               <div className="att-logprompt-privacy">
-                Logged! It’s visible to you now. For privacy, new games appear on your public passport
-                after the next morning refresh.
+                Visible to you now. For privacy, new games appear on your public passport after the next
+                morning refresh.
               </div>
             ) : null}
           </div>

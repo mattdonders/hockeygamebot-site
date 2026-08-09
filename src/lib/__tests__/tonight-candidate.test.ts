@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { haversineKm } from '../arena-match';
-import { dismissGame, makeManualCandidate, pickCandidate, readDismissed, undismissGame } from '../tonight-candidate';
+import {
+  classifyLocationOutcome,
+  dismissGame,
+  isGeoFailedBehindFallback,
+  makeManualCandidate,
+  pickCandidate,
+  readDismissed,
+  undismissGame,
+} from '../tonight-candidate';
 import type { TonightGame } from '../tonight-client';
 import { installFakeWindow, uninstallFakeWindow, type StorageHandles } from './test-storage';
 
@@ -171,6 +179,87 @@ describe('makeManualCandidate', () => {
     expect(c.source).toBe('manual');
     expect(c.game.game_id).toBe('B');
     expect(c.alternatives.map((g) => g.game_id)).toEqual(['A']);
+  });
+});
+
+describe('classifyLocationOutcome — 0R.5 A/B/C/D mapping', () => {
+  const base = { permissionDenied: false, lookupFailed: false, hasCoords: false, hasGeoCandidate: false };
+
+  it('A: permission denied wins regardless of anything else', () => {
+    expect(classifyLocationOutcome({ ...base, permissionDenied: true })).toBe('permission_denied');
+    expect(
+      classifyLocationOutcome({ ...base, permissionDenied: true, hasCoords: true, hasGeoCandidate: true }),
+    ).toBe('permission_denied');
+  });
+
+  it('B: a lookup failure (not a denial) is reported distinctly', () => {
+    expect(classifyLocationOutcome({ ...base, lookupFailed: true })).toBe('lookup_failed');
+  });
+
+  it('B takes precedence over a stale/irrelevant hasGeoCandidate flag', () => {
+    expect(classifyLocationOutcome({ ...base, lookupFailed: true, hasGeoCandidate: true })).toBe(
+      'lookup_failed',
+    );
+  });
+
+  it('no attempt has resolved yet: neither a failure nor coords ⇒ null (nothing to report)', () => {
+    expect(classifyLocationOutcome(base)).toBeNull();
+  });
+
+  it('C: position resolved but no game matched nearby', () => {
+    expect(classifyLocationOutcome({ ...base, hasCoords: true, hasGeoCandidate: false })).toBe('no_game');
+  });
+
+  it('D: position resolved and a game matched — the happy path', () => {
+    expect(classifyLocationOutcome({ ...base, hasCoords: true, hasGeoCandidate: true })).toBe('found');
+  });
+
+  it('never conflates a failed attempt with "no game found" — permission/lookup failures must never imply no NHL game exists', () => {
+    // Both C and a failure can technically co-occur if state is stale (e.g. a prior
+    // successful fix's hasGeoCandidate lingering) — failure must still win.
+    expect(classifyLocationOutcome({ ...base, permissionDenied: true, hasCoords: true })).toBe(
+      'permission_denied',
+    );
+  });
+});
+
+describe('isGeoFailedBehindFallback — defect #9 (honest signal behind an anchor fallback)', () => {
+  it('true: permission denied, but a rooting-team fallback still found a candidate', () => {
+    expect(
+      isGeoFailedBehindFallback({ locationOutcome: 'permission_denied', candidateSource: 'rooting_team' }),
+    ).toBe(true);
+  });
+
+  it('true: lookup failed, but a manual pick is standing in', () => {
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'lookup_failed', candidateSource: 'manual' })).toBe(
+      true,
+    );
+  });
+
+  it('false: geo itself succeeded and IS the candidate — nothing to disclose', () => {
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'permission_denied', candidateSource: 'geo' })).toBe(
+      false,
+    );
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'found', candidateSource: 'geo' })).toBe(false);
+  });
+
+  it('false: no candidate at all — the dedicated no-candidate messaging branch already covers this', () => {
+    expect(
+      isGeoFailedBehindFallback({ locationOutcome: 'permission_denied', candidateSource: null }),
+    ).toBe(false);
+  });
+
+  it('false: outcome is "no_game" or "found" (not a failure) even with a non-geo candidate', () => {
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'no_game', candidateSource: 'rooting_team' })).toBe(
+      false,
+    );
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'found', candidateSource: 'rooting_team' })).toBe(
+      false,
+    );
+  });
+
+  it('false: no outcome to report yet (null)', () => {
+    expect(isGeoFailedBehindFallback({ locationOutcome: null, candidateSource: 'rooting_team' })).toBe(false);
   });
 });
 
