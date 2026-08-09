@@ -23,6 +23,7 @@ import {
   dismissGame,
   undismissGame,
   classifyLocationOutcome,
+  isGeoFailedBehindFallback,
   type Candidate,
   type LocationOutcome,
 } from '../../lib/tonight-candidate';
@@ -59,11 +60,18 @@ function debugNowMs(): number | undefined {
  *  beacon helper the referrer/visit/share_click events already use (see track.ts).
  *  `trackEvent` itself never throws or returns a promise to await; this wrapper is
  *  pure defense-in-depth so a telemetry call can NEVER interrupt or duplicate an
- *  attendance write. `meta` may only carry tiny non-PII context (game_id is public
- *  schedule data) — never coordinates or precise location. */
-function trackTonight(action: string, meta?: Record<string, unknown>): void {
+ *  attendance write.
+ *
+ *  ACTION-ONLY, no exceptions (privacy contract): `meta` is always exactly
+ *  `{action}` — never a `game_id` or any other candidate-identifying field. A
+ *  `tonight_game` event fired in a geolocation-success context (surfaced,
+ *  candidate_found, write_*) that also carried a game_id would let the server
+ *  infer WHICH ARENA the user was physically standing at, which is precise-
+ *  location inference — exactly what the locked telemetry contract forbids. Do
+ *  not widen this to accept identifying meta without re-checking that contract. */
+function trackTonight(action: string): void {
   try {
-    trackEvent('tonight_game', { meta: meta ? { action, ...meta } : { action } });
+    trackEvent('tonight_game', { meta: { action } });
   } catch {
     /* telemetry must never break the log path */
   }
@@ -207,6 +215,11 @@ export default function TonightGameCard({
     };
   }, []);
 
+  // 0R.7/#6: computed as plain state (not a hook) so it's usable both to gate the
+  // effects below (a killed response must not emit telemetry or claim `active`) and
+  // for the early-return render gate further down — both need the SAME answer.
+  const killed = tonightKillSwitchActive(resp);
+
   const candidate: Candidate | null = useMemo(() => {
     if (!resp || !Array.isArray(resp.games) || resp.games.length === 0) return null;
     return pickCandidate(resp.games, anchor, coords, dismissed);
@@ -226,6 +239,14 @@ export default function TonightGameCard({
     lookupFailed: geoAttemptFailure === 'lookup_failed',
     hasCoords: !!coords,
     hasGeoCandidate: !!candidate && candidate.source === 'geo',
+  });
+
+  // #9: see isGeoFailedBehindFallback's docblock — surfaces a brief, honest note
+  // alongside a still-usable rooting-team fallback candidate when geo genuinely
+  // failed, instead of silently hiding either the failure or the fallback.
+  const geoFailedBehindFallback = isGeoFailedBehindFallback({
+    locationOutcome,
+    candidateSource: effectiveCandidate?.source ?? null,
   });
 
   const alreadyLogged = effectiveCandidate ? games.some((g) => g.game_id === effectiveCandidate.game.game_id) : false;
@@ -284,16 +305,18 @@ export default function TonightGameCard({
   // the user. Fires once per candidate (ref-gated), not on every poll re-render.
   const surfacedRef = useRef<string | null>(null);
   useEffect(() => {
+    if (killed) return; // #6: a killed response must never emit telemetry
     if (!effectiveCandidate) return;
     if (surfacedRef.current === effectiveCandidate.game.game_id) return;
     surfacedRef.current = effectiveCandidate.game.game_id;
-    trackTonight('surfaced', { game_id: effectiveCandidate.game.game_id });
-  }, [effectiveCandidate]);
+    trackTonight('surfaced');
+  }, [killed, effectiveCandidate]);
 
   // 0R.8 telemetry: report each distinct location outcome once (ref-gated so a
   // stable outcome across re-renders/polls doesn't re-fire).
   const trackedOutcomeRef = useRef<LocationOutcome | null>(null);
   useEffect(() => {
+    if (killed) return; // #6: a killed response must never emit telemetry
     if (!locationOutcome || trackedOutcomeRef.current === locationOutcome) return;
     trackedOutcomeRef.current = locationOutcome;
     const action =
@@ -304,10 +327,13 @@ export default function TonightGameCard({
           : locationOutcome === 'no_game'
             ? 'no_game'
             : 'candidate_found';
-    trackTonight(action, locationOutcome === 'found' ? { game_id: candidate?.game.game_id } : undefined);
-  }, [locationOutcome, candidate]);
+    trackTonight(action);
+  }, [killed, locationOutcome]);
 
-  const active = !!effectiveCandidate || !!sessionUndo || showDiscovery;
+  // #6: a killed response must report `active=false` — otherwise a card that renders
+  // NOTHING (see the early return below) could still be reported as active, wrongly
+  // collapsing the unrelated ticket-stub hero for a feature that isn't showing.
+  const active = !killed && (!!effectiveCandidate || !!sessionUndo || showDiscovery);
   useEffect(() => {
     onActiveChange?.(active);
   }, [active, onActiveChange]);
@@ -408,7 +434,7 @@ export default function TonightGameCard({
         // re-derive from the post-add list (which a stale closure can't see).
         const venue = g.venue?.trim().toLowerCase();
         const newArena = !!venue && !games.some((existing) => existing.venue?.trim().toLowerCase() === venue);
-        trackTonight('write_attempted', { game_id: g.game_id });
+        trackTonight('write_attempted');
         // source:'tonight' (0R.3) — this is the ONE logical write for the Tonight path,
         // so addGame must NOT also surface the global att-logprompt (AttendedTracker
         // gates that on source). The in-card cel-list below is the sole result surface.
@@ -417,10 +443,10 @@ export default function TonightGameCard({
           // Genuine write failure (logged-in only — logged-out writes can't fail).
           // addGame already rolled back and surfaced the shared writeError banner;
           // don't celebrate a log that didn't happen.
-          trackTonight('write_failed', { game_id: g.game_id });
+          trackTonight('write_failed');
           return;
         }
-        trackTonight('write_succeeded', { game_id: g.game_id });
+        trackTonight('write_succeeded');
         setCelebrating(g.game_id);
         if (earned) {
           const labelFor = new Map((summary?.badges?.catalog ?? []).map((c) => [c.id, c.label]));
@@ -453,7 +479,7 @@ export default function TonightGameCard({
       if (mutatingRef.current) return;
       mutatingRef.current = true;
       try {
-        trackTonight('undo', { game_id: gameId });
+        trackTonight('undo');
         await removeGame(gameId);
         setCelebrating(null);
         setCelebrationExtras(null);
@@ -492,7 +518,7 @@ export default function TonightGameCard({
     (gameId: string) => {
       const g = games.find((x) => x.game_id === gameId);
       if (g) {
-        trackTonight('share', { game_id: gameId });
+        trackTonight('share');
         handleStub(g);
       }
     },
@@ -504,8 +530,9 @@ export default function TonightGameCard({
   // NOTHING, independent of the local `tonight` feature flag or anything else this
   // component has locally decided. ABSENT (older worker) is deliberately NOT this
   // branch — see TonightResponse's docblock — so it falls through to normal
-  // rendering, same as `enabled: true`.
-  if (tonightKillSwitchActive(resp)) return null;
+  // rendering, same as `enabled: true`. (`killed` is computed once above, alongside
+  // `candidate`, so the effects above and this render gate can never disagree — #6.)
+  if (killed) return null;
 
   // ── Session-only dismiss undo strip ─────────────────────────────────────────
   if (sessionUndo && !effectiveCandidate) {
@@ -597,6 +624,13 @@ export default function TonightGameCard({
           {game.away.abbrev} <span className="at">@</span> {game.home.abbrev}
         </div>
         {game.venue ? <div className="where">{game.venue}</div> : null}
+        {/* #9: honest signal that location failed even though a rooting-team fallback
+            still found something to show — never silently swap without saying so. */}
+        {geoFailedBehindFallback ? (
+          <div className="tn-location-note">
+            Couldn't confirm your location, so this is your rooting team's game, not a location match.
+          </div>
+        ) : null}
         {game.arena && !coords && !promptSuppressed && !geoAutoPending && geoPrefState !== 'disabled' ? (
           <button type="button" className="tn-geo-btn spacer" onClick={() => setShowGeoPreprompt(true)}>
             Use my location
@@ -697,6 +731,13 @@ export default function TonightGameCard({
         <div className="tn-pin">📍 You're at {game.venue ?? game.arena?.name}</div>
       ) : game.venue ? (
         <div className="tn-meta">{game.venue}</div>
+      ) : null}
+      {/* #9: honest signal that location failed even though a rooting-team fallback
+          still found something to show — never silently swap without saying so. */}
+      {geoFailedBehindFallback ? (
+        <div className="tn-location-note">
+          Couldn't confirm your location, so this is your rooting team's game, not a location match.
+        </div>
       ) : null}
       <div className={`tn-ask${isFirstGame ? ' first-ask' : ''}`}>{askCopy}</div>
       <div className="tn-actions">

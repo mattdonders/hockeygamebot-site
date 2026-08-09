@@ -49,9 +49,7 @@ describe('trackEvent — fire-and-forget contract', () => {
         throw new Error('boom');
       },
     });
-    expect(() =>
-      trackEvent('tonight_game', { meta: { action: 'write_attempted', game_id: '2026020123' } }),
-    ).not.toThrow();
+    expect(() => trackEvent('tonight_game', { meta: { action: 'write_attempted' } })).not.toThrow();
   });
 
   it('falls back to fetch when sendBeacon returns false, and never throws even if fetch rejects', () => {
@@ -81,11 +79,30 @@ describe('trackEvent — fire-and-forget contract', () => {
   it('sends the tonight_game event with its action in meta on the happy path', () => {
     const sendBeacon = vi.fn((_url: string, _data: BodyInit) => true);
     installBrowserLike({ sendBeacon });
-    trackEvent('tonight_game', { meta: { action: 'candidate_found', game_id: '2026020123' } });
+    trackEvent('tonight_game', { meta: { action: 'candidate_found' } });
 
     expect(sendBeacon).toHaveBeenCalledTimes(1);
     const [url, blob] = sendBeacon.mock.calls[0];
     expect(url).toContain('/v1/track');
     expect(blob).toBeInstanceOf(Blob);
+  });
+
+  // Defect #10 (privacy contract, must-fix): a `tonight_game` beacon fired in a
+  // geolocation-success context (surfaced / candidate_found / write_*) must NEVER
+  // carry a game_id or any other candidate-identifying field — that would let the
+  // server infer WHICH ARENA the user was physically at, i.e. precise-location
+  // inference, which the locked contract forbids outright. `meta` must be
+  // action-only. This replaces an earlier version of this suite that wrongly
+  // asserted game_id WAS acceptable — that encoded the wrong contract.
+  it('never includes a game_id or other candidate-identifying field in a tonight_game beacon', async () => {
+    const sendBeacon = vi.fn((_url: string, _data: BodyInit) => true);
+    installBrowserLike({ sendBeacon });
+    trackEvent('tonight_game', { meta: { action: 'write_succeeded' } });
+
+    const [, blob] = sendBeacon.mock.calls[0] as [string, Blob];
+    const body = JSON.parse(await blob.text());
+    expect(body).toEqual({ event: 'tonight_game', meta: { action: 'write_succeeded' } });
+    expect(body.meta).not.toHaveProperty('game_id');
+    expect(Object.keys(body.meta)).toEqual(['action']);
   });
 });

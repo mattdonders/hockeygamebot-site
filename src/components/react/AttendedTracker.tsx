@@ -3235,8 +3235,12 @@ export default function AttendedTracker() {
             </strong>{' '}
             {(() => {
               const note = milestoneNoteFor(justAdded.game_id);
+              // #8: never "Now at ..." — that reads as present-tense/live attendance,
+              // wrong for a historical add that may have happened years ago. "That's"
+              // reports the milestone as a fact about the collection, not a claim
+              // about where the user is right now.
               return note
-                ? `Now at ${note}. Make a ticket stub if you'd like to share it.`
+                ? `That's ${note}. Make a ticket stub if you'd like to share it.`
                 : 'Make a ticket stub to share this game.';
             })()}
             {passportPublic ? (

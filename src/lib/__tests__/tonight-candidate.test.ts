@@ -3,6 +3,7 @@ import { haversineKm } from '../arena-match';
 import {
   classifyLocationOutcome,
   dismissGame,
+  isGeoFailedBehindFallback,
   makeManualCandidate,
   pickCandidate,
   readDismissed,
@@ -219,6 +220,46 @@ describe('classifyLocationOutcome — 0R.5 A/B/C/D mapping', () => {
     expect(classifyLocationOutcome({ ...base, permissionDenied: true, hasCoords: true })).toBe(
       'permission_denied',
     );
+  });
+});
+
+describe('isGeoFailedBehindFallback — defect #9 (honest signal behind an anchor fallback)', () => {
+  it('true: permission denied, but a rooting-team fallback still found a candidate', () => {
+    expect(
+      isGeoFailedBehindFallback({ locationOutcome: 'permission_denied', candidateSource: 'rooting_team' }),
+    ).toBe(true);
+  });
+
+  it('true: lookup failed, but a manual pick is standing in', () => {
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'lookup_failed', candidateSource: 'manual' })).toBe(
+      true,
+    );
+  });
+
+  it('false: geo itself succeeded and IS the candidate — nothing to disclose', () => {
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'permission_denied', candidateSource: 'geo' })).toBe(
+      false,
+    );
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'found', candidateSource: 'geo' })).toBe(false);
+  });
+
+  it('false: no candidate at all — the dedicated no-candidate messaging branch already covers this', () => {
+    expect(
+      isGeoFailedBehindFallback({ locationOutcome: 'permission_denied', candidateSource: null }),
+    ).toBe(false);
+  });
+
+  it('false: outcome is "no_game" or "found" (not a failure) even with a non-geo candidate', () => {
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'no_game', candidateSource: 'rooting_team' })).toBe(
+      false,
+    );
+    expect(isGeoFailedBehindFallback({ locationOutcome: 'found', candidateSource: 'rooting_team' })).toBe(
+      false,
+    );
+  });
+
+  it('false: no outcome to report yet (null)', () => {
+    expect(isGeoFailedBehindFallback({ locationOutcome: null, candidateSource: 'rooting_team' })).toBe(false);
   });
 });
 
