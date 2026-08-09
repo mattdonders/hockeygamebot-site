@@ -16,14 +16,18 @@
  * see AttendedTracker's docblock) — this component owns no write path of its own.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchTonight, type TonightGame, type TonightResponse } from '../../lib/tonight-client';
+import { fetchTonight, tonightKillSwitchActive, type TonightGame, type TonightResponse } from '../../lib/tonight-client';
 import {
   pickCandidate,
   readDismissed,
   dismissGame,
   undismissGame,
+  classifyLocationOutcome,
   type Candidate,
+  type LocationOutcome,
 } from '../../lib/tonight-candidate';
+import { trackEvent } from '../../lib/track';
+import { type AttendedAddSource } from '../../lib/attended-log-source';
 import {
   readGeoPreference,
   recordGrant,
@@ -51,6 +55,20 @@ function debugNowMs(): number | undefined {
   return Number.isFinite(t) ? t : undefined;
 }
 
+/** Fire-and-forget Tonight's Game telemetry (0R.8) — `POST /v1/track` via the SAME
+ *  beacon helper the referrer/visit/share_click events already use (see track.ts).
+ *  `trackEvent` itself never throws or returns a promise to await; this wrapper is
+ *  pure defense-in-depth so a telemetry call can NEVER interrupt or duplicate an
+ *  attendance write. `meta` may only carry tiny non-PII context (game_id is public
+ *  schedule data) — never coordinates or precise location. */
+function trackTonight(action: string, meta?: Record<string, unknown>): void {
+  try {
+    trackEvent('tonight_game', { meta: meta ? { action, ...meta } : { action } });
+  } catch {
+    /* telemetry must never break the log path */
+  }
+}
+
 export type StubOrdinals = {
   gameOrd: Map<string, number>;
   arenaOrd: Map<string, number>;
@@ -63,7 +81,10 @@ type Props = {
   isLoggedIn: boolean;
   anchor: string | null; // rooting-team abbrev, or null (no anchor / neutral)
   stubOrdinals: StubOrdinals;
-  addGame: (raw: RawGame, opts?: { earned?: boolean }) => Promise<{ ok: boolean; earned?: EarnedDelta }>;
+  addGame: (
+    raw: RawGame,
+    opts?: { earned?: boolean; source?: AttendedAddSource },
+  ) => Promise<{ ok: boolean; earned?: EarnedDelta }>;
   removeGame: (gameId: string) => Promise<void>;
   handleStub: (g: AttendedGame) => Promise<void>;
   /** Fires whenever this card transitions between rendering something and rendering
@@ -146,6 +167,9 @@ export default function TonightGameCard({
   const [geoAutoPending, setGeoAutoPending] = useState<boolean>(
     () => readGeoPreference(debugNowMs() ?? Date.now()).state === 'enabled',
   );
+  // Which of the two FAILURE outcomes (0R.5 A/B) the last geolocation attempt hit, if
+  // any — success doesn't set this (that's `coords`); cleared on every new attempt.
+  const [geoAttemptFailure, setGeoAttemptFailure] = useState<'denied' | 'lookup_failed' | null>(null);
   const [sessionUndo, setSessionUndo] = useState<{ gameId: string; expiresAt: string } | null>(null);
   const [phase, setPhase] = useState<'idle' | 'pending'>('idle');
   const [celebrating, setCelebrating] = useState<string | null>(null); // game_id, once logged this visit
@@ -191,6 +215,18 @@ export default function TonightGameCard({
   // Explicit user intent always wins over inference, and is never displaced by a
   // later-resolving geo match — see tonight-candidate.ts's makeManualCandidate docblock.
   const effectiveCandidate = manualCandidate ?? candidate;
+
+  // 0R.5: classify the last INTENTIONAL location attempt into the four locked
+  // user-facing outcomes (A permission denied / B lookup failed / C no nearby game /
+  // D found) — see classifyLocationOutcome's docblock. `candidate` (not
+  // `effectiveCandidate`) on purpose: a manual pick must never be reported as a geo
+  // "found" outcome, and must never mask a real geo failure either.
+  const locationOutcome: LocationOutcome | null = classifyLocationOutcome({
+    permissionDenied: geoAttemptFailure === 'denied',
+    lookupFailed: geoAttemptFailure === 'lookup_failed',
+    hasCoords: !!coords,
+    hasGeoCandidate: !!candidate && candidate.source === 'geo',
+  });
 
   const alreadyLogged = effectiveCandidate ? games.some((g) => g.game_id === effectiveCandidate.game.game_id) : false;
   const isFirstGame = games.length === 0 && !alreadyLogged;
@@ -244,6 +280,33 @@ export default function TonightGameCard({
     // logged-in path comes from the server's `earned` delta and is left untouched here.
   }, [summary, celebrationExtras]);
 
+  // 0R.8 telemetry: `surfaced` — the card actually showing a specific candidate to
+  // the user. Fires once per candidate (ref-gated), not on every poll re-render.
+  const surfacedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!effectiveCandidate) return;
+    if (surfacedRef.current === effectiveCandidate.game.game_id) return;
+    surfacedRef.current = effectiveCandidate.game.game_id;
+    trackTonight('surfaced', { game_id: effectiveCandidate.game.game_id });
+  }, [effectiveCandidate]);
+
+  // 0R.8 telemetry: report each distinct location outcome once (ref-gated so a
+  // stable outcome across re-renders/polls doesn't re-fire).
+  const trackedOutcomeRef = useRef<LocationOutcome | null>(null);
+  useEffect(() => {
+    if (!locationOutcome || trackedOutcomeRef.current === locationOutcome) return;
+    trackedOutcomeRef.current = locationOutcome;
+    const action =
+      locationOutcome === 'permission_denied'
+        ? 'location_denied'
+        : locationOutcome === 'lookup_failed'
+          ? 'lookup_failed'
+          : locationOutcome === 'no_game'
+            ? 'no_game'
+            : 'candidate_found';
+    trackTonight(action, locationOutcome === 'found' ? { game_id: candidate?.game.game_id } : undefined);
+  }, [locationOutcome, candidate]);
+
   const active = !!effectiveCandidate || !!sessionUndo || showDiscovery;
   useEffect(() => {
     onActiveChange?.(active);
@@ -256,12 +319,14 @@ export default function TonightGameCard({
       return; // silent — §6.4
     }
     setGeoBusy(true);
+    setGeoAttemptFailure(null); // clear any prior failure while this attempt is in flight
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const nowMs = debugNowMs() ?? Date.now();
         setGeoBusy(false);
         setGeoResolved(true);
         setGeoAutoPending(false);
+        setGeoAttemptFailure(null);
         setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
         recordGrant(nowMs);
         recordFreshFix(pos.coords.latitude, pos.coords.longitude, nowMs);
@@ -279,6 +344,9 @@ export default function TonightGameCard({
           recordPermissionDenied(nowMs);
           setGeoPrefState('suppressed');
           setPromptSuppressed(!canPromptNow(nowMs));
+          setGeoAttemptFailure('denied'); // 0R.5 outcome A
+        } else {
+          setGeoAttemptFailure('lookup_failed'); // 0R.5 outcome B
         }
       },
       { maximumAge: 5 * 60_000, timeout: 8_000 },
@@ -340,13 +408,19 @@ export default function TonightGameCard({
         // re-derive from the post-add list (which a stale closure can't see).
         const venue = g.venue?.trim().toLowerCase();
         const newArena = !!venue && !games.some((existing) => existing.venue?.trim().toLowerCase() === venue);
-        const { ok, earned } = await addGame(raw, { earned: isLoggedIn });
+        trackTonight('write_attempted', { game_id: g.game_id });
+        // source:'tonight' (0R.3) — this is the ONE logical write for the Tonight path,
+        // so addGame must NOT also surface the global att-logprompt (AttendedTracker
+        // gates that on source). The in-card cel-list below is the sole result surface.
+        const { ok, earned } = await addGame(raw, { earned: isLoggedIn, source: 'tonight' });
         if (!ok) {
           // Genuine write failure (logged-in only — logged-out writes can't fail).
           // addGame already rolled back and surfaced the shared writeError banner;
           // don't celebrate a log that didn't happen.
+          trackTonight('write_failed', { game_id: g.game_id });
           return;
         }
+        trackTonight('write_succeeded', { game_id: g.game_id });
         setCelebrating(g.game_id);
         if (earned) {
           const labelFor = new Map((summary?.badges?.catalog ?? []).map((c) => [c.id, c.label]));
@@ -379,6 +453,7 @@ export default function TonightGameCard({
       if (mutatingRef.current) return;
       mutatingRef.current = true;
       try {
+        trackTonight('undo', { game_id: gameId });
         await removeGame(gameId);
         setCelebrating(null);
         setCelebrationExtras(null);
@@ -416,10 +491,21 @@ export default function TonightGameCard({
   const doShare = useCallback(
     (gameId: string) => {
       const g = games.find((x) => x.game_id === gameId);
-      if (g) handleStub(g);
+      if (g) {
+        trackTonight('share', { game_id: gameId });
+        handleStub(g);
+      }
     },
     [games, handleStub],
   );
+
+  // 0R.7: server kill-switch. `enabled === false` (only ever set by a worker new
+  // enough to send the field) means the feature is killed server-side — render
+  // NOTHING, independent of the local `tonight` feature flag or anything else this
+  // component has locally decided. ABSENT (older worker) is deliberately NOT this
+  // branch — see TonightResponse's docblock — so it falls through to normal
+  // rendering, same as `enabled: true`.
+  if (tonightKillSwitchActive(resp)) return null;
 
   // ── Session-only dismiss undo strip ─────────────────────────────────────────
   if (sessionUndo && !effectiveCandidate) {
@@ -447,6 +533,47 @@ export default function TonightGameCard({
         />
       </div>
     );
+  }
+
+  // ── Location-outcome messaging (0R.5) ───────────────────────────────────────
+  // Only reachable here when there is still no candidate AND a game IS eligible
+  // tonight (hasEligibleGames) — if nothing is playing at all, staying silent is
+  // correct and unrelated to location. Each branch: no jargon, no auto-log, and a
+  // way back to the ordinary logging surfaces already on this page (Search /
+  // Add manually) rather than inventing a new screen.
+  if (!effectiveCandidate && hasEligibleGames) {
+    if (locationOutcome === 'permission_denied') {
+      return (
+        <div className="tn tn-strip">
+          <div className="tn-location-note">
+            Location access is off, so we can't auto-detect tonight's game. You can still log any game with
+            Search or Add manually below.
+          </div>
+        </div>
+      );
+    }
+    if (locationOutcome === 'lookup_failed') {
+      return (
+        <div className="tn tn-strip">
+          <div className="tn-location-note">
+            We couldn't get your location just now. You can still log any game with Search or Add manually
+            below.
+          </div>
+          <button type="button" className="btn-text" onClick={requestGeo}>
+            Try again
+          </button>
+        </div>
+      );
+    }
+    if (locationOutcome === 'no_game') {
+      return (
+        <div className="tn tn-strip">
+          <div className="tn-location-note">
+            No game found near you right now. You can still log any game with Search or Add manually below.
+          </div>
+        </div>
+      );
+    }
   }
 
   if (!effectiveCandidate) return null;
@@ -507,8 +634,10 @@ export default function TonightGameCard({
             Undo
           </button>
         </div>
+        {/* 0R.6.1: scoped live region — announces the earned result (badges/arena/
+            milestones) to screen readers without making the whole card noisy. */}
         {loggedThisVisit && (badges.length > 0 || isNewArena || milestones.length > 0) ? (
-          <ul className="cel-list">
+          <ul className="cel-list" role="status" aria-live="polite">
             {badges.map((label) => (
               <li key={label}>
                 <span className="mark">✦</span> New badge <span className="cel-badge">{label}</span>

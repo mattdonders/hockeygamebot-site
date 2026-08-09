@@ -55,7 +55,24 @@ export type TonightResponse = {
   date: string | null;
   now: string;
   games: TonightGame[];
+  /** Server-side kill switch. `false` (with `games` empty) means the feature has been
+   *  disabled server-side — the card must render NOTHING regardless of the local
+   *  `tonight` feature flag. ABSENT (older worker / not yet deployed) means "no
+   *  opinion" — treat as enabled, same as `true`. Never infer this from `games` being
+   *  empty; a genuinely quiet night also has an empty `games` array. */
+  enabled?: boolean;
 };
+
+/**
+ * 0R.7: is the server-side kill switch active for this response? `true` only when
+ * the server explicitly says `enabled: false` — an ABSENT field (older worker that
+ * doesn't send it yet) or `enabled: true` both mean "not killed". Pulled out as a
+ * pure function so the fail-safe direction (absent ⇒ enabled) is unit-testable
+ * without a component/DOM.
+ */
+export function tonightKillSwitchActive(resp: TonightResponse | null | undefined): boolean {
+  return resp?.enabled === false;
+}
 
 /**
  * Fetch tonight's candidates.
