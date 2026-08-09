@@ -75,7 +75,7 @@ export default function PublicPassportPanel({ handle, isPublic, onHandleChange, 
   const copyLink = useCallback(async () => {
     if (!publicUrl) return;
     try {
-      await navigator.clipboard.writeText(`https://${publicUrl}`);
+      await navigator.clipboard.writeText(`https://${publicUrl}?ref=share`);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
