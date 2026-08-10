@@ -2539,6 +2539,10 @@ export default function AttendedTracker({
     );
   }, [summary]);
   const earnedCount = useMemo(() => catalog.filter((c) => c.earned).length, [catalog]);
+  // Matches the Home Rinks chip's own render gate (`viewArenaBadge.homeRinks > 0`)
+  // below — the displayed "X of N" and "View all N badges" must count only what's
+  // actually on screen, not assume the chip always renders.
+  const badgeCatalogTotal = catalog.length + (viewArenaBadge.homeRinks > 0 ? 1 : 0);
 
   // Ghost catalog for the EMPTY state — the full badge wall, all locked. Built
   // locally from BADGES (no network; the empty state fires no summary fetch) and
@@ -4449,12 +4453,16 @@ export default function AttendedTracker({
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
               <span className="att-section-meta">
-                {/* The Home Rinks collection badge is ALWAYS rendered as a collectible, so
-                    it always counts toward the total (denominator +1). It counts as earned
-                    only once at least one current home rink is collected. (Codex: previously
-                    dropped from the total when homeRinks===0 → "0 of 8" instead of "0 of 9".) */}
+                {/* The Home Rinks collection badge only renders below once at least one
+                    current home rink is collected (see the homeRinks > 0 gate just below),
+                    so BOTH the numerator and the denominator must gate on the same
+                    condition, or the displayed total overstates what's actually on
+                    screen. Block 2D correction round (2026-08-10): the denominator
+                    previously added +1 unconditionally — "View all 12 badges" when only
+                    11 were rendered — because it assumed the chip was "always rendered,"
+                    which the JSX below has never actually done. */}
                 {earnedCount + (viewArenaBadge.homeRinks > 0 ? 1 : 0)} of{' '}
-                {catalog.length + 1}
+                {badgeCatalogTotal}
                 {summaryPending ? ' · loading…' : ''}
               </span>
             </div>
@@ -4482,7 +4490,7 @@ export default function AttendedTracker({
                 onClick={() => setShowAllBadges((v) => !v)}
                 aria-expanded={showAllBadges}
               >
-                {showAllBadges ? 'Show fewer badges' : `View all ${catalog.length + 1} badges`}
+                {showAllBadges ? 'Show fewer badges' : `View all ${badgeCatalogTotal} badges`}
               </button>
             ) : null}
           </section>
