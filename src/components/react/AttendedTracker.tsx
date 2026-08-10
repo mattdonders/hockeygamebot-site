@@ -2956,7 +2956,7 @@ export default function AttendedTracker({
           // Manual games without both scores entered: never fabricate a 0–0 final.
           if (r.is_manual && (r.home_score == null || r.away_score == null)) {
             return (
-              <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-32)' }}>—</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-64)' }}>—</span>
             );
           }
           // NHL game with no final facts yet (older game with no game_results row,
@@ -2965,7 +2965,7 @@ export default function AttendedTracker({
           // rows non-final, so this only hides genuinely-unknown scores.
           if (!r.is_manual && r.status !== 'final') {
             return (
-              <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-32)' }}>—</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-64)' }}>—</span>
             );
           }
           const np = normalizePeriod(r.last_period_type);
@@ -3089,7 +3089,7 @@ export default function AttendedTracker({
         accessor: (r) => r.pos,
         align: 'center',
         mobileHidden: true,
-        cell: (v) => <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-32)' }}>{v}</span>,
+        cell: (v) => <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-64)' }}>{v}</span>,
       },
       {
         id: 'gamesSeen',
@@ -3226,16 +3226,39 @@ export default function AttendedTracker({
 
   // One team's home-rink collection pip. `collected` lights it in the team colour;
   // otherwise it stays neutral grey (the "still to collect" state).
+  // Accessibility: `title` alone is not reliably announced, and the collected
+  // state is otherwise a pure background-colour swap. Each pip is a listitem with
+  // an explicit label carrying team + state; the decorative dot and the 9px
+  // abbreviation are hidden so the label is the single announcement per item.
+  // The container (see ARENA_PIP_LIST_PROPS) carries the "N of 32" summary.
   const renderPip = (t: { abbr: string; name: string }, collected: boolean) => (
     <div
       className={collected ? 'att-rink att-rink-on' : 'att-rink'}
       key={t.abbr}
+      role="listitem"
+      aria-label={collected ? `${t.name} — collected` : `${t.name} — not yet collected`}
       title={collected ? `${t.name} — collected` : `${t.name} — not yet`}
     >
-      <span className="att-rink-pip" style={{ background: collected ? pickTeamColor(t.abbr) : 'var(--ink-14)' }} />
-      <span className="att-rink-abbr">{t.abbr}</span>
+      <span
+        className="att-rink-pip"
+        aria-hidden="true"
+        style={{ background: collected ? pickTeamColor(t.abbr) : 'var(--ink-14)' }}
+      />
+      <span className="att-rink-abbr" aria-hidden="true">
+        {t.abbr}
+      </span>
     </div>
   );
+
+  // Container semantics for the 32-pip meter. `role="list"` is explicit because
+  // the flex/grid display on .att-rinks strips implicit list semantics in WebKit,
+  // and the label states the collected count up front so the meter is
+  // comprehensible before tabbing/reading 32 items.
+  const arenaPipListProps = (collected: number, total: number) => ({
+    className: 'att-rinks',
+    role: 'list' as const,
+    'aria-label': `NHL home arenas — ${collected} of ${total} collected`,
+  });
 
   // Home Arenas meter — label + counter, per-team pips, distinct-buildings substat.
   // Shared verbatim by the dashboard's own section (lines ~4401) and the
@@ -3260,13 +3283,15 @@ export default function AttendedTracker({
           colour when its id is in teams_seen; neutral grey when not. The
           abbreviation sits under each pip (and in the title) so you can see
           exactly which teams' home rinks you still need. */}
-      <div className="att-rinks">
+      <div {...arenaPipListProps(viewArenas.homeRinks, viewArenas.total)}>
         {pipTeams.map((t) => {
           const id = abbrevToTeamId.get(t.abbr);
           return renderPip(t, id != null && viewArenas.teamsSeen.has(id));
         })}
       </div>
-      <div className="att-rinks-substat">{viewArenas.distinctBuildings} total arenas visited</div>
+      <div className="att-rinks-substat">
+        {viewArenas.distinctBuildings} total arena{viewArenas.distinctBuildings === 1 ? '' : 's'} visited
+      </div>
     </>
   );
 
@@ -4410,9 +4435,10 @@ export default function AttendedTracker({
           <section className="att-section">
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
-              {/* +1 for the Home Rinks collection (shown as the meter below), so the
-                  empty-state total matches the populated "X of Y" (which also counts it). */}
-              <span className="att-section-meta">0 of {ghostCatalog.length + 1}</span>
+              {/* No +1 here: the empty branch renders `ghostCatalog` only — it has no
+                  Home Rinks collection chip (that chip lives in the populated branch,
+                  gated on homeRinks > 0). The denominator counts what's on screen. */}
+              <span className="att-section-meta">0 of {ghostCatalog.length}</span>
             </div>
             <div className="att-badges">{ghostCatalog.map(renderCatalogBadge)}</div>
           </section>
@@ -4439,7 +4465,7 @@ export default function AttendedTracker({
               <span className="att-section-label">NHL Home Arenas — 0 / 32</span>
               <span className="att-section-meta">0 of 32 collected</span>
             </div>
-            <div className="att-rinks">{pipTeams.map((t) => renderPip(t, false))}</div>
+            <div {...arenaPipListProps(0, pipTeams.length)}>{pipTeams.map((t) => renderPip(t, false))}</div>
           </section>
         </>
       ) : (
