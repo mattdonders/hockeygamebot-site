@@ -466,6 +466,20 @@ export interface TierBadgeView {
   fraction: number;
 }
 
+/** Pick the ONE tier to spotlight in the compressed "Milestone Progress" overview
+ *  section (Block 2D): the tier closest to its next rung — i.e. the highest
+ *  `fraction` among non-maxed tiers, since that's the one a glance-and-go user is
+ *  nearest to advancing. When every tier is maxed (nothing left to chase), fall
+ *  back to the first tier so the spotlight still has something honest to show.
+ *  Pure/stateless so it's unit-testable without mounting the component. Does not
+ *  reorder or mutate `tiers` — read-only selection over the server-computed list. */
+export function selectSpotlightTier(tiers: TierBadgeView[]): TierBadgeView | null {
+  if (tiers.length === 0) return null;
+  const inProgress = tiers.filter((t) => !t.maxed);
+  if (inProgress.length === 0) return tiers[0];
+  return inProgress.reduce((best, t) => (t.fraction > best.fraction ? t : best), inProgress[0]);
+}
+
 /** The record inputs carry a bit more than BadgeGame (team abbrevs + date) so the
  *  "sub" line can name the matchup. Structurally satisfied by AttendedGame. */
 export interface RecordGame extends BadgeGame {

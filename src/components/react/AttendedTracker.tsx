@@ -51,6 +51,7 @@ import {
   type ArenaRungView,
   arenaMeterLabel,
   type BadgeEarnedGame,
+  selectSpotlightTier,
 } from './puck-passport-badges';
 import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData } from './puck-passport-share';
 import { trackEvent } from '../../lib/track';
@@ -79,6 +80,11 @@ const RECENT_GAMES_PREVIEW_COUNT = 3;
 // destination shows (games desc → goals desc → name asc), not a separate
 // "favorite players" ordering.
 const SEEN_PLAYERS_PREVIEW_COUNT = 5;
+// Overview "Badges" preview chip count — the full catalog is still one tap away
+// via the in-place "View all" toggle (Block 2D compression; no new route).
+const BADGES_PREVIEW_COUNT = 6;
+// Overview "Team Records" preview row count — same in-place toggle pattern.
+const TEAM_RECORDS_PREVIEW_COUNT = 6;
 // Display snapshot cache (venue, period type, team abbrev/name/score) keyed by
 // game_id. This is what lets the logged-in D1 list — which carries only team
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
@@ -1105,6 +1111,11 @@ export default function AttendedTracker({
   // a modal (null = closed). Only ever set from an EARNED chip that carries `games`
   // (present solely on the owner's own summary — see the catalog join above).
   const [drillBadge, setDrillBadge] = useState<CatalogBadge | null>(null);
+  // Overview compression toggles (Block 2D) — each expands an in-place preview to
+  // its full existing view. No new routes/fetches; purely a local reveal.
+  const [showAllBadges, setShowAllBadges] = useState(false);
+  const [showAllTiers, setShowAllTiers] = useState(false);
+  const [showAllTeamRows, setShowAllTeamRows] = useState(false);
   // Close the drill-down on Escape while it's open (backdrop + ✕ close via onClick).
   useEffect(() => {
     if (!drillBadge) return;
@@ -2544,6 +2555,10 @@ export default function AttendedTracker({
   // gated on this being non-empty, so a brief flash of nothing is correct — a
   // fabricated ladder would not be.
   const tierBadges: TierBadgeView[] = summary?.tiers ?? [];
+  // Compressed "Milestone Progress" spotlight (Block 2D) — the one tier closest to
+  // its next rung, shown prominently; the rest render as compact one-line rows
+  // below, with the full 4-chip grid still reachable via "See full progression".
+  const spotlightTier = useMemo(() => selectSpotlightTier(tierBadges), [tierBadges]);
 
   // Milestones Witnessed — server-provided (same payload in both auth states).
   const milestones = summary ? summary.milestones : [];
@@ -4425,7 +4440,11 @@ export default function AttendedTracker({
         </>
       ) : (
         <>
-          {/* Badges — full catalog: earned (rarest-first) then ghost/unearned (§2) */}
+          {/* Badges — capped preview (earned-first per the existing catalog sort) with
+              an in-place "View all" toggle that reveals the full grid. Block 2D: keeps
+              the landing page from being dominated by an unbounded chip wall without a
+              new /puck-passport/badges route — same renderCatalogBadge chip, same
+              .att-badges grid, just fewer of them until expanded. */}
           <section className="att-section">
             <div className="att-section-head">
               <span className="att-section-label">Badges</span>
@@ -4440,7 +4459,8 @@ export default function AttendedTracker({
               </span>
             </div>
             <div className="att-badges">
-              {/* Home-rinks collection badge (distinct current teams seen at home / 32) */}
+              {/* Home-rinks collection badge (distinct current teams seen at home / 32) —
+                  always visible, outside the preview cap; it's the one "collection" chip. */}
               {viewArenaBadge.homeRinks > 0 ? (
                 <div className="att-badge att-badge-collection" data-family="collection">
                   <div className="att-badge-top">
@@ -4453,22 +4473,72 @@ export default function AttendedTracker({
                 </div>
               ) : null}
 
-              {catalog.map(renderCatalogBadge)}
+              {(showAllBadges ? catalog : catalog.slice(0, BADGES_PREVIEW_COUNT)).map(renderCatalogBadge)}
             </div>
+            {catalog.length > BADGES_PREVIEW_COUNT ? (
+              <button
+                type="button"
+                className="att-expand-toggle"
+                onClick={() => setShowAllBadges((v) => !v)}
+                aria-expanded={showAllBadges}
+              >
+                {showAllBadges ? 'Show fewer badges' : `View all ${catalog.length + 1} badges`}
+              </button>
+            ) : null}
           </section>
 
-          {/* Milestone Tiers — cumulative stat ladders (Games/Goals/Shots/Players/
-              Arenas), one badge per stat showing the highest rung earned + progress
-              to the next. Always shows all 5 (locked/ghost below Rung I). */}
+          {/* Milestone Progress — compressed spotlight (Block 2D): the tier closest to
+              its next rung shown prominently, the rest as compact one-line rows, with
+              the full existing 4-chip grid still reachable via "See full progression".
+              spotlightTier/tierBadges are unchanged server-computed values — this only
+              changes how they're laid out. */}
           <section className="att-section">
             <div className="att-section-head">
-              <span className="att-section-label">Milestone Tiers</span>
+              <span className="att-section-label">Milestone Progress</span>
               <span className="att-section-meta">
                 {tierBadges.filter((b) => b.earned).length} of {tierBadges.length}
                 {summaryPending ? ' · loading…' : ''}
               </span>
             </div>
-            <div className="att-badges">{tierBadges.map(renderTierBadge)}</div>
+            {spotlightTier ? (
+              <>
+                <div className="att-tier-spotlight">
+                  <div className="att-tier-spotlight-top">
+                    <span className="att-tier-spotlight-label">{spotlightTier.label}</span>
+                    <span className="att-tier-spotlight-value">{spotlightTier.value.toLocaleString('en-US')}</span>
+                  </div>
+                  <span className="att-tier-spotlight-rung">{spotlightTier.rung_name}</span>
+                  <div className="att-tier-bar">
+                    <div
+                      className="att-tier-bar-fill"
+                      style={{ width: `${Math.round(spotlightTier.fraction * 100)}%` }}
+                    />
+                  </div>
+                  <span className="att-tier-spotlight-progress">{spotlightTier.progress}</span>
+                </div>
+                {tierBadges.length > 1 ? (
+                  <div className="att-tier-compact-list">
+                    {tierBadges
+                      .filter((b) => b.id !== spotlightTier.id)
+                      .map((b) => (
+                        <div className="att-tier-compact-row" key={b.id} data-maxed={b.maxed}>
+                          <span className="att-tier-compact-label">{b.label}</span>
+                          <span className="att-tier-compact-progress">{b.maxed ? b.rung_name : b.progress}</span>
+                        </div>
+                      ))}
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="att-expand-toggle"
+                  onClick={() => setShowAllTiers((v) => !v)}
+                  aria-expanded={showAllTiers}
+                >
+                  {showAllTiers ? 'Hide full progression' : 'See full progression'}
+                </button>
+                {showAllTiers ? <div className="att-badges">{tierBadges.map(renderTierBadge)}</div> : null}
+              </>
+            ) : null}
           </section>
 
           {/* Single-game records — extremes across the attended set (§2c) */}
@@ -4588,7 +4658,10 @@ export default function AttendedTracker({
                       <span className="pp-overall-tag">Overall</span>
                       <span className="att-team-rec">{fmtRec(anchoredView.anchor)}</span>
                     </div>
-                    {anchoredView.opponents.map((o) => (
+                    {(showAllTeamRows
+                      ? anchoredView.opponents
+                      : anchoredView.opponents.slice(0, TEAM_RECORDS_PREVIEW_COUNT)
+                    ).map((o) => (
                       <div className="att-team-row" key={o.abbrev}>
                         <span className="att-team-dot" style={{ background: pickTeamColor(o.abbrev) }} />
                         <span className="att-team-abbr">vs {o.abbrev}</span>
@@ -4602,6 +4675,16 @@ export default function AttendedTracker({
                         {anchoredView.neutral_games === 1 ? '' : 's'} (your team didn’t play)
                       </div>
                     ) : null}
+                    {anchoredView.opponents.length > TEAM_RECORDS_PREVIEW_COUNT ? (
+                      <button
+                        type="button"
+                        className="att-expand-toggle"
+                        onClick={() => setShowAllTeamRows((v) => !v)}
+                        aria-expanded={showAllTeamRows}
+                      >
+                        {showAllTeamRows ? 'Show fewer teams' : `Show all ${anchoredView.opponents.length} teams`}
+                      </button>
+                    ) : null}
                   </div>
                 )
               ) : neutralTable.length === 0 ? (
@@ -4611,7 +4694,7 @@ export default function AttendedTracker({
                 // Also the GRACEFUL FALLBACK when an older api omits the anchored
                 // fields — fmtRec tolerates a missing otl.
                 <div className="att-teams">
-                  {neutralTable.map((t) => (
+                  {(showAllTeamRows ? neutralTable : neutralTable.slice(0, TEAM_RECORDS_PREVIEW_COUNT)).map((t) => (
                     <div className="att-team-row" key={t.abbrev}>
                       <span className="att-team-dot" style={{ background: pickTeamColor(t.abbrev) }} />
                       <span className="att-team-abbr">{t.abbrev}</span>
@@ -4619,12 +4702,32 @@ export default function AttendedTracker({
                       <span className="att-team-rec">{fmtRec(t)}</span>
                     </div>
                   ))}
+                  {neutralTable.length > TEAM_RECORDS_PREVIEW_COUNT ? (
+                    <button
+                      type="button"
+                      className="att-expand-toggle"
+                      onClick={() => setShowAllTeamRows((v) => !v)}
+                      aria-expanded={showAllTeamRows}
+                    >
+                      {showAllTeamRows ? 'Show fewer teams' : `Show all ${neutralTable.length} teams`}
+                    </button>
+                  ) : null}
                 </div>
               )}
             </section>
 
             <section className="att-section">{renderArenaMeter({ viewAllLink: true })}</section>
           </div>
+
+          {/* Players-seen preview — top 5 of the canonical ranking (games seen,
+              then goals, then name). The full list lives on the dedicated
+              /puck-passport/players route, which replaces the old in-place
+              "Show all (N)" toggle. Block 2D: moved ABOVE the Games preview so the
+              two preview sections read [Players, Games] — Games stays last but
+              still clearly present, not buried. */}
+          <section className="att-section">
+            {renderPlayersSection({ viewAllLink: true, limit: SEEN_PLAYERS_PREVIEW_COUNT })}
+          </section>
 
           {/* Recent-games preview — below the records/arenas payoff (management view,
               not the highlight). Full history + actions (stub/remove) live on the
@@ -4646,14 +4749,6 @@ export default function AttendedTracker({
                 toolbar={{ show: false }}
               />
             )}
-          </section>
-
-          {/* Players-seen preview — top 5 of the canonical ranking (games seen,
-              then goals, then name). The full list lives on the dedicated
-              /puck-passport/players route, which replaces the old in-place
-              "Show all (N)" toggle. */}
-          <section className="att-section">
-            {renderPlayersSection({ viewAllLink: true, limit: SEEN_PLAYERS_PREVIEW_COUNT })}
           </section>
         </>
       )}
