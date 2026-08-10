@@ -9,7 +9,12 @@
  * games shipped mislabelled (user report, 2026-07-31). Adding a future type must be a
  * ONE-line change here, not a hunt through render code.
  *
- * House rule: never silently default. An unrecognised code is surfaced verbatim.
+ * House rule: never silently default — but never leak the raw code to consumers either.
+ * Product decision (2026-08-09): an unrecognised code still FAILS LOUD in the console
+ * (once per code), and `code` stays populated for diagnostics/tests — but the
+ * consumer-facing strings DECLINE to claim a type ('' chip, '—' label) rather than
+ * rendering "Type 00" at a fan. Mapping an unknown code to "Regular Season" remains
+ * forbidden: we say nothing rather than say something wrong.
  */
 
 export type NhlGameType = {
@@ -55,16 +60,18 @@ export function nhlGameType(gameId: string | null | undefined): NhlGameType {
     case '19':
       return { kind: 'tournament', label: 'Tournament', chip: 'TOURNAMENT', code };
     default:
-      // FAIL LOUD, ONCE per code. Rendering "Regular Season" here would present bad
-      // data as confident truth; showing the raw code is visibly imperfect, honest,
-      // and diagnosable.
+      // FAIL LOUD, ONCE per code — to the DEVELOPER, in the console. Consumers get
+      // nothing: no chip and a neutral em-dash label, same as the no-id case. Bad
+      // data must never be presented as confident truth ("Regular Season"), and a
+      // raw code ("TYPE 00") is developer noise leaking into a fan-facing surface.
+      // `code` is still returned so diagnostics and tests can see what was rejected.
       if (!warnedCodes.has(code)) {
         warnedCodes.add(code);
         console.warn(
           `[PuckPassport] unrecognised NHL game type "${code}" (e.g. game_id ${gameId}) — ` +
-            `rendering it verbatim. Add it to nhl-game-type.ts.`,
+            `suppressed in the UI. Add it to nhl-game-type.ts.`,
         );
       }
-      return { kind: 'unknown', label: `Type ${code}`, chip: `TYPE ${code}`, code };
+      return { kind: 'unknown', label: '—', chip: '', code };
   }
 }
