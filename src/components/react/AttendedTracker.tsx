@@ -877,6 +877,26 @@ function summaryRecordsToView(recs: AttendedSummary['records']): ViewRecord[] {
   return out;
 }
 
+// ── Add-Games mode strip ─────────────────────────────────────────────────────────
+// Tab order is deliberate and LOCKED: By Team first (fans recall the matchup, not
+// the date). Each mode carries its own one-line framing so the active mode's job is
+// always legible at a glance — previously two of the four shared a generic line.
+const ADD_MODES = [
+  { key: 'team', label: 'By Team', icon: '🏒' },
+  { key: 'date', label: 'By Date', icon: '📅' },
+  { key: 'location', label: 'By Location', icon: '📍' },
+  { key: 'import', label: 'Import', icon: '🖼️' },
+] as const;
+
+type AddMode = (typeof ADD_MODES)[number]['key'];
+
+const ADD_MODE_SUBHEAD: Record<AddMode, string> = {
+  team: 'Pick a team and season — you remember the matchup, not the date.',
+  date: 'Pick a date, then mark the games you were at.',
+  location: "At the rink? Your location finds the game nearest you on that date.",
+  import: 'Your old game photos or a list of dates, matched to real games.',
+};
+
 // ── Add-flow game row ────────────────────────────────────────────────────────────
 // One selectable search-result row (teams · score · date/venue · +Attended). Shared
 // by the Import review list; mirrors the inline markup By Date/By Team already use.
@@ -1329,7 +1349,7 @@ export default function AttendedTracker({
 
   // Add-games flow — mode toggle: team-first (default, matches fan recall), date,
   // location, or bulk import (photos / pasted list).
-  const [addMode, setAddMode] = useState<'team' | 'date' | 'location' | 'import'>('team');
+  const [addMode, setAddMode] = useState<AddMode>('team');
 
   // Count-up replay: bumping this token re-runs the 0→total roll on every tally.
   // Fired by clicking the Games counter (an opt-in "watch it add up" moment) — the
@@ -1644,9 +1664,11 @@ export default function AttendedTracker({
   // dismiss, on share, or when that game is removed. Set by every add path.
   const [justAdded, setJustAdded] = useState<AttendedGame | null>(null);
   // Block 1C: the current earned-result card + which add it belongs to. Single
-  // historical add paths (team search, date search, photo/paste import review
-  // pick, manual entry) render this INSTEAD of the generic att-logprompt banner
-  // above — never both for the same add (see toggleSearchResult/addManualGame).
+  // historical add paths (team search, date search, location search, manual
+  // entry) render this INSTEAD of the generic att-logprompt banner above — never
+  // both for the same add (see toggleSearchResult/addManualGame). Bulk paths
+  // (By-Team "Add N games", photo/paste import review confirms) are tagged
+  // `source: 'import'` and stay on the quiet banner instead (2E).
   const [earnedResult, setEarnedResult] = useState<{ gameId: string; vm: EarnedResultVM } | null>(null);
 
   const addGame = useCallback(
@@ -1766,7 +1788,7 @@ export default function AttendedTracker({
   const mutatingRef = useRef<Set<string>>(new Set());
   const [mutatingIds, setMutatingIds] = useState<Set<string>>(() => new Set());
   const toggleSearchResult = useCallback(
-    (g: RawGame, already: boolean) => {
+    (g: RawGame, already: boolean, source?: AttendedAddSource) => {
       const id = g.game_id;
       if (mutatingRef.current.has(id)) return; // synchronous, race-proof
       mutatingRef.current.add(id);
@@ -1779,7 +1801,18 @@ export default function AttendedTracker({
         Promise.resolve(removeGame(id)).finally(clear);
         return;
       }
-      // Single historical add (team search / date search / import-review pick):
+      // 2E: an IMPORT-review confirm is one of N confirms in a single bulk session
+      // (a photo drop / pasted list routinely yields several games). Giving each one
+      // its own full EarnedResultCard turns a bulk chore into a celebration flood, so
+      // these confirms carry the SAME `source: 'import'` tag the By-Team "Add N games"
+      // fan-out uses (0R.4) and stay on the quiet att-logprompt banner. This changes
+      // only WHICH of the two already-existing result surfaces the add routes to —
+      // the write path, idempotency guard and earned calculation are untouched.
+      if (source === 'import') {
+        Promise.resolve(addGame(g, { source })).finally(clear);
+        return;
+      }
+      // Single historical add (team search / date search / location search):
       // request the earned delta and resolve it into the EarnedResultCard — the
       // ONE result surface for this write. `addGame` optimistically fires the
       // generic att-logprompt banner (`setJustAdded`) synchronously before this
@@ -2028,6 +2061,17 @@ export default function AttendedTracker({
   // current id — so a slow photo/paste import that finishes after the panel was
   // closed (or superseded) can't clobber fresher state or reappear.
   const importReqRef = useRef(0);
+  // How many of the games surfaced by this import are now in the Passport. Derived
+  // from `attendedIds` (the same state each row's "✓ Added" chip reads), so it needs
+  // no new tracking and stays honest when a row is toggled back off.
+  const importConfirmedCount = useMemo(() => {
+    if (!importGroups) return 0;
+    let n = 0;
+    for (const grp of importGroups) {
+      for (const g of grp.games) if (attendedIds.has(g.game_id)) n += 1;
+    }
+    return n;
+  }, [importGroups, attendedIds]);
 
   const resetImport = useCallback(() => {
     importReqRef.current += 1; // supersede any in-flight import
@@ -3745,48 +3789,30 @@ export default function AttendedTracker({
       <section className="att-section" id="att-add">
         <div className="att-section-head">
           <span className="att-section-label">Add Games</span>
-          <span className="att-section-meta">
-            {addMode === 'team'
-              ? 'Pick a team and season — you remember the matchup, not the date.'
-              : 'Pick a date, then mark the games you were at.'}
-          </span>
+          <span className="att-section-meta">Four ways in — pick whichever you remember.</span>
         </div>
 
         {/* Mode toggle — By Team is the default (matches how fans recall games) */}
         <div className="att-mode-toggle" role="tablist" aria-label="Add games by">
-          <button
-            role="tab"
-            aria-selected={addMode === 'team'}
-            className={addMode === 'team' ? 'att-mode-btn active' : 'att-mode-btn'}
-            onClick={() => setAddMode('team')}
-          >
-            By Team
-          </button>
-          <button
-            role="tab"
-            aria-selected={addMode === 'date'}
-            className={addMode === 'date' ? 'att-mode-btn active' : 'att-mode-btn'}
-            onClick={() => setAddMode('date')}
-          >
-            By Date
-          </button>
-          <button
-            role="tab"
-            aria-selected={addMode === 'location'}
-            className={addMode === 'location' ? 'att-mode-btn active' : 'att-mode-btn'}
-            onClick={() => setAddMode('location')}
-          >
-            By Location
-          </button>
-          <button
-            role="tab"
-            aria-selected={addMode === 'import'}
-            className={addMode === 'import' ? 'att-mode-btn active' : 'att-mode-btn'}
-            onClick={() => setAddMode('import')}
-          >
-            Import
-          </button>
+          {ADD_MODES.map((m) => (
+            <button
+              key={m.key}
+              role="tab"
+              aria-selected={addMode === m.key}
+              className={addMode === m.key ? 'att-mode-btn active' : 'att-mode-btn'}
+              onClick={() => setAddMode(m.key)}
+            >
+              <span className="att-mode-icon" aria-hidden="true">
+                {m.icon}
+              </span>
+              {m.label}
+            </button>
+          ))}
         </div>
+        {/* Active-mode framing, directly under the strip. The section-head meta is
+            right-aligned 11px type at the top of the section — too far from the tabs
+            to read as "what this mode does", so the per-mode line lives here. */}
+        <div className="att-mode-brief">{ADD_MODE_SUBHEAD[addMode]}</div>
 
         {/* ── BY TEAM ─────────────────────────────────────────────────────────── */}
         {addMode === 'team' ? (
@@ -4204,6 +4230,16 @@ export default function AttendedTracker({
         ) : (
           /* ── IMPORT — photos (EXIF date) or a pasted list → review by date ───── */
           <>
+            {/* Value-prop lede — Import is the highest-leverage way to fill a
+                Passport (years of games in one pass), but read as just another form
+                mode. The mechanics/privacy line below it is unchanged. */}
+            <div className="att-import-lede">
+              <span className="att-import-lede-title">Turn your old game photos into your Passport</span>
+              <span className="att-import-lede-sub">
+                Years of games, added in one pass — no dates to remember.
+              </span>
+            </div>
+
             <div className="att-import-tabs" role="tablist" aria-label="Import from">
               <button
                 role="tab"
@@ -4227,7 +4263,7 @@ export default function AttendedTracker({
               <>
                 <div className="att-add-controls">
                   <label className={photoBusy ? 'att-btn att-file-btn disabled' : 'att-btn att-file-btn'}>
-                    {photoBusy ? 'Reading photos…' : 'Choose photos'}
+                    {photoBusy ? 'Reading your photos…' : 'Choose photos'}
                     <input
                       type="file"
                       accept="image/*"
@@ -4272,12 +4308,27 @@ export default function AttendedTracker({
             )}
 
             {importError ? <div className="att-banner att-banner-warn">{importError}</div> : null}
-            {importLoading ? <div className="att-add-empty">Looking up games…</div> : null}
+            {importLoading ? (
+              <div className="att-add-empty">Matching your dates to NHL games…</div>
+            ) : null}
 
             {importGroups != null ? (
               <>
                 <div className="att-select-bar">
-                  <span className="att-select-count">{importNote}</span>
+                  <span className="att-select-count">
+                    {importNote}
+                    {/* Running tally, derived straight from `attendedIds` — the same
+                        state the rows already read for their "✓ Added" chip. No new
+                        counting machinery, and it self-corrects if a row is undone.
+                        (A true one-shot aggregate completion screen would need a
+                        bulk-confirm capability, which is out of scope here.) */}
+                    {importConfirmedCount > 0 ? (
+                      <span className="att-import-tally">
+                        {' · '}
+                        {importConfirmedCount} in your Passport
+                      </span>
+                    ) : null}
+                  </span>
                   <div className="att-select-actions">
                     <button className="att-btn-ghost" onClick={resetImport} aria-label="Close import results">
                       Close
@@ -4315,7 +4366,9 @@ export default function AttendedTracker({
                                 g={g}
                                 already={attendedIds.has(g.game_id)}
                                 disabled={mutatingIds.has(g.game_id)}
-                                onToggle={toggleSearchResult}
+                                onToggle={(game, isAlready) =>
+                                  toggleSearchResult(game, isAlready, 'import')
+                                }
                                 matched={
                                   matchId === g.game_id
                                     ? { arena: grp.match!.arena, km: grp.match!.km }
