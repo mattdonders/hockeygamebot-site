@@ -1072,8 +1072,11 @@ function Counter({
 // variants (same fetch/mutation code paths run either way), so "games-only" can
 // never diverge from the dashboard's data or its destructive remove/stub actions.
 // 'dashboard' (default) is the full /puck-passport page; 'games-only' is the
-// /puck-passport/games full-history route (see PassportGames.tsx).
-export default function AttendedTracker({ variant = 'dashboard' }: { variant?: 'dashboard' | 'games-only' } = {}) {
+// /puck-passport/games full-history route (see PassportGames.tsx); 'arenas-only'
+// is the /puck-passport/arenas full-collection route (see PassportArenas.tsx).
+export default function AttendedTracker({
+  variant = 'dashboard',
+}: { variant?: 'dashboard' | 'games-only' | 'arenas-only' } = {}) {
   // Source of the attended LIST depends on auth:
   //   logged-OUT → localGames (localStorage, Phase 0 behavior).
   //   logged-IN  → d1Rows (GET /v1/account/attended), mapped via config + details.
@@ -2429,6 +2432,37 @@ export default function AttendedTracker({ variant = 'dashboard' }: { variant?: '
   // its id is in arenas.teams_seen. Sort is by team NAME for a stable, scannable order.
   const pipTeams = useMemo(() => [...NHL_TEAMS].sort((a, b) => a.name.localeCompare(b.name)), []);
 
+  // Dense per-venue breakdown for the /puck-passport/arenas route: every distinct
+  // building you've logged a game at, with a visit count. NOT the same concept as
+  // the home-rinks collection above — that's "current NHL franchises whose home
+  // game you attended" (bounded ≤32, server-computed); this is "every building
+  // you've ever been to, and how many times" (unbounded, purely local/derived).
+  // Built from the same `games`/`venue` the games table's Arena column already
+  // renders — no new server field, mirrors the iOS app's local venueBreakdown().
+  // Grouped case-insensitively (keyed lowercase) so casing variants of the same
+  // building merge; display label keeps the first-seen casing. Blank/missing
+  // venue buckets into one "Venue unknown" row instead of being dropped, so the
+  // total count always reconciles with games.length. Sorted by visits desc, then
+  // name asc; unknown always sorts last regardless of its count.
+  const venueBreakdown = useMemo(() => {
+    const counts = new Map<string, { label: string; count: number }>();
+    let unknown = 0;
+    for (const g of games) {
+      const v = g.venue?.trim();
+      if (!v) {
+        unknown += 1;
+        continue;
+      }
+      const key = v.toLowerCase();
+      const existing = counts.get(key);
+      if (existing) existing.count += 1;
+      else counts.set(key, { label: v, count: 1 });
+    }
+    const rows = [...counts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    if (unknown > 0) rows.push({ label: 'Venue unknown', count: unknown });
+    return rows;
+  }, [games]);
+
   const viewSeenPlayers = useMemo<SeenPlayerRow[]>(() => {
     if (!summary) return [];
     return summary.players_seen.map((p) => ({
@@ -3172,6 +3206,38 @@ export default function AttendedTracker({ variant = 'dashboard' }: { variant?: '
     </div>
   );
 
+  // Home Arenas meter — label + counter, per-team pips, distinct-buildings substat.
+  // Shared verbatim by the dashboard's own section (lines ~4401) and the
+  // arenas-only route (/puck-passport/arenas) so the two never drift. `viewAllLink`
+  // adds the dashboard's "View all →" affordance into the same meta span the
+  // Games section uses (see att-view-all below) — the arenas-only route omits it
+  // since it IS the "view all" destination.
+  const renderArenaMeter = (opts?: { viewAllLink?: boolean }) => (
+    <>
+      <div className="att-section-head">
+        <span className="att-section-label">NHL Home Arenas — {viewArenas.homeRinks} / {viewArenas.total}</span>
+        {/* Rung name lives here rather than in a sixth badge chip: the chip
+            would restate the very number in the label beside it. */}
+        <span className="att-section-meta">
+          {arenaMeterLabel(viewArenas.homeRinks, viewArenas.total, viewArenas.rung)}
+          {opts?.viewAllLink ? (
+            <a href="/puck-passport/arenas" className="att-view-all">View all →</a>
+          ) : null}
+        </span>
+      </div>
+      {/* One pip per current NHL team, alphabetical. Filled in that team's
+          colour when its id is in teams_seen; neutral grey when not. The
+          abbreviation sits under each pip (and in the title) so you can see
+          exactly which teams' home rinks you still need. */}
+      <div className="att-rinks">
+        {pipTeams.map((t) => {
+          const id = abbrevToTeamId.get(t.abbr);
+          return renderPip(t, id != null && viewArenas.teamsSeen.has(id));
+        })}
+      </div>
+      <div className="att-rinks-substat">{viewArenas.distinctBuildings} total arenas visited</div>
+    </>
+  );
 
   // ── Render ───────────────────────────────────────────────────────────────────
   if (!hydrated) {
@@ -3208,6 +3274,67 @@ export default function AttendedTracker({ variant = 'dashboard' }: { variant?: '
             defaultSort={{ id: 'date', desc: true }}
             toolbar={{ show: false }}
           />
+        )}
+      </div>
+    );
+  }
+
+  // ── arenas-only render (full home-rinks meter + per-venue breakdown,
+  // /puck-passport/arenas) ─────────────────────────────────────────────────────
+  // Same `viewArenas`/`pipTeams`/`venueBreakdown` the dashboard's Home Arenas
+  // section uses — this branch only changes what's ON SCREEN, never how the data
+  // is read. The meter itself is the shared renderArenaMeter() helper.
+  if (variant === 'arenas-only') {
+    return (
+      <div className="att-root att-games-only">
+        {d1Error ? (
+          <div className="att-banner att-banner-warn">
+            Couldn't load your saved games from your account — this list may be incomplete. Reload to try again.
+          </div>
+        ) : null}
+        {writeError ? <div className="att-banner att-banner-warn">{writeError}</div> : null}
+        <div className="att-games-only-head">
+          <a href="/puck-passport" className="att-back-link">‹ Passport</a>
+          <span className="att-section-meta">{viewArenas.distinctBuildings} arenas visited</span>
+        </div>
+        {empty ? (
+          <div className="att-add-empty att-games-only-empty">
+            No games logged yet — head back to the Passport dashboard to add your first one.{' '}
+            <a href="/puck-passport">Log a game →</a>
+          </div>
+        ) : (
+          <>
+            <section className="att-section">{renderArenaMeter()}</section>
+            <section className="att-section">
+              <div className="att-section-head">
+                <span className="att-section-label">Arenas Visited</span>
+                <span className="att-section-meta">{venueBreakdown.length} distinct</span>
+              </div>
+              {/* Every distinct building, most-visited first — a third, purely
+                  local concept from the meter above: that's "current NHL
+                  franchises collected" (≤32), this is "every building you've
+                  logged a game at, and how many times" (unbounded). Reuses the
+                  same dense list-row look as the Team Records section
+                  (.att-teams/.att-team-row) rather than inventing new visual
+                  language. */}
+              {venueBreakdown.length <= 1 ? (
+                <div className="att-add-empty">
+                  Log a game at another building to start your arena breakdown.
+                </div>
+              ) : (
+                <div className="att-teams">
+                  {venueBreakdown.map((v) => (
+                    <div className="att-team-row" key={v.label}>
+                      <span className="att-team-name">{v.label}</span>
+                      <span className="att-team-rec">
+                        {v.count} {v.count === 1 ? 'game' : 'games'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
         )}
       </div>
     );
@@ -4398,27 +4525,7 @@ export default function AttendedTracker({ variant = 'dashboard' }: { variant?: '
               )}
             </section>
 
-            <section className="att-section">
-              <div className="att-section-head">
-                <span className="att-section-label">NHL Home Arenas — {viewArenas.homeRinks} / {viewArenas.total}</span>
-                {/* Rung name lives here rather than in a sixth badge chip: the chip
-                    would restate the very number in the label beside it. */}
-                <span className="att-section-meta">
-                  {arenaMeterLabel(viewArenas.homeRinks, viewArenas.total, viewArenas.rung)}
-                </span>
-              </div>
-              {/* One pip per current NHL team, alphabetical. Filled in that team's
-                  colour when its id is in teams_seen; neutral grey when not. The
-                  abbreviation sits under each pip (and in the title) so you can see
-                  exactly which teams' home rinks you still need. */}
-              <div className="att-rinks">
-                {pipTeams.map((t) => {
-                  const id = abbrevToTeamId.get(t.abbr);
-                  return renderPip(t, id != null && viewArenas.teamsSeen.has(id));
-                })}
-              </div>
-              <div className="att-rinks-substat">{viewArenas.distinctBuildings} total arenas visited</div>
-            </section>
+            <section className="att-section">{renderArenaMeter({ viewAllLink: true })}</section>
           </div>
 
           {/* Recent-games preview — below the records/arenas payoff (management view,
