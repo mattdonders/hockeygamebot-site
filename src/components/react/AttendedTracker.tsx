@@ -72,6 +72,8 @@ const SUMMARY_CACHE_KEY = 'hgb_puck_passport_summary_v1';
 // "log in to sync" nudge fires well before then (SUMMARY_NUDGE_AT).
 const SUMMARY_ID_CAP = 60;
 const SUMMARY_NUDGE_AT = 10;
+// Overview "Your Games" preview row count — full history lives at /puck-passport/games.
+const RECENT_GAMES_PREVIEW_COUNT = 3;
 // Display snapshot cache (venue, period type, team abbrev/name/score) keyed by
 // game_id. This is what lets the logged-in D1 list — which carries only team
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
@@ -1066,7 +1068,12 @@ function Counter({
 
 // ── Main component ───────────────────────────────────────────────────────────────
 
-export default function AttendedTracker() {
+// `variant` gates only the RENDER shape — every hook above stays identical between
+// variants (same fetch/mutation code paths run either way), so "games-only" can
+// never diverge from the dashboard's data or its destructive remove/stub actions.
+// 'dashboard' (default) is the full /puck-passport page; 'games-only' is the
+// /puck-passport/games full-history route (see PassportGames.tsx).
+export default function AttendedTracker({ variant = 'dashboard' }: { variant?: 'dashboard' | 'games-only' } = {}) {
   // Source of the attended LIST depends on auth:
   //   logged-OUT → localGames (localStorage, Phase 0 behavior).
   //   logged-IN  → d1Rows (GET /v1/account/attended), mapped via config + details.
@@ -2962,6 +2969,14 @@ export default function AttendedTracker() {
     [removeGame, handleStub],
   );
 
+  // Overview "recent games" preview reuses the SAME cell renderers as the full
+  // history table, minus the actions column (stub/remove live on the full
+  // /puck-passport/games route, not the scan-only preview).
+  const previewCols = useMemo<HGBColumnDef<AttendedGame>[]>(
+    () => gameCols.filter((c) => c.id !== 'actions'),
+    [gameCols],
+  );
+
   const seenCols = useMemo<HGBColumnDef<SeenPlayerRow>[]>(
     () => [
       {
@@ -3164,6 +3179,39 @@ export default function AttendedTracker() {
   }
 
   const empty = games.length === 0;
+
+  // ── games-only render (full history, /puck-passport/games) ──────────────────
+  // Same `games`/`gameCols`/`removeGame`/`handleStub` the dashboard uses — this
+  // branch only changes what's ON SCREEN, never how the data is read or mutated.
+  if (variant === 'games-only') {
+    return (
+      <div className="att-root att-games-only">
+        {d1Error ? (
+          <div className="att-banner att-banner-warn">
+            Couldn't load your saved games from your account — this list may be incomplete. Reload to try again.
+          </div>
+        ) : null}
+        {writeError ? <div className="att-banner att-banner-warn">{writeError}</div> : null}
+        <div className="att-games-only-head">
+          <a href="/puck-passport" className="att-back-link">‹ Passport</a>
+          <span className="att-section-meta">{games.length} logged</span>
+        </div>
+        {empty ? (
+          <div className="att-add-empty att-games-only-empty">
+            No games logged yet — head back to the Passport dashboard to add your first one.{' '}
+            <a href="/puck-passport">Log a game →</a>
+          </div>
+        ) : (
+          <HGBTable
+            data={[...games].sort((a, b) => b.date.localeCompare(a.date))}
+            columns={gameCols}
+            defaultSort={{ id: 'date', desc: true }}
+            toolbar={{ show: false }}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="att-root">
@@ -4373,18 +4421,26 @@ export default function AttendedTracker() {
             </section>
           </div>
 
-          {/* Games list — below the records/arenas payoff (management view, not the highlight) */}
+          {/* Recent-games preview — below the records/arenas payoff (management view,
+              not the highlight). Full history + actions (stub/remove) live on the
+              dedicated /puck-passport/games route; this is scan-only. */}
           <section className="att-section">
             <div className="att-section-head">
               <span className="att-section-label">Your Games</span>
-              <span className="att-section-meta">{games.length} logged</span>
+              <span className="att-section-meta">
+                {games.length} logged
+                <a href="/puck-passport/games" className="att-view-all">View all →</a>
+              </span>
             </div>
-            <HGBTable
-              data={[...games].sort((a, b) => b.date.localeCompare(a.date))}
-              columns={gameCols}
-              defaultSort={{ id: 'date', desc: true }}
-              toolbar={{ show: false }}
-            />
+            {empty ? (
+              <div className="att-add-empty">No games logged yet — add your first one above.</div>
+            ) : (
+              <HGBTable
+                data={[...games].sort((a, b) => b.date.localeCompare(a.date)).slice(0, RECENT_GAMES_PREVIEW_COUNT)}
+                columns={previewCols}
+                toolbar={{ show: false }}
+              />
+            )}
           </section>
 
           {/* Players seen ranked by games seen, then goals */}
