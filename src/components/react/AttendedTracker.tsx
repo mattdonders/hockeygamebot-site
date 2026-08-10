@@ -56,6 +56,8 @@ import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData 
 import { trackEvent } from '../../lib/track';
 import { isFeatureEnabled } from '../../lib/feature-flags';
 import { shouldShowLogPrompt, type AttendedAddSource } from '../../lib/attended-log-source';
+import { resolveEarnedResult, type EarnedResultVM } from '../../lib/earned-result';
+import EarnedResultCard from './EarnedResultCard';
 import TonightGameCard from './TonightGameCard';
 
 const API = 'https://api.hockeygamebot.com';
@@ -524,13 +526,19 @@ export type EarnedDelta = {
   current: { games: number; arenas: number };
 };
 
-/** POST /v1/account/attended (upsert). Pass `earned: true` (the Tonight card's one
- *  opt-in log) to also get back what this log newly unlocked — costs the server one
- *  extra summary computation, so it's off by default (bulk add doesn't pay it). */
+/** POST /v1/account/attended (upsert). Pass `earned: true` (the Tonight card's
+ *  opt-in log, and the historical single-add paths' EarnedResultCard) to also get
+ *  back what this log newly unlocked — costs the server one extra summary
+ *  computation, so it's off by default (bulk add doesn't pay it).
+ *
+ *  `created` is read from the response body REGARDLESS of `opts.earned` — the
+ *  server always returns it (see hgb-api's handleUpsertAttended), and the caller
+ *  needs it to honor idempotency (a retry/double-tap must not re-announce a
+ *  result) even on the un-earned path. */
 async function postAttended(
   gameId: string,
   opts: { earned?: boolean } = {},
-): Promise<{ ok: boolean; earned?: EarnedDelta }> {
+): Promise<{ ok: boolean; earned?: EarnedDelta; created?: boolean }> {
   try {
     const url = new URL(`${API}/v1/account/attended`);
     if (opts.earned) url.searchParams.set('earned', '1');
@@ -540,10 +548,11 @@ async function postAttended(
       body: JSON.stringify({ game_id: gameId }),
     });
     if (!r.ok) return { ok: false };
-    if (!opts.earned) return { ok: true };
     try {
       const data = await r.json();
-      return { ok: true, earned: data?.earned && data?.current ? (data as EarnedDelta) : undefined };
+      const created = typeof data?.created === 'boolean' ? data.created : undefined;
+      const earned = opts.earned && data?.earned && data?.current ? (data as EarnedDelta) : undefined;
+      return { ok: true, earned, created };
     } catch {
       return { ok: true }; // parse failure must not fail the attend — it already landed
     }
@@ -554,17 +563,37 @@ async function postAttended(
 
 /** POST /v1/account/attended for a MANUAL game — sends both signals the backend
  *  accepts: `is_manual: true` plus the ManualGame fields (its `manual-` id is a
- *  top-level id too). The authed GET summary folds it in, so no public POST. */
-async function postManualAttended(m: ManualGame): Promise<boolean> {
+ *  top-level id too). The authed GET summary folds it in, so no public POST.
+ *
+ *  `earned`/`created` mirror `postAttended`'s shape for the EarnedResultCard's
+ *  benefit, but the server's manual-upsert handler does NOT compute an earned
+ *  delta or return `created` today (verified 2026-08-09, read-only check of
+ *  hgb-notify/hgb-api/src/endpoints/attended.js's handleUpsertManual) — so both
+ *  come back `undefined` here. That's fine: `resolveEarnedResult` treats a
+ *  missing delta as the graceful bare-success card, never a fabricated one. */
+async function postManualAttended(
+  m: ManualGame,
+  opts: { earned?: boolean } = {},
+): Promise<{ ok: boolean; earned?: EarnedDelta; created?: boolean }> {
   try {
-    const r = await apiFetch(`${API}/v1/account/attended`, {
+    const url = new URL(`${API}/v1/account/attended`);
+    if (opts.earned) url.searchParams.set('earned', '1');
+    const r = await apiFetch(url.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ is_manual: true, ...m }),
     });
-    return r.ok;
+    if (!r.ok) return { ok: false };
+    try {
+      const data = await r.json();
+      const created = typeof data?.created === 'boolean' ? data.created : undefined;
+      const earned = opts.earned && data?.earned && data?.current ? (data as EarnedDelta) : undefined;
+      return { ok: true, earned, created };
+    } catch {
+      return { ok: true };
+    }
   } catch {
-    return false;
+    return { ok: false };
   }
 }
 
@@ -1462,7 +1491,9 @@ export default function AttendedTracker() {
         // Upsert each into D1; server dedupes on (user_id, game_id).
         let allOk = true;
         for (const g of local) {
-          const ok = g.is_manual ? await postManualAttended(toManualGame(g)) : (await postAttended(g.game_id)).ok;
+          const ok = g.is_manual
+            ? (await postManualAttended(toManualGame(g))).ok
+            : (await postAttended(g.game_id)).ok;
           if (!ok) allOk = false;
         }
         if (cancelled) return;
@@ -1586,12 +1617,17 @@ export default function AttendedTracker() {
   // The just-logged game, for the inline "make a stub" log-time prompt. Cleared on
   // dismiss, on share, or when that game is removed. Set by every add path.
   const [justAdded, setJustAdded] = useState<AttendedGame | null>(null);
+  // Block 1C: the current earned-result card + which add it belongs to. Single
+  // historical add paths (team search, date search, photo/paste import review
+  // pick, manual entry) render this INSTEAD of the generic att-logprompt banner
+  // above — never both for the same add (see toggleSearchResult/addManualGame).
+  const [earnedResult, setEarnedResult] = useState<{ gameId: string; vm: EarnedResultVM } | null>(null);
 
   const addGame = useCallback(
     (
       raw: RawGame,
       opts: { earned?: boolean; source?: AttendedAddSource } = {},
-    ): Promise<{ ok: boolean; earned?: EarnedDelta }> => {
+    ): Promise<{ ok: boolean; earned?: EarnedDelta; created?: boolean }> => {
       const snap: AttendedGame = {
         game_id: raw.game_id,
         date: raw.date,
@@ -1636,24 +1672,32 @@ export default function AttendedTracker() {
           };
           return [row, ...rows];
         });
-        return postAttended(raw.game_id, opts).then(({ ok, earned }) => {
+        return postAttended(raw.game_id, opts).then(({ ok, earned, created }) => {
           if (ok) {
             setWriteError(null);
             loadSummary(); // refetch aggregates from the server (anti-divergence)
-            return { ok: true, earned };
+            return { ok: true, earned, created };
           }
           setWriteError('Could not save that game to your account — check your connection and try again.');
           setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== raw.game_id));
           return { ok: false };
         });
       }
+      // Logged-out: no server round trip, so `created` is derived locally — was
+      // this game ALREADY in the list before this add (a re-tap of an already-
+      // logged game must not re-announce anything, same idempotency contract as
+      // the server's `created` flag).
+      let createdLocally = true;
       setLocalGames((prev) => {
-        if (prev.some((g) => g.game_id === raw.game_id)) return prev;
+        if (prev.some((g) => g.game_id === raw.game_id)) {
+          createdLocally = false;
+          return prev;
+        }
         const next = [...prev, snap];
         writeAttended(next);
         return next;
       });
-      return Promise.resolve({ ok: true });
+      return Promise.resolve({ ok: true, created: createdLocally });
     },
     [isLoggedIn, commitDetail, loadSummary],
   );
@@ -1705,9 +1749,33 @@ export default function AttendedTracker() {
         mutatingRef.current.delete(id);
         setMutatingIds(new Set(mutatingRef.current));
       };
-      Promise.resolve(already ? removeGame(id) : addGame(g)).finally(clear);
+      if (already) {
+        Promise.resolve(removeGame(id)).finally(clear);
+        return;
+      }
+      // Single historical add (team search / date search / import-review pick):
+      // request the earned delta and resolve it into the EarnedResultCard — the
+      // ONE result surface for this write. `addGame` optimistically fires the
+      // generic att-logprompt banner (`setJustAdded`) synchronously before this
+      // line returns; clearing it right here lands in the SAME synchronous tick
+      // (React batches both updates), so the banner never actually paints — no
+      // extra plumbing through addGame needed to suppress it.
+      const addPromise = addGame(g, { earned: isLoggedIn });
+      setJustAdded(null);
+      addPromise
+        .then(({ ok, earned, created }) => {
+          if (!ok) return;
+          const vm = resolveEarnedResult(earned ?? null, {
+            tone: 'historical',
+            created: created ?? true,
+            catalog: summary?.badges.catalog ?? [],
+            game: { away: g.away_team.abbrev, home: g.home_team.abbrev, venue: g.venue },
+          });
+          setEarnedResult(vm ? { gameId: id, vm } : null);
+        })
+        .finally(clear);
     },
-    [addGame, removeGame],
+    [addGame, removeGame, isLoggedIn, summary],
   );
 
   // Add a MANUAL game (NHL API can't find it). Logged-IN → POST to the authed
@@ -1774,7 +1842,11 @@ export default function AttendedTracker() {
       away_score: awayScore,
     };
     commitDetail(snap);
-    setJustAdded(snap);
+    // Block 1C: manual entry is a single historical add, same as search — it gets
+    // the EarnedResultCard as its ONE result surface, not the generic att-logprompt
+    // banner (no `setJustAdded` here). `m.id` is a freshly generated `manual-`
+    // id (genManualId()), so this is always a genuine create — never a duplicate.
+    const manualGameInfo = { away: manualAway, home: manualHome, venue: null as string | null };
 
     if (isLoggedIn) {
       setD1Rows((prev) => {
@@ -1797,10 +1869,17 @@ export default function AttendedTracker() {
         };
         return [row, ...rows];
       });
-      postManualAttended(m).then((ok) => {
+      postManualAttended(m, { earned: true }).then(({ ok, earned, created }) => {
         if (ok) {
           setWriteError(null);
           loadSummary(); // refetch aggregates (anti-divergence)
+          const vm = resolveEarnedResult(earned ?? null, {
+            tone: 'historical',
+            created: created ?? true,
+            catalog: summary?.badges.catalog ?? [],
+            game: manualGameInfo,
+          });
+          setEarnedResult(vm ? { gameId: m.id, vm } : null);
         } else {
           setWriteError('Could not save that game to your account — check your connection and try again.');
           setD1Rows((prev) => (prev ?? []).filter((r) => r.game_id !== m.id));
@@ -1812,6 +1891,15 @@ export default function AttendedTracker() {
         writeAttended(next);
         return next;
       });
+      // No server round trip logged-out — always a bare success (no delta path
+      // for anon users; see EarnedDelta's docblock).
+      const vm = resolveEarnedResult(null, {
+        tone: 'historical',
+        created: true,
+        catalog: summary?.badges.catalog ?? [],
+        game: manualGameInfo,
+      });
+      setEarnedResult(vm ? { gameId: m.id, vm } : null);
     }
 
     // Reset the form for the next entry (keep it open — fans log runs of games).
@@ -1819,7 +1907,18 @@ export default function AttendedTracker() {
     setManualAway('');
     setManualHomeScore('');
     setManualAwayScore('');
-  }, [manualHome, manualAway, manualDate, manualHomeScore, manualAwayScore, configMap, isLoggedIn, commitDetail, loadSummary]);
+  }, [
+    manualHome,
+    manualAway,
+    manualDate,
+    manualHomeScore,
+    manualAwayScore,
+    configMap,
+    isLoggedIn,
+    commitDetail,
+    loadSummary,
+    summary,
+  ]);
 
   const attendedIds = useMemo(() => new Set(games.map((g) => g.game_id)), [games]);
 
@@ -3276,6 +3375,16 @@ export default function AttendedTracker() {
             </button>
           </div>
         </div>
+      ) : null}
+
+      {/* Block 1C: earned-result card — the ONE result surface for single
+          historical adds (team search, date search, import-review pick, manual
+          entry). Same anchor as att-logprompt above; mutually exclusive with it
+          (toggleSearchResult/addManualGame clear `justAdded` for these paths, so
+          the two never render together for the same add). Auto-hides if that
+          game is removed, same as the banner above. */}
+      {earnedResult && games.some((g) => g.game_id === earnedResult.gameId) ? (
+        <EarnedResultCard vm={earnedResult.vm} onDismiss={() => setEarnedResult(null)} />
       ) : null}
 
       {/* Your public passport — share URL + make-public toggle + customize handle.

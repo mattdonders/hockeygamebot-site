@@ -29,6 +29,7 @@ import {
 } from '../../lib/tonight-candidate';
 import { trackEvent } from '../../lib/track';
 import { type AttendedAddSource } from '../../lib/attended-log-source';
+import { formatMilestoneLabel, ordinal, resolveBadgeLabels } from '../../lib/earned-format';
 import {
   readGeoPreference,
   recordGrant,
@@ -92,7 +93,7 @@ type Props = {
   addGame: (
     raw: RawGame,
     opts?: { earned?: boolean; source?: AttendedAddSource },
-  ) => Promise<{ ok: boolean; earned?: EarnedDelta }>;
+  ) => Promise<{ ok: boolean; earned?: EarnedDelta; created?: boolean }>;
   removeGame: (gameId: string) => Promise<void>;
   handleStub: (g: AttendedGame) => Promise<void>;
   /** Fires whenever this card transitions between rendering something and rendering
@@ -290,10 +291,8 @@ export default function TonightGameCard({
     const after = new Set((summary.badges?.earned ?? []).map((b) => b.id));
     if (after.size === before.size && [...after].every((id) => before.has(id))) return; // summary hasn't caught up yet
     const newly = [...after].filter((id) => !before.has(id));
-    const labelFor = new Map((summary.badges?.catalog ?? []).map((c) => [c.id, c.label]));
-    setCelebrationExtras((prev) =>
-      prev ? { ...prev, badges: newly.map((id) => labelFor.get(id) ?? id), badgesPending: false } : prev,
-    );
+    const labels = resolveBadgeLabels(newly, summary.badges?.catalog ?? []);
+    setCelebrationExtras((prev) => (prev ? { ...prev, badges: labels, badgesPending: false } : prev));
     // Milestone tiers (games/arenas thresholds) have no public-summary reconciliation
     // path the way badges do — `summary.milestones` is the unrelated "witnessed league
     // milestones" feature, not "tiers this log crossed" — so an anonymous logger never
@@ -449,9 +448,8 @@ export default function TonightGameCard({
         trackTonight('write_succeeded');
         setCelebrating(g.game_id);
         if (earned) {
-          const labelFor = new Map((summary?.badges?.catalog ?? []).map((c) => [c.id, c.label]));
           setCelebrationExtras({
-            badges: earned.earned.badges.map((id) => labelFor.get(id) ?? id),
+            badges: resolveBadgeLabels(earned.earned.badges, summary?.badges?.catalog ?? []),
             badgesPending: false,
             newArena: earned.earned.new_arena,
             // Multi-unlock: a single log can cross more than one threshold at once
@@ -850,31 +848,7 @@ function GeoStatusLine({
   return null;
 }
 
-/** `earned.earned.milestones` ids are wire-shape thresholds crossed by this log —
- *  `games-50`, `arenas-10` (see hgb-api `deriveEarned`'s GAME_MILESTONES/
- *  ARENA_MILESTONES) — not display labels. Unrecognized shapes render verbatim
- *  rather than being dropped, so a future milestone kind still shows *something*.
- *
- *  PROVISIONAL COPY, not reviewed: verified 2026-08-04 that no canonical display
- *  label exists anywhere for this exact id shape. Three independent, differently-
- *  numbered "milestone" concepts already coexist in this codebase and none is
- *  authoritative for the others — hgb-api's GAME_MILESTONES/ARENA_MILESTONES (this
- *  formatter's source), hgb-api's separate tier-ladder rungs in
- *  attended_summary.js (different thresholds, has its own `label`/`rung_name`),
- *  and this file's own AttendedTracker.tsx STUB_MILESTONES/milestoneNoteFor
- *  (~2647/2707, a third list). Do not treat "50th game"/"10th arena" as final
- *  wording — defer to the supervised UI review round. */
-function formatMilestoneLabel(id: string): string {
-  const [kind, raw] = id.split('-');
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return id;
-  if (kind === 'games') return `${ordinal(n)} game`;
-  if (kind === 'arenas') return `${ordinal(n)} arena`;
-  return id;
-}
-
-function ordinal(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
-}
+// formatMilestoneLabel / ordinal moved to ../../lib/earned-format.ts (Block 1C,
+// 2026-08) so the historical-add earned-result surface reuses the identical
+// copy/behavior instead of re-implementing it. See that module's docblock for the
+// PROVISIONAL COPY caveat — still applies verbatim.
