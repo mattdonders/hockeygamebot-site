@@ -2472,7 +2472,10 @@ export default function AttendedTracker({
     if (!summary) return [];
     return summary.players_seen.map((p) => ({
       player_id: p.player_id,
-      name: p.name ?? nameMap?.get(p.player_id) ?? `#${p.player_id}`,
+      // A null name shows a neutral placeholder, never a made-up name and never
+      // the raw internal player_id (that stays on `player_id` for
+      // identity/sorting-key purposes only — it must not reach consumer UI).
+      name: p.name ?? nameMap?.get(p.player_id) ?? 'Unknown player',
       team: p.team,
       pos: p.pos,
       gamesSeen: p.games,
