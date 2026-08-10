@@ -74,6 +74,11 @@ const SUMMARY_ID_CAP = 60;
 const SUMMARY_NUDGE_AT = 10;
 // Overview "Your Games" preview row count — full history lives at /puck-passport/games.
 const RECENT_GAMES_PREVIEW_COUNT = 3;
+// Overview "Players Seen" preview row count — the full list lives at
+// /puck-passport/players. This is a slice of the SAME canonical ranking the
+// destination shows (games desc → goals desc → name asc), not a separate
+// "favorite players" ordering.
+const SEEN_PLAYERS_PREVIEW_COUNT = 5;
 // Display snapshot cache (venue, period type, team abbrev/name/score) keyed by
 // game_id. This is what lets the logged-in D1 list — which carries only team
 // *ids* and no venue — still render arenas + OT/SO chips on the device that
@@ -1073,10 +1078,12 @@ function Counter({
 // never diverge from the dashboard's data or its destructive remove/stub actions.
 // 'dashboard' (default) is the full /puck-passport page; 'games-only' is the
 // /puck-passport/games full-history route (see PassportGames.tsx); 'arenas-only'
-// is the /puck-passport/arenas full-collection route (see PassportArenas.tsx).
+// is the /puck-passport/arenas full-collection route (see PassportArenas.tsx);
+// 'players-only' is the /puck-passport/players full-list route (see
+// PassportPlayers.tsx).
 export default function AttendedTracker({
   variant = 'dashboard',
-}: { variant?: 'dashboard' | 'games-only' | 'arenas-only' } = {}) {
+}: { variant?: 'dashboard' | 'games-only' | 'arenas-only' | 'players-only' } = {}) {
   // Source of the attended LIST depends on auth:
   //   logged-OUT → localGames (localStorage, Phase 0 behavior).
   //   logged-IN  → d1Rows (GET /v1/account/attended), mapped via config + details.
@@ -1446,8 +1453,6 @@ export default function AttendedTracker({
   const [scoreFilter, setScoreFilter] = useState('');
   // Multi-select "add many at once"
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  // Players Seen renders the top 25 by games (matches iOS); expand to show all.
-  const [showAllSeen, setShowAllSeen] = useState(false);
 
   // The logged-out anchor pref lives entirely in localStorage + anchorPrefRef (it
   // feeds the public-summary POST param); the RENDER is driven by the server's
@@ -2467,7 +2472,10 @@ export default function AttendedTracker({
     if (!summary) return [];
     return summary.players_seen.map((p) => ({
       player_id: p.player_id,
-      name: p.name ?? nameMap?.get(p.player_id) ?? `#${p.player_id}`,
+      // A null name shows a neutral placeholder, never a made-up name and never
+      // the raw internal player_id (that stays on `player_id` for
+      // identity/sorting-key purposes only — it must not reach consumer UI).
+      name: p.name ?? nameMap?.get(p.player_id) ?? 'Unknown player',
       team: p.team,
       pos: p.pos,
       gamesSeen: p.games,
@@ -2475,15 +2483,19 @@ export default function AttendedTracker({
     }));
   }, [summary, nameMap]);
 
-  // Top-25 cap (§6, matches iOS). Sort a copy games-desc (then goals) so the
-  // slice is deterministic regardless of the server payload order; HGBTable
-  // re-sorts by its own defaultSort on top of this.
-  const SEEN_CAP = 25;
+  // Canonical Players Seen ranking, shared by the overview preview and the
+  // /puck-passport/players destination: games desc → goals desc → name asc.
+  // The name tie-break matches iOS's sort exactly, so a games/goals tie orders
+  // identically on both platforms instead of falling back to whatever order the
+  // server payload happened to arrive in. HGBTable re-sorts by its own
+  // defaultSort on top of this.
   const sortedSeenPlayers = useMemo<SeenPlayerRow[]>(
-    () => [...viewSeenPlayers].sort((a, b) => b.gamesSeen - a.gamesSeen || b.goals - a.goals),
+    () =>
+      [...viewSeenPlayers].sort(
+        (a, b) => b.gamesSeen - a.gamesSeen || b.goals - a.goals || a.name.localeCompare(b.name),
+      ),
     [viewSeenPlayers],
   );
-  const seenPlayersToShow = showAllSeen ? sortedSeenPlayers : sortedSeenPlayers.slice(0, SEEN_CAP);
 
   const viewRecords = useMemo<ViewRecord[]>(
     () => (summary ? summaryRecordsToView(summary.records) : []),
@@ -3239,6 +3251,44 @@ export default function AttendedTracker({
     </>
   );
 
+  // Players Seen list — label + count, then the ranked table. Shared verbatim by
+  // the dashboard's compressed preview and the players-only route
+  // (/puck-passport/players) so the two never drift: same `sortedSeenPlayers`,
+  // same `seenCols`, same rank column. `limit` slices the SAME canonical ranking
+  // (never a different ordering); `viewAllLink` adds the dashboard's "View all →"
+  // affordance into the meta span, which the destination omits since it IS the
+  // "view all" target — the identical split renderArenaMeter() uses. `head:
+  // false` drops the section label+count on the destination, where the page
+  // masthead ("Players Seen") and the back-link bar's count already say both.
+  const renderPlayersSection = (opts?: { head?: boolean; viewAllLink?: boolean; limit?: number }) => (
+    <>
+      {opts?.head === false ? null : (
+        <div className="att-section-head">
+          <span className="att-section-label">Players Seen</span>
+          <span className="att-section-meta">
+            {viewSeenPlayers.length} logged
+            {opts?.viewAllLink && viewSeenPlayers.length > 0 ? (
+              <a href="/puck-passport/players" className="att-view-all">
+                View all {viewSeenPlayers.length} players →
+              </a>
+            ) : null}
+          </span>
+        </div>
+      )}
+      {viewSeenPlayers.length === 0 ? (
+        <div className="att-add-empty">No players yet — box scores may still be loading.</div>
+      ) : (
+        <HGBTable
+          data={opts?.limit != null ? sortedSeenPlayers.slice(0, opts.limit) : sortedSeenPlayers}
+          columns={seenCols}
+          defaultSort={{ id: 'gamesSeen', desc: true }}
+          toolbar={{ show: false }}
+          showRank
+        />
+      )}
+    </>
+  );
+
   // ── Render ───────────────────────────────────────────────────────────────────
   if (!hydrated) {
     return <div className="att-loading">Loading your games…</div>;
@@ -3335,6 +3385,54 @@ export default function AttendedTracker({
               )}
             </section>
           </>
+        )}
+      </div>
+    );
+  }
+
+  // ── players-only render (full players-seen list, /puck-passport/players) ────
+  // Same `viewSeenPlayers`/`sortedSeenPlayers`/`seenCols` the dashboard's Players
+  // Seen preview uses — this branch only changes what's ON SCREEN (no cap, no
+  // slice), never how the data is read. The list itself is the shared
+  // renderPlayersSection() helper. Rows are non-interactive here exactly as they
+  // are on the dashboard; there is no per-player detail route.
+  if (variant === 'players-only') {
+    return (
+      <div className="att-root att-games-only">
+        {d1Error ? (
+          <div className="att-banner att-banner-warn">
+            Couldn't load your saved games from your account — this list may be incomplete. Reload to try again.
+          </div>
+        ) : null}
+        {writeError ? <div className="att-banner att-banner-warn">{writeError}</div> : null}
+        {summaryError ? (
+          <div className="att-banner att-banner-warn">
+            Couldn't load your Passport stats right now — your games are still saved. Reload to retry.
+          </div>
+        ) : null}
+        <div className="att-games-only-head">
+          <a href="/puck-passport" className="att-back-link">‹ Passport</a>
+          <span className="att-section-meta">{viewSeenPlayers.length} seen</span>
+        </div>
+        {/* Keyed on the players list, not `games`: a passport can hold logged
+            games whose box scores haven't landed yet, and "no players" is the
+            state that actually matters on this page. */}
+        {viewSeenPlayers.length === 0 ? (
+          <div className="att-add-empty att-games-only-empty">
+            {empty ? (
+              <>
+                No games logged yet — head back to the Passport dashboard to add your first one.{' '}
+                <a href="/puck-passport">Log a game →</a>
+              </>
+            ) : (
+              <>
+                No players yet — box scores for your logged games may still be loading.{' '}
+                <a href="/puck-passport">Back to your Passport →</a>
+              </>
+            )}
+          </div>
+        ) : (
+          <section className="att-section">{renderPlayersSection({ head: false })}</section>
         )}
       </div>
     );
@@ -4550,36 +4648,12 @@ export default function AttendedTracker({
             )}
           </section>
 
-          {/* Players seen ranked by games seen, then goals */}
+          {/* Players-seen preview — top 5 of the canonical ranking (games seen,
+              then goals, then name). The full list lives on the dedicated
+              /puck-passport/players route, which replaces the old in-place
+              "Show all (N)" toggle. */}
           <section className="att-section">
-            <div className="att-section-head">
-              <span className="att-section-label">Players Seen</span>
-              <span className="att-section-meta">{viewSeenPlayers.length} logged</span>
-            </div>
-            {viewSeenPlayers.length === 0 ? (
-              <div className="att-add-empty">
-                No players yet — box scores may still be loading.
-              </div>
-            ) : (
-              <>
-                <HGBTable
-                  data={seenPlayersToShow}
-                  columns={seenCols}
-                  defaultSort={{ id: 'gamesSeen', desc: true }}
-                  toolbar={{ show: false }}
-                  showRank
-                />
-                {viewSeenPlayers.length > SEEN_CAP ? (
-                  <button
-                    type="button"
-                    className="att-btn-ghost att-seen-toggle"
-                    onClick={() => setShowAllSeen((v) => !v)}
-                  >
-                    {showAllSeen ? `Show top ${SEEN_CAP}` : `Show all (${viewSeenPlayers.length})`}
-                  </button>
-                ) : null}
-              </>
-            )}
+            {renderPlayersSection({ viewAllLink: true, limit: SEEN_PLAYERS_PREVIEW_COUNT })}
           </section>
         </>
       )}
