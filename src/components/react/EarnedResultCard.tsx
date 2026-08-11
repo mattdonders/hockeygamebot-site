@@ -40,7 +40,6 @@ export default function EarnedResultCard({ vm, onDismiss }: Props) {
         <button
           type="button"
           className="earned-dismiss"
-          aria-label="Dismiss"
           ref={dismissRef}
           onClick={onDismiss}
         >

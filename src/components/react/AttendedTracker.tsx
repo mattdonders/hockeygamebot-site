@@ -1491,6 +1491,12 @@ export default function AttendedTracker({
 
   // ── Manual add sub-flow (games the NHL API can't find) ──────────────────────────
   const [showManual, setShowManual] = useState(false);
+  // Scroll target for the "add it manually" link in the no-matches import copy —
+  // the panel is collapsed by default, so the copy has to be able to open it.
+  const manualPanelRef = useRef<HTMLDivElement | null>(null);
+  // The photo <input type="file"> is visually hidden but must stay focusable, so
+  // a real <button> drives it through this ref rather than a wrapping <label>.
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
   const [manualHome, setManualHome] = useState(''); // abbrev
   const [manualAway, setManualAway] = useState(''); // abbrev
   const [manualDate, setManualDate] = useState('');
@@ -3328,11 +3334,13 @@ export default function AttendedTracker({
   const renderArenaMeter = (opts?: { viewAllLink?: boolean }) => (
     <>
       <div className="att-section-head">
-        <span className="att-section-label">NHL Home Arenas — {viewArenas.homeRinks} / {viewArenas.total}</span>
+        <span className="att-section-label">NHL Home Arenas</span>
         {/* Rung name lives here rather than in a sixth badge chip: the chip
-            would restate the very number in the label beside it. */}
+            would restate the very number in the label beside it. The count lives
+            in the meta too (same pattern as "Your Games"): baked into the nowrap
+            .att-section-label it was the measured 390px overflow cause. */}
         <span className="att-section-meta">
-          {arenaMeterLabel(viewArenas.homeRinks, viewArenas.total, viewArenas.rung)}
+          {viewArenas.homeRinks} / {viewArenas.total} · {arenaMeterLabel(viewArenas.homeRinks, viewArenas.total, viewArenas.rung)}
           {opts?.viewAllLink ? (
             <a href="/puck-passport/arenas" className="att-view-all">View all →</a>
           ) : null}
@@ -3448,7 +3456,9 @@ export default function AttendedTracker({
         {writeError ? <div className="att-banner att-banner-warn">{writeError}</div> : null}
         <div className="att-games-only-head">
           <a href="/puck-passport" className="att-back-link">‹ Passport</a>
-          <span className="att-section-meta">{viewArenas.distinctBuildings} arenas visited</span>
+          <span className="att-section-meta">
+            {viewArenas.distinctBuildings} {viewArenas.distinctBuildings === 1 ? 'arena' : 'arenas'} visited
+          </span>
         </div>
         {empty ? (
           <div className="att-add-empty att-games-only-empty">
@@ -3808,12 +3818,12 @@ export default function AttendedTracker({
         </div>
 
         {/* Mode toggle — By Team is the default (matches how fans recall games) */}
-        <div className="att-mode-toggle" role="tablist" aria-label="Add games by">
+        <div className="att-mode-toggle" role="group" aria-label="Add games by">
           {ADD_MODES.map((m) => (
             <button
               key={m.key}
-              role="tab"
-              aria-selected={addMode === m.key}
+              type="button"
+              aria-pressed={addMode === m.key}
               className={addMode === m.key ? 'att-mode-btn active' : 'att-mode-btn'}
               onClick={() => setAddMode(m.key)}
             >
@@ -3924,7 +3934,7 @@ export default function AttendedTracker({
                       <div className="att-select-bar">
                         <span className="att-select-count">
                           {selectedIds.size === 0
-                            ? `${filteredTeamResults?.length ?? 0} games`
+                            ? `${filteredTeamResults?.length ?? 0} ${(filteredTeamResults?.length ?? 0) === 1 ? 'game' : 'games'}`
                             : `${selectedIds.size} selected`}
                         </span>
                         <div className="att-select-actions">
@@ -3959,14 +3969,16 @@ export default function AttendedTracker({
                         const chip = gameTypeLabel(g.game_id);
                         return (
                           <div className="att-add-row att-add-row-team" key={g.game_id}>
-                            <input
-                              type="checkbox"
-                              className="att-check"
-                              checked={checked}
-                              disabled={already}
-                              onChange={() => toggleSelected(g.game_id)}
-                              aria-label={`Select ${g.away_team.abbrev} at ${g.home_team.abbrev} on ${g.date}`}
-                            />
+                            <label className="att-check-hit">
+                              <input
+                                type="checkbox"
+                                className="att-check"
+                                checked={checked}
+                                disabled={already}
+                                onChange={() => toggleSelected(g.game_id)}
+                                aria-label={`Select ${g.away_team.abbrev} at ${g.home_team.abbrev} on ${g.date}`}
+                              />
+                            </label>
                             <div className="att-add-info">
                               <span className="att-add-line">
                                 <span className="att-add-teams">
@@ -4255,18 +4267,18 @@ export default function AttendedTracker({
               </span>
             </div>
 
-            <div className="att-import-tabs" role="tablist" aria-label="Import from">
+            <div className="att-import-tabs" role="group" aria-label="Import from">
               <button
-                role="tab"
-                aria-selected={importTab === 'photos'}
+                type="button"
+                aria-pressed={importTab === 'photos'}
                 className={importTab === 'photos' ? 'att-subtab active' : 'att-subtab'}
                 onClick={() => setImportTab('photos')}
               >
                 From photos
               </button>
               <button
-                role="tab"
-                aria-selected={importTab === 'paste'}
+                type="button"
+                aria-pressed={importTab === 'paste'}
                 className={importTab === 'paste' ? 'att-subtab active' : 'att-subtab'}
                 onClick={() => setImportTab('paste')}
               >
@@ -4277,17 +4289,25 @@ export default function AttendedTracker({
             {importTab === 'photos' ? (
               <>
                 <div className="att-add-controls">
-                  <label className={photoBusy ? 'att-btn att-file-btn disabled' : 'att-btn att-file-btn'}>
+                  <button
+                    type="button"
+                    className="att-btn att-file-btn"
+                    disabled={photoBusy}
+                    onClick={() => photoInputRef.current?.click()}
+                  >
                     {photoBusy ? 'Reading your photos…' : 'Choose photos'}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      hidden
-                      disabled={photoBusy}
-                      onChange={(e) => onPhotos(e.target.files)}
-                    />
-                  </label>
+                  </button>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="att-file-input"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    disabled={photoBusy}
+                    onChange={(e) => onPhotos(e.target.files)}
+                  />
                 </div>
                 <div className="att-add-hint">
                   Pick photos from games you went to — we read the <strong>date</strong> and, when it's
@@ -4352,7 +4372,18 @@ export default function AttendedTracker({
                 </div>
                 {importGroups.length === 0 ? (
                   <div className="att-add-empty">
-                    None of those dates had NHL games. Double-check them, or add a game manually below.
+                    None of those dates had NHL games. Double-check them, or{' '}
+                    <button
+                      type="button"
+                      className="pp-anchor-link"
+                      onClick={() => {
+                        setShowManual(true);
+                        manualPanelRef.current?.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                    >
+                      add a game manually
+                    </button>
+                    .
                   </div>
                 ) : (
                   <div className="att-import-groups">
@@ -4405,7 +4436,7 @@ export default function AttendedTracker({
         {/* ── Manual fallback — a game the NHL API can't find (old / preseason /
             neutral-site / memory-gap). Counts toward Games, Arena and Team record
             only; excluded from periods/goals/shots/players/badges/records. ─── */}
-        <div className="att-manual">
+        <div className="att-manual" ref={manualPanelRef}>
           <button
             type="button"
             className="att-manual-toggle"
