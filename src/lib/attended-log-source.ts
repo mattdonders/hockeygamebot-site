@@ -18,9 +18,15 @@ export type AttendedAddSource = 'tonight' | 'manual' | 'import';
  * Should this add surface the global att-logprompt result banner?
  *
  * @param source  the add's origin — 'tonight' (TonightGameCard's doLog), 'manual'
- *                (search/manual-entry pick), 'import' (bulk "Add N games" fan-out),
- *                or undefined (legacy call sites that predate source-threading —
- *                treated the same as 'manual', preserving their existing behavior).
+ *                (search/manual-entry pick), 'import' (BULK adds: the By-Team
+ *                "Add N games" fan-out and each per-row confirm in the photo/paste
+ *                import review list — 2E), or undefined (legacy call sites that
+ *                predate source-threading — treated the same as 'manual',
+ *                preserving their existing behavior).
+ *
+ * Note the second axis this feeds: AttendedTracker gives non-'import' historical
+ * adds a full EarnedResultCard, while 'import' adds stay on this quiet banner —
+ * otherwise a multi-game import fires one celebration card per confirmed game.
  */
 export function shouldShowLogPrompt(source?: AttendedAddSource): boolean {
   return source !== 'tonight';
