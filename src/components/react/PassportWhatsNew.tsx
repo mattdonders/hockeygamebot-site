@@ -50,6 +50,9 @@ export default function PassportWhatsNew() {
   const [loading, setLoading] = useState(false);
   const [entries, setEntries] = useState<ChangelogEntry[] | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  // A failed fetch must NOT render as "No updates yet." — that states a fact we
+  // don't have. Track the failure and say so, with a way to retry.
+  const [failed, setFailed] = useState(false);
 
   const refreshUnreadCount = useCallback(() => {
     // A brand-new device is mid-onboarding (PassportOnboarding's tour, a
@@ -72,26 +75,30 @@ export default function PassportWhatsNew() {
     return () => window.removeEventListener('hgb:changelog-acknowledged', refreshUnreadCount);
   }, [refreshUnreadCount]);
 
+  const loadHistory = useCallback(() => {
+    setLoading(true);
+    setFailed(false);
+    // Snapshot the cursor BEFORE the fetch — this is "at open time," used
+    // below to decide whether there was anything unread to advance past.
+    const seenThroughAtOpen = resolveLocalSeenThrough(readLocalSeenThrough());
+    fetchChangelog()
+      .then((c) => {
+        setEntries(c.entries);
+        const hadUnread = unreadEntries(c.entries, seenThroughAtOpen).length > 0;
+        if (hadUnread) {
+          // c.entries is newest-first; its head is the newest entry just displayed.
+          acknowledgeSeenThrough(c.entries[0].sequence);
+          setUnreadCount(0); // instant feedback — the event listener above also catches this
+        }
+      })
+      .catch(() => setFailed(true))
+      .finally(() => setLoading(false));
+  }, []);
+
   const openHistory = useCallback(() => {
     setOpen(true);
-    if (entries === null) {
-      setLoading(true);
-      // Snapshot the cursor BEFORE the fetch — this is "at open time," used
-      // below to decide whether there was anything unread to advance past.
-      const seenThroughAtOpen = resolveLocalSeenThrough(readLocalSeenThrough());
-      fetchChangelog()
-        .then((c) => {
-          setEntries(c.entries);
-          const hadUnread = unreadEntries(c.entries, seenThroughAtOpen).length > 0;
-          if (hadUnread) {
-            // c.entries is newest-first; its head is the newest entry just displayed.
-            acknowledgeSeenThrough(c.entries[0].sequence);
-            setUnreadCount(0); // instant feedback — the event listener above also catches this
-          }
-        })
-        .finally(() => setLoading(false));
-    }
-  }, [entries]);
+    if (entries === null) loadHistory();
+  }, [entries, loadHistory]);
 
   const close = useCallback(() => setOpen(false), []);
 
@@ -150,6 +157,13 @@ export default function PassportWhatsNew() {
                   </div>
                 ))}
               </div>
+            ) : failed ? (
+              <p className="pp-modal-history-empty">
+                Couldn't load updates — try again.{' '}
+                <button type="button" className="pp-anchor-link" onClick={loadHistory}>
+                  Retry
+                </button>
+              </p>
             ) : (
               <p className="pp-modal-history-empty">No updates yet.</p>
             )}
