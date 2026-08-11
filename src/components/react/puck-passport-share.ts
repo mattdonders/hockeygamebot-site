@@ -237,7 +237,7 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.textAlign = 'left';
   ctx.font = mono(9, 700);
   ctx.fillStyle = RED;
-  ctx.fillText('PERSONAL TRACKER · HOCKEYGAMEBOT', PAD, 24);
+  ctx.fillText('HOCKEYGAMEBOT · PUCK PASSPORT', PAD, 24);
 
   // Public @handle — right-aligned on the eyebrow row so a shared card is
   // attributable + points to the owner's public passport. Only present when public.
@@ -1045,7 +1045,22 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
         ? 'away'
         : null;
 
-  const drawTeamRow = (team: TicketStubTeam, rowY: number, isLoser: boolean, score: number) => {
+  /**
+   * Outcome-driven emphasis for the two team rows. `neutral` is the fallback
+   * whenever there is no winner to declare (manual entry without scores, TBD /
+   * non-final, partial scores, a tie) — in that state BOTH rows render exactly
+   * as they did before this treatment existed: no row is promoted or demoted.
+   */
+  type RowOutcome = 'win' | 'loss' | 'neutral';
+
+  const drawTeamRow = (
+    team: TicketStubTeam,
+    rowY: number,
+    outcome: RowOutcome,
+    score: number,
+  ) => {
+    const isLoser = outcome === 'loss';
+    const isWinner = outcome === 'win';
     const chipColor = pickTeamColor(team.abbrev);
     const CHIP = 40;
     const chipX = px + padX;
@@ -1089,7 +1104,7 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     ctx.textBaseline = 'alphabetic';
     // city — team identity copy ⇒ Instrument Sans
     ctx.font = ui(9, 600);
-    ctx.fillStyle = isLoser ? inkA(0.5) : inkA(0.6);
+    ctx.fillStyle = isLoser ? inkA(0.38) : inkA(0.6);
     ctx.save();
     ctx.letterSpacing = '0.5px';
     ctx.fillText(city.toUpperCase(), tx, rowY + 13);
@@ -1098,19 +1113,27 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     // gap before the score instead of overlapping it. Score = Instrument Sans
     // 700 (structured numeric read); 28px, since the sans face sets much wider
     // than the condensed one it replaced and 32px crowded a 2-digit score.
+    // Outcome emphasis is typographic only (weight / size / ink), never layout:
+    // the winner keeps full-ink Instrument Sans 700 and gains 2px on the numeral,
+    // while the loser steps DOWN a weight (700→600) and mutes hard. Both weights
+    // are already primed, so this adds no font-priming entry. `neutral` keeps the
+    // pre-existing 700 / 28px / full-ink treatment on both rows.
     const scoreStr = hasScores ? String(score) : '–';
-    ctx.font = ui(28, 700);
+    const scoreWt = isLoser ? 600 : 700;
+    const scorePx = isWinner ? 30 : isLoser ? 26 : 28;
+    ctx.font = ui(scorePx, scoreWt);
     const scoreW = ctx.measureText(scoreStr).width;
     const nickMaxW = px + passW - padX - scoreW - 12 - tx;
     const nickText = nick.toUpperCase();
+    const nickWt = isLoser ? 600 : 700;
     // Nick floor drops 15→11: "GOLDEN KNIGHTS" in Instrument Sans needs the room.
-    const nickPx = fitFont(ctx, nickText, (p) => ui(p, 700), 21, nickMaxW, 11);
-    ctx.font = ui(nickPx, 700);
-    ctx.fillStyle = isLoser ? inkA(0.6) : INK;
+    const nickPx = fitFont(ctx, nickText, (p) => ui(p, nickWt), 21, nickMaxW, 11);
+    ctx.font = ui(nickPx, nickWt);
+    ctx.fillStyle = isLoser ? inkA(0.45) : INK;
     ctx.fillText(truncate(ctx, nickText, nickMaxW), tx, rowY + 37);
     // score (right)
-    ctx.font = ui(28, 700);
-    ctx.fillStyle = isLoser ? inkA(0.6) : INK;
+    ctx.font = ui(scorePx, scoreWt);
+    ctx.fillStyle = isLoser ? inkA(0.42) : INK;
     ctx.textAlign = 'right';
     ctx.fillText(scoreStr, px + passW - padX, rowY + 35);
     ctx.textAlign = 'left';
@@ -1118,9 +1141,11 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
 
   let by = y + BOARD_PAD_T;
   // away row (top), then home row — matches "away @ home"
-  drawTeamRow(game.away, by, winner === 'home', awayScore);
+  const outcomeFor = (side: 'home' | 'away'): RowOutcome =>
+    winner === null ? 'neutral' : winner === side ? 'win' : 'loss';
+  drawTeamRow(game.away, by, outcomeFor('away'), awayScore);
   by += ROW_H + ROW_GAP;
-  drawTeamRow(game.home, by, winner === 'away', homeScore);
+  drawTeamRow(game.home, by, outcomeFor('home'), homeScore);
   by += ROW_H;
 
   // final tag
