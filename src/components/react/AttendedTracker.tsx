@@ -2693,18 +2693,25 @@ export default function AttendedTracker({
 
     // Canvas text silently falls back to a system font if the exact (family, weight)
     // face isn't loaded yet — and fonts.ready only waits for IN-PROGRESS loads, it
-    // does NOT initiate loading of a face the page hasn't used yet (e.g. Barlow
-    // Condensed 900, used ONLY by the card title). So the FIRST share rendered the
-    // title in a fallback font. Explicitly load every face the card draws, THEN draw.
+    // does NOT initiate loading of a face the page hasn't used yet (e.g. Newsreader
+    // 700, used ONLY by the card headline). So the FIRST share rendered the title in
+    // a fallback font. Explicitly load every (family, weight) drawPassportCard draws,
+    // THEN draw. fonts.load() keys on family+weight+style (the px in the shorthand is
+    // required syntax but does not narrow the match), so ONE entry per pair suffices.
+    // Pairs actually drawn (keep in sync with drawPassportCard):
+    //   Newsreader 700          — headline (the single keepsake use)
+    //   Instrument Sans 700     — counters, arena fraction, tier/badge/record heroes, handle
+    //   Instrument Sans 600     — section titles, captions, rung names, rarity, record labels
+    //   Instrument Sans 500     — tagline, arena copy, tier progress, blurbs, footer caveats
+    //   JetBrains Mono 700/500  — eyebrow + "ARENAS COLLECTED" + footer signature / record sub
     try {
       const fs = (document as any).fonts;
       if (fs?.load) {
         await Promise.all([
-          '900 32px "Barlow Condensed"',
-          '800 30px "Barlow Condensed"',
-          '700 15px "Barlow Condensed"',
-          '600 12px "Barlow"',
-          '500 12px "Barlow"',
+          '700 36px "Newsreader"',
+          '700 28px "Instrument Sans"',
+          '600 14px "Instrument Sans"',
+          '500 12px "Instrument Sans"',
           '700 10px "JetBrains Mono"',
           '500 9px "JetBrains Mono"',
         ].map((f) => fs.load(f).catch(() => {})));
@@ -2792,20 +2799,28 @@ export default function AttendedTracker({
     [summary, passportHandle, passportPublic, badgesByGame, stubOrdinals],
   );
 
-  // Preload EVERY face+weight drawTicketStub draws (silent-fallback-font guard) so a
-  // cold first render never falls back to a system font. Shared by the row action +
-  // the hero preview. Barlow Condensed 700 (headers/scores) AND 600 (detail values);
-  // Barlow 600 (team city); JetBrains Mono 500 (labels/serial) AND 400 (tagline).
+  // Preload EVERY (family, weight) drawTicketStub draws (silent-fallback-font guard)
+  // so a cold first render never falls back to a system font. Shared by the row
+  // action + the hero preview, and by drawStubGrid (which is literally N stubs).
+  // fonts.load() keys on family+weight+style — the px is required syntax but does
+  // not narrow the match — so one entry per pair covers every size drawn.
+  // Pairs actually drawn (keep in sync with drawTicketStub):
+  //   Newsreader 700          — "PUCK PASSPORT" wordmark (the single keepsake use)
+  //   Instrument Sans 700     — nick, score, result chip, ordinal, handle, badge chips
+  //   Instrument Sans 600     — team city, detail-grid values (arena / game type)
+  //   JetBrains Mono 700      — season tag, ADMIT ONE, footer brand
+  //   JetBrains Mono 500      — detail labels, date value, holder caption, serial, QR url
+  //   JetBrains Mono 400      — tagline, ISSUED BY, footer signature
   const primeStubFonts = useCallback(async () => {
     try {
       const fs = (document as any).fonts;
       if (fs?.load) {
         await Promise.all(
           [
-            '700 22px "Barlow Condensed"',
-            '700 32px "Barlow Condensed"',
-            '600 14px "Barlow Condensed"',
-            '600 10px "Barlow"',
+            '700 21px "Newsreader"',
+            '700 28px "Instrument Sans"',
+            '600 12px "Instrument Sans"',
+            '700 9px "JetBrains Mono"',
             '500 8px "JetBrains Mono"',
             '400 9px "JetBrains Mono"',
           ].map((f) => fs.load(f).catch(() => {})),

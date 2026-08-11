@@ -16,24 +16,31 @@
  * card: W=560, PAD≈24, FOOT_H=36, ROW_H≈36, section dividers not gaps), NOT
  * blown up. The cards are tight and dense; so is this.
  *
- * TYPOGRAPHY — matched to the canonical player/goalie share cards
- * (stats/player/[slug].astro, stats/goalies/[slug].astro):
- *   • Hero name        Barlow Condensed 900, auto-fit (their big-hero '900 nfs'
- *                      loop; here 40px→26 on a 560-wide card).
- *   • Big numbers      Barlow Condensed 800 (their stat values are '800 34/42px'
- *                      at hero scale; here 30px counters / 26px arena / 16px row).
- *                      The badge-NAME and record-VALUE are the same row-hero tier,
- *                      so they share ONE size (HERO_PX) — never one bigger.
- *   • Section titles   Barlow Condensed 800 15px (their portrait '800 24px'
- *                      compact header, scaled to this card).
- *   • Number captions  Barlow 600 9px (their '600 9px "Barlow"' stat label).
- *   • Eyebrows/meta     JetBrains Mono 700 8–9px (their '700 9/10px' eyebrows).
- *   • Readouts          JetBrains Mono, light-ink — the badge-rarity + record
- *                      context strings share ONE mono/light-gray idiom (mirrors
- *                      the on-page .att-badge-rarity / .att-record-sub CSS).
- *   • Footer            compact INK10 band, centred mono/condensed at FOOT_INK,
- *                      dot-joined brand + HOCKEYGAMEBOT.COM. NO handle (there are
- *                      no usernames yet) and NO season (Passport is not seasonal).
+ * TYPOGRAPHY — the Passport SEMANTIC ROLE system (Beta 2B), now applied to the
+ * canvas artifacts too. Mirrors the --pp-* role tokens in puck-passport.css:
+ *   • Newsreader        RARE / keepsake identity ONLY. Exactly ONE use per
+ *                       artifact: the "MY PUCK PASSPORT" headline here, the
+ *                       "PUCK PASSPORT" wordmark on the ticket stub. Never on
+ *                       team names, scores, section titles or badges.
+ *   • Instrument Sans   the readability workhorse: section titles, counters and
+ *                       every bare number/record value, badge + tier names and
+ *                       their descriptive copy, holder handle, arena copy.
+ *   • JetBrains Mono    RESTRAINED stamp/metadata semantics only: the eyebrow,
+ *                       the "ARENAS COLLECTED" stamp, the record context line
+ *                       (matchup · date), and the footer signature. Mono must
+ *                       NOT creep onto section titles or descriptive copy.
+ * NUMERALS — NOT tabular, deliberately and honestly. Canvas 2D exposes no
+ * `font-variant-numeric`/`tnum` hook (only fontKerning / fontVariantCaps /
+ * fontStretch), so a feature flag cannot be requested through ctx.font at all,
+ * and @fontsource's Instrument Sans ships PROPORTIONAL figures by default
+ * (measured: at 700 28px the per-digit advance ranges 10.8px–19.4px, so the
+ * digits are not fixed-advance). Every number on these two artifacts is a short
+ * standalone value — a score, a counter, an "N / M" progress string — never a
+ * stacked column that would need optical alignment, so proportional figures are
+ * correct here. Do NOT claim tabular alignment for this file; making it true
+ * would need a pre-subsetted tnum font variant (real work, not a flag).
+ * Sizes are unchanged in intent but re-tuned where Instrument Sans's wider
+ * advance would have overflowed the Barlow-Condensed-era box.
  *
  * House rule (FAIL LOUD): the caller passes `boxIncomplete` when some box scores
  * failed to load; the card prints an honest footnote rather than presenting a
@@ -161,10 +168,12 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   const W = 560; // matches the portrait skater card (Season / Rating card)
   const PAD = 24;
   const FOOT_INK = FOOTER_STYLE.inkOnLight; // rgba(13,13,20,0.55)
-  const cond = (px: number, wt = 800) => `${wt} ${px}px "Barlow Condensed", sans-serif`;
-  const body = (px: number, wt = 500) => `${wt} ${px}px "Barlow", sans-serif`;
+  // Role fonts (see the file header). `hist` is the keepsake face and is used
+  // EXACTLY ONCE (the headline); `ui` is the workhorse; `mono` is stamp-only.
+  const hist = (px: number, wt = 700) => `${wt} ${px}px "Newsreader", Georgia, serif`;
+  const ui = (px: number, wt = 600) => `${wt} ${px}px "Instrument Sans", sans-serif`;
   const mono = (px: number, wt = 500) => `${wt} ${px}px "JetBrains Mono", monospace`;
-  // Shared "row hero" size — the bold Barlow value that headlines a row. The
+  // Shared "row hero" size — the bold Instrument Sans value that headlines a row. The
   // Rarest-Badges NAME and the Standout-Moments VALUE are the SAME tier, so they
   // MUST render at the same size (was 14 vs 20 — the badge name looked demoted).
   const HERO_PX = 16;
@@ -233,23 +242,25 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   // Public @handle — right-aligned on the eyebrow row so a shared card is
   // attributable + points to the owner's public passport. Only present when public.
   if (data.handle) {
+    // handle = identity copy → Instrument Sans (NOT the mono eyebrow face).
+    ctx.font = ui(9, 700);
     ctx.textAlign = 'right';
     ctx.fillStyle = ink(0.56);
     ctx.fillText('@' + data.handle.toUpperCase(), W - PAD, 24);
     ctx.textAlign = 'left';
   }
 
-  // hero name — Barlow Condensed 900, auto-fit (their '900 nfs' loop, card-scaled)
+  // hero name — Newsreader 700, auto-fit. THE keepsake moment on this artifact:
+  // the ONLY Newsreader use on the card (see the role note in the file header).
   const headline = 'MY PUCK PASSPORT';
-  const hPx = fitFont(ctx, headline, (p) => cond(p, 900), 36, W - PAD * 2, 26);
-  ctx.font = cond(hPx, 900);
+  const hPx = fitFont(ctx, headline, (p) => hist(p, 700), 36, W - PAD * 2, 24);
+  ctx.font = hist(hPx, 700);
   ctx.fillStyle = INK;
   ctx.textBaseline = 'top';
   ctx.fillText(headline, PAD, 32);
 
-  // tagline — Barlow 600, the cards' plain-Barlow label weight (no handle: there
-  // are no usernames yet)
-  ctx.font = body(12, 600);
+  // tagline — Instrument Sans, descriptive copy
+  ctx.font = ui(12, 500);
   ctx.fillStyle = ink(0.56);
   ctx.fillText(truncate(ctx, 'Every game I’ve been to, in person.', W - PAD * 2), PAD, 34 + hPx + 6);
 
@@ -278,31 +289,35 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.stroke();
     }
     const numStr = String(val);
-    // Big number = Barlow Condensed 800 30px (card-scale stat value, was 44px).
-    const numPx = fitFont(ctx, numStr, (p) => cond(p, 800), 30, colW - 12, 18);
-    ctx.font = cond(numPx, 800);
+    // Big number = Instrument Sans 700 (structured numeric read). Wider advance
+    // than the old condensed face, so the fit floor drops 18→14 to keep a
+    // comma'd 5-figure count ("1,234") whole inside its column.
+    const numPx = fitFont(ctx, numStr, (p) => ui(p, 700), 28, colW - 12, 14);
+    ctx.font = ui(numPx, 700);
     ctx.fillStyle = INK;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(numStr, x0 + colW / 2, cy + 42);
-    // caption = Barlow 600 9px stat label
-    ctx.font = body(9, 600);
+    // caption = Instrument Sans 600 9px stat label
+    ctx.font = ui(9, 600);
     ctx.fillStyle = ink(0.48);
     ctx.textBaseline = 'top';
     ctx.fillText(label, x0 + colW / 2, cy + 52);
   });
   ctx.textAlign = 'left';
 
-  // ── section title helper — compact Barlow Condensed 800 15px + hairline ──
+  // ── section title helper — Instrument Sans 700 14px + hairline. Section
+  //    titles are NEVER mono and never the keepsake face. ──
   let y = cy + COUNTERS_H + SECTION_GAP;
   const sectionLabel = (text: string, meta?: string) => {
-    ctx.font = cond(15, 800);
+    ctx.font = ui(14, 700);
     ctx.fillStyle = INK;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
     ctx.fillText(text.toUpperCase(), PAD, y);
     if (meta) {
-      ctx.font = mono(8, 700);
+      // meta carries a progress count ("3/5 EARNED") → numeric workhorse.
+      ctx.font = ui(8.5, 600);
       ctx.fillStyle = ink(0.42);
       ctx.textAlign = 'right';
       ctx.fillText(meta.toUpperCase(), W - PAD, y + 4);
@@ -335,11 +350,11 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   // top row: fraction (left) + eyebrow (right)
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
-  ctx.font = cond(26, 800);
+  ctx.font = ui(26, 700);
   ctx.fillStyle = INK;
   ctx.fillText(`${homeRinks}`, PAD + aPad, y + 30);
   const visW = ctx.measureText(`${homeRinks}`).width;
-  ctx.font = cond(15, 700);
+  ctx.font = ui(15, 600);
   ctx.fillStyle = ink(0.32);
   ctx.fillText(`/ ${total}`, PAD + aPad + visW + 5, y + 30);
   ctx.font = mono(8, 700);
@@ -360,14 +375,14 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
     rrect(ctx, pipsX + p * (pipW + pipGap), pipY, pipW, pipH, 2);
     ctx.fill();
   }
-  // caption — chase copy
-  ctx.font = mono(9, 500);
+  // caption — chase copy (descriptive + numeric ⇒ Instrument Sans, not mono)
+  ctx.font = ui(9.5, 500);
   ctx.fillStyle = ink(0.48);
   ctx.textBaseline = 'top';
   const cap = `${homeRinks} of ${total} collected`;
   ctx.fillText(truncate(ctx, cap, pipsW), pipsX, pipY + pipH + 6);
   // honest substat — total distinct buildings visited (can exceed the /32 meter)
-  ctx.font = mono(9, 500);
+  ctx.font = ui(9.5, 500);
   ctx.fillStyle = ink(0.36);
   ctx.fillText(
     truncate(ctx, `${data.arenas.distinctBuildings} total arenas visited`, pipsW),
@@ -388,18 +403,18 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       if (!t.earned) ctx.setLineDash([3, 2]);
       ctx.strokeRect(PAD + 0.625, ry + 0.625, W - PAD * 2 - 1.25, TIER_ROW_H - 1.25);
       ctx.setLineDash([]);
-      // label (hero) — Barlow Condensed 800, matches the badge/record hero tier.
-      ctx.font = cond(HERO_PX, 800);
+      // label (hero) — Instrument Sans 700, matches the badge/record hero tier.
+      ctx.font = ui(HERO_PX, 700);
       ctx.fillStyle = t.earned ? INK : ink(0.56);
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
       ctx.fillText(truncate(ctx, t.label.toUpperCase(), W - PAD * 2 - 190), PAD + 12, ry + 8);
-      // rung name — mono readout beneath the label (matches .att-tier-rung)
-      ctx.font = mono(9, 700);
+      // rung name — descriptive tier name ⇒ Instrument Sans (was mono)
+      ctx.font = ui(9.5, 600);
       ctx.fillStyle = t.earned ? ink(0.56) : ink(0.36);
       ctx.fillText(truncate(ctx, t.rungName.toUpperCase(), W - PAD * 2 - 190), PAD + 12, ry + 24);
-      // progress readout — right-aligned mono (matches .att-tier-progress)
-      ctx.font = mono(9, 500);
+      // progress readout — right-aligned; "312 / 600 to Legend" is a NUMBER read
+      ctx.font = ui(10, 500);
       ctx.fillStyle = ink(0.5);
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
@@ -420,23 +435,22 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.strokeStyle = INK;
       ctx.lineWidth = 1.25;
       ctx.strokeRect(PAD + 0.625, ry + 0.625, W - PAD * 2 - 1.25, BADGE_ROW_H - 1.25);
-      // name (row hero) — Barlow Condensed 800 at the shared HERO_PX, level with
+      // name (row hero) — Instrument Sans 700 at the shared HERO_PX, level with
       // the Standout Moments value (same tier ⇒ same size). Top-aligned so the
-      // mono blurb can sit beneath it.
-      ctx.font = cond(HERO_PX, 800);
+      // criteria blurb can sit beneath it.
+      ctx.font = ui(HERO_PX, 700);
       ctx.fillStyle = INK;
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
       ctx.fillText(truncate(ctx, b.label.toUpperCase(), W - PAD * 2 - 130), PAD + 12, ry + 8);
-      // blurb — mono light-gray criteria sub-line (matches the record sub idiom)
+      // blurb — light-gray criteria sub-line. Descriptive copy ⇒ Instrument Sans.
       if (b.blurb) {
-        ctx.font = mono(9, 500);
+        ctx.font = ui(9.5, 500);
         ctx.fillStyle = ink(0.5);
         ctx.fillText(truncate(ctx, b.blurb, W - PAD * 2 - 130), PAD + 12, ry + 27);
       }
-      // rarity — mono readout in light ink (matches .att-badge-rarity + the
-      // record context line: ONE mono/light-gray idiom across both sections)
-      ctx.font = mono(10, 700);
+      // rarity — a numeric readout ("1 in 8 games") ⇒ Instrument Sans, not mono
+      ctx.font = ui(10, 600);
       ctx.fillStyle = ink(0.48);
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'right';
@@ -457,24 +471,23 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       ctx.strokeStyle = ink(0.14);
       ctx.lineWidth = 1;
       ctx.strokeRect(PAD + 0.5, ry + 0.5, W - PAD * 2 - 1, RECORD_ROW_H - 1);
-      // label — mono light-gray eyebrow (matches .att-record-label + the badge
-      // rarity idiom so both sections read identically)
-      ctx.font = mono(9, 700);
+      // label — descriptive record name ("HIGHEST SCORING") ⇒ Instrument Sans
+      ctx.font = ui(9.5, 600);
       ctx.fillStyle = ink(0.48);
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
       ctx.fillText(r.label.toUpperCase(), PAD + 12, ry + 9);
-      // sub — mono data string (matchup · date)
+      // sub — matchup · DATE. Date-like metadata is the one mono slot in this row.
       if (r.sub) {
         ctx.font = mono(9, 500);
         ctx.fillStyle = ink(0.56);
         ctx.fillText(truncate(ctx, r.sub, W - PAD * 2 - 140), PAD + 12, ry + 25);
       }
 
-      // Hero (value) — Barlow Condensed 800 at HERO_PX, right-aligned. Level with
+      // Hero (value) — Instrument Sans 700 at HERO_PX, right-aligned. Level with
       // the Rarest-Badges name (same tier). The LONGEST-GAME row is data-driven:
-      // a bold condensed "2OT" reads as "20T" (O looks like 0), so the OT label
-      // becomes a MONO readout and the bold hero is a clean value instead.
+      // a bold "2OT" jammed into the hero reads badly, so the OT label becomes a
+      // lighter readout beneath and the bold hero is a clean value instead.
       let heroText = r.value;
       let heroReadout: string | undefined;
       if (r.key === 'longest') {
@@ -498,18 +511,18 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
       }
       if (heroReadout) {
         // Stack hero + readout on the right (hero up, readout below).
-        ctx.font = cond(HERO_PX, 800);
+        ctx.font = ui(HERO_PX, 700);
         ctx.fillStyle = INK;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'alphabetic';
         ctx.fillText(heroText, W - PAD - 12, ry + RECORD_ROW_H / 2);
-        ctx.font = mono(9, 500);
+        ctx.font = ui(9, 500);
         ctx.fillStyle = ink(0.5);
         ctx.textBaseline = 'top';
         ctx.fillText(heroReadout, W - PAD - 12, ry + RECORD_ROW_H / 2 + 4);
         ctx.textAlign = 'left';
       } else {
-        ctx.font = cond(HERO_PX, 800);
+        ctx.font = ui(HERO_PX, 700);
         ctx.fillStyle = INK;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
@@ -534,7 +547,9 @@ export function drawPassportCard(data: PassportShareData): HTMLCanvasElement {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(truncate(ctx, footLine, W - PAD * 2), W / 2, footMidY);
-  ctx.font = mono(8, 500);
+  // caveats are prose, not a signature ⇒ Instrument Sans (the brand line above
+  // stays mono: it IS the footer signature).
+  ctx.font = ui(8.5, 500);
   ctx.fillStyle = ink(0.4);
   footCaveats.forEach((line, i) => {
     ctx.fillText(truncate(ctx, line, W - PAD * 2), W / 2, fy + 30 + i * 12);
@@ -822,9 +837,11 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   ctx.scale(SCALE, SCALE);
   ctx.textBaseline = 'alphabetic';
 
-  // fonts
-  const disp = (px: number, wt = 700) => `${wt} ${px}px "Barlow Condensed", "Oswald", sans-serif`;
-  const body = (px: number, wt = 500) => `${wt} ${px}px "Barlow", sans-serif`;
+  // Role fonts (see the file header). `hist` is the keepsake face and is used
+  // EXACTLY ONCE on this artifact (the "PUCK PASSPORT" wordmark); `ui` carries
+  // team names, scores, arena and holder; `mono` is ticket-stamp metadata only.
+  const hist = (px: number, wt = 700) => `${wt} ${px}px "Newsreader", Georgia, serif`;
+  const ui = (px: number, wt = 600) => `${wt} ${px}px "Instrument Sans", sans-serif`;
   const mono = (px: number, wt = 500) => `${wt} ${px}px "JetBrains Mono", monospace`;
 
   // preload crest (fail-loud if missing → we still draw the disc, sans emblem)
@@ -881,7 +898,12 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   const discR = 26; // 52px disc (bigger medallion)
   const wordmark = 'PUCK PASSPORT';
   const tagline = 'PROOF YOU WERE THERE';
-  ctx.font = disp(22, 700);
+  // Wordmark = the ONE keepsake-face moment on the stub. Newsreader's advance is
+  // far wider than the old condensed face, so it is auto-fit into the room left
+  // beside the crest disc rather than nailed to a fixed size.
+  const WM_MAX_W = W - 24 * 2 - discR * 2 - 10;
+  const wmPx = fitFont(ctx, wordmark, (p) => hist(p, 700), 21, WM_MAX_W, 14);
+  ctx.font = hist(wmPx, 700);
   const wmW = ctx.measureText(wordmark).width;
   const gap = 10;
   const groupW = discR * 2 + gap + wmW;
@@ -911,7 +933,7 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   // wordmark + tagline (left-aligned, vertically centred against the disc)
   const wmX = groupX + discR * 2 + gap;
   ctx.textAlign = 'left';
-  ctx.font = disp(22, 700);
+  ctx.font = hist(wmPx, 700);
   ctx.fillStyle = '#ffffff';
   ctx.textBaseline = 'alphabetic';
   ctx.fillText(wordmark, wmX, discCy + 3);
@@ -990,7 +1012,8 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   ctx.fillText('ISSUED BY HOCKEYGAMEBOT', px + padX, y + HD_H / 2 + 0.5);
   ctx.restore();
   const season = seasonFromGameId(game.game_id);
-  ctx.font = disp(13, 700);
+  // Season tag = stamp metadata ⇒ mono (was the display face).
+  ctx.font = mono(9, 700);
   ctx.fillStyle = onFill;
   ctx.textAlign = 'right';
   ctx.fillText(season ? `NHL · ${season}` : 'NHL', px + passW - padX, y + HD_H / 2 + 0.5);
@@ -1053,7 +1076,7 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
       rrect(ctx, chipX, rowY, CHIP, CHIP, 7);
       ctx.fillStyle = isLoser ? mix(chipColor, '#efe9db', 0.45) : chipColor;
       ctx.fill();
-      ctx.font = disp(13, 700);
+      ctx.font = ui(13, 700);
       ctx.fillStyle = isLoser ? inkA(0.5) : chipInk;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1064,25 +1087,29 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     const tx = px + padX + 40 + 11;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    ctx.font = body(10, 600);
+    // city — team identity copy ⇒ Instrument Sans
+    ctx.font = ui(9, 600);
     ctx.fillStyle = isLoser ? inkA(0.5) : inkA(0.6);
     ctx.save();
     ctx.letterSpacing = '0.5px';
     ctx.fillText(city.toUpperCase(), tx, rowY + 13);
     ctx.restore();
     // score width first, so a long nick ("GOLDEN KNIGHTS") shrinks to fit the
-    // gap before the score instead of overlapping it.
+    // gap before the score instead of overlapping it. Score = Instrument Sans
+    // 700 (structured numeric read); 28px, since the sans face sets much wider
+    // than the condensed one it replaced and 32px crowded a 2-digit score.
     const scoreStr = hasScores ? String(score) : '–';
-    ctx.font = disp(32, 700);
+    ctx.font = ui(28, 700);
     const scoreW = ctx.measureText(scoreStr).width;
     const nickMaxW = px + passW - padX - scoreW - 12 - tx;
     const nickText = nick.toUpperCase();
-    const nickPx = fitFont(ctx, nickText, (p) => disp(p, 700), 25, nickMaxW, 15);
-    ctx.font = disp(nickPx, 700);
+    // Nick floor drops 15→11: "GOLDEN KNIGHTS" in Instrument Sans needs the room.
+    const nickPx = fitFont(ctx, nickText, (p) => ui(p, 700), 21, nickMaxW, 11);
+    ctx.font = ui(nickPx, 700);
     ctx.fillStyle = isLoser ? inkA(0.6) : INK;
     ctx.fillText(truncate(ctx, nickText, nickMaxW), tx, rowY + 37);
     // score (right)
-    ctx.font = disp(32, 700);
+    ctx.font = ui(28, 700);
     ctx.fillStyle = isLoser ? inkA(0.6) : INK;
     ctx.textAlign = 'right';
     ctx.fillText(scoreStr, px + passW - padX, rowY + 35);
@@ -1113,10 +1140,17 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     finalText = 'FINAL · TIE';
   }
   const fy = by + FINAL_GAP;
-  ctx.font = disp(12, 700);
+  // Result chip carries a team NAME ⇒ Instrument Sans. It is sized to its own
+  // text, so it must auto-fit: "FINAL · GOLDEN KNIGHTS WIN IN SHOOTOUT" in a
+  // sans face would otherwise run past the pass edge (the condensed face used
+  // to absorb it). Budget = pass width minus padding minus the chip's own 20px
+  // of horizontal padding.
   ctx.save();
   ctx.letterSpacing = '0.6px';
-  const ftW = ctx.measureText(finalText).width;
+  const finalMaxW = passW - padX * 2 - 20;
+  const finalPx = fitFont(ctx, finalText, (p) => ui(p, 700), 11, finalMaxW, 7.5);
+  ctx.font = ui(finalPx, 700);
+  const ftW = Math.min(ctx.measureText(finalText).width, finalMaxW);
   rrect(ctx, px + padX, fy, ftW + 20, FINAL_H, 3);
   ctx.fillStyle = teamFill;
   ctx.fill();
@@ -1144,9 +1178,12 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     align: 'left' | 'right',
     accent: boolean,
     maxW: number,
+    /** Value face: 'mono' for the DATE (date-like metadata), else Instrument Sans. */
+    valueRole: 'ui' | 'mono' = 'ui',
   ): number => {
     ctx.textAlign = align;
     ctx.textBaseline = 'alphabetic';
+    // Detail-grid LABELS are always the mono stamp face.
     ctx.font = mono(8, 500);
     ctx.fillStyle = accent ? accentCream : inkA(0.55);
     ctx.save();
@@ -1154,8 +1191,11 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     ctx.fillText(f.label.toUpperCase(), anchorX, fyy);
     ctx.restore();
     const val = f.value.toUpperCase();
-    const vpx = fitFont(ctx, val, (p) => disp(p, 600), 14, maxW, 9);
-    ctx.font = disp(vpx, 600);
+    const valFont = valueRole === 'mono' ? (p: number) => mono(p, 500) : (p: number) => ui(p, 600);
+    // Both faces set wider than the old condensed value, so the fit floor drops
+    // 9→7.5 to keep long arena names ("Scotiabank Arena") whole.
+    const vpx = fitFont(ctx, val, valFont, 12, maxW, 7.5);
+    ctx.font = valFont(vpx);
     ctx.fillStyle = INK;
     const clipped = truncate(ctx, val, maxW);
     ctx.fillText(clipped, anchorX, fyy + 15);
@@ -1167,11 +1207,12 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   // here — it lives once in the header ("NHL · <season>"); this cell holds the
   // adaptive game-type field instead. (The mockup's puck-drop time has no backing
   // data, so it is never fabricated.)
-  const adaptW = drawField(detAdapt, px + passW - padX, ry, 'right', true, passW * 0.46);
-  drawField(detDate, px + padX, ry, 'left', false, passW - padX * 2 - adaptW - gutter);
+  const adaptW = drawField(detAdapt, px + passW - padX, ry, 'right', true, passW * 0.46, 'ui');
+  // DATE value is the one mono value in the grid (date-like ⇒ stamp face).
+  drawField(detDate, px + padX, ry, 'left', false, passW - padX * 2 - adaptW - gutter, 'mono');
   ry += FROW_H;
   // bottom row: arena across the full width (its own row now the grid is 3 fields).
-  drawField(detArena, px + padX, ry, 'left', false, passW - padX * 2);
+  drawField(detArena, px + padX, ry, 'left', false, passW - padX * 2, 'ui');
   y += rowsH;
 
   // ── holder (ruled annotation) ──
@@ -1190,7 +1231,8 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   const drawCollectionStat = (align: 'left' | 'right', anchorX: number) => {
     ctx.textAlign = align;
     if (gameOrdinal && gameOrdinal > 0) {
-      ctx.font = disp(12.5, 700);
+      // "37TH GAME" is a bare count ⇒ Instrument Sans
+      ctx.font = ui(11.5, 700);
       ctx.fillStyle = accentCream;
       ctx.save();
       ctx.letterSpacing = '0.4px';
@@ -1216,7 +1258,8 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     // with "6TH ARENA ATTENDED" — so the two columns read as one balanced row (was
     // a lonely oversized 16px handle floating over a tiny label).
     ctx.textAlign = 'left';
-    ctx.font = disp(12.5, 700);
+    // holder handle = identity copy ⇒ Instrument Sans, level with "37TH GAME"
+    ctx.font = ui(11.5, 700);
     ctx.fillStyle = INK;
     ctx.save();
     ctx.letterSpacing = '0.4px';
@@ -1244,7 +1287,9 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
     ctx.textBaseline = 'middle';
     for (const label of badges) {
       const txt = label.toUpperCase();
-      ctx.font = disp(9, 700);
+      // Badge labels are NAMES, not stamps ⇒ Instrument Sans (mono stays reserved
+      // for ticket metadata: serial, date, ADMIT ONE, signature).
+      ctx.font = ui(8, 700);
       ctx.save();
       ctx.letterSpacing = '0.5px';
       const tw = ctx.measureText(txt).width;
@@ -1292,7 +1337,8 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   const bpY = y + BP_PAD_T;
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
-  ctx.font = disp(11, 700);
+  // "ADMIT ONE" is the canonical ticket stamp ⇒ mono.
+  ctx.font = mono(8.5, 700);
   ctx.fillStyle = INK;
   ctx.save();
   ctx.letterSpacing = '0.6px';
