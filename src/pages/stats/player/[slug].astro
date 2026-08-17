@@ -10,6 +10,11 @@ import { pickTeamColor, pickTeamColorRgb, pickTeamColorAlpha } from '../../../li
 import { ageFromBirthDate } from '../../../lib/age';
 import EdgePanel from '../../../components/EdgePanel.astro';
 import { cardFooterText } from '../../../lib/card-footer';
+// Canonical HGB design identity + semantics (brand colors, type roles, the
+// five-band evaluative system, the context/descriptive blue), vendored from
+// hgb-docs/design/v1 and validated + hash-verified at build time. `drawCanvas`
+// consumes the small `designInjection` subset via define:vars below.
+import { designInjection } from '../../../lib/design';
 
 export async function getStaticPaths() {
   const players = loadPlayers();
@@ -1168,6 +1173,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 </div>
 
 <script define:vars={{
+  // Canonical HGB design tokens (brand colors, type-role families, five-band
+  // evaluative system, context blue) — build-time-injected, manifest-authoritative.
+  _design: designInjection,
   // Season-by-season RAPM percentile data for the EV bar season selector
   // Shape: { season: string, rapm_off_pct: number|null, rapm_def_pct: number|null, ... }[]
   _seasonStats: (() => {
@@ -1325,8 +1333,27 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     const D = _card;
 
     // ── shared color constants (used by all card drawing functions) ───────
-    const INK    = '#0D0D14';
-    const RED    = '#E8002D';
+    // Brand identity sourced from the canonical manifest (hgb-docs/design/v1).
+    const INK    = _design.ink;   // #0D0D14
+    const RED    = _design.red;   // #E8002D
+    const CONTEXT_BLUE = _design.contextBlue;  // descriptive/context metrics (QoT/QoC/Finishing)
+    // Canonical five-band evaluative color, resolved from the injected manifest.
+    // Boundary rule: first band whose max >= pct (20→very-poor, 21→below-avg,
+    // 41→neutral, 61→above-avg, 81→elite). Replaces the prior 75/55/40/25 cutoffs.
+    function evalBandColor(pct) {
+      for (const b of _design.evalBands) if (pct <= b.max) return b.color;
+      return _design.evalBands[_design.evalBands.length - 1].color;
+    }
+    function barFillManifest(v, kind) {
+      if (kind === 'context') return CONTEXT_BLUE;
+      if (v == null) return 'rgba(13,13,20,0.20)';
+      return evalBandColor(v);
+    }
+    function pctColorManifest(v, kind) {
+      if (kind === 'context') return CONTEXT_BLUE;
+      if (v == null) return 'rgba(13,13,20,0.35)';
+      return evalBandColor(v);
+    }
     // Provisional ("flagged but real") WAR values use the team's OWN color,
     // softened — never a fixed unrelated color, which would collide with teams
     // whose own color is already gold-toned (e.g. VGK's #B4975A vs a fixed
@@ -1346,7 +1373,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // src/lib/card-footer.ts). Replaces the faint INK32 footer ink on cards.
     const FOOT_INK = 'rgba(13,13,20,0.55)';
     const TEAM_C = D.teamColor || INK;
-    const PCT_VALUE_FONT = '800 19px "Barlow Condensed", sans-serif';  // shared percentile-bar VALUE size across all skater cards
+    const PCT_VALUE_FONT = `800 19px "${_design.fonts.hero}", sans-serif`;  // shared percentile-bar VALUE size (hero role: Barlow Condensed)
 
     // ── helpers ──────────────────────────────────────────────────────────
     function fmtToi(sec) {
@@ -1578,7 +1605,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       canvas.width = W * SCALE; canvas.height = TOTAL_H * SCALE;
       const ctx = canvas.getContext('2d');
       ctx.scale(SCALE, SCALE);
-      ctx.fillStyle = '#EFEEE8'; ctx.fillRect(0, 0, W, TOTAL_H);
+      ctx.fillStyle = _design.cream; ctx.fillRect(0, 0, W, TOTAL_H);
       let y = 0;
       // uses INK, RED, INK06..INK48, TEAM_C from outer IIFE scope
       const rrect = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
@@ -1692,7 +1719,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
     // ── Season Card: single-season stats left + EDGE right ───────────────────
     async function drawSeasonCard(selectedSeason) {
-      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const BG = _design.cream, SURFACE = '#FFFFFF';
       const SCALE = 2;
       const L_W = 520, R_W = 520;
       const PAD = 24, R_PAD = 20;
@@ -1897,20 +1924,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const bars_pk      = sp(pct.pk_def ?? null,'rapm_pk_pct');
       const bars_qoc     = sp(D.qoc,             'qoc_pct');
       const bars_qot     = sp(D.qot,             'qot_pct');
-      function barFillS(v, kind) {
-        if (kind === 'context') return '#4285f4';
-        if (v == null) return 'rgba(13,13,20,0.20)';
-        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
-        if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373';
-        return '#E8002D';
-      }
-      function pctColorS(v, kind) {
-        if (kind === 'context') return '#4285f4';
-        if (v == null) return 'rgba(13,13,20,0.35)';
-        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
-        if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
-        return '#E8002D';
-      }
+      const barFillS  = (v, kind) => barFillManifest(v, kind);
+      const pctColorS = (v, kind) => pctColorManifest(v, kind);
       const bars = [
         { label: 'EV Offense',       val: bars_ev_off, kind: 'performance' },
         { label: 'EV Defense',       val: bars_ev_def, kind: 'performance' },
@@ -2036,7 +2051,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
     // ── Shotmap Card: identical left panel to Season Card + shot map PNG right ──
     async function drawShotmapCard() {
-      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const BG = _design.cream, SURFACE = '#FFFFFF';
       const SCALE = 2;
       const L_W = 520, R_W = 520;
       const PAD = 24, R_PAD = 20;
@@ -2200,20 +2215,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const bars_pk     = sp(pct.pk_def ?? null, 'rapm_pk_pct');
       const bars_qoc    = sp(D.qoc,           'qoc_pct');
       const bars_qot    = sp(D.qot,           'qot_pct');
-      function barFillSM(v, kind) {
-        if (kind === 'context') return '#4285f4';
-        if (v == null) return 'rgba(13,13,20,0.20)';
-        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
-        if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373';
-        return '#E8002D';
-      }
-      function pctColorSM(v, kind) {
-        if (kind === 'context') return '#4285f4';
-        if (v == null) return 'rgba(13,13,20,0.35)';
-        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
-        if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
-        return '#E8002D';
-      }
+      const barFillSM  = (v, kind) => barFillManifest(v, kind);
+      const pctColorSM = (v, kind) => pctColorManifest(v, kind);
       const bars = [
         { label: 'EV Offense',       val: bars_ev_off, kind: 'performance' },
         { label: 'EV Defense',       val: bars_ev_def, kind: 'performance' },
@@ -2315,7 +2318,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // "shotmap on the right panel" description, which requires a wide layout. If a
     // narrow PORTRAIT variant was intended instead, this needs a rework — flagged.
     async function drawTalentShotmapCard() {
-      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const BG = _design.cream, SURFACE = '#FFFFFF';
       const SCALE = 2;
       const L_W = 520, R_W = 520;
       const PAD = 24, R_PAD = 20;
@@ -2481,20 +2484,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         { label: 'Opponent Quality', val: v3(D.qoc_pct_3yr,       D.qoc),          kind: 'context'     },
         { label: 'Teammate Quality', val: v3(D.qot_pct_3yr,       D.qot),          kind: 'context'     },
       ];
-      function barFillTS(v, kind) {
-        if (kind === 'context') return '#4285f4';
-        if (v == null) return 'rgba(13,13,20,0.20)';
-        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
-        if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373';
-        return '#E8002D';
-      }
-      function pctColorTS(v, kind) {
-        if (kind === 'context') return '#4285f4';
-        if (v == null) return 'rgba(13,13,20,0.35)';
-        if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50';
-        if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373';
-        return '#E8002D';
-      }
+      const barFillTS  = (v, kind) => barFillManifest(v, kind);
+      const pctColorTS = (v, kind) => pctColorManifest(v, kind);
       const BAR_H_PX = 13, BAR_LABEL_W = 108, BAR_RANK_W = 40;
       const BAR_AVAIL = L_W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
       for (let bi = 0; bi < bars.length; bi++) {
@@ -2584,7 +2575,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // ── HGB Talent Card (JFresh-style blended component card) ────────────
     // ── Rating Card — portrait 520×720, 3-year talent profile ──────────────
     async function drawRatingCardPortrait() {
-      const BG      = '#EFEEE8';
+      const BG      = _design.cream;
       const SURFACE = '#FFFFFF';
       const SCALE   = 2;
       const W       = 520;
@@ -2809,26 +2800,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const BAR_RANK_W  = 44;
       const BAR_AVAIL   = W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
 
-      function barFill(pct, kind) {
-        // contextual metrics (EV Defense, QoC, QoT) — always blue.
-        // High here is "tough deployment / context", not "good player skill".
-        if (kind === 'context') return '#4285f4';
-        if (pct == null) return 'rgba(13,13,20,0.20)';
-        if (pct >= 75) return '#137333';           // elite — dark green
-        if (pct >= 55) return '#4CAF50';           // above avg — light green
-        if (pct >= 40) return 'rgba(13,13,20,0.35)'; // average — neutral gray
-        if (pct >= 25) return '#E57373';           // below avg — light red
-        return '#E8002D';                          // poor — dark red
-      }
-      function pctColor(pct, kind) {
-        if (kind === 'context') return '#4285f4';
-        if (pct == null) return 'rgba(13,13,20,0.35)';
-        if (pct >= 75) return '#137333';
-        if (pct >= 55) return '#4CAF50';
-        if (pct >= 40) return 'rgba(13,13,20,0.50)';
-        if (pct >= 25) return '#E57373';
-        return '#E8002D';
-      }
+      // Evaluative bars/text now resolve through the canonical five-band
+      // manifest (hgb-docs/design/v1); context metrics stay the context blue.
+      const barFill  = (pct, kind) => barFillManifest(pct, kind);
+      const pctColor = (pct, kind) => pctColorManifest(pct, kind);
 
       function makeHatchPattern(ctx) {
         const sz = 6;
@@ -2908,7 +2883,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       return canvas;
     }
     async function drawRatingCardHorizontal() {
-      const BG      = '#EFEEE8';
+      const BG      = _design.cream;
       const SURFACE = '#FFFFFF';
       const SCALE   = 2;
       const W       = 1200;
@@ -3156,7 +3131,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         const cell = gridCells[i];
         // Finishing is a blue (context / read-with-caution) tile; all other
         // single-value tiles use the green/red heat scale.
-        const tier = cell.isBlue ? { color: '#4285f4' } : pctTier(cell.val);
+        const tier = cell.isBlue ? { color: CONTEXT_BLUE } : pctTier(cell.val);
 
         rrect(ctx, tx, ty, TILE_W, TILE_H, 3);
         ctx.fillStyle = cell.isContext ? 'rgba(13,13,20,0.04)' : 'rgba(255,255,255,0.65)';
@@ -3186,14 +3161,14 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
             ctx.fillText(s.label, tx + TILE_PAD, textMid);
             if (s.val != null) {
               ctx.font = '900 24px "Barlow Condensed", sans-serif';
-              ctx.fillStyle = '#4285f4';
+              ctx.fillStyle = CONTEXT_BLUE;
               ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
               ctx.fillText(Math.round(s.val) + '%', tx + TILE_W - TILE_PAD, textMid);
             }
             ctx.fillStyle = 'rgba(13,13,20,0.12)';
             ctx.fillRect(tx + TILE_PAD, barY, bw, 7);
             if (s.val != null) {
-              ctx.fillStyle = '#4285f4';
+              ctx.fillStyle = CONTEXT_BLUE;
               ctx.fillRect(tx + TILE_PAD, barY, (s.val / 100) * bw, 7);
             }
           });
@@ -3259,7 +3234,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       const R = D.rapm;
       if (!R || R.ev_xgf60_z == null) throw new Error('No RAPM data for this player');
 
-      const BG = '#EFEEE8', SURFACE = '#FFFFFF';
+      const BG = _design.cream, SURFACE = '#FFFFFF';
       const RED = '#CC0000', BAR_NEG = 'rgba(13,13,20,0.18)';
       const MUTED = 'rgba(13,13,20,0.45)', GRID = 'rgba(13,13,20,0.09)';
       const SCALE = 2, W = 780;
@@ -3513,8 +3488,8 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     const D = _card;
     const seasons = _seasonStats; // sorted descending by season
 
-    const INK    = '#0D0D14';
-    const RED    = '#E8002D';
+    const INK    = _design.ink;
+    const RED    = _design.red;
     const INK06  = 'rgba(13,13,20,0.06)';
     const INK10  = 'rgba(13,13,20,0.10)';
     const INK14  = 'rgba(13,13,20,0.14)';
@@ -3555,7 +3530,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     ctx.scale(SCALE, SCALE);
 
     // ── Background (light card — cream editorial style) ─────────────────
-    ctx.fillStyle = '#EFEEE8';
+    ctx.fillStyle = _design.cream;
     ctx.fillRect(0, 0, W, TOTAL_H);
 
     // 4px left accent bar (team color, full height)
