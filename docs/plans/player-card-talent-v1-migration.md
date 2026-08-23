@@ -74,8 +74,27 @@ Locked after 6 tuning passes with the user's engineer:
 63/37 split + `CURRENT ROLE` reframe → TOI 40px → empty-state metadata voice.
 Approved 2026-08-23.
 
-## Remaining (deferred — awaiting decisions)
-- **Masthead LTD SAMPLE badge** — placement/wording. Ties to the standing TODO
-  "LTD badge is illegible / unexplained" (all 3 card variants). Hero card chip is
-  the Talent-card piece; masthead tile + Season/History variants still open.
-- **History-card TOI/G column** — season-table column vs hero tile (scope TBD).
+## Deferred items — RESOLVED 2026-08-23
+
+Both decisions were made against real-pixel mocks (rendered in-page so the
+production `@font-face` set applies — JetBrains Mono ships only 400/500 latin, so
+700 faux-bolds identically to the live card; embedded fonts would misrepresent
+that). Mocks: `scripts/render_decision_mocks.mjs`; impl verify:
+`scripts/verify_deferred_impl.mjs`.
+
+- **Masthead LTD SAMPLE badge — DONE.** `limited_sample` now shows an `LTD SAMPLE`
+  chip (same red-on-tint grammar as the Talent share card) *absolutely positioned*
+  bottom-center inside the Talent tile. A shared `min-height:118px` (mobile 86px)
+  on `.hero-tile` keeps all three tiles the same box and the values on one baseline
+  — the chip is overlaid into reserved whitespace, so it does **not** grow the tile
+  or shift the value; WAR/Impact carry no fake badge row. Rejected: asterisk (would
+  overload the provisional-WAR `*` with a 2nd meaning on the same page) and
+  `TALENT · LTD` suffix (too cryptic).
+- **History-card TOI/G column — DONE.** Added as the first value column
+  (`SEASON | TOI/G | WAR | IMPACT | GF% | xGF%`, `VAL_AREA/5`), per-season from
+  `s.toi_avg_sec`, muted monospace `rgba(13,13,20,0.72)` (context, not a
+  percentile). Chosen over a 4th hero tile, which would only show current TOI/G
+  (already on the Talent+Shotmap hero) and squeeze the percentile tiles.
+
+Still open (unchanged): the Season-card variant of the LTD flag, if wanted — not
+part of this unit.
