@@ -96,5 +96,9 @@ that). Mocks: `scripts/render_decision_mocks.mjs`; impl verify:
   percentile). Chosen over a 4th hero tile, which would only show current TOI/G
   (already on the Talent+Shotmap hero) and squeeze the percentile tiles.
 
-Still open (unchanged): the Season-card variant of the LTD flag, if wanted — not
-part of this unit.
+- **Season-card LTD flag — DONE (2026-08-23).** The HGB WAR hero tile's gray
+  `limited sample` note is now the same `LTD SAMPLE` tinted-red pill
+  (`drawSeasonCard`, ~L1854 + draw loop). Provisional note stays plain text (a
+  softer, different state). Before/after render-verified on Kastelic 2021-22
+  (`scripts/render_season_ltd.mjs`, `PHASE=before|after`). All three card variants
+  (Talent / History / Season) now share the locked chip grammar.
