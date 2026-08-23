@@ -104,6 +104,15 @@ export const PlayerRecordSchema = z.object({
   hgb_rating_confidence:  z.enum(['full', 'limited', 'limited_sample']).optional(),
   hgb_rating_off_pct:     z.number().nullable().optional(),
   hgb_rating_def_pct:     z.number().nullable().optional(),
+  // Talent-v1 — the public Talent lineage (migrated from hgb_rating* 2026-08).
+  // Distinct model from hgb_rating: an opportunity-normalized rate composite, not
+  // WAR-units. Percentile is the public value; raw is used for peer-sort ordering.
+  // Prod nullability (verified 2026-08-22, 871 players): percentile present 765 /
+  // null 54 / key-absent 52; confidence full 575 / limited_sample 244 / absent 52.
+  // limited_sample = limited prior multi-season TOI depth (NOT current-season GP).
+  hgb_talent_v1:             z.number().nullable().optional(),
+  hgb_talent_v1_percentile:  z.number().nullable().optional(),
+  hgb_talent_v1_confidence:  z.enum(['full', 'limited_sample']).nullable().optional(),
   // Talent-vs-current-WAR context for the Talent card hero (added 2026-06-21).
   // Backend writes this to players.json; all fields nullable for low-GP players.
   talent_context: z.object({
