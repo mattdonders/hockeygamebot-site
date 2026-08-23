@@ -45,22 +45,31 @@ export async function getStaticPaths() {
   warF.forEach((p, i) => warPctMap.set(p.player_id, Math.round(100 - (i / warF.length) * 100)));
   warD.forEach((p, i) => warPctMap.set(p.player_id, Math.round(100 - (i / warD.length) * 100)));
 
+  // 'rating' mode = the public Talent lineage. Migrated to hgb_talent_v1 (2026-08)
+  // so the peer ORDER matches the Talent-v1 percentile the table displays; leaving
+  // the sort on old hgb_rating would let a peer show a higher Talent-v1% yet rank
+  // lower. Raw hgb_talent_v1 (not the percentile) keeps ordering granular.
   function findPeers(all: PlayerSummary[], current: PlayerSummary, mode: 'war' | 'rating' = 'war') {
-    const curVal = mode === 'rating' ? (current.hgb_rating ?? current.war ?? 0) : (current.war ?? 0);
+    const curVal = mode === 'rating' ? (current.hgb_talent_v1 ?? current.war ?? 0) : (current.war ?? 0);
     const candidates = all
       .filter(p => {
         if (p.player_id === current.player_id) return false;
         if (p.pos_group !== current.pos_group) return false;
-        return mode === 'rating' ? (p.hgb_rating != null) : (p.war != null);
+        return mode === 'rating' ? (p.hgb_talent_v1 != null) : (p.war != null);
       })
       .sort((a, b) => {
-        const aVal = mode === 'rating' ? (a.hgb_rating ?? 0) : (a.war ?? 0);
-        const bVal = mode === 'rating' ? (b.hgb_rating ?? 0) : (b.war ?? 0);
+        const aVal = mode === 'rating' ? (a.hgb_talent_v1 ?? 0) : (a.war ?? 0);
+        const bVal = mode === 'rating' ? (b.hgb_talent_v1 ?? 0) : (b.war ?? 0);
         return Math.abs(aVal - curVal) - Math.abs(bVal - curVal);
       });
-    for (const band of [0.5, 1.5, 3]) {
+    // Progressive-widening bands are per-scale: WAR/rating raw sd≈0.9, but
+    // hgb_talent_v1 raw sd≈0.036 (range ~[-0.07, 0.19]). Using the WAR bands for
+    // Talent-v1 would collapse every peer into the first band. Bands below are the
+    // sd-equivalents (≈0.56 / 1.7 / 3.3 sd) on each scale.
+    const bands = mode === 'rating' ? [0.02, 0.06, 0.12] : [0.5, 1.5, 3];
+    for (const band of bands) {
       const inBand = candidates.filter(p => {
-        const v = mode === 'rating' ? (p.hgb_rating ?? 0) : (p.war ?? 0);
+        const v = mode === 'rating' ? (p.hgb_talent_v1 ?? 0) : (p.war ?? 0);
         return Math.abs(v - curVal) <= band;
       });
       if (inBand.length >= 3) return inBand.slice(0, 4);
@@ -87,7 +96,7 @@ export async function getStaticPaths() {
       pos: p.pos, gp: p.gp, rapm: p.rapm, war: p.war,
       hgb_rating: p.hgb_rating,
       war_pct: warPctMap.get(p.player_id) ?? p.current_war_pct ?? null,
-      talent_pct: (p as any).hgb_rating_percentile ?? (p as any).talent_pct ?? null,
+      talent_pct: (p as any).hgb_talent_v1_percentile ?? null,
     });
     const peers        = findPeers(rankPool, player, 'war').map(mapPeer);
     const peersRating  = findPeers(rankPool, player, 'rating').map(mapPeer);
@@ -394,11 +403,24 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     .hero-tile {
       background: var(--bg); border: 1px solid var(--ink-14);
       padding: 16px 10px; text-align: center; min-width: 150px;
+      /* Shared min-height keeps all three tiles the same box (peers) and the value
+         baseline top-anchored; the Talent tile's LTD chip is absolutely positioned
+         into the reserved whitespace below the value — it does NOT grow this tile. */
+      min-height: 118px; position: relative;
       flex: 1 1 0;
     }
     .tile-label { font-family: var(--body); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(13, 13, 20, 0.72); margin-bottom: 6px; }
     .tile-big { font-family: var(--display); font-weight: 800; font-size: 44px; line-height: 1; letter-spacing: -0.02em; }
     .tile-sub { font-family: var(--mono); font-size: 10px; color: var(--ink-48); margin-top: 4px; }
+    /* Limited-sample status annotation — same grammar as the Talent share card's
+       LTD SAMPLE chip; overlaid bottom-center, no effect on tile box or baseline. */
+    .ltd-badge {
+      position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+      font-family: var(--mono); font-size: 10px; font-weight: 700; line-height: 1;
+      letter-spacing: 0.06em; white-space: nowrap;
+      color: #E8002D; background: rgba(232, 0, 45, 0.10);
+      padding: 4px 8px; border-radius: 4px;
+    }
 
     /* G·A top row / PTS bottom — 2-row season tile */
     .season-tile { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; gap: 0; padding: 14px 10px; min-width: 130px; }
@@ -673,7 +695,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         flex: 1;
         min-width: 0;
         padding: 10px 8px;
+        min-height: 86px;
       }
+      .ltd-badge { font-size: 9px; bottom: 8px; padding: 3px 6px; letter-spacing: 0.04em; }
       .tile-big { font-size: 28px; }
       .tile-label { font-size: 10px; margin-bottom: 4px; }
       .tile-sub { font-size: 10px; }
@@ -788,8 +812,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         <div class="hero-tile">
           <div class="tile-label">Talent</div>
           <div class="tile-big" style={`color:${teamColor}`}>
-            {player.hgb_rating_percentile != null ? `${player.hgb_rating_percentile}%` : '—'}
+            {player.hgb_talent_v1_percentile != null ? `${player.hgb_talent_v1_percentile}%` : '—'}
           </div>
+          {player.hgb_talent_v1_confidence === 'limited_sample' && (
+            <div class="ltd-badge">LTD SAMPLE</div>
+          )}
         </div>
         <div class="hero-tile">
           <div class="tile-label">{currentSeasonNorm} WAR</div>
@@ -1228,6 +1255,11 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     hgb_rating:             player.hgb_rating ?? null,
     hgb_rating_percentile:  player.hgb_rating_percentile ?? null,
     hgb_rating_confidence:  player.hgb_rating_confidence ?? 'full',
+    // Talent-v1 — the public Talent lineage the cards now display (migrated
+    // from hgb_rating* 2026-08). Percentile/confidence can be null in prod
+    // (no multi-season depth) → hero shows the value or an em-dash.
+    talentV1Pct:            player.hgb_talent_v1_percentile ?? null,
+    talentV1Conf:           player.hgb_talent_v1_confidence ?? null,
     // Talent-vs-current-WAR context for the Talent card hero right-panel.
     // Null/absent for low-GP players or before the backend ships it → hero
     // renders with NO right panel (graceful fallback in the card draw code).
@@ -1819,7 +1851,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       var heroGp        = isHistorical ? (seasonData.gp || '—') : D.gp;
       // Percentile-only: no raw-value subtitles (only the season tag for historical / limited note).
       const heroTiles = [
-        { label: 'HGB WAR · ' + heroSeason,    pct: heroWarPct,    sub: isLimited ? 'limited sample' : (isProvisional ? 'provisional' : ''), provisional: isProvisional },
+        // LTD sample → tinted-red chip (locked grammar, matches Talent/History cards);
+        // provisional stays a plain-text note (a different, softer state).
+        { label: 'HGB WAR · ' + heroSeason,    pct: heroWarPct,    sub: isLimited ? 'LTD SAMPLE' : (isProvisional ? 'provisional' : ''), subChip: isLimited, provisional: isProvisional },
         { label: 'HGB IMPACT · ' + heroSeason, pct: heroImpPct,    sub: '' },
       ];
       // Two tiles now → much bigger numbers + larger labels so they survive
@@ -1836,13 +1870,24 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.font = '900 58px "Barlow Condensed", sans-serif';
         ctx.fillStyle = t.pct != null ? TEAM_C : INK32;
         ctx.fillText(t.pct != null ? t.pct + '%' : '—', tcx, y + 34);
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
-        ctx.fillText(t.sub, tcx, y + 98);
+        if (t.sub && t.subChip) {
+          // LTD SAMPLE — tinted-red pill (same chip grammar as the Talent/History cards).
+          ctx.font = '800 9px "JetBrains Mono", monospace';
+          const tw = ctx.measureText(t.sub).width;
+          const chH = 15, chW = tw + 14, chX = tcx - chW / 2, chY = y + 96;
+          rrect(ctx, chX, chY, chW, chH, 3);
+          ctx.fillStyle = 'rgba(232,0,45,0.10)'; ctx.fill();
+          ctx.fillStyle = RED; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+          ctx.fillText(t.sub, tcx, chY + chH / 2 + 0.5);
+        } else if (t.sub) {
+          ctx.font = '700 10px "JetBrains Mono", monospace';
+          ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText(t.sub, tcx, y + 98);
+        }
       }
       y += ID_H;
 
-      // ── Counting stats strip — G / A / PTS / GP / TOI/GP ─────────────────
+      // ── Counting stats strip — G / A / PTS / GP / TOI/G ──────────────────
       ctx.fillStyle = SURFACE; ctx.fillRect(4, y, L_W - 4, COUNTS_H_S);
       // Pick goals/assists/points/toi from the selected season (historical from
       // _seasonStats, current from players.json D fields).
@@ -1856,7 +1901,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         { label: 'ASSISTS', val: cA != null ? String(cA) : '—', color: cA != null ? INK : INK32 },
         { label: 'POINTS',  val: cP != null ? String(cP) : '—', color: cP != null ? TEAM_C : INK32 },
         { label: 'GP',      val: String(heroGp),                color: INK },
-        { label: 'TOI/GP',  val: fmtToiStr(cToi),               color: cToi != null ? INK : INK32 },
+        { label: 'TOI/G',   val: fmtToiStr(cToi),               color: cToi != null ? INK : INK32 },
       ];
       const cColW = (L_W - PAD * 2) / countCols.length;
       for (let ci = 0; ci < countCols.length; ci++) {
@@ -2159,7 +2204,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         { label: 'ASSISTS', val: cA != null ? String(cA) : '—', color: cA != null ? INK : INK32 },
         { label: 'POINTS',  val: cP != null ? String(cP) : '—', color: cP != null ? TEAM_C : INK32 },
         { label: 'GP',      val: D.gp != null ? String(D.gp) : '—', color: INK },
-        { label: 'TOI/GP',  val: fmtToiStr(cToi), color: cToi != null ? INK : INK32 },
+        { label: 'TOI/G',   val: fmtToiStr(cToi), color: cToi != null ? INK : INK32 },
       ];
       const cColW = (L_W - PAD * 2) / countCols.length;
       for (let ci2 = 0; ci2 < countCols.length; ci2++) {
@@ -2304,7 +2349,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
     // ── Talent Shotmap Card: 3-year Talent left panel + 3-year shot map right ──
     // Mirrors drawShotmapCard's L/R geometry and drawSeasonCard's gray-track bar
-    // renderer, but sources the Talent hero (D.hgb_rating_percentile), the 3-year
+    // renderer, but sources the Talent hero (D.talentV1Pct | TOI/G), the 3-year
     // Talent percentile set (same as the portrait Talent card), and relocates the
     // PAST SINGLE-SEASON WAR history (D.priorWar) into the white strip — directly
     // analogous to the goalie Talent card. Right panel loads the all-situations,
@@ -2393,32 +2438,87 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
       ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
 
-      // Talent hero — single centered HGB TALENT % (multi-year blended WAR
-      // percentile). A second AVAILABILITY box was tried, but a games-played RATE
-      // reads ambiguously next to a percentile RANK, so it's one confident number.
-      const heroTalentPct = D.hgb_rating_percentile != null ? Math.round(D.hgb_rating_percentile) : null;
+      // Talent hero — 50/50 split: TALENT% (multi-year Talent-v1 percentile,
+      // the star rank) | TOI/G (current-season ice-time rate). Modeled on the
+      // drawSeasonCard two-tile hero so numbers survive social-thumbnail scale.
+      // Sample qualifiers fail loud (house rule): LTD SAMPLE flags a thin
+      // multi-season Talent prior; EARLY SAMPLE flags a short current season.
+      const heroTalentPct = D.talentV1Pct != null ? Math.round(D.talentV1Pct) : null;
+      const heroToiSec    = D.toiAvgSec ?? null;
+      const fmtHeroToi = (sec) => sec != null ? `${Math.floor(sec/60)}:${String(Math.round(sec%60)).padStart(2,'0')}` : '—';
+      const _talentLtd = D.talentV1Conf === 'limited_sample';
+      const _toiEarly  = D.gp != null && D.gp < 20;
       const heroX = HS_CX + R + 18;
-      const heroCX = heroX + (L_W - heroX - PAD) / 2;   // centered across the full hero width
-      // eyebrow / big % / sublabel — balanced gaps, block vertically centered on the
-      // headshot (HS_CY = y + ID_H/2). The 60px digits end ~y+85, so the sublabel sits
-      // at y+94 (not y+102, which left it floating) for even spacing above and below.
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = 'rgba(13,13,20,0.52)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-      ctx.fillText('HGB TALENT · MULTI-YEAR', heroCX, y + 16);
-      ctx.font = '900 60px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = heroTalentPct != null ? TEAM_C : INK32;
-      ctx.fillText(heroTalentPct != null ? heroTalentPct + '%' : '—', heroCX, y + 33);
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
-      ctx.fillText('MULTI-YEAR BLENDED WAR', heroCX, y + 94);
+      // Hierarchy is carried by SPACE + SIZE + CONTRAST, not a foreign font weight:
+      // both values keep the card's heavy/black Barlow Condensed. Talent is the
+      // subject — 63% of the width, 58px, team colour, dominant. The current-role
+      // block is supporting context — 37% of the width, 42px, muted grey — and its
+      // labelling (CURRENT ROLE over the value, TOI/G · season beneath) explains
+      // WHY ice-time sits beside a multi-year Talent rank instead of reading as an
+      // unexplained second headline. A missing Talent reads as a small muted dash.
+      const TOI_INK = 'rgba(13,13,20,0.72)';
+      const heroTotalW = L_W - heroX - PAD;
+      const talentFrac = 0.63;                       // 63/37 split — Talent gets the room
+      const colX = [heroX, heroX + heroTotalW * talentFrac];
+      const colW = [heroTotalW * talentFrac, heroTotalW * (1 - talentFrac)];
+      const talentTiles = [
+        { label: 'HGB TALENT · MULTI-YEAR', val: heroTalentPct != null ? heroTalentPct + '%' : null,
+          size: 58, color: heroTalentPct != null ? TEAM_C : INK32, labelAlpha: 0.62, desc: '',
+          sub: _talentLtd ? 'LTD SAMPLE' : '' },
+        { label: 'CURRENT ROLE',            val: heroToiSec != null ? fmtHeroToi(heroToiSec) : null,
+          size: 40, color: heroToiSec != null ? TOI_INK : INK32, labelAlpha: 0.48,
+          desc: 'TOI/G · ' + heroSeason, sub: _toiEarly ? `EARLY SAMPLE · ${D.gp} GP` : '' },
+      ];
+      // Both values are vertically centred (textBaseline 'middle') on a common
+      // value-row midline, so the two differently-sized numerals sit in one tidy
+      // band rather than bottom-aligning on a shared baseline. The unavailable
+      // dash centres on the same line at ~34px, muted.
+      const VALUE_MID = y + 58;
+      for (let ti = 0; ti < talentTiles.length; ti++) {
+        const t = talentTiles[ti];
+        const tcx = colX[ti] + colW[ti] / 2;
+        if (ti > 0) { ctx.fillStyle = INK10; ctx.fillRect(colX[ti], y + 18, 1, ID_H - 36); }
+        // Eyebrow — 11px, the ceiling for metadata that shouldn't compete with the
+        // number. Per-tile contrast (Talent .62 vs role .48) carries the hierarchy
+        // into the labels too, so the whole current-role block reads a step quieter.
+        ctx.font = '700 11px "JetBrains Mono", monospace';
+        ctx.fillStyle = `rgba(13,13,20,${t.labelAlpha})`; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText(t.label, tcx, y + 16);
+        if (t.val != null) {
+          ctx.font = `900 ${t.size}px "Barlow Condensed", sans-serif`;
+          ctx.fillStyle = t.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+          ctx.fillText(t.val, tcx, VALUE_MID);
+        } else {
+          ctx.font = '900 34px "Barlow Condensed", sans-serif';
+          ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+          ctx.fillText('—', tcx, VALUE_MID);
+        }
+        // Technical descriptor beneath the value (current-role block only) — small
+        // muted mono, so CURRENT ROLE / 22:59 / TOI/G · season reads top-to-bottom.
+        let chY = y + 92;
+        if (t.desc) {
+          ctx.font = '700 9px "JetBrains Mono", monospace';
+          ctx.fillStyle = 'rgba(13,13,20,0.42)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+          ctx.fillText(t.desc, tcx, y + 80);
+          chY = y + 98;
+        }
+        // Qualifier — compact chip (locked chip grammar): a tinted-red pill gives
+        // the small JetBrains-Mono text definition while staying tertiary.
+        if (t.sub) {
+          ctx.font = '800 9px "JetBrains Mono", monospace';
+          const tw = ctx.measureText(t.sub).width;
+          const chH = 15, chW = tw + 14, chX = tcx - chW / 2;
+          rrect(ctx, chX, chY, chW, chH, 3);
+          ctx.fillStyle = 'rgba(232,0,45,0.10)'; ctx.fill();
+          ctx.fillStyle = RED; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+          ctx.fillText(t.sub, tcx, chY + chH / 2 + 0.5);
+        }
+      }
       y += ID_H;
 
       // ── WHITE STRIP — PAST SINGLE-SEASON WAR history ───────────────────────
       // Relocated here from the Talent hero, matching the goalie Talent card.
       ctx.fillStyle = SURFACE; ctx.fillRect(4, y, L_W - 4, STRIP_H);
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-      ctx.fillText('PAST SINGLE-SEASON WAR', L_W / 2, y + 9);
       function fmtSznTS(s) {
         if (!s) return '';
         if (s.includes('-')) return s.slice(2, 4) + '-' + s.slice(5, 7);
@@ -2426,6 +2526,10 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       }
       const priorWarTS = (D.priorWar ?? []).slice().reverse(); // oldest → newest, left → right
       if (priorWarTS.length > 0) {
+        // Populated: the strong top header belongs here, where there's content to frame.
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        ctx.fillText('PAST SINGLE-SEASON WAR', L_W / 2, y + 9);
         const wCols = priorWarTS.length;
         const colW = (L_W - PAD * 2) / wCols;
         for (let wi = 0; wi < wCols; wi++) {
@@ -2447,9 +2551,20 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
           ctx.fillText(fmtSznTS(entry.season), ccx, y + 58);
         }
       } else {
-        ctx.font = '600 11px "Barlow", sans-serif';
-        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-        ctx.fillText('No prior single-season WAR on record', L_W / 2, y + STRIP_H / 2 + 6);
+        // Empty: no strong top header over a mostly empty band. Instead one calm,
+        // vertically-centred unit — a softened eyebrow over a plain message — so the
+        // strip reads as a deliberate "no data yet" state, not a half-filled table.
+        const midY = y + STRIP_H / 2;
+        ctx.font = '700 10px "JetBrains Mono", monospace';
+        ctx.fillStyle = 'rgba(13,13,20,0.38)'; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'center';
+        ctx.fillText('PAST SINGLE-SEASON WAR', L_W / 2, midY - 5);
+        // Empty-state message in the card's own condensed uppercase metadata voice
+        // (same mono family as the label), lighter + smaller so it stays the message,
+        // not a second heading. Slight tracking to sit with the surrounding metadata.
+        ctx.font = '600 9px "JetBrains Mono", monospace';
+        ctx.fillStyle = INK32; ctx.textBaseline = 'top'; ctx.letterSpacing = '0.5px';
+        ctx.fillText('NO PRIOR WAR ON RECORD', L_W / 2, midY + 4);
+        ctx.letterSpacing = '0px';
       }
       y += STRIP_H;
 
@@ -2581,670 +2696,6 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       return canvas;
     }
 
-    // ── HGB Talent Card (JFresh-style blended component card) ────────────
-    // ── Rating Card — portrait 520×720, 3-year talent profile ──────────────
-    async function drawRatingCardPortrait() {
-      const BG      = '#EFEEE8';
-      const SURFACE = '#FFFFFF';
-      const SCALE   = 2;
-      const W       = 520;
-      const PAD     = 28;
-
-      // Reflow hero: tighter identity band (no mini-boxes), bigger Talent number,
-      // and slightly taller bar rows so the bars/tiles read intentional in the space.
-      // header+chips(86) + gap(6) + identity(108) + sep(1) + section gap(18) +
-      // section label(12) + 11 bars(385) + bottom pad(12) + footer(36)
-      const _HDR = 52, _CHIP = 34, _ID = 108, _BAR_ROWS = 11, _BAR_ROW = 35, _FOOT = 36;
-      const H = _HDR + _CHIP + 6 + _ID + 1 + 18 + 12 + _BAR_ROWS * _BAR_ROW + 12 + _FOOT;
-
-      const canvas = document.createElement('canvas');
-      canvas.width  = W * SCALE;
-      canvas.height = H * SCALE;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(SCALE, SCALE);
-
-      // background
-      ctx.fillStyle = BG;
-      ctx.fillRect(0, 0, W, H);
-
-      // team full name lookup
-      const TEAM_NAMES = {
-        ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
-        BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',
-        CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',
-        DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',
-        FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',
-        MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',
-        NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',
-        PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',
-        SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',
-        TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',
-        VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
-      };
-      const teamFullName = TEAM_NAMES[D.team] || D.team;
-
-      let y = 0;
-
-      // ════════ SECTION 1 — WHITE BAND: orange accent bar + name + chips ════════
-      const HDR_H  = 52;
-      const CHIP_H = 34;
-
-      // White fills the full name+chips area; orange accent bar spans the full white band
-      ctx.fillStyle = SURFACE;
-      ctx.fillRect(0, y, W, HDR_H + CHIP_H);
-      // Orange left accent bar — 4px, full height of white band
-      ctx.fillStyle = TEAM_C;
-      ctx.fillRect(0, y, 4, HDR_H + CHIP_H);
-      // Player name
-      ctx.font = '800 24px "Barlow Condensed", sans-serif';
-      ctx.fillStyle = INK;
-      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText((D.firstName + ' ' + D.lastName).toUpperCase(), PAD, y + HDR_H / 2);
-      y += HDR_H;
-
-      // Chips row — team | position | season | age  +  HOCKEYGAMEBOT (right)
-      // Still inside the white band (white fill covers HDR_H + CHIP_H)
-      const chipH = 18, chipY0 = y + (CHIP_H - chipH) / 2;
-      const ageChip  = D.ageAtSeason   != null ? `AGE: ${D.ageAtSeason}`       : null;
-      const _numPort = D.sweaterNumber  != null ? [`#${D.sweaterNumber}`]        : [];
-      const _scPort  = D.shootsCatches           ? [`SHOOTS: ${D.shootsCatches}`] : [];
-      const chips = [..._numPort, teamFullName, D.posLabel.toUpperCase(), D.currentSeason, ...(ageChip ? [ageChip] : []), ..._scPort];
-      const _tcPort = 1 + _numPort.length;
-      let cx = PAD;
-      ctx.font = '700 9px "Barlow Condensed", sans-serif';
-      for (let ci = 0; ci < chips.length; ci++) {
-        const tw = ctx.measureText(chips[ci]).width;
-        const cw = tw + 18;
-        rrect(ctx, cx, chipY0, cw, chipH, 3);
-        ctx.fillStyle = ci < _tcPort ? TEAM_C : INK;
-        ctx.fill();
-        ctx.fillStyle = BG;
-        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-        ctx.fillText(chips[ci], cx + 9, chipY0 + chipH / 2);
-        cx += cw + 8;
-      }
-      const brand = 'HOCKEYGAMEBOT';
-      const btw = ctx.measureText(brand).width;
-      const bcw = btw + 18;
-      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
-      ctx.fillStyle = RED; ctx.fill();
-      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText(brand, W - PAD - bcw + 9, chipY0 + chipH / 2);
-      // Bottom border of white band
-      ctx.fillStyle = 'rgba(13,13,20,0.08)';
-      ctx.fillRect(0, y + CHIP_H - 1, W, 1);
-      y += CHIP_H;
-
-      // ════════ SECTION 2 — IDENTITY ROW (headshot + Talent hero, reflow) ════════
-      const ID_H = 108;
-      y += 6;
-
-      // headshot circle — team-color border
-      const R = 36, HS_CX = PAD + R, HS_CY = y + ID_H / 2;
-      const hsImg = await loadImg(D.headshotUrl);
-      ctx.save(); ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2); ctx.clip();
-      if (hsImg) {
-        ctx.drawImage(hsImg, HS_CX - R, HS_CY - R, R * 2, R * 2);
-      } else {
-        ctx.fillStyle = INK10; ctx.fill();
-        ctx.font = '800 24px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = INK32; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
-        ctx.fillText((D.firstName[0] + D.lastName[0]).toUpperCase(), HS_CX, HS_CY);
-      }
-      ctx.restore();
-      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, R, 0, Math.PI * 2);
-      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
-
-      // Talent hero to the right of headshot — mirrors the SEASON card's hero:
-      // two BARE stat halves split by a thin vertical divider, numbers sitting
-      // directly on the cream (no surface boxes/borders). LEFT = Talent,
-      // RIGHT = Current WAR + Model View. Without talent_context the Talent half
-      // centers across the full hero with no divider (graceful fallback).
-      const heroX  = HS_CX + R + 18;
-      const heroW  = (W - heroX - PAD);
-
-      const ratingPctVal = D.hgb_rating_percentile;
-      const priorTalentP = D.priorWar ?? [];
-      const hasContextPanel = priorTalentP.length > 0;
-
-      // Two balanced halves when prior talent exists; otherwise one full-width half.
-      const halfW = hasContextPanel ? heroW / 2 : heroW;
-
-      // Formats season string to short display label. Handles "20222023" and "2022-23".
-      function fmtSzn(s) {
-        if (!s) return '';
-        if (s.includes('-')) return s.slice(2,4) + '-' + s.slice(5,7);
-        return s.slice(2,4) + '-' + s.slice(6,8);
-      }
-
-      // LEFT half — Talent (bare): HGB TALENT eyebrow / big % / subtitle.
-      {
-        const tcx = heroX + halfW / 2;
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('HGB TALENT', tcx, y + 14);
-        ctx.font = '900 60px "Barlow Condensed", sans-serif';
-        ctx.fillStyle = ratingPctVal != null ? TEAM_C : INK32;
-        ctx.fillText(ratingPctVal != null ? ratingPctVal + '%' : '—', tcx, y + 28);
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top';
-        ctx.fillText('MULTI-YEAR BLENDED WAR', tcx, y + 90);
-      }
-
-      // RIGHT half — 3 prior seasons of Historical Talent, horizontal timeline.
-      // Eyebrow "TALENT HISTORY" + 3 columns (oldest→newest) with arrows between.
-      if (hasContextPanel) {
-        const L_RIGHT = heroX + halfW;
-        const rcx = L_RIGHT + halfW / 2;
-        ctx.fillStyle = INK10; ctx.fillRect(L_RIGHT, y + 18, 1, ID_H - 36);
-
-        // Eyebrow
-        ctx.font = '700 10px "JetBrains Mono", monospace';
-        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('PAST SINGLE-SEASON WAR', rcx, y + 8);
-
-        // 3 evenly-spaced column centers across the right half. No arrows — standalone
-        // blocks avoid implying a causal trend (volatile profiles read as past model outputs).
-        const PAD_INNER = 14;
-        const usable = halfW - PAD_INNER * 2;
-        const cols = priorTalentP.slice().reverse(); // oldest→newest left→right
-        const colCenters = cols.map((_, i) => L_RIGHT + PAD_INNER + usable * (i + 0.5) / cols.length);
-        const SZN_Y = y + 24, NUM_Y = y + 36, NUM_SZ = 34;
-
-        cols.forEach((entry, i) => {
-          const cx = colCenters[i];
-          // Season label
-          ctx.font = '700 9px "Barlow", sans-serif';
-          ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-          ctx.fillText(fmtSzn(entry.season), cx, SZN_Y);
-          // Number — no arrows between columns
-          if (entry.limited) {
-            ctx.font = '700 11px "JetBrains Mono", monospace';
-            ctx.fillStyle = INK; ctx.textBaseline = 'top';
-            drawWrappedLabelCentered(ctx, 'SMALL SAMPLE', cx, NUM_Y - 4, usable / cols.length - 6, 13);
-          } else {
-            ctx.font = `800 ${NUM_SZ}px "Barlow Condensed", sans-serif`;
-            ctx.fillStyle = entry.provisional ? provisionalColor(TEAM_C) : INK;
-            ctx.textBaseline = 'top';
-            ctx.fillText(String(entry.pct) + (entry.provisional ? '%*' : '%'), cx, NUM_Y);
-          }
-        });
-      }
-      y += ID_H;
-
-      // separator
-      ctx.fillStyle = INK14; ctx.fillRect(0, y, W, 1); y += 1;
-
-      // ════════ SECTION 3 — 3-YEAR PROFILE BARS ════════
-      y += 18;
-
-      // section header — just "HGB TALENT PROFILE" (vs Forwards moved to footer)
-      ctx.font = '700 10px "JetBrains Mono", monospace';
-      ctx.fillStyle = INK48; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-      ctx.fillText('HGB TALENT PROFILE', PAD, y);
-      y += 12;
-
-      // 11 bars, single column. Fall back to season percentiles when 3yr null.
-      const pct3 = D.percentiles;
-      const v3 = (a, b) => (a != null ? a : (b != null ? b : null));
-      // kind: 'context' → blue (QoC / QoT only — deployment context, not skill).
-      // All other bars use the 5-tier green/gray/red performance scale.
-      const profileBars = [
-        { label: 'EV Offense',       val: D.hgb_rating_off_pct,                    kind: 'performance' },
-        { label: 'EV Defense',       val: D.hgb_rating_def_pct,                    kind: 'performance' },
-        { label: 'Goals / 60',       val: v3(D.g_60_pct_3yr,      pct3.goals),     kind: 'performance' },
-        { label: 'A1 / 60',          val: v3(D.a1_60_pct_3yr,     pct3.a1),        kind: 'performance' },
-        { label: 'xG / 60',          val: v3(D.xg_60_pct_3yr,     pct3.ixg),       kind: 'performance' },
-        { label: 'Pen Diff',         val: v3(D.pen_diff_pct_3yr,  pct3.pen_diff),  kind: 'performance' },
-        { label: 'Power Play',       val: pct3.pp_off ?? null,                     kind: 'performance' },
-        { label: 'Penalty Kill',     val: pct3.pk_def ?? null,                     kind: 'performance' },
-        { label: 'Finishing',        val: v3(D.finishing_pct_3yr, pct3.finishing), kind: 'context'     },
-        { label: 'Opponent Quality', val: v3(D.qoc_pct_3yr,       D.qoc),          kind: 'context'     },
-        { label: 'Teammate Quality', val: v3(D.qot_pct_3yr,       D.qot),          kind: 'context'     },
-      ];
-
-      const BAR_ROW_H   = 35;
-      const BAR_H_PX    = 15;
-      const BAR_LABEL_W = 108;
-      const BAR_RANK_W  = 44;
-      const BAR_AVAIL   = W - PAD * 2 - BAR_LABEL_W - BAR_RANK_W - 8;
-
-      function barFill(pct, kind) {
-        // contextual metrics (EV Defense, QoC, QoT) — always blue.
-        // High here is "tough deployment / context", not "good player skill".
-        if (kind === 'context') return '#4285f4';
-        if (pct == null) return 'rgba(13,13,20,0.20)';
-        if (pct >= 75) return '#137333';           // elite — dark green
-        if (pct >= 55) return '#4CAF50';           // above avg — light green
-        if (pct >= 40) return 'rgba(13,13,20,0.35)'; // average — neutral gray
-        if (pct >= 25) return '#E57373';           // below avg — light red
-        return '#E8002D';                          // poor — dark red
-      }
-      function pctColor(pct, kind) {
-        if (kind === 'context') return '#4285f4';
-        if (pct == null) return 'rgba(13,13,20,0.35)';
-        if (pct >= 75) return '#137333';
-        if (pct >= 55) return '#4CAF50';
-        if (pct >= 40) return 'rgba(13,13,20,0.50)';
-        if (pct >= 25) return '#E57373';
-        return '#E8002D';
-      }
-
-      function makeHatchPattern(ctx) {
-        const sz = 6;
-        const pc = document.createElement('canvas');
-        pc.width = sz; pc.height = sz;
-        const px = pc.getContext('2d');
-        px.strokeStyle = 'rgba(13,13,20,0.18)';
-        px.lineWidth = 1;
-        px.beginPath();
-        px.moveTo(0, sz); px.lineTo(sz, 0);
-        px.stroke();
-        return ctx.createPattern(pc, 'repeat');
-      }
-
-      for (let bi = 0; bi < profileBars.length; bi++) {
-        const b = profileBars[bi];
-        const rowY = y + bi * BAR_ROW_H;
-        const by   = rowY + (BAR_ROW_H - BAR_H_PX) / 2;
-        const val  = b.val;
-
-        // label
-        ctx.font = '600 11px "Barlow", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.85)'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-        ctx.fillText(b.label, PAD, rowY + BAR_ROW_H / 2);
-
-        // track
-        const bx = PAD + BAR_LABEL_W;
-        rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
-        ctx.fillStyle = INK10; ctx.fill();
-
-        if (val == null) {
-          // hatch pattern fill for no-data bars
-          const hatch = makeHatchPattern(ctx);
-          rrect(ctx, bx, by, BAR_AVAIL, BAR_H_PX, 3);
-          ctx.fillStyle = hatch; ctx.fill();
-        } else {
-          const tierC = barFill(val, b.kind);
-          // fill
-          const fillW = Math.max(6, (val / 100) * BAR_AVAIL);
-          rrect(ctx, bx, by, fillW, BAR_H_PX, 3);
-          ctx.fillStyle = tierC; ctx.fill();
-        }
-
-        // percentage (right-aligned) — skip for null bars, show muted dash instead
-        ctx.font = PCT_VALUE_FONT;
-        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-        if (val == null) {
-          ctx.fillStyle = 'rgba(13,13,20,0.32)';
-          ctx.fillText('—', W - PAD, rowY + BAR_ROW_H / 2);
-        } else {
-          ctx.fillStyle = pctColor(val, b.kind);
-          ctx.fillText(Math.round(val) + '%', W - PAD, rowY + BAR_ROW_H / 2);
-        }
-      }
-      y += profileBars.length * BAR_ROW_H + 12;
-
-      // ════════ SECTION 4 — FOOTER ════════
-      // "Talent = current + 3 prior seasons · percentile [vs Forwards] · hockeygamebot.com"
-      // ("Multi-Year Blended WAR" lives once, in the hero subtitle; position phrase red.)
-      const FOOT_H = 36;
-      const footY = y;
-      ctx.fillStyle = INK06; ctx.fillRect(0, footY, W, FOOT_H);
-      ctx.font = '700 9px "Barlow Condensed", sans-serif';
-      ctx.textBaseline = 'middle';
-      const vsPhrase = D.footers.talent.vs;
-      const fSeg1 = D.footers.talent.pre;
-      const fSeg3 = D.footers.talent.post;
-      const fW1 = ctx.measureText(fSeg1).width;
-      const fW2 = ctx.measureText(vsPhrase).width;
-      const fW3 = ctx.measureText(fSeg3).width;
-      let fx = (W - (fW1 + fW2 + fW3)) / 2;
-      ctx.textAlign = 'left';
-      ctx.fillStyle = FOOT_INK; ctx.fillText(fSeg1, fx, footY + FOOT_H / 2); fx += fW1;
-      ctx.fillStyle = RED;      ctx.fillText(vsPhrase, fx, footY + FOOT_H / 2); fx += fW2;
-      ctx.fillStyle = FOOT_INK; ctx.fillText(fSeg3, fx, footY + FOOT_H / 2);
-
-      return canvas;
-    }
-    async function drawRatingCardHorizontal() {
-      const BG      = '#EFEEE8';
-      const SURFACE = '#FFFFFF';
-      const SCALE   = 2;
-      const W       = 1200;
-      const H       = 680;
-
-      // Hero is split: white name+chips strip on top, cream headshot+stats below
-      const HDR_H     = 136;   // white strip: name + chips (taller for breathing room)
-      const HERO_STAT = 174;   // cream strip: headshot + 3 big stats (slightly shorter)
-      const HERO_H    = HDR_H + HERO_STAT;   // 310 total — same as V2
-      const FOOTER_H  = 46;
-      const METRICS_H = H - HERO_H - FOOTER_H;  // same as V2
-
-      const canvas = document.createElement('canvas');
-      canvas.width  = W * SCALE;
-      canvas.height = H * SCALE;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(SCALE, SCALE);
-
-      function pctTier(v) {
-        if (v == null) return { color: '#888888' };
-        if (v >= 85)   return { color: '#15803d' };
-        if (v >= 70)   return { color: '#22a559' };
-        if (v >= 40)   return { color: '#888888' };
-        if (v >= 20)   return { color: '#e05c2d' };
-        return               { color: '#E8002D'  };
-      }
-
-      // Full cream background
-      ctx.fillStyle = BG;
-      ctx.fillRect(0, 0, W, H);
-
-      // ── WHITE STRIP: name + chips ─────────────────────────────────────────
-      const PAD = 32;
-      ctx.fillStyle = SURFACE;
-      ctx.fillRect(0, 0, W, HDR_H);
-      // 4px team-color left accent
-      ctx.fillStyle = TEAM_C;
-      ctx.fillRect(0, 0, 4, HDR_H);
-      // Bottom border
-      ctx.fillStyle = 'rgba(13,13,20,0.10)';
-      ctx.fillRect(0, HDR_H - 1, W, 1);
-
-      // Player name — large, left-aligned, vertically centered in top half
-      const fullName = (D.firstName + ' ' + D.lastName).toUpperCase();
-      let nfs = 64;
-      ctx.font = `900 ${nfs}px "Barlow Condensed", sans-serif`;
-      while (ctx.measureText(fullName).width > W * 0.65 && nfs > 32) {
-        nfs -= 2;
-        ctx.font = `900 ${nfs}px "Barlow Condensed", sans-serif`;
-      }
-      ctx.fillStyle = INK;
-      ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText(fullName, PAD, 46);
-
-      // Chips row — match vertical card style: full team name, pos, season + brand right
-      const TEAM_NAMES = {
-        ANA:'ANAHEIM DUCKS',ARI:'ARIZONA COYOTES',BOS:'BOSTON BRUINS',
-        BUF:'BUFFALO SABRES',CGY:'CALGARY FLAMES',CAR:'CAROLINA HURRICANES',
-        CHI:'CHICAGO BLACKHAWKS',COL:'COLORADO AVALANCHE',CBJ:'COLUMBUS BLUE JACKETS',
-        DAL:'DALLAS STARS',DET:'DETROIT RED WINGS',EDM:'EDMONTON OILERS',
-        FLA:'FLORIDA PANTHERS',LAK:'LOS ANGELES KINGS',MIN:'MINNESOTA WILD',
-        MTL:'MONTREAL CANADIENS',NSH:'NASHVILLE PREDATORS',NJD:'NEW JERSEY DEVILS',
-        NYI:'NEW YORK ISLANDERS',NYR:'NEW YORK RANGERS',OTT:'OTTAWA SENATORS',
-        PHI:'PHILADELPHIA FLYERS',PIT:'PITTSBURGH PENGUINS',SEA:'SEATTLE KRAKEN',
-        SJS:'SAN JOSE SHARKS',STL:'ST. LOUIS BLUES',TBL:'TAMPA BAY LIGHTNING',
-        TOR:'TORONTO MAPLE LEAFS',UTA:'UTAH HOCKEY CLUB',VAN:'VANCOUVER CANUCKS',
-        VGK:'VEGAS GOLDEN KNIGHTS',WSH:'WASHINGTON CAPITALS',WPG:'WINNIPEG JETS',
-      };
-      const teamFull = TEAM_NAMES[D.team] || D.team;
-      const chipH  = 28;
-      const chipY0 = HDR_H - chipH - 14;
-      const _numHoriz = D.sweaterNumber != null ? [{ label: `#${D.sweaterNumber}`,      bg: TEAM_C }] : [];
-      const _ageChipH = D.ageAtSeason  != null ? [{ label: `AGE: ${D.ageAtSeason}`,    bg: INK    }] : [];
-      const _scHoriz  = D.shootsCatches         ? [{ label: `SHOOTS: ${D.shootsCatches}`, bg: INK  }] : [];
-      const chipDefs = [
-        ..._numHoriz,
-        { label: teamFull,                 bg: TEAM_C },
-        { label: D.posLabel.toUpperCase(), bg: INK    },
-        { label: D.currentSeason,          bg: INK    },
-        ..._ageChipH,
-        ..._scHoriz,
-      ];
-      ctx.font = '700 13px "Barlow Condensed", sans-serif';
-      let cx = PAD;
-      for (const chip of chipDefs) {
-        const cw = ctx.measureText(chip.label).width + 22;
-        rrect(ctx, cx, chipY0, cw, chipH, 3);
-        ctx.fillStyle = chip.bg; ctx.fill();
-        ctx.fillStyle = BG;
-        ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-        ctx.fillText(chip.label, cx + 11, chipY0 + chipH / 2);
-        cx += cw + 10;
-      }
-      // Brand chip right-aligned
-      const brand = 'HOCKEYGAMEBOT';
-      const bcw = ctx.measureText(brand).width + 22;
-      rrect(ctx, W - PAD - bcw, chipY0, bcw, chipH, 3);
-      ctx.fillStyle = RED; ctx.fill();
-      ctx.fillStyle = BG; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText(brand, W - PAD - bcw + 11, chipY0 + chipH / 2);
-
-      // ── CREAM STRIP: headshot + 3 headline stats ──────────────────────────
-      const STAT_TOP = HDR_H;
-      const HS_R  = 72;
-      const HS_CX = PAD + 4 + HS_R;  // flush with left accent
-      const HS_CY = STAT_TOP + HERO_STAT / 2;
-      const hsImg = await loadImg(D.headshotUrl);
-      ctx.save();
-      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2); ctx.clip();
-      if (hsImg) {
-        ctx.drawImage(hsImg, HS_CX - HS_R, HS_CY - HS_R, HS_R * 2, HS_R * 2);
-      } else {
-        ctx.fillStyle = '#dde2ee'; ctx.fill();
-      }
-      ctx.restore();
-      ctx.beginPath(); ctx.arc(HS_CX, HS_CY, HS_R, 0, Math.PI * 2);
-      ctx.strokeStyle = TEAM_C; ctx.lineWidth = 4; ctx.stroke();
-
-      // Hero — mirrors the SEASON card: two BARE stat halves split by a thin
-      // vertical divider, numbers directly on the cream (no surface boxes).
-      // LEFT = Talent, RIGHT = Current WAR + Model View. Without talent_context
-      // the Talent half centers across the full hero, no divider (fallback).
-      const STAT_X = HS_CX + HS_R + 28;
-      const heroTalentPct = D.hgb_rating_percentile;
-      const priorTalentH = D.priorWar ?? [];
-      const hasCtxPanelH = priorTalentH.length > 0;
-
-      const HERO_SPAN = (W - STAT_X - PAD);
-      const halfWH = hasCtxPanelH ? HERO_SPAN / 2 : HERO_SPAN;
-
-      // Formats season string to short display label, e.g. "22-23".
-      // Handles both "20222023" (8-digit) and "2022-23" (already normalized).
-      function fmtSznH(s) {
-        if (!s) return '';
-        if (s.includes('-')) return s.slice(2,4) + '-' + s.slice(5,7);
-        return s.slice(2,4) + '-' + s.slice(6,8);
-      }
-
-      // LEFT half — Talent (bare): big percentile, eyebrow above, subtitle below.
-      // blockTop pinned to STAT_TOP + 14 — same anchor used by the right half.
-      {
-        const mid = STAT_X + halfWH / 2;
-        const NUM_SIZE = 108;
-        const LABEL_H = 20, GAP1 = 4, GAP2 = 14;
-        const blockTop = STAT_TOP + 14;
-
-        ctx.font = '700 15px "Barlow", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.72)';
-        ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('HGB TALENT', mid, blockTop);
-
-        ctx.font = `800 ${NUM_SIZE}px "Barlow Condensed", sans-serif`;
-        ctx.fillStyle = heroTalentPct != null ? TEAM_C : INK32;
-        ctx.fillText(heroTalentPct != null ? String(heroTalentPct) + '%' : '—', mid, blockTop + LABEL_H + GAP1);
-
-        ctx.font = '600 13px "Barlow", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.55)';
-        ctx.fillText('Multi-Year Blended WAR', mid, blockTop + LABEL_H + GAP1 + NUM_SIZE + GAP2);
-      }
-
-      // RIGHT half — 3 prior seasons of Historical Talent, horizontal timeline.
-      // oldest → newest left to right, arrows between, "TALENT HISTORY" eyebrow.
-      if (hasCtxPanelH) {
-        const L_RIGHT = STAT_X + halfWH;
-        const rcx = L_RIGHT + halfWH / 2;
-        ctx.fillStyle = INK10; ctx.fillRect(L_RIGHT, STAT_TOP + 26, 1, HERO_STAT - 52);
-
-        // "PAST TALENT RATINGS" pinned to same top anchor as left "HGB TALENT".
-        // No arrows — standalone season blocks avoid implying a causal trend line
-        // (volatile profiles like Murphy read as "past model outputs", not "blend inputs").
-        const EYEBROW_SZ = 15, eyebrowTop = STAT_TOP + 14;
-        const SZN_SZ = 13, SZN_GAP = 8, NUM_SZ = 42;
-        const colBlockH = SZN_SZ + SZN_GAP + NUM_SZ;
-        const eyebrowBottom = eyebrowTop + EYEBROW_SZ;
-        const stripBottom = STAT_TOP + HERO_STAT;
-        const szn_y = eyebrowBottom + Math.max(8, (stripBottom - eyebrowBottom - colBlockH) / 2);
-        const num_y = szn_y + SZN_SZ + SZN_GAP;
-
-        ctx.font = '700 15px "Barlow", sans-serif';
-        ctx.fillStyle = 'rgba(13,13,20,0.72)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        ctx.fillText('PAST SINGLE-SEASON WAR', rcx, eyebrowTop);
-
-        // 3 columns oldest→newest across the right half (padded 36px each side)
-        const PAD_INNER = 36;
-        const usable = halfWH - PAD_INNER * 2;
-        const cols = priorTalentH.slice().reverse(); // oldest first = left
-        const colCenters = cols.map((_, i) => L_RIGHT + PAD_INNER + usable * (i + 0.5) / cols.length);
-
-        cols.forEach((entry, i) => {
-          const cx = colCenters[i];
-          // Season label
-          ctx.font = '700 12px "Barlow", sans-serif';
-          ctx.fillStyle = 'rgba(13,13,20,0.55)'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-          ctx.fillText(fmtSznH(entry.season), cx, szn_y);
-          // Percentile number (no arrows between columns — avoids implying trend causality)
-          if (entry.limited) {
-            ctx.font = '700 13px "JetBrains Mono", monospace';
-            ctx.fillStyle = INK; ctx.textBaseline = 'top';
-            drawWrappedLabelCentered(ctx, 'SMALL SAMPLE', cx, num_y + 4, usable / cols.length - 8, 15);
-          } else {
-            ctx.font = `800 ${NUM_SZ}px "Barlow Condensed", sans-serif`;
-            ctx.fillStyle = entry.provisional ? provisionalColor(TEAM_C) : INK;
-            ctx.textBaseline = 'top';
-            ctx.fillText(String(entry.pct) + (entry.provisional ? '%*' : '%'), cx, num_y);
-          }
-        });
-      }
-
-      // ── METRICS GRID (exact copy from V2) ────────────────────────────────
-      const MET_TOP  = HERO_H;
-      const MET_PAD  = 26;
-      const MET_PTOP = 20;
-      const MET_PBOT = 14;
-      const TILE_GAP = 12;
-      const TILE_COLS = 5;
-      const TILE_ROWS = 2;
-      const TILE_H = Math.floor((METRICS_H - MET_PTOP - MET_PBOT - TILE_GAP * (TILE_ROWS - 1)) / TILE_ROWS);
-      const TILE_W = (W - MET_PAD * 2 - TILE_GAP * (TILE_COLS - 1)) / TILE_COLS;
-
-      const pct = D.percentiles;
-      function v3h(a, b) { return a != null ? a : (b != null ? b : null); }
-      const posPlural = D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN';
-
-      // 8 green/red skill tiles, then Finishing as its OWN blue tile, then the
-      // Context tile (Opponent + Teammate Quality only → 2 values, no overflow).
-      const gridCells = [
-        { label: 'EV OFFENSE',       val: v3h(D.hgb_rating_off_pct, pct.ev_offence) },
-        { label: 'EV DEFENSE',       val: v3h(D.hgb_rating_def_pct, pct.ev_defence) },
-        { label: 'GOALS / 60',       val: v3h(D.g_60_pct_3yr, pct.goals)            },
-        { label: 'A1 / 60',          val: v3h(D.a1_60_pct_3yr, pct.a1)              },
-        { label: 'XG / 60',          val: v3h(D.xg_60_pct_3yr, pct.ixg)             },
-        { label: 'PEN DIFF',         val: v3h(D.pen_diff_pct_3yr, pct.pen_diff)     },
-        { label: 'POWER PLAY',       val: pct.pp_off ?? null                         },
-        { label: 'PENALTY KILL',     val: pct.pk_def ?? null                         },
-        { label: 'FINISHING',        val: v3h(D.finishing_pct_3yr, pct.finishing), isBlue: true },
-        { isContext: true },
-      ];
-
-      const TILE_PAD = 22;
-      for (let i = 0; i < gridCells.length; i++) {
-        const col  = i % TILE_COLS;
-        const row  = Math.floor(i / TILE_COLS);
-        const tx   = MET_PAD + col * (TILE_W + TILE_GAP);
-        const ty   = MET_TOP + MET_PTOP + row * (TILE_H + TILE_GAP);
-        const cell = gridCells[i];
-        // Finishing is a blue (context / read-with-caution) tile; all other
-        // single-value tiles use the green/red heat scale.
-        const tier = cell.isBlue ? { color: '#4285f4' } : pctTier(cell.val);
-
-        rrect(ctx, tx, ty, TILE_W, TILE_H, 3);
-        ctx.fillStyle = cell.isContext ? 'rgba(13,13,20,0.04)' : 'rgba(255,255,255,0.65)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(13,13,20,0.13)'; ctx.lineWidth = 1; ctx.stroke();
-
-        if (cell.isContext) {
-          ctx.font = '700 17px "Barlow", sans-serif';
-          ctx.fillStyle = 'rgba(13,13,20,0.65)';
-          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-          ctx.fillText('CONTEXT', tx + TILE_PAD, ty + 14);
-          const ctxStats = [
-            { label: 'OPPONENT QUALITY', val: D.qoc_pct_3yr ?? D.qoc },
-            { label: 'TEAMMATE QUALITY', val: D.qot_pct_3yr ?? D.qot },
-          ];
-          const TITLE_H = 40;
-          const ctxRowH = Math.floor((TILE_H - TITLE_H) / ctxStats.length);
-          const bw = TILE_W - TILE_PAD * 2;
-          ctxStats.forEach((s, si) => {
-            const ry = ty + TITLE_H + si * ctxRowH;
-            // Text row: label + pct share middle baseline, centered in upper 60% of row
-            const textMid = ry + Math.round(ctxRowH * 0.38);
-            const barY    = ry + Math.round(ctxRowH * 0.62);
-            ctx.font = '700 12px "Barlow", sans-serif';
-            ctx.fillStyle = 'rgba(13,13,20,0.55)';
-            ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-            ctx.fillText(s.label, tx + TILE_PAD, textMid);
-            if (s.val != null) {
-              ctx.font = '900 24px "Barlow Condensed", sans-serif';
-              ctx.fillStyle = '#4285f4';
-              ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
-              ctx.fillText(Math.round(s.val) + '%', tx + TILE_W - TILE_PAD, textMid);
-            }
-            ctx.fillStyle = 'rgba(13,13,20,0.12)';
-            ctx.fillRect(tx + TILE_PAD, barY, bw, 7);
-            if (s.val != null) {
-              ctx.fillStyle = '#4285f4';
-              ctx.fillRect(tx + TILE_PAD, barY, (s.val / 100) * bw, 7);
-            }
-          });
-        } else {
-          ctx.font = '700 17px "Barlow", sans-serif';
-          ctx.fillStyle = INK;
-          ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-          ctx.fillText(cell.label, tx + TILE_PAD, ty + 14);
-          if (cell.val != null) {
-            ctx.font = '900 55px "Barlow Condensed", sans-serif';
-            ctx.fillStyle = tier.color;
-            ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-            ctx.fillText(String(Math.round(cell.val)) + '%', tx + TILE_PAD, ty + 44);
-          } else {
-            ctx.font = '900 42px "Barlow Condensed", sans-serif';
-            ctx.fillStyle = 'rgba(13,13,20,0.38)';
-            ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-            ctx.fillText('—', tx + TILE_PAD, ty + 48);
-          }
-          const barW = TILE_W - TILE_PAD * 2;
-          const barY = ty + TILE_H - 22;
-          ctx.fillStyle = 'rgba(13,13,20,0.12)';
-          ctx.fillRect(tx + TILE_PAD, barY, barW, 12);
-          if (cell.val != null) {
-            ctx.fillStyle = tier.color;
-            ctx.fillRect(tx + TILE_PAD, barY, (cell.val / 100) * barW, 12);
-          }
-        }
-      }
-
-      // ── FOOTER ───────────────────────────────────────────────────────────
-      // Matches the portrait card; position phrase ("vs Forwards") in red.
-      const footY = HERO_H + METRICS_H;
-      ctx.fillStyle = 'rgba(13,13,20,0.07)';
-      ctx.fillRect(0, footY, W, 1);
-      ctx.font = '700 15px "Barlow Condensed", sans-serif';
-      ctx.textBaseline = 'middle';
-      const vsPhrase = D.footers.talent.vs;
-      const fSeg1 = D.footers.talent.pre;
-      const fSeg3 = D.footers.talent.post;
-      const fW1 = ctx.measureText(fSeg1).width;
-      const fW2 = ctx.measureText(vsPhrase).width;
-      const fW3 = ctx.measureText(fSeg3).width;
-      let fx = (W - (fW1 + fW2 + fW3)) / 2;
-      ctx.textAlign = 'left';
-      ctx.fillStyle = FOOT_INK; ctx.fillText(fSeg1, fx, footY + FOOTER_H / 2); fx += fW1;
-      ctx.fillStyle = RED;      ctx.fillText(vsPhrase, fx, footY + FOOTER_H / 2); fx += fW2;
-      ctx.fillStyle = FOOT_INK; ctx.fillText(fSeg3, fx, footY + FOOTER_H / 2);
-
-      return canvas;
-    }
 
     // ── canvas download — delegates to shared HGB_Export modal ──────────
     function showCardModal(canvas, filename) {
@@ -3485,23 +2936,15 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       });
     })();
 
-    // ── Player Talent Card carousel — Talent+Shotmap (new) + Talent 5×2 grid ─
+    // ── Player Talent Card — single Talent+Shotmap card ─────────────────────
+    // The horizontal social (5×2) and portrait variants were dropped 2026-08;
+    // this button now emits the one Talent+Shotmap card directly.
     bindCardBtn(
       'download-rating-card-btn',
       'Player Talent Card →',
-      async function() {
-        // Draw the horizontal Talent+Shotmap card + the 5×2 social grid; modal
-        // gets the arrow carousel automatically. Portrait card intentionally dropped.
-        const [talentShotmap, socialV3] = await Promise.all([drawTalentShotmapCard(), drawRatingCardHorizontal()]);
-        window.HGB_Export.showCardModal([
-          { canvas: talentShotmap, filename: `hgb_talent_shotmap_${D.slug}_25-26.png`, label: 'Talent + Shotmap' },
-          { canvas: socialV3,      filename: `hgb_social_${D.slug}_25-26.png`,         label: 'Social 1200×680' },
-        ]);
-        // Return null so bindCardBtn skips its own modal call
-        return null;
-      },
-      null,
-      '1040×auto + 1200×628 · 2× retina PNG'
+      drawTalentShotmapCard,
+      `hgb_talent_shotmap_${D.slug}_25-26.png`,
+      '1040×auto · 2× retina PNG'
     );
     bindCardBtn('download-rapm-card-btn',   'RAPM Card →',     drawRapmCard,          `hgb_rapm_${D.slug}_25-26.png`,   '760px · 2× retina PNG');
     bindCardBtn('download-history-card-btn','History Card →',  drawHistoryCard,       `hgb_history_${D.slug}.png`,      '560×auto · 2× retina PNG');
@@ -3636,7 +3079,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // 3 stat tiles to the right of headshot
     const statX = hsCX + heroR + 18;
     const statW = (W - statX - PAD) / 3;
-    const ratingPctVal = D.hgb_rating_percentile ?? null;
+    const ratingPctVal = D.talentV1Pct ?? null;
     const warPctVal  = D.warPct ?? Math.round(D.impactPct);
     const warIsProvisional = D.warPct != null && D.warProvisional;
     const impPctVal  = Math.round(D.impactPct);
@@ -3671,7 +3114,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     const SEASON_W = 120;            // width reserved for the SEASON column
     const COL1_X   = PAD;            // SEASON label (left-aligned)
     const VAL_AREA = W - PAD - (PAD + SEASON_W);
-    const VAL_COL_W = VAL_AREA / 4;
+    const VAL_COL_W = VAL_AREA / 5;   // TOI/G + WAR + IMPACT + GF% + xGF%
     const VAL_CX_0  = PAD + SEASON_W + VAL_COL_W / 2;  // center x of first value col
     const valCenterX = (i) => VAL_CX_0 + i * VAL_COL_W;
 
@@ -3681,7 +3124,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     ctx.textAlign = 'left';
     ctx.fillText('SEASON', COL1_X, y + COL_H / 2);
     ctx.textAlign = 'center';
-    ['WAR', 'IMPACT', 'GF%', 'xGF%'].forEach((label, i) => {
+    ['TOI/G', 'WAR', 'IMPACT', 'GF%', 'xGF%'].forEach((label, i) => {
       ctx.fillText(label, valCenterX(i), y + COL_H / 2);
     });
     // header bottom border
@@ -3749,10 +3192,18 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         ctx.fillText(val.toFixed(1) + '%', centerX, rowY);
       }
 
-      drawPctCell(valCenterX(0), s.war_pct);
-      drawPctCell(valCenterX(1), s.impact_pct);
-      drawOnIcePctCell(valCenterX(2), s.gf_pct);
-      drawOnIcePctCell(valCenterX(3), s.xgf_pct);
+      // TOI/G — per-season ice time, muted monospace (context, not a percentile).
+      const toiTxt = s.toi_avg_sec != null
+        ? Math.floor(s.toi_avg_sec / 60) + ':' + String(Math.round(s.toi_avg_sec % 60)).padStart(2, '0')
+        : '—';
+      ctx.font = s.toi_avg_sec != null ? '700 13px "JetBrains Mono", monospace' : '400 13px "JetBrains Mono", monospace';
+      ctx.fillStyle = s.toi_avg_sec != null ? 'rgba(13,13,20,0.72)' : INK32;
+      ctx.textAlign = 'center';
+      ctx.fillText(toiTxt, valCenterX(0), rowY);
+      drawPctCell(valCenterX(1), s.war_pct);
+      drawPctCell(valCenterX(2), s.impact_pct);
+      drawOnIcePctCell(valCenterX(3), s.gf_pct);
+      drawOnIcePctCell(valCenterX(4), s.xgf_pct);
     }
 
     y += N * ROW_H;
