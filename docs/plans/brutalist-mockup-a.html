@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>HGB · Brutalist — objects on a board</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow+Semi-Condensed:wght@700&family=Barlow:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
+<style>
+/* =====================================================================
+   BRUTALIST — one token layer. Ink outlines, hard shadows, flat blocks.
+   ===================================================================== */
+:root {
+  --paper: #EFEEE8; --ink: #0D0D14; --red: #E8002D; --white: #FFFFFF;
+  --ink-10: rgba(13,13,20,0.10); --ink-20: rgba(13,13,20,0.20); --ink-40: rgba(13,13,20,0.40); --ink-55: rgba(13,13,20,0.55); --ink-75: rgba(13,13,20,0.75);
+  --bw: 3px; --sh: 7px; --sh-sm: 3px;
+  --display: 'Barlow Condensed', 'Arial Narrow', sans-serif; --body: 'Barlow', Arial, sans-serif; --semi: 'Barlow Semi-Condensed', sans-serif; --mono: 'JetBrains Mono', Menlo, monospace;
+  --pct-lo: 232,0,45; --pct-mid: 207,206,198; --pct-hi: 0,192,120;
+  --pos: #0E7A4F; --neg: #B0001F; --ot: #FF9800; --live: #E8002D;
+  --pad: 40px; --max: 1240px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--paper); color: var(--ink); font-family: var(--body); font-weight: 400; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+a { color: inherit; text-decoration: none; } button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+svg { display: block; }
+.num { font-family: var(--mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+.tscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--pad); min-width: 0; position: relative; }
+@media (max-width: 720px) { :root { --pad: 18px; --sh: 5px; } }
+
+.mk { position: sticky; top: 0; z-index: 100; background: var(--ink); color: var(--paper); }
+.mk .in { max-width: var(--max); margin: 0 auto; padding: 4px var(--pad); display: flex; align-items: center; gap: 10px; min-height: 42px; flex-wrap: wrap; }
+.mk-label { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(239,238,232,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mk-label b { color: var(--paper); font-weight: 600; }
+.mk-tabs { display: flex; gap: 2px; margin-left: auto; flex-wrap: wrap; }
+.mk-tab { font-family: var(--body); font-weight: 600; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; padding: 6px 9px; color: rgba(239,238,232,0.6); border-radius: 2px; white-space: nowrap; }
+.mk-tab.on { background: var(--paper); color: var(--ink); }
+@media (max-width: 720px) { .mk-label .hm { display: none; } }
+main { display: none; } main.on { display: block; }
+
+/* ---- board ---- */
+.page { background: var(--paper); background-image: radial-gradient(var(--ink-20) 1px, transparent 1px); background-size: 22px 22px; padding-bottom: 70px; min-height: 100vh; }
+.box { background: var(--white); border: var(--bw) solid var(--ink); box-shadow: var(--sh) var(--sh) 0 var(--ink); }
+.box.flat { box-shadow: none; }
+.strip { background: var(--ink); color: var(--paper); font-family: var(--body); font-weight: 800; font-size: 11.5px; letter-spacing: 0.12em; text-transform: uppercase; padding: 8px 12px; display: flex; justify-content: space-between; gap: 10px; }
+.strip .s { font-weight: 500; letter-spacing: 0.04em; opacity: 0.7; }
+.strip.red { background: var(--red); color: #fff; } .strip.ot { background: var(--ot); color: var(--ink); }
+.chip { font-family: var(--body); font-weight: 800; font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 7px 12px; border: var(--bw) solid var(--ink); background: var(--white); box-shadow: var(--sh-sm) var(--sh-sm) 0 var(--ink); white-space: nowrap; display: inline-block; }
+.chip.on { background: var(--ink); color: var(--paper); }
+.chip.red { background: var(--red); color: #fff; }
+.chip .num { font-weight: 600; letter-spacing: 0; }
+.btn { font-family: var(--body); font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; padding: 13px 20px; border: var(--bw) solid var(--ink); background: var(--red); color: #fff; box-shadow: 6px 6px 0 var(--ink); transition: transform .06s, box-shadow .06s; display: inline-block; }
+.btn:hover { transform: translate(3px,3px); box-shadow: 3px 3px 0 var(--ink); }
+.btn.alt { background: var(--white); color: var(--ink); }
+.btn.sm { padding: 10px 14px; font-size: 12.5px; box-shadow: 4px 4px 0 var(--ink); }
+.sticker { position: absolute; top: -18px; right: 22px; transform: rotate(6deg); background: var(--red); color: #fff; border: var(--bw) solid var(--ink); box-shadow: 4px 4px 0 var(--ink); font-family: var(--body); font-weight: 800; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; padding: 8px 14px; z-index: 2; }
+.sticker .num { font-weight: 600; letter-spacing: 0; }
+.sticker.ink { background: var(--ink); color: var(--paper); transform: rotate(-4deg); }
+.sticker.paper { background: #F2C230; color: var(--ink); transform: rotate(-5deg); }
+mark { background: none; color: var(--ink); box-shadow: inset 0 -0.28em 0 rgba(0,192,120,0.55); }
+mark.red { box-shadow: inset 0 -0.28em 0 rgba(232,0,45,0.45); }
+.blk { display: inline-block; width: 14px; height: 14px; background: var(--c); border: var(--bw) solid var(--ink); vertical-align: -2px; margin-right: 8px; }
+
+/* ---- nav ---- */
+.nav { display: flex; align-items: center; gap: 12px; padding: 22px 0 6px; flex-wrap: wrap; }
+.wm { font-family: var(--display); font-weight: 900; font-size: 30px; text-transform: uppercase; background: var(--ink); color: var(--paper); padding: 4px 14px 6px; border: var(--bw) solid var(--ink); box-shadow: 5px 5px 0 var(--red); }
+.nav nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.nav .live { margin-left: auto; }
+@media (max-width: 720px) { .nav nav { display: none; } .wm { font-size: 22px; } }
+.subnav { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+.subnav .chip { font-size: 11.5px; padding: 6px 10px; }
+
+/* ---- section head ---- */
+.sec { display: flex; align-items: center; gap: 14px; margin: 44px 0 16px; flex-wrap: wrap; }
+.sec h2 { font-family: var(--display); font-weight: 900; font-size: 36px; text-transform: uppercase; line-height: 1; background: var(--ink); color: var(--paper); padding: 2px 12px 6px; }
+.sec span { font-family: var(--body); font-weight: 700; font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-55); }
+.sec .right { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---- hero: title box + side block ---- */
+.hero { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 28px; margin-top: 30px; align-items: stretch; }
+.title { padding: 26px 30px 30px; position: relative; }
+.eyebrow { font-family: var(--body); font-weight: 800; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.h1 { font-family: var(--display); font-weight: 900; font-size: clamp(56px, 8vw, 116px); line-height: 0.84; text-transform: uppercase; letter-spacing: -0.02em; margin-top: 14px; }
+.lede { font-family: var(--body); font-size: 16px; line-height: 1.45; color: var(--ink-75); max-width: 52ch; margin-top: 16px; }
+.lede .num { font-size: 14px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.btns { display: flex; gap: 12px; margin-top: 26px; flex-wrap: wrap; }
+.numbox { background: var(--c); display: grid; grid-template-rows: auto 1fr auto; text-align: center; }
+.numbox .top, .numbox .bot { font-family: var(--body); font-weight: 800; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; padding: 10px; background: var(--ink); color: var(--paper); }
+.numbox .n { font-family: var(--display); font-weight: 900; font-size: clamp(110px, 12vw, 190px); line-height: 1; color: #fff; display: grid; place-items: center; -webkit-text-stroke: 3px var(--ink); padding: 10px 0; }
+.numbox .n small { font-size: 0.4em; -webkit-text-stroke: 2px var(--ink); }
+@media (max-width: 860px) { .hero { grid-template-columns: minmax(0,1fr); } .numbox .n { font-size: 110px; } }
+
+/* ---- figs ---- */
+.figs { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 22px; margin-top: 40px; }
+.fig { display: grid; grid-template-rows: auto 1fr; }
+.fig .bd { padding: 14px; }
+.fig .v { font-family: var(--mono); font-weight: 700; font-size: clamp(40px, 4.6vw, 64px); line-height: 1; letter-spacing: -0.04em; }
+.fig .v small { font-family: var(--body); font-weight: 700; font-size: 14px; letter-spacing: 0; color: var(--ink-55); margin-left: 4px; }
+.fig .sub { font-family: var(--body); font-size: 13px; color: var(--ink-75); margin-top: 8px; line-height: 1.4; }
+.fig .sub .num { font-size: 12px; }
+.pb { height: 12px; border: var(--bw) solid var(--ink); margin-top: 12px; background: var(--white); position: relative; }
+.pb i { display: block; height: 100%; width: var(--w); background: var(--pc); }
+.pb.tick::after { content: ""; position: absolute; left: 50%; top: -6px; bottom: -6px; border-left: var(--bw) dashed var(--ink); opacity: 0.5; }
+@media (max-width: 860px) { .figs { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px 16px; } }
+
+/* ---- bars ---- */
+.bars { display: grid; gap: 12px; }
+.bar { display: grid; grid-template-columns: 96px minmax(0,1fr) 60px; gap: 12px; align-items: stretch; }
+.bar .l { border: var(--bw) solid var(--ink); background: var(--white); font-family: var(--body); font-weight: 800; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; display: flex; align-items: center; padding: 0 10px; box-shadow: var(--sh-sm) var(--sh-sm) 0 var(--ink); }
+.bar .t { border: var(--bw) solid var(--ink); background: var(--white); position: relative; box-shadow: var(--sh-sm) var(--sh-sm) 0 var(--ink); min-height: 36px; }
+.bar .t i { position: absolute; left: 0; top: 0; bottom: 0; width: var(--w); background: var(--pc); border-right: var(--bw) solid var(--ink); }
+.bar .t::after { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; border-left: var(--bw) dashed var(--ink); opacity: 0.5; }
+.bar .t b { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-family: var(--mono); font-weight: 600; font-size: 13px; mix-blend-mode: difference; color: #fff; }
+.bar .v { border: var(--bw) solid var(--ink); background: var(--ink); color: var(--paper); font-family: var(--mono); font-weight: 700; font-size: 18px; display: flex; align-items: center; justify-content: center; box-shadow: var(--sh-sm) var(--sh-sm) 0 var(--pc); }
+@media (max-width: 560px) { .bar { grid-template-columns: 74px minmax(0,1fr) 50px; gap: 8px; } .bar .l { font-size: 11px; padding: 0 6px; } }
+
+/* ---- tables ---- */
+.tbl { padding: 0; }
+.tbl .strip { border-bottom: var(--bw) solid var(--ink); }
+.t { width: 100%; border-collapse: collapse; }
+.t th { font-family: var(--semi); font-weight: 700; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-55); text-align: right; padding: 10px 12px; border-bottom: var(--bw) solid var(--ink); white-space: nowrap; background: #F6F5F0; }
+.t th.l { text-align: left; }
+.t th.on { color: var(--ink); background: #F2C230; } .t th.on::after { content: " ↓"; }
+.t th.grp, .t td.grp { border-left: 2px solid var(--ink); }
+.t td { font-family: var(--mono); font-weight: 500; font-size: 13.5px; font-variant-numeric: tabular-nums; text-align: right; padding: 10px 12px; border-bottom: 2px solid var(--ink); color: var(--ink); white-space: nowrap; }
+.t tr:last-child td { border-bottom: 0; }
+.t td.l { text-align: left; }
+.t td.rk { font-family: var(--display); font-weight: 900; font-size: 20px; color: var(--ink-40); width: 40px; }
+.t td.nm { font-family: var(--display); font-weight: 800; font-size: 21px; text-transform: uppercase; }
+.t td.nm small { font-family: var(--body); font-weight: 700; font-size: 11px; letter-spacing: 0.08em; color: var(--ink-55); margin-left: 8px; }
+.t td.txt { font-family: var(--body); font-weight: 700; font-size: 13.5px; }
+.t td.txt .q { font-weight: 500; color: var(--ink-55); }
+.t td strong { font-weight: 700; }
+.t td .pc { display: inline-block; min-width: 34px; text-align: center; font-family: var(--mono); font-weight: 700; font-size: 12.5px; color: var(--ink); background: var(--h); border: 2px solid var(--ink); padding: 2px 6px; box-shadow: 2px 2px 0 var(--ink); }
+.t tr:hover td { background: #FBF9F2; }
+.t.wide { min-width: 900px; }
+.tnote { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-family: var(--body); font-weight: 600; font-size: 12px; color: var(--ink-55); margin-top: 12px; }
+
+/* ---- slate ---- */
+.games { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 22px; }
+.game { position: relative; }
+.game .r { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; font-family: var(--display); font-weight: 800; font-size: 24px; text-transform: uppercase; }
+.game .r + .r { border-top: var(--bw) solid var(--ink); }
+.game .r .lose { color: var(--ink-40); }
+.game .r b { font-family: var(--display); font-weight: 900; font-size: 30px; }
+.game .strip { border-bottom: var(--bw) solid var(--ink); }
+.game .note { border-top: var(--bw) solid var(--ink); padding: 8px 12px; font-family: var(--body); font-size: 12.5px; color: var(--ink-75); }
+@media (max-width: 900px) { .games { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px 16px; } }
+
+/* ---- wire ---- */
+.wire { display: grid; gap: 14px; max-width: 820px; }
+.w { display: grid; grid-template-columns: 92px minmax(0,1fr); }
+.w .t { background: var(--ink); color: var(--paper); font-family: var(--mono); font-weight: 500; font-size: 12px; display: flex; align-items: center; justify-content: center; border-right: var(--bw) solid var(--ink); }
+.w .t.goal { background: var(--red); color: #fff; }
+.w .x { padding: 10px 14px; font-family: var(--body); font-size: 14.5px; line-height: 1.4; }
+.w .x b { font-weight: 800; }
+.w .x .num { font-size: 13px; }
+
+/* ---- posts / cards ---- */
+.posts { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 22px; }
+.post { display: grid; grid-template-rows: auto 1fr auto; }
+.post .bd { padding: 14px 14px 12px; }
+.post .hd { font-family: var(--display); font-weight: 900; font-size: 32px; line-height: 0.95; text-transform: uppercase; }
+.post p { font-family: var(--body); font-size: 14px; color: var(--ink-75); margin-top: 8px; line-height: 1.4; }
+.post p .num { font-size: 13px; }
+.post .ft { padding: 0 14px 16px; }
+@media (max-width: 900px) { .posts { grid-template-columns: minmax(0,1fr); } }
+.cardmini { padding: 14px; background: var(--paper); }
+.cardmini .cn { font-family: var(--display); font-weight: 900; font-size: 84px; line-height: 0.85; letter-spacing: -0.03em; color: var(--c); -webkit-text-stroke: 2px var(--ink); }
+.cardmini .ct { display: inline-block; background: var(--red); color: #fff; border: 2px solid var(--ink); font-family: var(--body); font-weight: 800; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 3px 7px; margin-top: 8px; }
+.cardmini .ch { font-family: var(--display); font-weight: 900; font-size: 24px; line-height: 0.95; text-transform: uppercase; margin-top: 6px; }
+.cardmini .cb { margin: 12px -14px 0; background: var(--ink); color: var(--paper); padding: 8px 14px; font-family: var(--body); font-weight: 800; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* ---- lists ---- */
+.plain { display: grid; gap: 10px; }
+.plain .row { display: grid; grid-template-columns: 40px minmax(0,1fr) auto auto; gap: 12px; align-items: center; padding: 8px 12px; }
+.plain .row .r { font-family: var(--display); font-weight: 900; font-size: 22px; color: var(--ink-40); }
+.plain .row .nm { font-family: var(--display); font-weight: 800; font-size: 21px; text-transform: uppercase; line-height: 1; }
+.plain .row .nm small { font-family: var(--body); font-weight: 700; font-size: 11px; letter-spacing: 0.08em; color: var(--ink-55); margin-left: 8px; }
+.plain .row .why { display: block; font-family: var(--body); font-size: 12.5px; color: var(--ink-55); margin-top: 3px; }
+.plain .row .v { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.plain .row .pc { font-family: var(--mono); font-weight: 700; font-size: 12.5px; background: var(--h); border: 2px solid var(--ink); padding: 2px 7px; box-shadow: 2px 2px 0 var(--ink); }
+.plain .row.me { background: #F2C230; }
+.cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 0 40px; align-items: start; }
+@media (max-width: 960px) { .cols { grid-template-columns: minmax(0,1fr); } }
+.chart { padding: 14px; }
+.chart svg { width: 100%; }
+.chart .cap { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-family: var(--body); font-weight: 700; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-55); margin-top: 8px; }
+
+/* ---- score box (game) ---- */
+.score { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: stretch; }
+.score .tm { padding: 22px 24px; display: flex; flex-direction: column; justify-content: center; gap: 6px; background: var(--c); color: #fff; }
+.score .tm.h { text-align: right; align-items: flex-end; }
+.score .tm .n { font-family: var(--display); font-weight: 900; font-size: clamp(30px, 4.6vw, 56px); line-height: 0.9; text-transform: uppercase; text-shadow: 3px 3px 0 var(--ink); }
+.score .tm .r { font-family: var(--body); font-weight: 700; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.9; }
+.score .sc { padding: 16px 28px; border-left: var(--bw) solid var(--ink); border-right: var(--bw) solid var(--ink); display: grid; place-items: center; background: var(--white); }
+.score .sc .v { font-family: var(--display); font-weight: 900; font-size: clamp(72px, 9vw, 120px); line-height: 0.85; letter-spacing: -0.03em; display: flex; gap: 10px; }
+.score .sc .v .d { color: var(--ink-20); font-size: 0.5em; align-self: center; }
+@media (max-width: 640px) { .score { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } .score .sc { grid-column: 1 / -1; border-left: 0; border-right: 0; border-top: var(--bw) solid var(--ink); order: 3; } }
+
+/* ---- system sheet ---- */
+.sys { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: 26px 40px; padding: 30px 0; }
+.sys .k { font-family: var(--body); font-weight: 800; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; padding-top: 6px; }
+.sys .k small { display: block; font-family: var(--body); font-weight: 400; font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--ink-75); margin-top: 6px; line-height: 1.45; }
+.sys .demo { padding: 10px 0 20px; border-bottom: var(--bw) dashed var(--ink-20); }
+.sw { display: flex; gap: 12px; flex-wrap: wrap; }
+.sw div { width: 64px; height: 64px; display: grid; align-content: end; padding: 6px; font-family: var(--body); font-weight: 700; font-size: 10px; border: var(--bw) solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.type { display: grid; gap: 10px; }
+.type .row { display: grid; grid-template-columns: 160px minmax(0,1fr); gap: 20px; align-items: baseline; }
+.type .row .n { font-family: var(--body); font-weight: 700; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-55); }
+@media (max-width: 760px) { .sys { grid-template-columns: minmax(0,1fr); gap: 6px 0; } .type .row { grid-template-columns: minmax(0,1fr); gap: 4px; } }
+.foot { margin-top: 50px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-family: var(--body); font-weight: 600; font-size: 12px; color: var(--ink-55); }
+</style>
+</head>
+<body>
+
+<div class="mk"><div class="in">
+  <div class="mk-label"><b>HGB</b><span class="hm"> · Brutalist</span> · <b>objects on a board</b><span class="hm"> · sample data</span></div>
+  <div class="mk-tabs" id="tabs"><button class="mk-tab on" data-s="home">Tonight</button><button class="mk-tab" data-s="skaters">Skaters</button><button class="mk-tab" data-s="player">Player</button><button class="mk-tab" data-s="game">Game</button><button class="mk-tab" data-s="system">System</button></div>
+</div></div>
+
+<!-- ============================ TONIGHT ============================ -->
+<main id="home" class="on"><div class="page"><div class="wrap">
+  <div class="nav"><div class="wm">hockeygamebot</div><nav><a class="chip on" href="#">Tonight</a><a class="chip" href="#">Games</a><a class="chip" href="#">Skaters</a><a class="chip" href="#">Goalies</a><a class="chip" href="#">Teams</a></nav><span class="chip red live"><span class="num">3</span> live</span></div>
+  <div class="hero">
+    <div class="box title"><div class="sticker">Nov 12 · <span class="num">8</span> games</div><div class="eyebrow"><i class="blk" style="--c:var(--red)"></i>Tonight · sample data</div><h1 class="h1">Three live. <mark>Devils lead</mark> at the Garden.</h1><p class="lede">Every line on this page came off the bot wire. Scores and probabilities update with each play; the headline changes when the night does.</p><div class="meta"><span class="chip on">Tonight</span><span class="chip">Yesterday</span><span class="chip">Standings</span></div></div>
+    <div class="box feat" style="display:grid;grid-template-rows:auto 1fr auto auto"><div class="strip red"><span>Live · MSG</span><span class="num">P2 · 14:23</span></div><div><div class="game-r" style="display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;font-family:var(--display);font-weight:800;font-size:30px;text-transform:uppercase"><i class="blk" data-blk="NJD" style="margin:0"></i><span>Devils</span><b style="font-size:44px;font-weight:900">2</b></div><div style="display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;border-top:var(--bw) solid var(--ink);font-family:var(--display);font-weight:800;font-size:30px;text-transform:uppercase"><i class="blk" data-blk="NYR" style="margin:0"></i><span>Rangers</span><b style="font-size:44px;font-weight:900">1</b></div></div><div style="border-top:var(--bw) solid var(--ink);padding:10px 14px 6px"><div style="display:flex;justify-content:space-between;font-family:var(--body);font-weight:800;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:4px"><span>Win probability · NJD</span><span class="num">66%</span></div><svg id="hSpark" viewBox="0 0 320 56" preserveAspectRatio="none" style="width:100%;height:56px"></svg></div><div style="border-top:var(--bw) solid var(--ink);padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap"><a class="btn sm" href="#">Open the game</a><a class="btn sm alt" href="#">Post the moment</a></div></div>
+  </div>
+  <div class="sec"><h2>The slate</h2><span>8 games · live first</span></div>
+  <div class="games" id="hGames"></div>
+  <div class="sec"><h2>The wire</h2><span>bot posts · newest first</span></div>
+  <div class="wire" id="hWire"></div>
+  <div class="sec"><h2>Worth posting</h2><span>one action each</span></div>
+  <div class="posts" id="hPosts"></div>
+  <div class="foot"><span>Win probability and xG are HGB model outputs at 5v5 unless labelled. Sample data.</span><span>Updated <span class="num">8:41 PM</span></span></div>
+</div></div></main>
+
+<!-- ============================ SKATERS ============================ -->
+<main id="skaters"><div class="page"><div class="wrap">
+  <div class="nav"><div class="wm">hockeygamebot</div><nav><a class="chip" href="#">Tonight</a><a class="chip" href="#">Games</a><a class="chip on" href="#">Skaters</a><a class="chip" href="#">Goalies</a><a class="chip" href="#">Teams</a></nav><span class="chip live">Search <span class="num">⌘K</span></span></div>
+  <div class="subnav"><span class="chip on">Skaters</span><span class="chip">Goalies</span><span class="chip">Teams</span><span class="chip">Lines</span><span class="chip">Impact</span><span class="chip">WOWY</span><span class="chip">Records</span><span class="chip">Edge</span></div>
+  <div class="hero">
+    <div class="box title"><div class="sticker paper"><span class="num">412</span> qualified</div><div class="eyebrow"><i class="blk" style="--c:var(--red)"></i>Leaderboard · sample data</div><h1 class="h1">Skaters. <mark>Who is driving</mark> at 5v5.</h1><p class="lede">Rates, on-ice share and the model, one row per skater. Percentiles are position-relative and boxed; everything else is a raw number.</p><div class="meta"><span class="chip on">2026-27</span><span class="chip">Regular season</span><span class="chip on">5v5</span><span class="chip">All situations</span><span class="chip">Min <span class="num">150</span> TOI</span></div></div>
+    <div class="box numbox" data-numbox="COL"><div class="top">Impact leader</div><div class="n">6.4</div><div class="bot">MacKinnon · COL · RAPM 5v5</div></div>
+  </div>
+  <div class="figs" id="sLeaders"></div>
+  <div class="sec"><h2>The table</h2><span>sorted by P/60</span><div class="right"><span class="chip on">All</span><span class="chip">F</span><span class="chip">D</span><span class="chip">Team ▾</span></div></div>
+  <div class="box tbl"><div class="strip"><span>Skaters · 5v5 · 2026-27</span><span class="s">12 of 412 · through Nov 10</span></div><div class="tscroll"><table class="t wide" id="sTable"><thead><tr><th class="l"></th><th class="l">Player</th><th>GP</th><th>TOI/G</th><th class="grp">G/60</th><th>A/60</th><th class="on">P/60</th><th>ixG/60</th><th class="grp">SC/60</th><th>HDC/60</th><th class="grp">xGF%</th><th class="grp">WAR</th><th>Impact</th><th>Talent</th></tr></thead><tbody></tbody></table></div></div>
+  <div class="tnote"><span>TOI/G minutes · ixG individual expected goals · SC scoring chances · HDC high-danger · xGF% on-ice share</span><span>WAR, Impact, Talent v1 are model outputs</span></div>
+  <div class="cols" style="margin-top:44px">
+    <div><div class="sec" style="margin-top:0"><h2>WAR</h2><span>season · all situations</span></div><div class="plain" id="sWar"></div></div>
+    <div><div class="sec" style="margin-top:0"><h2>Talent v1</h2><span>percentile · multi-season</span></div><div class="plain" id="sTal"></div></div>
+  </div>
+  <div class="foot"><span>Percentiles are position-relative. Sample data.</span><a href="#" style="font-weight:800;color:var(--red)">Methodology →</a></div>
+</div></div></main>
+
+<!-- ============================ PLAYER ============================ -->
+<main id="player"><div class="page"><div class="wrap">
+  <div class="nav"><div class="wm">hockeygamebot</div><nav><a class="chip" href="#">Tonight</a><a class="chip" href="#">Games</a><a class="chip on" href="#">Skaters</a><a class="chip" href="#">Goalies</a><a class="chip" href="#">Teams</a></nav><span class="chip red live"><span class="num">3</span> live</span></div>
+  <div class="hero">
+    <div class="box title"><div class="sticker">Tonight at NYR · <span class="num">P2 14:23</span></div><div class="eyebrow"><i class="blk" data-blk="NJD"></i>Skater · New Jersey Devils · sample data</div><h1 class="h1">Jack <mark>Hughes</mark></h1><p class="lede">A top-line driver whose finishing has run ahead of his chances. G/60 sits at the <span class="num">94th</span> percentile and ixG/60 at the <span class="num">71st</span>, so some goals will come back. The play-driving is not the concern: <span class="num">56%</span> xGF in hard minutes.</p><div class="meta"><span class="chip">Center</span><span class="chip">Shoots L</span><span class="chip">Age <span class="num">25</span></span><span class="chip on"><span class="num">2026-27</span></span><span class="chip"><span class="num">16</span> GP</span><span class="chip on">5v5</span></div><div class="btns"><a class="btn" href="#">Post the player card</a><a class="btn alt" href="#">Other formats</a></div></div>
+    <div class="box numbox" data-numbox="NJD"><div class="top">New Jersey</div><div class="n">86</div><div class="bot">Devils · Center</div></div>
+  </div>
+  <div class="figs">
+    <div class="box fig" data-pct="93"><div class="strip"><span>Talent v1</span><span class="s">vs C</span></div><div class="bd"><div class="v">93<small>rd</small></div><div class="sub">Percentile, multi-season. <span class="num">7</span> of <span class="num">112</span> centers.</div><div class="pb tick"><i></i></div></div></div>
+    <div class="box fig" data-pct="88"><div class="strip"><span>WAR</span><span class="s">all sit.</span></div><div class="bd"><div class="v">1.3</div><div class="sub">Pace <span class="num">6.7</span> over 82. <span class="num">9th</span> among forwards.</div><div class="pb tick"><i></i></div></div></div>
+    <div class="box fig" data-pct="91"><div class="strip"><span>Impact</span><span class="s">RAPM · 5v5</span></div><div class="bd"><div class="v">+4.8</div><div class="sub">Offence <span class="num">+3.9</span>, defence <span class="num">+0.9</span>.</div><div class="pb tick"><i></i></div></div></div>
+    <div class="box fig" data-pct="79"><div class="strip"><span>xGF%</span><span class="s">5v5 on ice</span></div><div class="bd"><div class="v">56.2<small>%</small></div><div class="sub">Team without him <span class="num">49.8%</span>.</div><div class="pb tick"><i></i></div></div></div>
+  </div>
+  <div class="cols" style="margin-top:44px">
+    <div>
+      <div class="sec" style="margin-top:0"><h2>Percentiles</h2><span>5v5 · per 60 · vs centers · tick at 50th</span></div>
+      <div class="bars" id="pBars"></div>
+      <div class="sec"><h2>NHL Edge</h2><span>tracking · vs forwards</span></div>
+      <div class="figs" style="margin-top:0" id="pEdge"></div>
+      <div class="sec"><h2>Trend</h2><span>Impact · rolling 10 · 5v5</span></div>
+      <div class="box chart"><svg id="pTrend" viewBox="0 0 800 160" height="160" preserveAspectRatio="none"></svg><div class="cap"><span>Oct 8</span><span>Ink line · red block is now</span><span>Nov 10</span></div></div>
+    </div>
+    <div>
+      <div class="sec" style="margin-top:0"><h2>Nearest</h2><span>centers · by Talent v1</span></div>
+      <div class="plain" id="pPeers"></div>
+      <div class="sec"><h2>The wire</h2><span>this player</span></div>
+      <div class="wire"><div class="box w"><div class="t">Nov 10</div><div class="x"><b>Winner at PHI.</b> Three straight games with a goal, <span class="num">6</span> points in that span, <span class="num">1.9</span> ixG.</div></div><div class="box w"><div class="t">Nov 6</div><div class="x"><b>Season card.</b> <span class="num">93rd</span> Talent v1 among centers, <span class="num">+4.8</span> Impact. The shooting is hot; the chance creation is real.</div></div></div>
+    </div>
+  </div>
+  <div class="sec"><h2>Game log</h2><span>newest first · 5v5 for xGF% and Impact</span></div>
+  <div class="box tbl"><div class="strip"><span>Jack Hughes · 2026-27</span><span class="s">through Nov 10 · 16 GP</span></div><div class="tscroll"><table class="t wide" id="pLog"><thead><tr><th class="l on">Date</th><th class="l">Opponent</th><th class="l">Result</th><th>TOI</th><th>G</th><th>A</th><th>P</th><th>SOG</th><th>ixG</th><th class="grp">xGF%</th><th>Impact</th><th class="grp">Top spd</th></tr></thead><tbody></tbody></table></div></div>
+  <div class="sec"><h2>Cards</h2><span>one primary · formats grouped</span></div>
+  <div class="posts" id="pCards"></div>
+  <div class="foot"><span>Talent v1, WAR and Impact are HGB model outputs. This is a percentile, not a grade. Sample data.</span><a href="#" style="font-weight:800;color:var(--red)">Methodology →</a></div>
+</div></div></main>
+
+<!-- ============================ GAME ============================ -->
+<main id="game"><div class="page"><div class="wrap">
+  <div class="nav"><div class="wm">hockeygamebot</div><nav><a class="chip" href="#">Tonight</a><a class="chip on" href="#">Games</a><a class="chip" href="#">Skaters</a><a class="chip" href="#">Goalies</a><a class="chip" href="#">Teams</a></nav><span class="chip red live">Live · <span class="num">P2 14:23</span></span></div>
+  <div class="box" style="margin-top:30px;position:relative"><div class="sticker">Live · P2 <span class="num">14:23</span> · MSG</div>
+    <div class="score"><div class="tm" data-numbox="NJD"><div class="n">Devils</div><div class="r"><span class="num">11-4-1</span> · away · shots <span class="num">19</span></div></div><div class="sc"><div class="v"><span>2</span><span class="d">–</span><span>1</span></div></div><div class="tm h" data-numbox="NYR"><div class="n">Rangers</div><div class="r"><span class="num">9-6-2</span> · home · shots <span class="num">16</span></div></div></div>
+    <div style="border-top:var(--bw) solid var(--ink);padding:14px 18px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center"><div style="font-family:var(--body);font-size:15px"><b style="font-weight:800">At 5v5, the game tilted at <span class="num">3:12</span> of the second.</b> Hughes off a Bratt feed. Win probability moved from <span class="num">48%</span> to <span class="num">66%</span>.</div><div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn sm" href="#">Post the game summary</a><a class="btn sm alt" href="#">Post the moment</a></div></div>
+  </div>
+  <div class="figs" style="margin-top:34px">
+    <div class="box fig"><div class="strip red"><span>Win probability</span><span class="s">NJD</span></div><div class="bd"><div class="v">66<small>%</small></div><div class="sub">Pre-game <span class="num">55%</span> · largest swing <span class="num">+18</span></div></div></div>
+    <div class="box fig"><div class="strip"><span>5v5 xG</span><span class="s">cumulative</span></div><div class="bd"><div class="v">1.62<small>– 1.08</small></div><div class="sub">One step per attempt · PP goal excluded</div></div></div>
+    <div class="box fig"><div class="strip"><span>High danger</span><span class="s">NJD · NYR</span></div><div class="bd"><div class="v">7<small>– 4</small></div><div class="sub">NYR none since the Hughes goal</div></div></div>
+    <div class="box fig"><div class="strip"><span>Shots</span><span class="s">NJD · NYR</span></div><div class="bd"><div class="v">19<small>– 16</small></div><div class="sub">Faceoffs NJD <span class="num">54%</span> · PIM <span class="num">2–4</span></div></div></div>
+  </div>
+  <div class="cols" style="margin-top:44px">
+    <div>
+      <div class="sec" style="margin-top:0"><h2>Linescore</h2></div>
+      <div class="box tbl"><div class="tscroll"><table class="t" style="min-width:520px"><thead><tr><th class="l">Team</th><th>1st</th><th>2nd</th><th>3rd</th><th>T</th><th class="grp">SOG</th><th>5v5 xG</th></tr></thead><tbody><tr><td class="l nm"><i class="blk" data-blk="NJD"></i>Devils</td><td>1</td><td>1</td><td class="txt"><span class="q">—</span></td><td><strong>2</strong></td><td class="grp">19</td><td>1.62</td></tr><tr><td class="l nm"><i class="blk" data-blk="NYR"></i>Rangers</td><td>1</td><td>0</td><td class="txt"><span class="q">—</span></td><td><strong>1</strong></td><td class="grp">16</td><td>1.08</td></tr></tbody></table></div></div>
+      <div class="sec"><h2>Win probability</h2><span>HGB model · Devils' perspective</span></div>
+      <div class="box chart"><svg id="gWp" viewBox="0 0 800 220" height="220" preserveAspectRatio="none"></svg><div class="cap"><span>Ink line · blocks are goals in team colour</span><span>Cursor P2 · 14:23</span></div></div>
+      <div class="sec"><h2>Expected goals</h2><span>5v5 · cumulative</span></div>
+      <div class="box chart"><svg id="gXg" viewBox="0 0 800 170" height="170" preserveAspectRatio="none"></svg><div class="cap"><span>Team colours · one step per attempt</span><span>Shares the x-axis above</span></div></div>
+      <div class="sec"><h2>Goals</h2><span>swing is for the scoring team</span></div>
+      <div class="box tbl"><div class="tscroll"><table class="t" style="min-width:600px"><thead><tr><th class="l">Time</th><th class="l">Scorer</th><th class="l">Assists</th><th class="l">Str</th><th>Score</th><th>WP swing</th></tr></thead><tbody>
+        <tr><td class="l">P1 · 07:12</td><td class="l nm"><i class="blk" data-blk="NYR"></i>Artemi Panarin<small>6</small></td><td class="l txt"><span class="q">Fox, Zibanejad</span></td><td class="l txt">PP</td><td>0–1</td><td class="pos">+14</td></tr>
+        <tr><td class="l">P1 · 15:48</td><td class="l nm"><i class="blk" data-blk="NJD"></i>Jesper Bratt<small>7</small></td><td class="l txt"><span class="q">Hughes, Hamilton</span></td><td class="l txt">5v5</td><td>1–1</td><td class="pos">+12</td></tr>
+        <tr><td class="l">P2 · 03:12</td><td class="l nm"><i class="blk" data-blk="NJD"></i>Jack Hughes<small>12</small></td><td class="l txt"><span class="q">Bratt, Hischier</span></td><td class="l txt">5v5</td><td>2–1</td><td class="pos">+18</td></tr>
+      </tbody></table></div></div>
+    </div>
+    <div>
+      <div class="sec" style="margin-top:0"><h2>Stood out</h2><span>so far</span></div>
+      <div class="plain"><div class="box row"><span class="r">1</span><span><span class="nm"><i class="blk" data-blk="NJD"></i>Jack Hughes</span><span class="why">1G 1A · <span class="num">0.71</span> ixG · <span class="num">78%</span> of 5v5 xG</span></span><span class="v">Impact</span><span class="pc" style="--h:rgb(0,192,120)">+0.9</span></div><div class="box row"><span class="r">2</span><span><span class="nm"><i class="blk" data-blk="NJD"></i>Dougie Hamilton</span><span class="why"><span class="num">14:02</span> TOI · <span class="num">4</span> shot attempts</span></span><span class="v">xGF%</span><span class="pc" style="--h:rgb(0,192,120)">68</span></div><div class="box row"><span class="r">3</span><span><span class="nm"><i class="blk" data-blk="NYR"></i>Igor Shesterkin</span><span class="why"><span class="num">17/19</span> · faced <span class="num">1.62</span> xG at 5v5</span></span><span class="v">GSAx</span><span class="pc" style="--h:rgb(0,192,120)">+0.4</span></div></div>
+      <div class="sec"><h2>Goalies</h2><span>all situations</span></div>
+      <div class="figs" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:0"><div class="box fig"><div class="strip"><span>Markstrom</span><span class="s">NJD</span></div><div class="bd"><div class="v" style="font-size:40px">15/16</div><div class="sub"><span class="num">+0.2</span> GSAx · <span class="num">1.08</span> xGA faced</div></div></div><div class="box fig"><div class="strip"><span>Shesterkin</span><span class="s">NYR</span></div><div class="bd"><div class="v" style="font-size:40px">17/19</div><div class="sub"><span class="num">+0.4</span> GSAx · <span class="num">2.31</span> xGA faced</div></div></div></div>
+      <div class="sec"><h2>The bots</h2><span>this game</span></div>
+      <div class="wire"><div class="box w"><div class="t goal">8:41 PM</div><div class="x"><b>Goal, Devils.</b> Hughes (12) from Bratt and Hischier, 5v5. <span class="num">2–1</span>. Win probability <span class="num">66%</span>.</div></div><div class="box w"><div class="t">8:20 PM</div><div class="x"><b>End of the first.</b> <span class="num">1–1</span>. Shots <span class="num">12–9</span> NJD, 5v5 xG <span class="num">0.81–0.64</span>.</div></div><div class="box w"><div class="t">7:31 PM</div><div class="x"><b>Puck drop.</b> Lines and the pregame card are up. NJD <span class="num">55%</span> by the model.</div></div></div>
+    </div>
+  </div>
+  <div class="foot"><span>Win probability and xG are HGB model outputs. Play-by-play from the NHL feed. Sample data.</span><span>Last event <span class="num">8:41:52 PM</span></span></div>
+</div></div></main>
+
+<!-- ============================ SYSTEM ============================ -->
+<main id="system"><div class="page"><div class="wrap">
+  <div class="nav"><div class="wm">hockeygamebot</div><span class="chip on" style="margin-left:auto">System sheet</span></div>
+  <div class="box title" style="margin-top:30px;position:relative"><div class="sticker paper"><span class="num">7</span> parts</div><h1 class="h1">Objects <mark>on a board.</mark></h1><p class="lede">Everything on the four pages is built from these. Nothing is subtle, nothing is tinted, and every element carries its own border so it survives a screenshot.</p></div>
+  <div class="sys">
+    <div class="k">01 · Box<small>White, 3px ink border, 7px hard shadow. The only container. Boxes never nest more than once.</small></div><div class="demo"><div class="box" style="padding:18px;max-width:320px;font-family:var(--body);font-weight:700">A box.</div></div>
+    <div class="k">02 · Strip<small>Black header on a box: the label and its scope. Red for live, amber for overtime.</small></div><div class="demo"><div class="box" style="max-width:360px"><div class="strip"><span>Win probability</span><span class="s">NJD</span></div><div style="padding:14px" class="num">66%</div></div></div>
+    <div class="k">03 · Block<small>Team colour as a flat block with an ink border, never a tint or a glow. Darkened only until white type clears 3:1.</small></div><div class="demo"><div style="display:flex;gap:12px"><i class="blk" data-blk="NJD" style="width:40px;height:40px"></i><i class="blk" data-blk="NYR" style="width:40px;height:40px"></i><i class="blk" data-blk="COL" style="width:40px;height:40px"></i><i class="blk" data-blk="BOS" style="width:40px;height:40px"></i></div></div>
+    <div class="k">04 · Sticker<small>One rotated red label per page for the thing that is true right now. Yellow for a count, ink for a mode.</small></div><div class="demo" style="position:relative;height:70px"><div class="sticker" style="position:static;display:inline-block">Live · <span class="num">P2 14:23</span></div>&nbsp;&nbsp;&nbsp;<div class="sticker paper" style="position:static;display:inline-block"><span class="num">412</span> qualified</div></div>
+    <div class="k">05 · Chip and button<small>Chips are bordered with a small shadow; ink fill is the active state. Buttons are red with a 6px shadow and press in on hover. Nothing is a text link.</small></div><div class="demo"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><span class="chip on">All</span><span class="chip">F</span><span class="chip">D</span><span class="chip">Team ▾</span><a class="btn sm" href="#">Post the card</a><a class="btn sm alt" href="#">Other formats</a></div></div>
+    <div class="k">06 · Bar and chip<small>Percentiles are the only colour beyond team blocks: a bordered bar with the ramp fill and a dashed 50th tick, or a bordered chip.</small></div><div class="demo"><div class="bars" style="max-width:520px"><div class="bar"><span class="l">G/60</span><span class="t" style="--w:94%;--pc:rgb(0,182,114)"><i></i><b>1.42</b></span><span class="v" style="--pc:rgb(0,182,114)">94</span></div></div></div>
+    <div class="k">07 · Highlight<small>A marker highlight under the one phrase that matters in a headline. Green for a read, red for a warning.</small></div><div class="demo"><div style="font-family:var(--display);font-weight:900;font-size:44px;text-transform:uppercase;line-height:0.9">Three live. <mark>Devils lead</mark> at the Garden.</div></div>
+    <div class="k">Tokens<small>Paper, ink, red, white, one yellow for stickers. Team colours as blocks.</small></div><div class="demo"><div class="sw"><div style="background:#EFEEE8">paper</div><div style="background:#fff">white</div><div style="background:#0D0D14;color:#EFEEE8">ink</div><div style="background:#E8002D;color:#fff">red</div><div style="background:#F2C230">yellow</div><div style="background:rgb(232,0,45);color:#fff">0th</div><div style="background:rgb(207,206,198)">50th</div><div style="background:rgb(0,192,120);color:#fff">100th</div></div></div>
+    <div class="k">Type<small>Same four faces, same four jobs as everywhere else.</small></div><div class="demo type"><div class="row"><span class="n">Display · Barlow Condensed</span><span style="font-family:var(--display);font-weight:900;font-size:32px;text-transform:uppercase;line-height:1">Names, numerals, headlines</span></div><div class="row"><span class="n">Body · Barlow</span><span style="font-size:15px">Copy, chips, buttons, strips, stickers.</span></div><div class="row"><span class="n">Semi · Semi-Condensed</span><span style="font-family:var(--semi);font-weight:700;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-55)">Column headers only</span></div><div class="row"><span class="n">Mono · JetBrains</span><span class="num" style="font-size:14px">22:41 · 176 · 61.6% · every number</span></div></div>
+  </div>
+  <div class="foot"><span>Sample data throughout.</span><span>Objects on a board</span></div>
+</div></div></main>
+
+<script>
+const TEAM_COLORS = { BOS:['#FFB81C','#000000'], CAR:['#CC0000','#000000'], CHI:['#CF0A2C','#000000'], COL:['#6F263D','#236192'], DAL:['#006847','#8F8F8C'], EDM:['#FF4C00','#041E42'], FLA:['#041E42','#C8102E'], MIN:['#154734','#A6192E'], NJD:['#CE1126','#000000'], NYR:['#0038A8','#CE1126'], OTT:['#DA1A32','#000000'], PIT:['#000000','#FCB514'], SEA:['#001628','#355464'], TBL:['#00205B','#FFFFFF'], TOR:['#00205B','#FFFFFF'], VAN:['#00205B','#00843D'], VGK:['#B4975A','#333F48'], WSH:['#041E42','#C8102E'] };
+const hex2rgb = h => [1,3,5].map(i => parseInt(h.slice(i,i+2),16));
+const rgb2hex = c => '#' + c.map(v => Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,'0')).join('').toUpperCase();
+function rgb2hsl([r,g,b]){ r/=255; g/=255; b/=255; const mx=Math.max(r,g,b), mn=Math.min(r,g,b); let h=0,s=0; const l=(mx+mn)/2; if(mx!==mn){ const d=mx-mn; s=l>0.5?d/(2-mx-mn):d/(mx+mn); switch(mx){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4;} h/=6;} return [h,s,l]; }
+function hsl2rgb([h,s,l]){ if(s===0){ const v=l*255; return [v,v,v]; } const q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q; const f=t=>{ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; }; return [f(h+1/3)*255,f(h)*255,f(h-1/3)*255]; }
+function lum(hex){ const [r,g,b]=hex2rgb(hex).map(v=>{ v/=255; return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4); }); return 0.2126*r+0.7152*g+0.0722*b; }
+function contrast(a,b){ const la=lum(a), lb=lum(b); return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05); }
+function pickTeamColor(ab){ const c = TEAM_COLORS[ab] ?? ['#E8002D','#555555']; return rgb2hsl(hex2rgb(c[0]))[2] < 0.15 ? c[1] : c[0]; }
+function block(ab){ const raw = pickTeamColor(ab); let [h,s,l] = rgb2hsl(hex2rgb(raw)); if (s >= 0.08) s = Math.max(s, 0.5); let hex = rgb2hex(hsl2rgb([h,s,l])); for (let i=0;i<40 && contrast(hex,'#FFFFFF')<3;i++){ l -= 0.02; hex = rgb2hex(hsl2rgb([h,s,l])); } return hex; }
+document.querySelectorAll('[data-blk]').forEach(n => n.style.setProperty('--c', block(n.dataset.blk)));
+document.querySelectorAll('[data-numbox]').forEach(n => n.style.setProperty('--c', block(n.dataset.numbox)));
+const trip = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim().split(',').map(Number);
+function pctRgb(p){ const lo=trip('--pct-lo'), md=trip('--pct-mid'), hi=trip('--pct-hi'); const t=Math.max(0,Math.min(100,p))/100; const mix=(a,b,k)=>a.map((v,i)=>Math.round(v+(b[i]-v)*k)); return t<0.5?mix(lo,md,t/0.5):mix(md,hi,(t-0.5)/0.5); }
+const pctColor = p => `rgb(${pctRgb(p).join(',')})`;
+document.querySelectorAll('[data-pct]').forEach(n => { const p=+n.dataset.pct; n.style.setProperty('--pc', pctColor(p)); n.style.setProperty('--w', p+'%'); });
+const el = (t,c,h) => { const e = document.createElement(t); if (c) e.className = c; if (h!=null) e.innerHTML = h; return e; };
+const NS='http://www.w3.org/2000/svg'; const sv=(t,a)=>{ const n=document.createElementNS(NS,t); for(const k in a) n.setAttribute(k,a[k]); return n; };
+
+const GAMES = [
+  {a:'NJD',an:'Devils',h:'NYR',hn:'Rangers',as:2,hs:1,st:'live',m:'P2 · 14:23',note:'Hughes (12) at 3:12 of the second. WP +18.'}, {a:'TOR',an:'Maple Leafs',h:'BOS',hn:'Bruins',as:1,hs:1,st:'live',m:'P3 · 06:10',note:'Pastrnak ties it on the power play.'},
+  {a:'PIT',an:'Penguins',h:'WSH',hn:'Capitals',as:3,hs:3,st:'ot',m:'OT · 3:12',note:'Crosby ties it with 3:12 left.'}, {a:'FLA',an:'Panthers',h:'TBL',hn:'Lightning',as:4,hs:2,st:'final',m:'Final',note:'Bobrovsky 31 of 33, +1.6 GSAx.'},
+  {a:'MIN',an:'Wild',h:'CHI',hn:'Blackhawks',as:2,hs:5,st:'final',m:'Final',note:'Bedard 2G 1A on 5 of 23 shots.'}, {a:'COL',an:'Avalanche',h:'DAL',hn:'Stars',st:'sched',m:'8:00 PM',note:'Model: COL 52%.'},
+  {a:'EDM',an:'Oilers',h:'VGK',hn:'Golden Knights',st:'sched',m:'10:00 PM',note:'McDavid, 5 straight with a goal.'}, {a:'SEA',an:'Kraken',h:'VAN',hn:'Canucks',st:'sched',m:'10:00 PM',note:'Model: VAN 58%.'},
+];
+const WIRE = [['8:41 PM','goal','Goal, Devils.','Jack Hughes (12) from Bratt and Hischier, 5v5. NJD <span class="num">2–1</span>; win probability <span class="num">+18</span>.'],['8:37 PM','goal','Goal, Bruins, PP.','David Pastrnak (9) from McAvoy. Tied <span class="num">1–1</span> with <span class="num">6:10</span> left in the third.'],['8:33 PM','','Overtime in Washington.','Crosby ties it late. <span class="num">3–3</span>; 5v5 xG <span class="num">2.4–2.1</span> Pittsburgh.'],['8:20 PM','','End of the first at MSG.','<span class="num">1–1</span>. Shots <span class="num">12–9</span> NJD, 5v5 xG <span class="num">0.81–0.64</span>.'],['8:02 PM','','Final in Tampa.','Florida 4, Tampa Bay 2. Bobrovsky <span class="num">31/33</span>, <span class="num">+1.6</span> GSAx.']];
+const POSTS = [['Game summary','live','Devils 2, Rangers 1','Score, clock, win probability and the 5v5 xG line, updated until the horn.','Post the game summary','NJD','2–1','Live','Devils lead at MSG.','Win probability 66%'],['Team vs opponent','2026-27','Devils against the Rangers','Three meetings, <span class="num">2–0–1</span>, <span class="num">54.1%</span> xGF over <span class="num">148</span> 5v5 minutes.','Post the snapshot','NYR','3','Meetings','Two wins and a point.','54.1% of the expected goals'],['Goalie story','final','Bobrovsky, again','<span class="num">31 of 33</span>. Tampa produced <span class="num">3.6</span> xG and got two. <span class="num">+1.6</span> GSAx.','Post the goalie card','FLA','31','Saves','Of thirty-three.','+1.6 above expected']];
+const PCARDS = [['Player · season','talent v1','Seventh among centers','<span class="num">93rd</span> percentile Talent v1. The finishing is ahead of the chances.','Post the player card','NJD','93','Percentile','Seventh among centers.','The finishing is ahead of the chances'],['Player · game','live','Two points at MSG','1G 1A on <span class="num">0.71</span> ixG and <span class="num">78%</span> of the 5v5 xG.','Post the game card','NJD','2','Points','And 78% of the 5v5 xG.','Third straight game with a goal'],['Player · streak','3 games','Six in three','<span class="num">6</span> points, <span class="num">1.9</span> ixG over the run.','Post the streak card','NJD','6','Points','In three games.','1.9 ixG over the run']];
+const ROWS = [
+ ['Connor McDavid','EDM','C',16,22.1,1.61,2.20,3.81,1.02,13.1,4.9,58.4,1.9,6.1,99], ['Nathan MacKinnon','COL','C',16,21.8,1.44,1.98,3.42,1.10,13.8,5.2,60.1,2.1,6.4,99], ['Nikita Kucherov','TBL','RW',15,20.4,1.21,2.05,3.26,0.88,11.9,4.1,55.3,1.6,4.9,97],
+ ['Jack Hughes','NJD','C',16,19.8,1.42,1.71,3.13,0.98,12.4,4.6,56.2,1.3,4.8,93], ['Leon Draisaitl','EDM','C',16,21.0,1.55,1.40,2.95,1.15,12.0,5.0,54.0,1.4,4.2,95], ['Auston Matthews','TOR','C',14,20.6,1.70,0.95,2.65,1.30,12.9,5.4,53.1,1.2,3.9,94],
+ ['Kirill Kaprizov','MIN','LW',15,20.2,1.30,1.35,2.65,1.05,11.6,4.4,52.4,1.1,3.3,92], ['Jesper Bratt','NJD','LW',16,18.9,0.98,1.62,2.60,0.66,10.8,3.6,57.0,1.1,3.6,90], ['Mikko Rantanen','DAL','RW',16,20.5,1.18,1.40,2.58,0.90,11.2,4.0,54.6,1.0,3.1,91],
+ ['Matthew Tkachuk','FLA','LW',15,19.1,1.05,1.50,2.55,0.85,11.0,4.2,56.8,1.0,3.4,90], ['Cale Makar','COL','D',16,25.2,0.72,1.68,2.40,0.52,8.9,2.1,59.8,1.7,5.5,98], ['Quinn Hughes','VAN','D',16,25.6,0.45,1.75,2.20,0.40,8.2,1.6,58.9,1.5,5.0,96],
+];
+const rankPct = key => { const s=[...ROWS].sort((a,b)=>b[key]-a[key]); const m=new Map(); s.forEach((r,i)=>m.set(r[0], Math.round(99 - i/(ROWS.length-1)*29))); return m; };
+const PW = rankPct(12), PI = rankPct(13);
+const RATES = [['G/60','1.42',94],['A/60','1.71',88],['P/60','3.13',96],['ixG/60','0.98',71],['SC/60','12.4',90],['HDC/60','4.6',84],['xGF%','56.2',79],['TOI/G','19.8',90]];
+const EDGE = [['Top speed','23.1','mph',89],['Distance / GP','3.14','mi',72],['22+ mph bursts','11','',93],['Max shot speed','88.4','mph',48]];
+const PEERS = [['Nathan MacKinnon','COL',99,'2.1'],['Jack Eichel','VGK',95,'1.5'],['Jack Hughes','NJD',93,'1.3',true],['Brayden Point','TBL',92,'1.2'],['Tim Stützle','OTT',91,'1.1'],['Sebastian Aho','CAR',90,'1.0']];
+const LOG = [['Nov 10','at Philadelphia','W 4–2','19:42',1,0,1,5,'0.62','61.3','+0.9','22.4'],['Nov 8','Carolina','W 3–1','20:11',1,1,2,4,'0.44','58.0','+0.6','21.8'],['Nov 6','Washington','L 2–3 OT','21:03',1,0,1,6,'0.71','52.1','+0.2','23.1'],['Nov 4','at Toronto','W 5–2','18:56',0,2,2,3,'0.28','64.7','+1.1','22.0'],['Nov 1','at Montréal','L 1–4','19:20',0,0,0,2,'0.19','44.2','−0.4','21.5'],['Oct 30','NY Islanders','W 2–1','20:48',0,1,1,4,'0.51','57.9','+0.5','22.7'],['Oct 28','NY Rangers','W 4–3 SO','20:32',1,1,2,5,'0.66','55.3','+0.7','22.9'],['Oct 25','at Buffalo','W 3–0','18:14',0,1,1,3,'0.33','60.8','+0.4','21.9']];
+const stTxt = g => g.st==='live'?'Live':g.st==='ot'?'Overtime':g.st==='final'?'Final':'Later';
+const stripCls = st => st==='live'?'strip red':st==='ot'?'strip ot':'strip';
+function postHtml([k,s,h,p,cta,tm,cn,ct,ch,cb], i){ return `<div class="box post"><div class="${i===0?'strip red':'strip'}"><span>${k}</span><span class="s">${s}</span></div><div class="cardmini" style="--c:${block(tm)}"><div class="cn">${cn}</div><span class="ct">${ct}</span><div class="ch">${ch}</div><div class="cb">${cb}</div></div><div class="bd" style="border-top:var(--bw) solid var(--ink)"><div class="hd" style="font-size:24px">${h}</div><p>${p}</p></div><div class="ft"><a class="btn sm ${i===0?'':'alt'}" href="#">${cta}</a></div></div>`; }
+function wpPts(){ let s=7; const r=()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; const G=[[432,-0.14],[948,0.12],[1392,0.18]]; let wp=0.55; const pts=[]; for(let t=0;t<=1537;t+=15){ const g=G.find(g=>g[0]>t-15&&g[0]<=t); wp+=g?g[1]:(r()-0.5)*0.012; wp=Math.max(0.05,Math.min(0.95,wp)); pts.push([t,wp]); } return pts; }
+
+/* home */
+(function(){
+  const g = document.getElementById('hGames'); GAMES.forEach(gm => { const done=gm.st==='final', sched=gm.st==='sched', aW=done&&gm.as>gm.hs, hW=done&&gm.hs>gm.as; g.appendChild(el('div','box game',`<div class="${stripCls(gm.st)}"><span>${stTxt(gm)}</span><span class="num">${done?'':gm.m}</span></div><div class="r"><span class="${hW?'lose':''}"><i class="blk" style="--c:${block(gm.a)}"></i>${gm.an}</span><b>${sched?'':gm.as}</b></div><div class="r"><span class="${aW?'lose':''}"><i class="blk" style="--c:${block(gm.h)}"></i>${gm.hn}</span><b>${sched?'':gm.hs}</b></div><div class="note">${gm.note}</div>`)); });
+  const w = document.getElementById('hWire'); WIRE.forEach(([t,k,b,x]) => w.appendChild(el('div','box w',`<div class="t ${k}">${t}</div><div class="x"><b>${b}</b> ${x}</div>`)));
+  document.getElementById('hPosts').innerHTML = POSTS.map(postHtml).join('');
+  const svg = document.getElementById('hSpark'); const x=t=>t/3600*320, y=p=>4+(1-p)*48; svg.appendChild(sv('line',{x1:0,x2:320,y1:y(0.5),y2:y(0.5),stroke:'#0D0D14','stroke-width':1.5,'stroke-dasharray':'4 4'})); const pts=wpPts(); let d=''; pts.forEach(([t,p],i)=> d+=(i?'L':'M')+x(t).toFixed(1)+' '+y(p).toFixed(1)+' '); svg.appendChild(sv('path',{d,fill:'none',stroke:'#0D0D14','stroke-width':3,'stroke-linejoin':'round'})); const l=pts[pts.length-1]; svg.appendChild(sv('rect',{x:x(l[0])-5,y:y(l[1])-5,width:10,height:10,fill:'#E8002D',stroke:'#0D0D14','stroke-width':2.5}));
+})();
+/* skaters */
+(function(){
+  const L = document.getElementById('sLeaders'); [['Impact','RAPM · 5v5',13,v=>'+'+v.toFixed(1)],['WAR','season',12,v=>v.toFixed(1)],['P/60','5v5',7,v=>v.toFixed(2)],['Talent v1','percentile',14,v=>v+'th']].forEach(([k,s,key,fmt],i) => { const top=[...ROWS].sort((a,b)=>b[key]-a[key]); const t=top[0]; L.appendChild(el('div','box fig',`<div class="${i===0?'strip red':'strip'}"><span>${k}</span><span class="s">${s}</span></div><div class="bd"><div class="v">${fmt(t[key])}</div><div class="sub"><b style="font-weight:800;font-family:var(--display);font-size:18px;text-transform:uppercase">${t[0]}</b> · ${t[1]}<br>${top.slice(1,3).map((r,j)=>`${j+2}. ${r[0]} <span class="num">${fmt(r[key])}</span>`).join(' · ')}</div></div>`)); });
+  const tb = document.querySelector('#sTable tbody'); ROWS.forEach((r,i) => { const [nm,tm,pos,gp,toi,g60,a60,p60,ixg,sc,hdc,xgf,war,imp,tal] = r; tb.appendChild(el('tr','',`<td class="rk">${i+1}</td><td class="l nm"><i class="blk" style="--c:${block(tm)}"></i>${nm}<small>${tm} · ${pos}</small></td><td>${gp}</td><td>${toi.toFixed(1)}</td><td class="grp">${g60.toFixed(2)}</td><td>${a60.toFixed(2)}</td><td><strong>${p60.toFixed(2)}</strong></td><td>${ixg.toFixed(2)}</td><td class="grp">${sc.toFixed(1)}</td><td>${hdc.toFixed(1)}</td><td class="grp">${xgf.toFixed(1)}</td><td class="grp"><span class="pc" style="--h:${pctColor(PW.get(nm))}">${war.toFixed(1)}</span></td><td><span class="pc" style="--h:${pctColor(PI.get(nm))}">+${imp.toFixed(1)}</span></td><td><span class="pc" style="--h:${pctColor(tal)}">${tal}</span></td>`)); });
+  const list = (id,key,fmt,pf) => { const root=document.getElementById(id); [...ROWS].sort((a,b)=>b[key]-a[key]).slice(0,6).forEach((r,i)=> root.appendChild(el('div','box row',`<span class="r">${i+1}</span><span class="nm"><i class="blk" style="--c:${block(r[1])}"></i>${r[0]}<small>${r[1]} · ${r[2]}</small></span><span class="v">${fmt(r[key])}</span><span class="pc" style="--h:${pctColor(pf(r))}">${pf(r)}</span>`))); };
+  list('sWar',12,v=>v.toFixed(1)+' WAR',r=>PW.get(r[0])); list('sTal',14,v=>'',r=>r[14]);
+})();
+/* player */
+(function(){
+  const b = document.getElementById('pBars'); RATES.forEach(([l,raw,p]) => b.appendChild(el('div','bar',`<span class="l">${l}</span><span class="t" style="--w:${p}%;--pc:${pctColor(p)}"><i></i><b>${raw}</b></span><span class="v" style="--pc:${pctColor(p)}">${p}</span>`)));
+  const e = document.getElementById('pEdge'); EDGE.forEach(([k,v,u,p]) => e.appendChild(el('div','box fig',`<div class="strip"><span>${k}</span></div><div class="bd"><div class="v" style="font-size:36px">${v}<small>${u}</small></div><div class="pb" style="--w:${p}%;--pc:${pctColor(p)}"><i></i></div><div class="sub"><span class="num">${p}th</span> percentile</div></div>`)));
+  const pr = document.getElementById('pPeers'); PEERS.forEach(([nm,tm,p,war,me],i) => pr.appendChild(el('div','box row'+(me?' me':''),`<span class="r">${i+1}</span><span class="nm"><i class="blk" style="--c:${block(tm)}"></i>${nm}<small>${tm}</small></span><span class="v">${war} WAR</span><span class="pc" style="--h:${pctColor(p)}">${p}</span>`)));
+  const tb = document.querySelector('#pLog tbody'); LOG.forEach(l => tb.appendChild(el('tr','',`<td class="l">${l[0]}</td><td class="l txt">${l[1]}</td><td class="l txt ${l[2][0]==='W'?'pos':'neg'}">${l[2]}</td><td>${l[3]}</td><td>${l[4]}</td><td>${l[5]}</td><td><strong>${l[6]}</strong></td><td>${l[7]}</td><td>${l[8]}</td><td class="grp">${l[9]}</td><td class="${l[10][0]==='+'?'pos':'neg'}">${l[10]}</td><td class="grp">${l[11]}</td>`)));
+  document.getElementById('pCards').innerHTML = PCARDS.map(postHtml).join('');
+  const svg=document.getElementById('pTrend'); const W=800,H=160,pad={l:34,r:40,t:14,b:10}; const vals=[0.4,0.9,1.6,1.2,2.4,3.1,2.8,3.6,4.2,4.0,4.8,4.6,5.1,4.8]; const x=i=>pad.l+i/(vals.length-1)*(W-pad.l-pad.r), y=v=>pad.t+(1-(v+1)/7)*(H-pad.t-pad.b);
+  [0,3,6].forEach(v=>{ svg.appendChild(sv('line',{x1:pad.l,x2:W-pad.r,y1:y(v),y2:y(v),stroke:'#0D0D14','stroke-width':v===0?2:1,'stroke-dasharray':v===0?'':'4 4',opacity:v===0?1:0.3})); const t=sv('text',{x:pad.l-8,y:y(v)+4,'text-anchor':'end','font-family':'JetBrains Mono, monospace','font-weight':600,'font-size':11,fill:'#0D0D14'}); t.textContent=(v>0?'+':'')+v; svg.appendChild(t); });
+  let d=''; vals.forEach((v,i)=> d+=(i?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)+' '); svg.appendChild(sv('path',{d,fill:'none',stroke:'#0D0D14','stroke-width':3,'stroke-linejoin':'round'}));
+  vals.forEach((v,i)=> svg.appendChild(sv('rect',{x:x(i)-(i===vals.length-1?6:3),y:y(v)-(i===vals.length-1?6:3),width:i===vals.length-1?12:6,height:i===vals.length-1?12:6,fill:i===vals.length-1?'#E8002D':'#0D0D14',stroke:'#0D0D14','stroke-width':2})));
+  const t=sv('text',{x:x(vals.length-1)+12,y:y(vals[vals.length-1])+4,'font-family':'JetBrains Mono, monospace','font-weight':700,'font-size':13,fill:'#0D0D14'}); t.textContent='+4.8'; svg.appendChild(t);
+})();
+/* game */
+(function(){
+  const cA=block('NJD'), cH=block('NYR');
+  function axes(svg,W,H,pad,ticks){ const x=t=>pad.l+t/3600*(W-pad.l-pad.r); ticks.forEach(([yy,lab,strong])=>{ svg.appendChild(sv('line',{x1:pad.l,x2:W-pad.r,y1:yy,y2:yy,stroke:'#0D0D14','stroke-width':strong?2:1,opacity:strong?1:0.25,'stroke-dasharray':strong?'':'4 4'})); const t=sv('text',{x:pad.l-8,y:yy+4,'text-anchor':'end','font-family':'JetBrains Mono, monospace','font-weight':600,'font-size':11,fill:'#0D0D14'}); t.textContent=lab; svg.appendChild(t); }); [1200,2400].forEach(tt=>svg.appendChild(sv('line',{x1:x(tt),x2:x(tt),y1:pad.t,y2:H-pad.b,stroke:'#0D0D14',opacity:0.35}))); [['1ST',600],['2ND',1800],['3RD',3000]].forEach(([l,tt])=>{ const t=sv('text',{x:x(tt),y:H-5,'text-anchor':'middle','font-family':'Barlow, sans-serif','font-weight':800,'font-size':11,fill:'#0D0D14'}); t.textContent=l; svg.appendChild(t); }); return x; }
+  const pts = wpPts(); const G=[[432,'NYR',-0.14],[948,'NJD',0.12],[1392,'NJD',0.18]];
+  const svg=document.getElementById('gWp'); const W=800,H=220,pad={l:40,r:16,t:14,b:24}; const y=p=>pad.t+(1-p)*(H-pad.t-pad.b); const x=axes(svg,W,H,pad,[[y(1),'100%'],[y(0.5),'50%',true],[y(0),'0%']]);
+  let d=''; pts.forEach(([t,p],i)=> d+=(i?'L':'M')+x(t).toFixed(1)+' '+y(p).toFixed(1)+' '); svg.appendChild(sv('path',{d,fill:'none',stroke:'#0D0D14','stroke-width':3,'stroke-linejoin':'round'}));
+  G.forEach(g=>{ const p=pts.find(q=>q[0]>=g[0])[1]; const c=g[1]==='NJD'?cA:cH; svg.appendChild(sv('rect',{x:x(g[0])-7,y:y(p)-7,width:14,height:14,fill:c,stroke:'#0D0D14','stroke-width':2.5})); const t=sv('text',{x:x(g[0]),y:y(p)+(g[1]==='NJD'?-14:22),'text-anchor':'middle','font-family':'JetBrains Mono, monospace','font-weight':700,'font-size':11,fill:'#0D0D14'}); t.textContent='+'+Math.round(Math.abs(g[2])*100); svg.appendChild(t); });
+  const l=pts[pts.length-1]; svg.appendChild(sv('line',{x1:x(l[0]),x2:x(l[0]),y1:pad.t,y2:H-pad.b,stroke:'#E8002D','stroke-width':2,'stroke-dasharray':'4 4'})); svg.appendChild(sv('rect',{x:x(l[0])-6,y:y(l[1])-6,width:12,height:12,fill:'#E8002D',stroke:'#0D0D14','stroke-width':2.5})); const lt=sv('text',{x:x(l[0])+10,y:y(l[1])+4,'font-family':'JetBrains Mono, monospace','font-weight':700,'font-size':12,fill:'#0D0D14'}); lt.textContent='66%'; svg.appendChild(lt);
+  const svg2=document.getElementById('gXg'); const H2=170,pad2={l:40,r:44,t:14,b:24}; const y2=v=>pad2.t+(1-v/3)*(H2-pad2.t-pad2.b); const x2=axes(svg2,W,H2,pad2,[[y2(1),'1.0'],[y2(2),'2.0'],[y2(3),'3.0']]);
+  const xg=(seed,total)=>{ let s=seed; const r=()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; const p=[[0,0]]; let v=0; for(let t=20;t<=1537;t+=20){ if(r()<0.32) v+=r()*0.11; p.push([t,v]); } const k=total/v; return p.map(([t,q])=>[t,q*k]); };
+  const step=(p,c,label)=>{ let d='',prev=null; p.forEach(([t,v],i)=>{ if(i===0) d+=`M${x2(t)} ${y2(v)} `; else d+=`L${x2(t)} ${y2(prev)} L${x2(t)} ${y2(v)} `; prev=v; }); svg2.appendChild(sv('path',{d,fill:'none',stroke:c,'stroke-width':3,'stroke-linejoin':'round'})); const [lt,lv]=p[p.length-1]; const t=sv('text',{x:x2(lt)+8,y:y2(lv)+4,'font-family':'JetBrains Mono, monospace','font-weight':700,'font-size':12,fill:'#0D0D14'}); t.textContent=label; svg2.appendChild(t); };
+  step(xg(11,1.08),cH,'1.08'); step(xg(3,1.62),cA,'1.62'); svg2.appendChild(sv('line',{x1:x2(1537),x2:x2(1537),y1:pad2.t,y2:H2-pad2.b,stroke:'#E8002D','stroke-width':2,'stroke-dasharray':'4 4'}));
+})();
+document.getElementById('tabs').addEventListener('click', e => { const b = e.target.closest('.mk-tab'); if (!b) return; document.querySelectorAll('.mk-tab').forEach(x => x.classList.toggle('on', x===b)); document.querySelectorAll('main').forEach(m => m.classList.toggle('on', m.id===b.dataset.s)); window.scrollTo({top:0}); });
+</script>
+</body>
+</html>
