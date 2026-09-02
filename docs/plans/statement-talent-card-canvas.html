@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>HGB · Statement Talent Card — canvas, real data</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
+<style>
+  :root { --paper:#F1F0EA; --ink:#0D0D14; --red:#E8002D; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #2A2A2E; color: #F1F0EA; font-family: 'Barlow', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  .mk { background: var(--ink); padding: 10px 24px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .mk-label { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(239,238,232,0.55); }
+  .mk-label b { color: #F1F0EA; font-weight: 600; }
+  .mk .right { margin-left: auto; display: flex; gap: 8px; }
+  .btn { font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 12px; border: 1px solid rgba(239,238,232,0.3); color: #F1F0EA; background: none; cursor: pointer; }
+  .btn.red { background: var(--red); border-color: var(--red); color: #fff; }
+  .stage { max-width: 1300px; margin: 0 auto; padding: 26px 24px 60px; }
+  .stage canvas { width: 100%; height: auto; display: block; box-shadow: 0 30px 80px rgba(0,0,0,0.5); }
+  .note { font-size: 13px; color: rgba(239,238,232,0.7); line-height: 1.5; margin-top: 16px; max-width: 90ch; }
+  .note b { color: #F1F0EA; }
+  .note code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: rgba(255,255,255,0.08); padding: 1px 5px; }
+  #status { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgba(239,238,232,0.5); margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<div class="mk"><span class="mk-label"><b>HGB</b> · Statement talent card · <b>canvas, real data</b> · Jack Hughes · players.json snapshot 2026-05-28</span><span class="right"><button class="btn" id="redraw">Redraw</button><button class="btn red" id="dl">Download PNG</button></span></div>
+<div class="stage">
+  <div id="status">drawing…</div>
+  <div id="out"></div>
+  <p class="note"><b>What this is.</b> A real <code>drawStatementTalentCard(D)</code> that returns a canvas, written in the same conventions as the live card functions in <code>src/pages/stats/player/[slug].astro</code>: a define-vars-shaped <code>D</code> payload, shared ink and red constants, <code>rrect</code> and <code>loadImg</code> helpers, 2× scale, Barlow Condensed for numerals and headlines, JetBrains Mono for every number and frame label, and null-safe fallbacks that fail loud. The headshot and the multi-year shot map load from the same URLs the live card uses; if either is blocked, the card draws a labelled fallback instead of a hole.</p>
+  <p class="note"><b>What is real.</b> Every number comes from the repo's <code>src/data/stats/players.json</code> for Jack Hughes: Talent (this snapshot carries the rating lineage, so it reads the rating percentile where <code>hgb_talent_v1_percentile</code> is absent), TOI/G, the eleven talent bars, WAR percentile computed against the 468 qualified forwards in the file, and Impact rank. Prior-season WAR is not in this snapshot, so the strip shows the one season it has and fills the other cells with real Impact and power-play values rather than inventing history.</p>
+</div>
+<script>
+const D = {"playerId":8481559,"slug":"jack-hughes-8481559","firstName":"Jack","lastName":"Hughes","pos":"C","posGroup":"F","posLabel":"Forward","team":"NJD","teamName":"New Jersey Devils","gp":61,"toiAvgSec":1279,"currentSeason":"2025-26","sweaterNumber":null,"shootsCatches":null,"birthDate":null,"talentV1Pct":null,"talentV1Conf":null,"hgb_rating_percentile":96,"hgb_rating_confidence":"full","hgb_rating_n_prior":3,"hgb_rating_off_pct":97,"hgb_rating_def_pct":47,"g_60_pct_3yr":88,"a1_60_pct_3yr":98,"xg_60_pct_3yr":96,"pen_diff_pct_3yr":94,"finishing_pct_3yr":68,"qoc_pct_3yr":63,"qot_pct_3yr":73,"qoc":47,"qot":63,"percentiles":{"ev_offence":84,"ev_defence":59.5,"finishing":66,"goals":87.6,"a1":97.1,"shots":98.1,"pen_diff":89.5,"ixg":94.7,"game_score":97.5,"pp_off":92.6,"pk_def":null},"war":1.76,"warPct":95,"impact":0.5777,"impactPct":97.5,"impactRankF":12,"peersF":468,"priorWar":[{"season":"2025-26","pct":95}],"teamColors":{"NJD":"#CE1126"},"headshotUrl":"https://api.hockeygamebot.com/v1/proxy/headshot/NJD/8481559","shotmapUrl":"https://media.hockeygamebot.com/stats/skater-shot-maps/8481559_3yr.png","footers":{"talent":{"pre":"Current blend: 2025-26 + 3 prior seasons · percentile ","vs":"vs Forwards","post":" · hockeygamebot.com"}},"meta":{"generated":"2026-05-28","source":"src/data/stats/players.json"}};
+
+(function () {
+  const status = document.getElementById('status');
+  // ── shared constants (mirror the live card block) ────────────────────────
+  const PAPER = '#F1F0EA', INK = '#0D0D14', RED = '#E8002D', WHITE = '#FFFFFF';
+  const INK72 = 'rgba(13,13,20,0.72)', INK56 = 'rgba(13,13,20,0.56)', INK40 = 'rgba(13,13,20,0.40)', INK24 = 'rgba(13,13,20,0.24)', INK14 = 'rgba(13,13,20,0.14)', INK08 = 'rgba(13,13,20,0.08)';
+  const CTX_BLUE = '#4285f4';                    // context bars — the card system's existing blue
+  const COLD = '#1a56c4', HOT = '#b51a1a';       // shot-map legend ends — same stops as the live card
+  const DISPLAY = '"Barlow Condensed", "Arial Narrow", sans-serif';
+  const BODY = '"Barlow", Arial, sans-serif';
+  const MONO = '"JetBrains Mono", Menlo, monospace';
+  const PCT_VALUE_FONT = `800 19px ${DISPLAY}`;
+  const TEAM_C = (D.teamColors && D.teamColors[D.team]) || INK;
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+  function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else { ctx.rect(x, y, w, h); } }
+  function loadImg(src) { return new Promise(res => { const img = new Image(); img.crossOrigin = 'anonymous'; img.onload = () => res(img); img.onerror = () => res(null); img.src = src; }); }
+  function fmtToi(sec) { return sec != null ? `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` : '—'; }
+  function ordinal(n) { const a = Math.round(n), m10 = a % 10, m100 = a % 100; if (m100 >= 11 && m100 <= 13) return 'th'; if (m10 === 1) return 'st'; if (m10 === 2) return 'nd'; if (m10 === 3) return 'rd'; return 'th'; }
+  // Tier words for the band sentence. Two tiers, one sentence, no hedging.
+  function tierWord(p) { if (p == null) return null; if (p >= 90) return 'Elite'; if (p >= 75) return 'Strong'; if (p >= 55) return 'Above-average'; if (p >= 40) return 'Average'; if (p >= 25) return 'Below-average'; return 'Weak'; }
+  // Performance-bar fill — the live card's tier ramp, unchanged.
+  function barFill(v, kind) { if (kind === 'context') return CTX_BLUE; if (v == null) return INK14; if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50'; if (v >= 40) return 'rgba(13,13,20,0.35)'; if (v >= 25) return '#E57373'; return RED; }
+  function pctColor(v, kind) { if (kind === 'context') return CTX_BLUE; if (v == null) return INK40; if (v >= 75) return '#137333'; if (v >= 55) return '#4CAF50'; if (v >= 40) return 'rgba(13,13,20,0.50)'; if (v >= 25) return '#E57373'; return RED; }
+  function fitPx(ctx, text, family, weight, px, maxW) { ctx.font = `${weight} ${px}px ${family}`; while (px > 10 && ctx.measureText(text).width > maxW) { px -= 1; ctx.font = `${weight} ${px}px ${family}`; } return px; }
+  function mono(ctx, w, px, color, align = 'left', base = 'middle') { ctx.font = `${w} ${px}px ${MONO}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base; }
+  function display(ctx, w, px, color, align = 'left', base = 'alphabetic') { ctx.font = `${w} ${px}px ${DISPLAY}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base; }
+  function tracked(ctx, text, x, y, spacing) { // letter-spaced mono/body text (canvas letterSpacing is not universal)
+    if ('letterSpacing' in ctx) { ctx.letterSpacing = spacing + 'px'; ctx.fillText(text, x, y); ctx.letterSpacing = '0px'; return; }
+    let cx = x; const align = ctx.textAlign; ctx.textAlign = 'left';
+    if (align === 'right') { let tw = 0; for (const ch of text) tw += ctx.measureText(ch).width + spacing; cx = x - tw + spacing; }
+    if (align === 'center') { let tw = 0; for (const ch of text) tw += ctx.measureText(ch).width + spacing; cx = x - (tw - spacing) / 2; }
+    for (const ch of text) { ctx.fillText(ch, cx, y); cx += ctx.measureText(ch).width + spacing; }
+    ctx.textAlign = align;
+  }
+  function trackedWidth(ctx, text, spacing) { let tw = 0; for (const ch of text) tw += ctx.measureText(ch).width + spacing; return tw - spacing; }
+  function vertical(ctx, text, x, yBottom, color, spacing) { ctx.save(); ctx.translate(x, yBottom); ctx.rotate(-Math.PI / 2); mono(ctx, 500, 11, color, 'left', 'middle'); tracked(ctx, text, 0, 0, spacing); ctx.restore(); }
+
+  // ── the card ─────────────────────────────────────────────────────────────
+  async function drawStatementTalentCard(D) {
+    const SCALE = 2, W = 1200, H = 956;
+    const RIB = 22, GUT = 96, PAD_R = 34;           // ribbon width, left gutter (ribbon + vertical labels), right pad
+    const L_X = GUT, L_W = 590, R_X = GUT + L_W + 44, R_W = W - PAD_R - R_X;
+    const canvas = document.createElement('canvas');
+    canvas.width = W * SCALE; canvas.height = H * SCALE;
+    const ctx = canvas.getContext('2d'); ctx.scale(SCALE, SCALE);
+
+    // 01 · FRAME — paper, faint diagonal grid, rink line-art, ribbon, vertical labels
+    ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.strokeStyle = 'rgba(13,13,20,0.045)'; ctx.lineWidth = 1;
+    for (let i = -20; i < 40; i++) { ctx.beginPath(); ctx.moveTo(i * 74 - 200, 0); ctx.lineTo(i * 74 - 200 + H * 0.25, H); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(13,13,20,0.03)';
+    for (let i = -6; i < 30; i++) { ctx.beginPath(); ctx.moveTo(0, i * 74 - 60); ctx.lineTo(W, i * 74 - 60 - W * 0.25); ctx.stroke(); }
+    ctx.restore();
+    // ribbon
+    for (let y = 0; y < H; y += 16) { ctx.fillStyle = RED; ctx.fillRect(0, y, RIB, 11); ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(5, y, RIB - 10, 11); }
+    vertical(ctx, 'TALENT CARD · MULTI-YEAR', 44, 300, INK56, 2.4);
+    vertical(ctx, 'PLAYER STATEMENT', 44, H - 30, RED, 2.4);
+
+    // header row
+    let y = 30;
+    ctx.fillStyle = INK; ctx.fillRect(L_X, y, W - PAD_R - L_X, 3); y += 3;
+    const HDR_H = 40;
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(L_X + 13, y + HDR_H / 2, 13, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = PAPER; ctx.beginPath(); ctx.arc(L_X + 13, y + HDR_H / 2, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = RED; ctx.beginPath(); ctx.arc(L_X + 13, y + HDR_H / 2, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.font = `800 12px ${BODY}`; ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    tracked(ctx, 'HOCKEYGAMEBOT', L_X + 36, y + HDR_H / 2, 1.7);
+    const hdrRight = `TALENT CARD · MULTI-YEAR · ${D.currentSeason} + ${D.hgb_rating_n_prior ?? 3} PRIOR`;
+    const HR = 15, HCX = W - PAD_R - HR, HCY = y + HDR_H / 2;
+    mono(ctx, 500, 10.5, RED, 'right'); tracked(ctx, hdrRight, HCX - HR - 14, HCY, 2);
+    const lineL = L_X + 36 + trackedWidth(ctx, 'HOCKEYGAMEBOT', 1.7) + 16, lineR = HCX - HR - 14 - trackedWidth(ctx, hdrRight, 2) - 16;
+    ctx.fillStyle = INK24; ctx.fillRect(lineL, y + HDR_H / 2, Math.max(0, lineR - lineL), 1);
+    y += HDR_H; ctx.fillStyle = INK24; ctx.fillRect(L_X, y, W - PAD_R - L_X, 1);
+    const TOP = y + 1;
+
+    // 02 · STATEMENT — numeral, tag, headline, meta
+    const talent = D.talentV1Pct ?? D.hgb_rating_percentile ?? null;
+    const talentLtd = D.talentV1Conf === 'limited_sample' || D.hgb_rating_confidence === 'limited_sample';
+    let sy = TOP + 26;
+    const NUM_PX = 190;
+    display(ctx, 900, NUM_PX, talent != null ? TEAM_C : INK24, 'left', 'alphabetic');
+    const numStr = talent != null ? String(Math.round(talent)) : '—';
+    const numBase = sy + NUM_PX * 0.72;
+    ctx.fillText(numStr, L_X - 6, numBase);
+    const numW = ctx.measureText(numStr).width;
+    if (talent != null) { display(ctx, 900, 64, INK24, 'left', 'alphabetic'); ctx.fillText(ordinal(talent), L_X - 6 + numW + 4, numBase); }
+    const hx = L_X + Math.min(numW + 92, 330);
+    const hlMaxW = L_X + L_W - hx;
+    // tag
+    mono(ctx, 600, 11, WHITE, 'left', 'middle'); const tagT = talentLtd ? 'HGB TALENT · LTD SAMPLE' : 'HGB TALENT';
+    const tagW = trackedWidth(ctx, tagT, 2.2) + 22;
+    ctx.fillStyle = RED; ctx.fillRect(hx, sy + 8, tagW, 24); ctx.fillStyle = WHITE; tracked(ctx, tagT, hx + 11, sy + 20, 2.2);
+    // headline — three lines, condensed 900
+    const hl = [ `${D.firstName} ${D.lastName}.`.toUpperCase(), talent != null ? `${Math.round(talent)}${ordinal(talent).toUpperCase()} PERCENTILE` : 'NO TALENT RATING', `AMONG ${D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN'}.` ];
+    const hlPx = Math.min(...hl.map(t => fitPx(ctx, t, DISPLAY, 900, 50, hlMaxW)));
+    display(ctx, 900, hlPx, INK, 'left', 'alphabetic');
+    hl.forEach((t, i) => ctx.fillText(t, hx, sy + 44 + 46 + i * 46));
+    // meta line — only real fields
+    const metaBits = [];
+    if (D.sweaterNumber != null) metaBits.push(`NO. ${D.sweaterNumber}`);
+    metaBits.push(D.pos, `${D.gp} GP`, (D.teamName || D.team).toUpperCase());
+    if (D.shootsCatches) metaBits.push(`SHOOTS ${D.shootsCatches}`);
+    mono(ctx, 500, 10.5, INK56, 'left', 'middle'); tracked(ctx, metaBits.join('  ·  '), hx, sy + 44 + 46 + 3 * 46 - 10, 1.6);
+    y = sy + 44 + 46 + 3 * 46 + 18;
+
+    // 03 · BAND — the argument, skewed, red top edge, spanning ribbon to left column end
+    const BAND_H = 92, SK = 0.056, bandR = L_X + L_W + 30;
+    const bandTopL = y + 30, bandTopR = y + 30 - SK * bandR;
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.moveTo(0, bandTopL); ctx.lineTo(bandR, bandTopR); ctx.lineTo(bandR, bandTopR + BAND_H); ctx.lineTo(0, bandTopL + BAND_H); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = RED; ctx.beginPath(); ctx.moveTo(0, bandTopL); ctx.lineTo(bandR, bandTopR); ctx.lineTo(bandR, bandTopR + 7); ctx.lineTo(0, bandTopL + 7); ctx.closePath(); ctx.fill();
+    const offW = tierWord(D.hgb_rating_off_pct), defW = tierWord(D.hgb_rating_def_pct);
+    const bandText = (offW && defW) ? `${offW} offence. ${defW} defence.`.toUpperCase() : 'MULTI-YEAR TALENT, BLENDED.';
+    ctx.save(); ctx.translate(0, bandTopL); ctx.transform(1, -SK, 0, 1, 0, 0);
+    const bandPx = fitPx(ctx, bandText, DISPLAY, 900, 34, bandR - 250 - L_X - 16);
+    display(ctx, 900, bandPx, PAPER, 'left', 'middle'); ctx.fillText(bandText, L_X + 16, 7 + (BAND_H - 7) / 2 + 2);
+    mono(ctx, 500, 10, 'rgba(241,240,234,0.6)', 'right', 'middle'); tracked(ctx, `TOI/G ${fmtToi(D.toiAvgSec)} · ${D.currentSeason}`, bandR - 22, 22, 1.8);
+    ctx.restore();
+    y = bandTopL + BAND_H + 26;
+
+    // 04 · STRIP — four cells, thin rules, red mono keys. Real values only.
+    const cells = [ { k: 'CURRENT ROLE', v: fmtToi(D.toiAvgSec), s: `TOI PER GAME · ${D.currentSeason}` } ];
+    (D.priorWar || []).slice(0, 3).forEach(w => cells.push({ k: `WAR · ${w.season.replace('20', '').replace('-20', '-')}`, v: w.pct != null ? `${w.pct}${ordinal(w.pct)}` : '—', s: w.limited ? 'SMALL SAMPLE' : 'SINGLE SEASON' }));
+    if (cells.length < 4 && D.impactPct != null) cells.push({ k: 'IMPACT', v: `${Math.round(D.impactPct)}${ordinal(D.impactPct)}`, s: D.impactRankF ? `RANK ${D.impactRankF} OF ${D.peersF} F` : 'GAME SCORE' });
+    if (cells.length < 4 && D.percentiles.pp_off != null) cells.push({ k: 'POWER PLAY', v: `${Math.round(D.percentiles.pp_off)}${ordinal(D.percentiles.pp_off)}`, s: 'PP OFFENCE' });
+    const STRIP_H = 64, cw = L_W / cells.length;
+    ctx.fillStyle = INK; ctx.fillRect(L_X, y, L_W, 1); ctx.fillRect(L_X, y + STRIP_H, L_W, 1);
+    cells.forEach((c, i) => { const cx = L_X + i * cw; if (i) ctx.fillRect(cx, y, 1, STRIP_H);
+      mono(ctx, 500, 9.5, RED, 'left', 'top'); tracked(ctx, c.k, cx + (i ? 14 : 0), y + 11, 2);
+      display(ctx, 800, 26, INK, 'left', 'alphabetic'); const vv = c.v.replace(/(st|nd|rd|th)$/, ''); ctx.fillText(vv, cx + (i ? 14 : 0), y + 44);
+      if (/(st|nd|rd|th)$/.test(c.v)) { const vw = ctx.measureText(vv).width; display(ctx, 800, 14, INK40, 'left', 'alphabetic'); ctx.fillText(c.v.slice(-2).toUpperCase(), cx + (i ? 14 : 0) + vw + 3, y + 44); }
+      const sPx = fitPx(ctx, c.s, MONO, 400, 8.5, cw - 20 - c.s.length * 0.6); mono(ctx, 400, sPx, INK56, 'left', 'top'); tracked(ctx, c.s, cx + (i ? 14 : 0), y + 50, 0.6); });
+    y += STRIP_H + 22;
+
+    // 05 · RATES — section head, eleven bars, key
+    mono(ctx, 500, 10, RED, 'left', 'middle'); tracked(ctx, 'MULTI-YEAR TALENT', L_X, y, 2.2);
+    const shW = trackedWidth(ctx, 'MULTI-YEAR TALENT', 2.2);
+    mono(ctx, 500, 10, INK56, 'right', 'middle'); const shR = `VS. ${D.posGroup === 'F' ? 'FORWARDS' : 'DEFENSEMEN'} · PERCENTILE`; tracked(ctx, shR, L_X + L_W, y, 1.8);
+    ctx.fillStyle = INK24; ctx.fillRect(L_X + shW + 12, y, L_W - shW - trackedWidth(ctx, shR, 1.8) - 24, 1);
+    y += 12;
+    const pct3 = D.percentiles; const v3 = (a, b) => (a != null ? a : (b != null ? b : null));
+    const bars = [
+      { label: 'EV Offense', val: D.hgb_rating_off_pct, kind: 'performance' }, { label: 'EV Defense', val: D.hgb_rating_def_pct, kind: 'performance' },
+      { label: 'Goals / 60', val: v3(D.g_60_pct_3yr, pct3.goals), kind: 'performance' }, { label: 'A1 / 60', val: v3(D.a1_60_pct_3yr, pct3.a1), kind: 'performance' },
+      { label: 'xG / 60', val: v3(D.xg_60_pct_3yr, pct3.ixg), kind: 'performance' }, { label: 'Pen Diff', val: v3(D.pen_diff_pct_3yr, pct3.pen_diff), kind: 'performance' },
+      { label: 'Power Play', val: pct3.pp_off ?? null, kind: 'performance' }, { label: 'Penalty Kill', val: pct3.pk_def ?? null, kind: 'performance' },
+      { label: 'Finishing', val: v3(D.finishing_pct_3yr, pct3.finishing), kind: 'context' }, { label: 'Opponent Quality', val: v3(D.qoc_pct_3yr, D.qoc), kind: 'context' }, { label: 'Teammate Quality', val: v3(D.qot_pct_3yr, D.qot), kind: 'context' },
+    ];
+    const ROW_H = 24.5, LABEL_W = 150, PCT_W = 44, BAR_X = L_X + LABEL_W, BAR_W = L_W - LABEL_W - PCT_W - 12, BAR_H = 9;
+    ctx.fillStyle = INK; ctx.fillRect(L_X, y, L_W, 1);
+    bars.forEach((b, i) => { const ry = y + 1 + i * ROW_H, mid = ry + ROW_H / 2;
+      display(ctx, 800, 15, INK, 'left', 'middle'); ctx.fillText(b.label.toUpperCase(), L_X, mid + 1);
+      ctx.fillStyle = INK08; ctx.fillRect(BAR_X, mid - BAR_H / 2, BAR_W, BAR_H);
+      if (b.val != null) { ctx.fillStyle = barFill(b.val, b.kind); ctx.fillRect(BAR_X, mid - BAR_H / 2, Math.max(4, (b.val / 100) * BAR_W), BAR_H); }
+      ctx.fillStyle = INK; ctx.fillRect(BAR_X + BAR_W / 2, mid - BAR_H / 2 - 3, 1, BAR_H + 6);   // 50th tick
+      ctx.font = PCT_VALUE_FONT; ctx.fillStyle = b.val == null ? INK40 : pctColor(b.val, b.kind); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(b.val == null ? '—' : String(Math.round(b.val)), L_X + L_W, mid + 1);
+      ctx.fillStyle = INK24; ctx.fillRect(L_X, ry + ROW_H, L_W, 1); });
+    y += 1 + bars.length * ROW_H + 12;
+    // key
+    const keys = [['#137333', 'TALENT · ABOVE 50TH'], ['rgba(13,13,20,0.35)', 'TALENT · AROUND 50TH'], [RED, 'TALENT · BELOW 25TH'], [CTX_BLUE, 'CONTEXT · NOT A GRADE']];
+    let kx = L_X; keys.forEach(([c, t]) => { ctx.fillStyle = c; ctx.fillRect(kx, y - 3, 16, 6); mono(ctx, 500, 8.5, INK56, 'left', 'middle'); tracked(ctx, t, kx + 22, y, 1.4); kx += 22 + trackedWidth(ctx, t, 1.4) + 18; });
+
+    // RIGHT — shot location map
+    let ry = TOP + 26;
+    mono(ctx, 500, 10, RED, 'left', 'middle'); tracked(ctx, 'SHOT LOCATION', R_X, ry, 2.2);
+    const slW = trackedWidth(ctx, 'SHOT LOCATION', 2.2);
+    mono(ctx, 500, 10, INK56, 'right', 'middle'); const slR = 'MULTI-YEAR · VS POSITION · PER 60'; tracked(ctx, slR, W - PAD_R, ry, 1.8);
+    ctx.fillStyle = INK24; ctx.fillRect(R_X + slW + 12, ry, R_W - slW - trackedWidth(ctx, slR, 1.8) - 24, 1);
+    ry += 18;
+    const MAP_BOT = H - 70, availH = MAP_BOT - ry, availW = R_W;
+    const shotmapImg = await loadImg(D.shotmapUrl);
+    if (shotmapImg) {
+      const asp = shotmapImg.naturalWidth / shotmapImg.naturalHeight; let dw = availW, dh = availW / asp; if (dh > availH) { dh = availH; dw = availH * asp; }
+      ctx.drawImage(shotmapImg, R_X + (availW - dw) / 2, ry + (availH - dh) / 2, dw, dh);
+    } else {
+      // Fallback: a labelled half-rink, not a hole. Fails loud.
+      const mx = R_X, my = ry, mw = availW, mh = Math.min(availH, availW * 1.05);
+      ctx.save(); ctx.beginPath(); ctx.moveTo(mx, my + mh); ctx.lineTo(mx, my + 110); ctx.arcTo(mx, my, mx + 110, my, 110); ctx.lineTo(mx + mw - 110, my); ctx.arcTo(mx + mw, my, mx + mw, my + 110, 110); ctx.lineTo(mx + mw, my + mh); ctx.closePath(); ctx.clip();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(mx, my, mw, mh);
+      ctx.strokeStyle = INK24; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx + mw * 0.25, my + mh * 0.42, mw * 0.14, 0, Math.PI * 2); ctx.stroke(); ctx.beginPath(); ctx.arc(mx + mw * 0.75, my + mh * 0.42, mw * 0.14, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = RED; ctx.beginPath(); ctx.moveTo(mx, my + mh * 0.2); ctx.lineTo(mx + mw, my + mh * 0.2); ctx.stroke(); ctx.beginPath(); ctx.arc(mx + mw / 2, my + mh * 0.2, 34, 0, Math.PI); ctx.stroke();
+      ctx.strokeStyle = COLD; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(mx, my + mh - 30); ctx.lineTo(mx + mw, my + mh - 30); ctx.stroke();
+      ctx.restore();
+      ctx.strokeStyle = INK24; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(mx, my + mh); ctx.lineTo(mx, my + 110); ctx.arcTo(mx, my, mx + 110, my, 110); ctx.lineTo(mx + mw - 110, my); ctx.arcTo(mx + mw, my, mx + mw, my + 110, 110); ctx.lineTo(mx + mw, my + mh); ctx.stroke();
+      mono(ctx, 600, 10, INK40, 'center', 'middle'); tracked(ctx, 'MULTI-YEAR SHOT MAP UNAVAILABLE', mx + mw / 2, my + mh / 2 - 8, 2);
+      mono(ctx, 400, 9, INK40, 'center', 'middle'); tracked(ctx, '(IMAGE DID NOT LOAD · FEWER THAN 50 SHOTS OR BLOCKED)', mx + mw / 2, my + mh / 2 + 10, 1);
+    }
+    // legend
+    const LY = H - 56, gx = R_X, gw = R_W;
+    const grad = ctx.createLinearGradient(gx, 0, gx + gw, 0); grad.addColorStop(0, COLD); grad.addColorStop(0.5, PAPER); grad.addColorStop(1, HOT);
+    ctx.fillStyle = grad; ctx.fillRect(gx, LY, gw, 5);
+    mono(ctx, 500, 9, INK56, 'left', 'middle'); tracked(ctx, 'FEWER', gx, LY - 9, 1.6); mono(ctx, 500, 9, INK56, 'right', 'middle'); tracked(ctx, 'MORE', gx + gw, LY - 9, 1.6);
+
+    // headshot — small, top-right of the header, in the frame's language (ring in team colour)
+    const hs = await loadImg(D.headshotUrl);
+    ctx.save(); ctx.beginPath(); ctx.arc(HCX, HCY, HR, 0, Math.PI * 2); ctx.clip(); if (hs) ctx.drawImage(hs, HCX - HR, HCY - HR, HR * 2, HR * 2); else { ctx.fillStyle = INK14; ctx.fill(); } ctx.restore();
+    ctx.beginPath(); ctx.arc(HCX, HCY, HR, 0, Math.PI * 2); ctx.strokeStyle = TEAM_C; ctx.lineWidth = 2; ctx.stroke();
+
+    // footer
+    const FY = H - 36;
+    ctx.fillStyle = INK; ctx.fillRect(L_X, FY - 12, W - PAD_R - L_X, 1);
+    const f = D.footers.talent; mono(ctx, 500, 9.5, INK56, 'left', 'middle');
+    let fx = L_X; tracked(ctx, f.pre.toUpperCase(), fx, FY + 6, 1.4); fx += trackedWidth(ctx, f.pre.toUpperCase(), 1.4);
+    ctx.fillStyle = RED; tracked(ctx, f.vs.toUpperCase(), fx, FY + 6, 1.4); fx += trackedWidth(ctx, f.vs.toUpperCase(), 1.4);
+    ctx.fillStyle = INK56; tracked(ctx, f.post.toUpperCase(), fx, FY + 6, 1.4);
+    mono(ctx, 500, 9.5, RED, 'right', 'middle'); tracked(ctx, 'THE PLAYER IN ONE STATEMENT', W - PAD_R, FY + 6, 1.8);
+    return canvas;
+  }
+
+  async function run() {
+    status.textContent = 'loading fonts…';
+    try { await Promise.all([`900 100px ${DISPLAY}`, `800 20px ${DISPLAY}`, `500 12px ${MONO}`, `800 12px ${BODY}`].map(f => document.fonts.load(f))); } catch (e) {}
+    status.textContent = 'drawing…';
+    const c = await drawStatementTalentCard(D);
+    const out = document.getElementById('out'); out.innerHTML = ''; out.appendChild(c);
+    status.textContent = `drawn · ${c.width}×${c.height} px · ${D.firstName} ${D.lastName} · ${D.meta.source} · ${D.meta.generated}`;
+    document.getElementById('dl').onclick = () => { const a = document.createElement('a'); a.download = `hgb_statement_talent_${D.slug}_${D.currentSeason.replace('20','')}.png`; a.href = c.toDataURL('image/png'); a.click(); };
+  }
+  document.getElementById('redraw').onclick = run;
+  run();
+})();
+</script>
+</body>
+</html>
