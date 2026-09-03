@@ -2,13 +2,13 @@
 
 Enforced typography and font-token rules for hockeygamebot-site. This is the site-level complement to `hgb-docs/BRAND.md` (card system) and `hgb-docs/BRAND_LIGHT.md` (light-mode cards).
 
-Last updated: 2026-06-23
+Last updated: 2026-09-02
 
 ---
 
 ## Font Tokens
 
-Four canonical CSS custom properties, defined in `src/components/Nav.astro` (`:root`) and synchronized in `src/styles/site-tokens.css` and `src/styles/stats-tokens.css`:
+Four canonical CSS custom properties, defined once in `src/styles/tokens.css` (see "Where Tokens Are Defined" below):
 
 | Token | Font | Loaded via |
 |-------|------|-----------|
@@ -19,7 +19,7 @@ Four canonical CSS custom properties, defined in `src/components/Nav.astro` (`:r
 
 All are loaded in `src/components/Fonts.astro`, which is imported by every production page. Barlow plain (400–700) is also used by the canvas card pipeline (`ctx.font` hardcoded strings).
 
-> `--semi` is a site-only extension of the brand spec (not in `BRAND.md`). Use it only for table column headers (small-caps, 12px, uppercase) where a middle-density between `--body` and `--display` improves readability in dense data tables.
+> `--semi` is a site-only extension of the brand spec (not in `BRAND.md`). Use it only for table column headers (small-caps, 12px, uppercase) where a middle-density between `--body` and `--display` improves readability in dense data tables. **`--semi` is now live**: before the token consolidation (see `docs/plans/token-map.md`) it was defined only in `site-tokens.css`/`stats-tokens.css`, neither of which loaded on any production page — so the token was unreachable everywhere it mattered. It now resolves from `tokens.css`, which every production page imports.
 
 ---
 
@@ -82,13 +82,9 @@ Always set `font-weight` explicitly on every text element. Never rely on inherit
 
 ## Where Tokens Are Defined
 
-Token definition hierarchy (last wins in CSS cascade):
+One layer: `src/styles/tokens.css`. Nothing else in `src/` declares `:root` (outside `_internal/`/`_dev/`, which are excluded from the production token layer by design). It's imported once in `src/layouts/Base.astro`, and directly in the handful of pages that build their own `<head>` instead of using `Base.astro` — see the import list in `docs/plans/token-map.md` §4 step 1 for the full set.
 
-1. `src/styles/site-tokens.css` — home page dark shell tokens (`:root`)
-2. `src/styles/stats-tokens.css` — stats page two-layer token system (`:root` + `[data-mode="light"]`)
-3. `src/components/Nav.astro` — canonical font token override (`:root` in component style block, loads after global sheets)
-
-All three must stay in sync. If you change a font token value, update all three.
+`site-tokens.css`, `stats-tokens.css`, and the `:root` block that used to live in `src/components/Nav.astro` are gone — they were three separate, drifting copies of the same values (that's what made `--semi` unreachable in production, above). There is now exactly one place to change a font token.
 
 ---
 
@@ -98,3 +94,4 @@ All three must stay in sync. If you change a font token value, update all three.
 |------|-------|--------|
 | 2026-06-03 | Full typography compliance audit vs BRAND_LIGHT.md | Completed — 47 files, 338 line changes. See `docs/typography-audit-2026-06-03.md`. |
 | 2026-06-23 | Font token standardization — Geist removal, old token cleanup | Completed — 5 files fixed. |
+| 2026-09-02 | Token consolidation — single `tokens.css` layer, `--site-*`/`--card-*` namespace fix, literal-to-token snap, AA muted-text pass | Completed. See `docs/plans/token-map.md`. |

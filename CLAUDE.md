@@ -36,6 +36,12 @@ Do not use `toolbar={{ hiddenExports: true }}` or proxy-click DOM patterns (`doc
 - **Card sidebar:** collapsed carousels via `window.HGB_Export.showCardModal([{canvas, filename, label}, ...])`.
 - Fixed bars/grid are hardcoded (fine); hero centering is the one spot worth measuring — but **render-test any canvas layout change before shipping** (an untested `measureText()` hero refactor broke a live card).
 
+## CSS Tokens
+
+- One layer, `src/styles/tokens.css`. Nothing else in `src/` declares `:root` (outside `_internal/`/`_dev/`).
+- Imported once in `src/layouts/Base.astro`; imported directly in the pages that build their own `<head>` instead of using `Base.astro` (see `docs/plans/token-map.md` §4 step 1 for that file list).
+- Font-token specifics (`--display`/`--body`/`--semi`/`--mono` usage rules) live in `BRANDING.md`.
+
 ## Git / Deployment
 
 - Do NOT push to `main` without explicit user approval — the site auto-deploys from GitHub.
