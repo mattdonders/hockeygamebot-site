@@ -15,7 +15,7 @@ import type { GoalieGame } from '../../lib/stats-schemas';
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const POS = '#137333';
 const NEG = '#991b1b';
-const MUTED = 'rgba(13,13,20,0.48)';
+const MUTED = 'var(--ink-48)';
 const PO_COLOR = '#2563eb';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

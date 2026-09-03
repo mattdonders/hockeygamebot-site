@@ -17,7 +17,7 @@ const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const POS = '#166534'; const NEG = '#991b1b';
 
 function Sparkline({ values }: { values: number[] }) {
-  if (!values.length) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+  if (!values.length) return <span style={{ color: 'var(--ink-32)' }}>—</span>;
   const W = 72, H = 24, PAD = 2;
   const min = Math.min(...values), max = Math.max(...values);
   const range = max - min || 1;
@@ -26,7 +26,7 @@ function Sparkline({ values }: { values: number[] }) {
   const path = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
   const last = values[values.length - 1];
   const trend = values.length > 1 ? last - values[values.length - 2] : 0;
-  const color = trend > 0 ? POS : trend < 0 ? NEG : 'rgba(13,13,20,0.4)';
+  const color = trend > 0 ? POS : trend < 0 ? NEG : 'var(--ink-48)';
   return (
     <svg width={W} height={H} style={{ display: 'block' }}>
       <path d={path} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
@@ -93,7 +93,7 @@ export default function ImpactTable({ rows, statsDate }: Props) {
         <div>
           <PositionFilter value={pos} onChange={setPos} />
         </div>
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto' }}>
           {filtered.length} skaters{statsDate ? ` · updated ${statsDate}` : ''}
         </span>
       </div>

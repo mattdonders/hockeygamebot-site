@@ -136,10 +136,10 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
           <input
             type="text" placeholder="Filter by team…" value={teamSearch}
             onChange={e => setTeamSearch(e.target.value)}
-            style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', outline: 'none', width: 160, display: 'block' }}
+            style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink)', outline: 'none', width: 160, display: 'block' }}
           />
         </div>
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto' }}>
           {filtered.length} of {totalSeries} series · rank is global
         </span>
       </div>
@@ -153,7 +153,7 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
         toolbar={{ show: false }}
       />
 
-      <p style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.32)', marginTop: 8, letterSpacing: '0.06em' }}>
+      <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-32)', marginTop: 8, letterSpacing: '0.06em' }}>
         W = series winner · R3 = Conference Finals · 5v5 non-empty-net shots only · Score-adjustment not applied
       </p>
     </div>

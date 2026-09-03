@@ -194,13 +194,13 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
         <div>
           <FilterLabel text="Season" />
           <select value={season} onChange={e => setSeason(e.target.value)}
-            style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', cursor: 'pointer' }}>
+            style={{ ...MONO, fontSize: 11, padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink)', cursor: 'pointer' }}>
             {sortedSeasons.map(s => (
               <option key={s} value={s}>{fmtSeason(s)}</option>
             ))}
           </select>
         </div>
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
           {rows.length} teams{statsDate ? ` · updated ${statsDate}` : ''}
         </span>
       </div>

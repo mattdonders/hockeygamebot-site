@@ -34,7 +34,7 @@ function fmtDate(d: string): string {
 
 const POS = '#166534';
 const NEG = '#991b1b';
-const MUTED = 'rgba(13,13,20,0.48)';
+const MUTED = 'var(--ink-48)';
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 export default function TeamGameLogTable({ rows, teamNames, initialOpp = '' }: Props) {
@@ -77,7 +77,7 @@ export default function TeamGameLogTable({ rows, teamNames, initialOpp = '' }: P
       width: 120,
       cell: (_v, row) => {
         const ha = row.is_home ? 'vs' : '@';
-        const haColor = row.is_home ? 'rgba(13,13,20,0.32)' : 'rgba(13,13,20,0.72)';
+        const haColor = row.is_home ? 'var(--ink-32)' : 'var(--ink-72)';
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ ...MONO, fontSize: 10, color: haColor, width: 16, flexShrink: 0 }}>{ha}</span>
@@ -165,7 +165,7 @@ export default function TeamGameLogTable({ rows, teamNames, initialOpp = '' }: P
   return (
     <div>
       {/* Section label row (mirrors .gl-head eyebrow text) */}
-      <div style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginBottom: 4, letterSpacing: '0.06em' }}>
+      <div style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginBottom: 4, letterSpacing: '0.06em' }}>
         {title} · {displayRows.length} game{displayRows.length !== 1 ? 's' : ''}
       </div>
       <HGBTable

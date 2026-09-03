@@ -129,10 +129,10 @@ export const CELL_FONT_SIZE     = 14;  // JetBrains Mono data cells
 export const NAME_FONT_SIZE     = 14;  // Barlow player/goalie names
 export const SUBLINE_FONT_SIZE  = 11;  // Mono sub-line (team abbrev etc)
 
-const INK = '#0d0d14';
-const BG = '#EFEEE8';
-const BORDER = '1px solid rgba(13,13,20,0.14)';
-const MUTED = 'rgba(13,13,20,0.48)';
+const INK = 'var(--ink)';
+const BG = 'var(--bg)';
+const BORDER = '1px solid var(--ink-14)';
+const MUTED = 'var(--ink-48)';
 
 // ── Mobile hook ──────────────────────────────────────────────────────────────
 
@@ -601,7 +601,7 @@ export default function HGBTable<T extends object>({
           alignItems: 'center',
           marginBottom: 12,
           padding: '10px 14px',
-          borderBottom: '1px solid rgba(13,13,20,0.1)',
+          borderBottom: '1px solid var(--ink-10)',
         }}
       >
         {/* Optional inline label */}
@@ -686,8 +686,8 @@ export default function HGBTable<T extends object>({
                     letterSpacing: '0.1em',
                     textTransform: 'uppercase',
                     padding: '5px 8px',
-                    border: '1px solid rgba(13,13,20,0.2)',
-                    background: visible ? 'rgba(13,13,20,0.08)' : 'transparent',
+                    border: '1px solid var(--ink-20)',
+                    background: visible ? 'var(--ink-10)' : 'transparent',
                     color: visible ? INK : MUTED,
                     cursor: 'pointer',
                   }}
@@ -703,12 +703,12 @@ export default function HGBTable<T extends object>({
         {!isMobile && ((showToolbarCsv && exportFilename) || (showToolbarPng && exportTitle)) && (
           <div style={{ display: 'flex', gap: 4 }}>
             {showToolbarCsv && exportFilename && (
-              <button onClick={handleExport} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+              <button onClick={handleExport} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
                 ↓ CSV
               </button>
             )}
             {showToolbarPng && exportTitle && (
-              <button onClick={handleExportPng} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+              <button onClick={handleExportPng} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
                 ↓ PNG
               </button>
             )}
@@ -720,7 +720,7 @@ export default function HGBTable<T extends object>({
           style={{
             ...MONO,
             fontSize: 10,
-            color: 'rgba(13,13,20,0.32)',
+            color: 'var(--ink-32)',
             marginLeft: 'auto',
           }}
         >
@@ -760,7 +760,7 @@ export default function HGBTable<T extends object>({
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id} style={{ background: BG }}>
                 {showRank && (
-                  <th style={{ ...SEMI, fontSize: 12, letterSpacing: '0.10em', textTransform: 'uppercase', color: MUTED, fontWeight: 700, padding: isMobile ? '8px 8px' : '8px 10px', textAlign: 'center', width: 36, position: 'sticky', top: 0, background: BG, zIndex: 2, boxShadow: 'inset 0 -1px 0 rgba(13,13,20,0.14)' }}>#</th>
+                  <th style={{ ...SEMI, fontSize: 12, letterSpacing: '0.10em', textTransform: 'uppercase', color: MUTED, fontWeight: 700, padding: isMobile ? '8px 8px' : '8px 10px', textAlign: 'center', width: 36, position: 'sticky', top: 0, background: BG, zIndex: 2, boxShadow: 'inset 0 -1px 0 var(--ink-14)' }}>#</th>
                 )}
                 {hg.headers.map(h => {
                   const colDef = columnDefs.find(c => c.id === h.id);
@@ -787,7 +787,7 @@ export default function HGBTable<T extends object>({
                         top: 0,
                         background: BG,
                         zIndex: 2,
-                        boxShadow: 'inset 0 -1px 0 rgba(13,13,20,0.14)',
+                        boxShadow: 'inset 0 -1px 0 var(--ink-14)',
                         ...(colDef?.width ? { width: colDef.width } : {}),
                       }}
                     >
@@ -826,13 +826,13 @@ export default function HGBTable<T extends object>({
                   const href = rowHref ? rowHref(row.original) : undefined;
                   const bg = highlightIndex === vr.index
                     ? 'rgba(236,168,0,0.18)'
-                    : vr.index % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
+                    : vr.index % 2 === 0 ? '#fff' : 'var(--ink-04)';
                   return (
                     <tr
                       key={row.id}
                       style={{
                         height: vr.size,
-                        borderBottom: '1px solid rgba(13,13,20,0.05)',
+                        borderBottom: '1px solid var(--ink-06)',
                         background: bg,
                         cursor: href ? 'pointer' : 'default',
                       }}
@@ -840,18 +840,18 @@ export default function HGBTable<T extends object>({
                       tabIndex={href ? 0 : undefined}
                       onClick={href ? () => { window.location.href = href; } : undefined}
                       onKeyDown={href ? e => { if (e.key === 'Enter' || e.key === ' ') window.location.href = href; } : undefined}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--ink-04)'; }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
                     >
                       {showRank && (
-                        <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: 'center', color: 'rgba(13,13,20,0.28)', whiteSpace: 'nowrap', width: 36 }}>{vr.index + 1}</td>
+                        <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: 'center', color: 'var(--ink-32)', whiteSpace: 'nowrap', width: 36 }}>{vr.index + 1}</td>
                       )}
                       {row.getVisibleCells().map(cell => {
                         const colDef = columnDefs.find(c => c.id === cell.column.id);
                         const isFirst = cell.column.id === columnDefs[0]?.id;
                         const align = colDef?.align ?? (isFirst ? 'left' : 'center');
                         return (
-                          <td key={cell.id} style={{ ...MONO, fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: align, color: isFirst ? INK : 'rgba(13,13,20,0.72)', whiteSpace: 'nowrap', borderRight: '1px solid rgba(13,13,20,0.03)' }}>
+                          <td key={cell.id} style={{ ...MONO, fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: align, color: isFirst ? INK : 'var(--ink-72)', whiteSpace: 'nowrap', borderRight: '1px solid var(--ink-04)' }}>
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </td>
                         );
@@ -871,9 +871,9 @@ export default function HGBTable<T extends object>({
                 const href = rowHref ? rowHref(row.original) : undefined;
                 const bg = highlightIndex === i
                   ? 'rgba(236,168,0,0.18)'
-                  : i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.02)';
+                  : i % 2 === 0 ? '#fff' : 'var(--ink-04)';
                 const rowStyle: React.CSSProperties = {
-                  borderBottom: '1px solid rgba(13,13,20,0.05)',
+                  borderBottom: '1px solid var(--ink-06)',
                   background: bg,
                   cursor: href ? 'pointer' : 'default',
                 };
@@ -885,18 +885,18 @@ export default function HGBTable<T extends object>({
                     tabIndex={href ? 0 : undefined}
                     onClick={href ? () => { window.location.href = href; } : undefined}
                     onKeyDown={href ? e => { if (e.key === 'Enter' || e.key === ' ') window.location.href = href; } : undefined}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--ink-04)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = bg; }}
                   >
                     {showRank && (
-                      <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: 'center', color: 'rgba(13,13,20,0.28)', whiteSpace: 'nowrap', width: 36 }}>{i + 1}</td>
+                      <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: 'center', color: 'var(--ink-32)', whiteSpace: 'nowrap', width: 36 }}>{i + 1}</td>
                     )}
                     {row.getVisibleCells().map(cell => {
                       const colDef = columnDefs.find(c => c.id === cell.column.id);
                       const isFirst = cell.column.id === columnDefs[0]?.id;
                       const align = colDef?.align ?? (isFirst ? 'left' : 'center');
                       return (
-                        <td key={cell.id} style={{ ...MONO, fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: align, color: isFirst ? INK : 'rgba(13,13,20,0.72)', whiteSpace: 'nowrap', borderRight: '1px solid rgba(13,13,20,0.03)' }}>
+                        <td key={cell.id} style={{ ...MONO, fontSize: isMobile ? CELL_FONT_SIZE + 1 : CELL_FONT_SIZE, padding: isMobile ? '10px 8px' : '10px 10px', textAlign: align, color: isFirst ? INK : 'var(--ink-72)', whiteSpace: 'nowrap', borderRight: '1px solid var(--ink-04)' }}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );
@@ -915,7 +915,7 @@ export default function HGBTable<T extends object>({
           style={{
             ...MONO,
             fontSize: 9,
-            color: 'rgba(13,13,20,0.32)',
+            color: 'var(--ink-32)',
             marginTop: 6,
             letterSpacing: '0.06em',
           }}

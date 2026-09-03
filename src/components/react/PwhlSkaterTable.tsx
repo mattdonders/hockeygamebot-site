@@ -122,7 +122,7 @@ export default function PwhlSkaterTable({ data }: Props) {
             min={1}
             value={minGP}
             onChange={e => setMinGP(Math.max(1, parseInt(e.target.value) || 1))}
-            style={{ ...SEMI, width: 52, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', fontSize: 11, background: 'transparent', color: '#0d0d14' }}
+            style={{ ...SEMI, width: 52, padding: '5px 8px', border: '1px solid var(--ink-20)', fontSize: 11, background: 'transparent', color: 'var(--ink)' }}
           />
         </div>
       </div>
@@ -138,7 +138,7 @@ export default function PwhlSkaterTable({ data }: Props) {
         virtualize
         emptyMessage="No players match the selected filters."
       />
-      <p style={{ fontSize: 11, color: 'rgba(13,13,20,0.48)', marginTop: 8, fontFamily: 'var(--mono)' }}>
+      <p style={{ fontSize: 11, color: 'var(--ink-48)', marginTop: 8, fontFamily: 'var(--mono)' }}>
         iXG (est.) = individual expected goals, estimated from shot location using uncalibrated coefficients. GP approximated from on-ice goal events.
       </p>
     </div>

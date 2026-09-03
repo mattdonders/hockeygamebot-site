@@ -9,7 +9,7 @@
  * - Optional navigation to /stats/player/{slug} on select
  * - Optional onSelect callback for custom handling
  * - Team logo via NHL CDN (light SVGs, 20×20)
- * - HGB design system: mono font, ink palette, BG #EFEEE8
+ * - HGB design system: mono font, ink palette, BG var(--bg)
  * - Fully accessible: aria-autocomplete, aria-activedescendant, role=listbox
  */
 
@@ -50,11 +50,11 @@ export type PlayerSearchProps = {
 
 // ── Style constants ───────────────────────────────────────────────────────────
 
-const INK          = '#0d0d14';
-const BORDER_IDLE  = '1.5px solid rgba(13,13,20,0.20)';
-const BORDER_FOCUS = '1.5px solid #0d0d14';
-const MUTED        = 'rgba(13,13,20,0.48)';
-const SELECTED_BG  = 'rgba(13,13,20,0.06)';
+const INK          = 'var(--ink)';
+const BORDER_IDLE  = '1.5px solid var(--ink-20)';
+const BORDER_FOCUS = '1.5px solid var(--ink)';
+const MUTED        = 'var(--ink-48)';
+const SELECTED_BG  = 'var(--ink-06)';
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 
@@ -312,8 +312,8 @@ export default function PlayerSearch({
             right: 0,
             zIndex: 100,
             background: '#fff',
-            border: '2px solid #0d0d14',
-            boxShadow: '0 4px 12px rgba(13,13,20,0.10)',
+            border: '2px solid var(--ink)',
+            boxShadow: '0 4px 12px var(--ink-10)',
             maxHeight: `${maxResults * 52}px`,
             overflowY: 'auto',
             margin: 0,
@@ -355,7 +355,7 @@ export default function PlayerSearch({
                     padding: '8px 14px',
                     cursor: 'pointer',
                     background: isActive ? SELECTED_BG : 'transparent',
-                    borderBottom: i < results.length - 1 ? '1px solid rgba(13,13,20,0.06)' : 'none',
+                    borderBottom: i < results.length - 1 ? '1px solid var(--ink-06)' : 'none',
                     transition: 'background 80ms ease',
                     minHeight: 48,
                   }}

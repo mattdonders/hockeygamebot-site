@@ -71,9 +71,9 @@ const FULL_NAMES: Record<string, string> = {
   VAN: 'Vancouver Canucks', VGK: 'Vegas Golden Knights', WSH: 'Washington Capitals', WPG: 'Winnipeg Jets',
 };
 
-const INK = '#0d0d14';
-const CHIP = 'rgba(13,13,20,0.06)';
-const MUTED = 'rgba(13,13,20,0.48)';
+const INK = 'var(--ink)';
+const CHIP = 'var(--ink-06)';
+const MUTED = 'var(--ink-48)';
 
 type LoadState =
   | { status: 'loading' }

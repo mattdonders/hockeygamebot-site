@@ -32,14 +32,14 @@ export default function ShotMapDemo() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         {SERIES.map(s => (
           <button key={s.id} onClick={() => setSelected(s)}
-            style={{ ...mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '6px 14px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: selected.id === s.id ? '#0d0d14' : 'transparent', color: selected.id === s.id ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
+            style={{ ...mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '6px 14px', border: '1px solid var(--ink-20)', cursor: 'pointer', background: selected.id === s.id ? 'var(--ink)' : 'transparent', color: selected.id === s.id ? 'var(--bg)' : 'var(--ink-48)' }}>
             {s.label}
           </button>
         ))}
       </div>
 
-      {loading && <div style={{ ...mono, fontSize: 11, color: 'rgba(13,13,20,0.32)', padding: '60px 0', textAlign: 'center' }}>Loading shots…</div>}
-      {error   && <div style={{ ...mono, fontSize: 11, color: '#E8002D', padding: '40px 0', textAlign: 'center' }}>Error: {error}</div>}
+      {loading && <div style={{ ...mono, fontSize: 11, color: 'var(--ink-32)', padding: '60px 0', textAlign: 'center' }}>Loading shots…</div>}
+      {error   && <div style={{ ...mono, fontSize: 11, color: 'var(--red)', padding: '40px 0', textAlign: 'center' }}>Error: {error}</div>}
       {!loading && !error && (
         <ShotMapKDE
           shots={shots}

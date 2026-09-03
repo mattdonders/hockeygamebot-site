@@ -39,7 +39,7 @@ const COLUMNS: HGBColumnDef<LineRow>[] = [
     exportText: (_v, row) => lastNames(row.players),
     sortType: 'string',
   },
-  { id: 'type',   header: 'Type',    accessor: r => r.type,   width: 48,  cell: v => <span style={{ fontFamily: 'var(--mono)', fontSize: 10, border: '1px solid rgba(13,13,20,0.2)', padding: '1px 5px' }}>{v as string}</span> },
+  { id: 'type',   header: 'Type',    accessor: r => r.type,   width: 48,  cell: v => <span style={{ fontFamily: 'var(--mono)', fontSize: 10, border: '1px solid var(--ink-20)', padding: '1px 5px' }}>{v as string}</span> },
   { id: 'team',   header: 'Team',    accessor: r => r.team,   width: 70,
     cell: (_v, row) => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'center' }}>
@@ -104,7 +104,7 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
 
   const sel = (value: string, onChange: (v: string) => void, opts: { label: string; value: string }[]) => (
     <select value={value} onChange={e => onChange(e.target.value)}
-      style={{ ...SEMI, fontSize: 11, padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'transparent', color: '#0d0d14', cursor: 'pointer' }}>
+      style={{ ...SEMI, fontSize: 11, padding: '5px 8px', border: '1px solid var(--ink-20)', background: 'transparent', color: 'var(--ink)', cursor: 'pointer' }}>
       {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   );
@@ -131,7 +131,7 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
             <FilterLabel text="Season" />
             {sel(season, setSeason, allSeasons.map(s => ({ value: s, label: s === 'all' ? 'All Seasons' : fmtSeasonShort(s) })))}
           </div>
-          <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
+          <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
             {filtered.length} lines{statsDate ? ` · updated ${statsDate}` : ''}
           </span>
         </div>
@@ -142,13 +142,13 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
               {selectedTeams.map(t => (
                 <button key={t} onClick={() => removeTeam(t)}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid var(--ink-32)', background: 'var(--ink)', color: 'var(--bg)', cursor: 'pointer' }}>
                   {t} ×
                 </button>
               ))}
               {selectedTeams.length < MAX_TEAMS && (
                 <select value="" onChange={e => { addTeam(e.target.value); e.target.value = ''; }}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
                   <option value="">Add team…</option>
                   {allTeams.filter(t => !selectedTeams.includes(t)).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -159,8 +159,8 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
             <FilterLabel text="Min TOI" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input type="range" min={20} max={400} step={10} value={minToi} onChange={e => setMinToi(Number(e.target.value))}
-                style={{ width: 100, accentColor: '#E8002D' }} />
-              <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.48)', minWidth: 32 }}>{minToi}m</span>
+                style={{ width: 100, accentColor: 'var(--red)' }} />
+              <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-48)', minWidth: 32 }}>{minToi}m</span>
             </div>
           </div>
         </div>

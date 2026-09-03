@@ -54,36 +54,36 @@ export default function GameChartsDemo() {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
         {GAMES.map(g => (
           <button key={g.id} onClick={() => setSelected(g)}
-            style={{ ...mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '6px 14px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: selected.id === g.id ? '#0d0d14' : 'transparent', color: selected.id === g.id ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
+            style={{ ...mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '6px 14px', border: '1px solid var(--ink-20)', cursor: 'pointer', background: selected.id === g.id ? 'var(--ink)' : 'transparent', color: selected.id === g.id ? 'var(--bg)' : 'var(--ink-48)' }}>
             {g.label}
           </button>
         ))}
       </div>
 
       {/* Score header */}
-      <div style={{ background: '#fff', border: '1px solid rgba(13,13,20,0.14)', padding: '18px 24px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ background: '#fff', border: '1px solid var(--ink-14)', padding: '18px 24px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ ...disp, fontWeight: 800, fontSize: 44, textTransform: 'uppercase', color: selected.awayColor }}>{selected.away}</div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ ...disp, fontWeight: 800, fontSize: 52 }}>{score || '–'}</div>
-          <div style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.48)' }}>{status}</div>
+          <div style={{ ...mono, fontSize: 10, color: 'var(--ink-48)' }}>{status}</div>
         </div>
         <div style={{ ...disp, fontWeight: 800, fontSize: 44, textTransform: 'uppercase', color: selected.homeColor }}>{selected.home}</div>
       </div>
 
       {/* WP Chart */}
-      <div style={{ background: '#fff', border: '1px solid rgba(13,13,20,0.14)', padding: '18px 20px 12px', marginBottom: 12 }}>
-        <div style={{ ...mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#E8002D', marginBottom: 12 }}>Win Probability</div>
+      <div style={{ background: '#fff', border: '1px solid var(--ink-14)', padding: '18px 20px 12px', marginBottom: 12 }}>
+        <div style={{ ...mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--red)', marginBottom: 12 }}>Win Probability</div>
         {loading
-          ? <div style={{ ...mono, fontSize: 11, color: 'rgba(13,13,20,0.32)', padding: '60px 0', textAlign: 'center' }}>Loading…</div>
+          ? <div style={{ ...mono, fontSize: 11, color: 'var(--ink-32)', padding: '60px 0', textAlign: 'center' }}>Loading…</div>
           : <WPChart points={points} goals={goals} homeColor={selected.homeColor} awayColor={selected.awayColor} homeAbbr={selected.home} awayAbbr={selected.away} height={220} />
         }
       </div>
 
       {/* xG Chart */}
-      <div style={{ background: '#fff', border: '1px solid rgba(13,13,20,0.14)', padding: '18px 20px 12px' }}>
-        <div style={{ ...mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#E8002D', marginBottom: 12 }}>5v5 Expected Goals</div>
+      <div style={{ background: '#fff', border: '1px solid var(--ink-14)', padding: '18px 20px 12px' }}>
+        <div style={{ ...mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--red)', marginBottom: 12 }}>5v5 Expected Goals</div>
         {loading
-          ? <div style={{ ...mono, fontSize: 11, color: 'rgba(13,13,20,0.32)', padding: '60px 0', textAlign: 'center' }}>Loading…</div>
+          ? <div style={{ ...mono, fontSize: 11, color: 'var(--ink-32)', padding: '60px 0', textAlign: 'center' }}>Loading…</div>
           : <XGChart points={points} goals={goals} homeColor={selected.homeColor} awayColor={selected.awayColor} homeAbbr={selected.home} awayAbbr={selected.away} height={180} />
         }
       </div>

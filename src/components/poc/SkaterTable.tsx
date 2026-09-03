@@ -159,13 +159,13 @@ export default function SkaterTable({ data }: { data: Skater[] }) {
       header: 'WAR', size: 64,
       cell: i => i.getValue() != null
         ? heat(i.getValue()!, scales.war, (i.getValue()! >= 0 ? '+' : '') + i.getValue()!.toFixed(2))
-        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        : <span style={{ color: 'var(--ink-32)' }}>—</span>,
     }),
     col.accessor('hgb_rating_percentile', {
       header: 'Rating', size: 64,
       cell: i => i.getValue() != null
         ? heat(i.getValue()!, scales.rating, i.getValue() + '%')
-        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        : <span style={{ color: 'var(--ink-32)' }}>—</span>,
     }),
   ], [colorScale, scales]);
 
@@ -183,50 +183,50 @@ export default function SkaterTable({ data }: { data: Skater[] }) {
   const mono = { fontFamily: "'JetBrains Mono', monospace" };
 
   return (
-    <div style={{ fontFamily: "'Barlow', sans-serif", color: '#0d0d14' }}>
+    <div style={{ fontFamily: "'Barlow', sans-serif", color: 'var(--ink)' }}>
 
       {/* Toolbar */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, padding: '10px 0', borderBottom: '1px solid rgba(13,13,20,0.1)' }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, padding: '10px 0', borderBottom: '1px solid var(--ink-10)' }}>
         <input
           placeholder={isMobile ? 'Search…' : 'Search players or team…'}
           value={globalFilter}
           onChange={e => setGlobalFilter(e.target.value)}
-          style={{ ...mono, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff', outline: 'none', width: isMobile ? 130 : 180 }}
+          style={{ ...mono, fontSize: 11, padding: '5px 10px', border: '1px solid var(--ink-14)', background: '#fff', outline: 'none', width: isMobile ? 130 : 180 }}
         />
         {(['all','F','D'] as const).map(p => (
           <button key={p} onClick={() => setPosFilter(p)}
-            style={{ ...mono, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: posFilter === p ? '#0d0d14' : 'transparent', color: posFilter === p ? '#EFEEE8' : 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+            style={{ ...mono, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: posFilter === p ? 'var(--ink)' : 'transparent', color: posFilter === p ? 'var(--bg)' : 'var(--ink-48)', cursor: 'pointer' }}>
             {p === 'all' ? 'All' : p === 'F' ? 'Fwds' : 'Def'}
           </button>
         ))}
         {!isMobile && (
-          <label style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <label style={{ ...mono, fontSize: 10, color: 'var(--ink-48)', display: 'flex', alignItems: 'center', gap: 6 }}>
             Min GP
             <input type="number" value={minGP} min={0} max={82}
               onChange={e => setMinGP(Number(e.target.value))}
-              style={{ ...mono, fontSize: 11, width: 44, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
+              style={{ ...mono, fontSize: 11, width: 44, padding: '4px 6px', border: '1px solid var(--ink-14)', background: '#fff' }} />
           </label>
         )}
         {/* Color scale toggle */}
         <button onClick={() => setColorScale(c => !c)}
-          style={{ ...mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', background: colorScale ? '#E8002D' : 'transparent', color: colorScale ? '#fff' : 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+          style={{ ...mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid var(--ink-20)', background: colorScale ? 'var(--red)' : 'transparent', color: colorScale ? '#fff' : 'var(--ink-48)', cursor: 'pointer' }}>
           {colorScale ? '● Color On' : '○ Color Off'}
         </button>
-        <span style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
+        <span style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto' }}>
           {filtered.length} skaters{isMobile ? '' : ' · click header to sort'}
         </span>
       </div>
 
       {/* Table */}
       <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: '#fff', border: '1px solid rgba(13,13,20,0.14)', minWidth: isMobile ? 'unset' : 700 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: '#fff', border: '1px solid var(--ink-14)', minWidth: isMobile ? 'unset' : 700 }}>
           <thead>
             {table.getHeaderGroups().map(hg => (
-              <tr key={hg.id} style={{ borderBottom: '1px solid rgba(13,13,20,0.14)', background: '#EFEEE8' }}>
+              <tr key={hg.id} style={{ borderBottom: '1px solid var(--ink-14)', background: 'var(--bg)' }}>
                 {hg.headers.map(h => (
                   <th key={h.id}
                     onClick={h.column.getToggleSortingHandler()}
-                    style={{ ...mono, fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', padding: isMobile ? '8px 8px' : '8px 10px', textAlign: h.id === 'display_name' ? 'left' : 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                    style={{ ...mono, fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-48)', padding: isMobile ? '8px 8px' : '8px 10px', textAlign: h.id === 'display_name' ? 'left' : 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
                     {flexRender(h.column.columnDef.header, h.getContext())}
                     {h.column.getIsSorted() === 'asc' ? ' ↑' : h.column.getIsSorted() === 'desc' ? ' ↓' : ''}
                   </th>
@@ -237,12 +237,12 @@ export default function SkaterTable({ data }: { data: Skater[] }) {
           <tbody>
             {table.getRowModel().rows.map((row, i) => (
               <tr key={row.id}
-                style={{ borderBottom: '1px solid rgba(13,13,20,0.05)', background: i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.018)' }}
-                onMouseEnter={e => { if (!isMobile) (e.currentTarget as HTMLElement).style.background = 'rgba(13,13,20,0.04)'; }}
-                onMouseLeave={e => { if (!isMobile) (e.currentTarget as HTMLElement).style.background = i % 2 === 0 ? '#fff' : 'rgba(13,13,20,0.018)'; }}>
+                style={{ borderBottom: '1px solid var(--ink-06)', background: i % 2 === 0 ? '#fff' : 'var(--ink-04)' }}
+                onMouseEnter={e => { if (!isMobile) (e.currentTarget as HTMLElement).style.background = 'var(--ink-04)'; }}
+                onMouseLeave={e => { if (!isMobile) (e.currentTarget as HTMLElement).style.background = i % 2 === 0 ? '#fff' : 'var(--ink-04)'; }}>
                 {row.getVisibleCells().map(cell => (
                   <td key={cell.id}
-                    style={{ ...mono, fontSize: isMobile ? 12 : 11, padding: isMobile ? '8px 8px' : '7px 10px', textAlign: cell.column.id === 'display_name' ? 'left' : 'right', color: cell.column.id === 'display_name' ? '#0d0d14' : 'rgba(13,13,20,0.72)', whiteSpace: 'nowrap' }}>
+                    style={{ ...mono, fontSize: isMobile ? 12 : 11, padding: isMobile ? '8px 8px' : '7px 10px', textAlign: cell.column.id === 'display_name' ? 'left' : 'right', color: cell.column.id === 'display_name' ? 'var(--ink)' : 'var(--ink-72)', whiteSpace: 'nowrap' }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}
@@ -253,7 +253,7 @@ export default function SkaterTable({ data }: { data: Skater[] }) {
       </div>
 
       {isMobile && (
-        <p style={{ ...mono, fontSize: 9, color: 'rgba(13,13,20,0.32)', marginTop: 6, letterSpacing: '0.06em' }}>
+        <p style={{ ...mono, fontSize: 9, color: 'var(--ink-32)', marginTop: 6, letterSpacing: '0.06em' }}>
           Showing Player · Team · Pos · GP · iXG/60 on mobile · tap header to sort
         </p>
       )}

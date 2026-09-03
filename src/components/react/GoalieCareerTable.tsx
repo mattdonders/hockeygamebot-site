@@ -62,13 +62,13 @@ type Props = {
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 const CELL_FONT_SIZE = 14;
-const INK_LIGHT = '#0d0d14';
-const INK_DARK  = '#EFEEE8';
-const BG_LIGHT  = '#EFEEE8';
+const INK_LIGHT = 'var(--ink)';
+const INK_DARK  = 'var(--bg)';
+const BG_LIGHT  = 'var(--bg)';
 const BG_DARK   = '#1A1A26';
-const BORDER_LIGHT = '1px solid rgba(13,13,20,0.14)';
+const BORDER_LIGHT = '1px solid var(--ink-14)';
 const BORDER_DARK  = '1px solid rgba(239,238,232,0.12)';
-const MUTED_LIGHT  = 'rgba(13,13,20,0.48)';
+const MUTED_LIGHT  = 'var(--ink-48)';
 const MUTED_DARK   = 'rgba(239,238,232,0.48)';
 
 const fmtSeason = fmtSeasonLong;
@@ -94,10 +94,10 @@ function fmtDsv(v: number | null | undefined): string {
 }
 
 function gsaxPctColor(v: number | null): string {
-  if (v == null) return 'rgba(13,13,20,0.32)';
+  if (v == null) return 'var(--ink-32)';
   if (v >= 70) return '#137333';
   if (v <= 30) return '#991b1b';
-  return 'rgba(13,13,20,0.72)';
+  return 'var(--ink-72)';
 }
 
 function gsaxColor(v: number | null): string | undefined {
@@ -217,7 +217,7 @@ export default function GoalieCareerTable({
       cell: (info) => {
         const row = info.row.original;
         return (
-          <span style={{ ...MONO, fontWeight: row.is_current ? 700 : 500, color: row.is_current ? INK : 'rgba(13,13,20,0.72)' }}>
+          <span style={{ ...MONO, fontWeight: row.is_current ? 700 : 500, color: row.is_current ? INK : 'var(--ink-72)' }}>
             {row.season_fmt}
           </span>
         );
@@ -234,7 +234,7 @@ export default function GoalieCareerTable({
         return (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             {abbr ? <img src={teamLogoSrc(abbr)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE} style={TEAM_LOGO_STYLE} alt={abbr} /> : null}
-            <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr || '—'}</span>
+            <span style={{ ...MONO, fontSize: 11, color: 'var(--ink-72)' }}>{abbr || '—'}</span>
           </div>
         );
       },
@@ -271,8 +271,8 @@ export default function GoalieCareerTable({
       accessorFn: (r) => (sit === '5v5' ? r.dsv_pct_5v5 : r.dsv_pct) ?? -999,
       cell: (info) => {
         const v = sit === '5v5' ? info.row.original.dsv_pct_5v5 : info.row.original.dsv_pct;
-        const color = v == null ? 'rgba(13,13,20,0.32)' : v > 0.0001 ? '#137333' : v < -0.0001 ? '#991b1b' : undefined;
-        return <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'rgba(13,13,20,0.72)' }}>{fmtDsv(v)}</span>;
+        const color = v == null ? 'var(--ink-32)' : v > 0.0001 ? '#137333' : v < -0.0001 ? '#991b1b' : undefined;
+        return <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'var(--ink-72)' }}>{fmtDsv(v)}</span>;
       },
     },
     {
@@ -284,7 +284,7 @@ export default function GoalieCareerTable({
         const v = sit === '5v5' ? info.row.original.gsax_5v5 : info.row.original.gsax;
         const color = gsaxColor(v ?? null);
         return (
-          <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'rgba(13,13,20,0.72)' }}>
+          <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'var(--ink-72)' }}>
             {v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`}
           </span>
         );
@@ -319,7 +319,7 @@ export default function GoalieCareerTable({
       cell: (info) => {
         const row = info.row.original;
         return (
-          <span style={{ ...MONO, fontWeight: row.is_current ? 700 : 500, color: row.is_current ? INK : 'rgba(13,13,20,0.72)' }}>
+          <span style={{ ...MONO, fontWeight: row.is_current ? 700 : 500, color: row.is_current ? INK : 'var(--ink-72)' }}>
             {row.season_fmt}
           </span>
         );
@@ -336,7 +336,7 @@ export default function GoalieCareerTable({
         return (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             {abbr ? <img src={teamLogoSrc(abbr)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE} style={TEAM_LOGO_STYLE} alt={abbr} /> : null}
-            <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr || '—'}</span>
+            <span style={{ ...MONO, fontSize: 11, color: 'var(--ink-72)' }}>{abbr || '—'}</span>
           </div>
         );
       },
@@ -372,8 +372,8 @@ export default function GoalieCareerTable({
       accessorFn: (r) => r.dsv_pct ?? -999,
       cell: (info) => {
         const v = info.row.original.dsv_pct;
-        const color = v == null ? 'rgba(13,13,20,0.32)' : v > 0.0001 ? '#137333' : v < -0.0001 ? '#991b1b' : undefined;
-        return <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'rgba(13,13,20,0.72)' }}>{fmtDsv(v)}</span>;
+        const color = v == null ? 'var(--ink-32)' : v > 0.0001 ? '#137333' : v < -0.0001 ? '#991b1b' : undefined;
+        return <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'var(--ink-72)' }}>{fmtDsv(v)}</span>;
       },
     },
     {
@@ -385,7 +385,7 @@ export default function GoalieCareerTable({
         const v = info.row.original.gsax;
         const color = gsaxColor(v ?? null);
         return (
-          <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'rgba(13,13,20,0.72)' }}>
+          <span style={{ fontWeight: v != null ? 700 : 400, color: color ?? 'var(--ink-72)' }}>
             {v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`}
           </span>
         );
@@ -510,7 +510,7 @@ export default function GoalieCareerTable({
         {/* 5v5 sub-toggle — RS only */}
         {!isPlayoffs && (
           <>
-            <div style={{ width: 1, height: 20, background: 'rgba(13,13,20,0.15)', margin: '0 4px' }} />
+            <div style={{ width: 1, height: 20, background: 'var(--ink-14)', margin: '0 4px' }} />
             <button style={chip(sit === 'all')} onClick={() => setSit('all')}>All Sit</button>
             <button style={chip(sit === '5v5')} onClick={() => setSit('5v5')}>5v5</button>
           </>
@@ -594,11 +594,11 @@ export default function GoalieCareerTable({
                     data-career-season={orig.season_normalized}
                     onClick={isPlayoffs ? undefined : () => handleSeasonClick(orig.season_normalized)}
                     style={{
-                      borderBottom: '1px solid rgba(13,13,20,0.05)',
+                      borderBottom: '1px solid var(--ink-06)',
                       background: isActive
-                        ? (isDark ? 'rgba(239,238,232,0.07)' : 'rgba(13,13,20,0.05)')
-                        : (i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)')),
-                      borderLeft: isActive ? `3px solid rgba(13,13,20,0.45)` : '3px solid transparent',
+                        ? (isDark ? 'rgba(239,238,232,0.07)' : 'var(--ink-06)')
+                        : (i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'var(--ink-04)')),
+                      borderLeft: isActive ? `3px solid var(--ink-48)` : '3px solid transparent',
                       cursor: isPlayoffs ? 'default' : 'pointer',
                     }}
                     title={isPlayoffs ? undefined : `Click to view ${orig.season_fmt} season card`}
@@ -612,7 +612,7 @@ export default function GoalieCareerTable({
                           padding: '10px 10px',
                           textAlign: ci === 0 ? 'left' : 'center',
                           whiteSpace: 'nowrap',
-                          borderRight: '1px solid rgba(13,13,20,0.03)',
+                          borderRight: '1px solid var(--ink-04)',
                         }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -628,10 +628,10 @@ export default function GoalieCareerTable({
                           fontSize: 10,
                           textAlign: 'center',
                           padding: '4px 0',
-                          color: isDark ? 'rgba(239,238,232,0.20)' : 'rgba(13,13,20,0.22)',
+                          color: isDark ? 'rgba(239,238,232,0.20)' : 'var(--ink-20)',
                           letterSpacing: '0.25em',
-                          borderTop: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'rgba(13,13,20,0.08)'}`,
-                          borderBottom: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'rgba(13,13,20,0.08)'}`,
+                          borderTop: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'var(--ink-10)'}`,
+                          borderBottom: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'var(--ink-10)'}`,
                         }}
                       >
                         · · ·
@@ -645,7 +645,7 @@ export default function GoalieCareerTable({
 
           {/* Career totals row */}
           <tfoot>
-            <tr style={{ borderTop: `2px solid ${INK}`, background: isDark ? 'rgba(239,238,232,0.05)' : 'rgba(13,13,20,0.04)' }}>
+            <tr style={{ borderTop: `2px solid ${INK}`, background: isDark ? 'rgba(239,238,232,0.05)' : 'var(--ink-04)' }}>
               {isPlayoffs ? (
                 <>
                   <td style={{ ...MONO, fontSize: 11, fontWeight: 700, padding: '9px 10px', textAlign: 'left', color: INK, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Career</td>
@@ -695,7 +695,7 @@ export default function GoalieCareerTable({
       <p style={{
         ...MONO,
         fontSize: 10,
-        color: 'rgba(13,13,20,0.40)',
+        color: 'var(--ink-48)',
         margin: '12px 18px 14px',
         letterSpacing: '0.04em',
         lineHeight: 1.5,

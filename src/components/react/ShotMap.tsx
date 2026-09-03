@@ -87,14 +87,14 @@ function RinkElements() {
     <>
       {/* Background */}
       <rect x={2} y={2} width={386} height={166} rx={6}
-        fill="#E8F4F8" stroke="rgba(13,13,20,0.18)" strokeWidth={1} />
+        fill="#E8F4F8" stroke="var(--ink-20)" strokeWidth={1} />
 
       {/* Centre ice line */}
       <line x1={CX} y1={2} x2={CX} y2={168}
-        stroke="rgba(13,13,20,0.25)" strokeWidth={1.5} />
+        stroke="var(--ink-32)" strokeWidth={1.5} />
       {/* Centre dot */}
       <circle cx={CX} cy={cY} r={8}
-        fill="none" stroke="rgba(13,13,20,0.18)" strokeWidth={1} />
+        fill="none" stroke="var(--ink-20)" strokeWidth={1} />
 
       {/* ── FOR side (right) ── */}
       <line x1={fBL} y1={2} x2={fBL} y2={168}
@@ -106,7 +106,7 @@ function RinkElements() {
         fill="rgba(20,100,200,0.07)" stroke="rgba(20,100,200,0.28)" strokeWidth={1} />
       {/* FOR goal mouth */}
       <rect x={fGL} y={cY - 3} width={4} height={6}
-        fill="rgba(13,13,20,0.35)" rx={0.5} />
+        fill="var(--ink-32)" rx={0.5} />
       {/* FOR face-off circles */}
       <circle cx={fFo} cy={foY1} r={18} {...fo} />
       <circle cx={fFo} cy={foY2} r={18} {...fo} />
@@ -123,7 +123,7 @@ function RinkElements() {
         fill="rgba(232,0,45,0.07)" stroke="rgba(232,0,45,0.28)" strokeWidth={1} />
       {/* AGAINST goal mouth */}
       <rect x={aGL - 4} y={cY - 3} width={4} height={6}
-        fill="rgba(13,13,20,0.35)" rx={0.5} />
+        fill="var(--ink-32)" rx={0.5} />
       {/* AGAINST face-off circles */}
       <circle cx={aFo} cy={foY1} r={18} {...fo} />
       <circle cx={aFo} cy={foY2} r={18} {...fo} />
@@ -193,21 +193,21 @@ function ShotTooltip({ data }: { data: TooltipData }) {
       left:  data.x + 12,
       top:   data.y - 8,
       background: '#fff',
-      border: '1px solid rgba(13,13,20,0.14)',
+      border: '1px solid var(--ink-14)',
       padding: '8px 12px',
       lineHeight: 1.7,
       pointerEvents: 'none',
       zIndex: 999,
       minWidth: 140,
-      boxShadow: '0 2px 8px rgba(13,13,20,0.08)',
+      boxShadow: '0 2px 8px var(--ink-10)',
     }}>
-      <div style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.42)', marginBottom: 2 }}>
+      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-48)', marginBottom: 2 }}>
         {teamAbbrev} · Game {gameNum}
       </div>
-      <div style={{ ...mono, fontWeight: 700, color: isGoal ? '#E8002D' : 'rgba(13,13,20,0.72)' }}>
+      <div style={{ ...mono, fontWeight: 700, color: isGoal ? 'var(--red)' : 'var(--ink-72)' }}>
         {isGoal ? 'GOAL' : 'Shot'} · {shotType || '—'}
       </div>
-      <div style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.42)' }}>
+      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-48)' }}>
         x={sx.toFixed(1)} y={sy.toFixed(1)}
       </div>
     </div>
@@ -455,10 +455,10 @@ function Chip({
         letterSpacing: '0.12em',
         textTransform: 'uppercase' as const,
         padding: '5px 14px',
-        border: '1px solid rgba(13,13,20,0.20)',
+        border: '1px solid var(--ink-20)',
         cursor: 'pointer',
-        background:  active ? '#0d0d14'               : 'transparent',
-        color:       active ? '#EFEEE8'               : 'rgba(13,13,20,0.48)',
+        background:  active ? 'var(--ink)'               : 'transparent',
+        color:       active ? 'var(--bg)'               : 'var(--ink-48)',
         transition:  'background 0.15s, color 0.15s',
         lineHeight:  1,
       }}
@@ -471,7 +471,7 @@ function Chip({
 // ── Main component ─────────────────────────────────────────────────────────────
 
 const DEFAULT_COLOR_A = 'rgba(20,100,200,0.90)';  // blue family
-const DEFAULT_COLOR_B = '#E8002D';                  // red family
+const DEFAULT_COLOR_B = 'var(--red)';                  // red family
 
 export default function ShotMap({
   shots,
@@ -532,17 +532,17 @@ export default function ShotMap({
           {title && (
             <div style={{
               ...mono, fontSize: 11, letterSpacing: '0.10em',
-              textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)',
+              textTransform: 'uppercase', color: 'var(--ink-48)',
               marginBottom: 3,
             }}>
               {title}
             </div>
           )}
-          <div style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.36)', letterSpacing: '0.06em' }}>
+          <div style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', letterSpacing: '0.06em' }}>
             <span style={{ color: colorA, fontWeight: 700 }}>{teamA}</span>
             {' '}{forCount} shots · {forShots.filter(s => s[2]).length} goals
             {' '}
-            <span style={{ color: 'rgba(13,13,20,0.24)' }}>|</span>
+            <span style={{ color: 'var(--ink-20)' }}>|</span>
             {' '}
             <span style={{ color: colorB, fontWeight: 700 }}>{teamB}</span>
             {' '}{agaCount} shots · {agaShots.filter(s => s[2]).length} goals
@@ -551,7 +551,7 @@ export default function ShotMap({
 
         {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ display: 'flex', gap: 0, border: '1px solid rgba(13,13,20,0.18)' }}>
+          <div style={{ display: 'flex', gap: 0, border: '1px solid var(--ink-20)' }}>
             <Chip label="Scatter" active={mode === 'scatter'} onClick={() => setMode('scatter')} />
             <Chip label="Density" active={mode === 'density'} onClick={() => setMode('density')} />
           </div>
@@ -561,9 +561,9 @@ export default function ShotMap({
             style={{
               ...mono, fontSize: 10, letterSpacing: '0.08em',
               padding: '5px 12px',
-              border: '1px solid rgba(13,13,20,0.18)',
+              border: '1px solid var(--ink-20)',
               background: 'transparent',
-              color: 'rgba(13,13,20,0.48)',
+              color: 'var(--ink-48)',
               cursor: 'pointer',
               lineHeight: 1,
             }}
@@ -617,7 +617,7 @@ export default function ShotMap({
       <div style={{
         display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap',
         ...mono, fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase',
-        color: 'rgba(13,13,20,0.40)',
+        color: 'var(--ink-48)',
       }}>
         {mode === 'scatter' && (
           <>
@@ -670,7 +670,7 @@ export default function ShotMap({
                 {modalFile}
               </span>
               <a href={modalUrl} download={modalFile}
-                style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', padding: '6px 14px', background: '#fff', color: '#0d0d14', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.10em', textTransform: 'uppercase', padding: '6px 14px', background: '#fff', color: 'var(--ink)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 ↓ Download
               </a>
             </div>

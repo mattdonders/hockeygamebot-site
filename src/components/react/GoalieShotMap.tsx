@@ -43,7 +43,7 @@ const VB_H = 164;
 
 function binColor(sv_pct: number | null, lg: number | null, shots: number) {
   if (sv_pct === null || lg === null || shots < 5) {
-    return { fill: 'rgba(13,13,20,0.08)', stroke: 'rgba(13,13,20,0.15)' };
+    return { fill: 'var(--ink-10)', stroke: 'var(--ink-14)' };
   }
   const delta = sv_pct - lg;
   const mag   = Math.min(Math.abs(delta) / 0.10, 1);
@@ -110,10 +110,10 @@ export default function GoalieShotMap({ shot_bins }: Props) {
     <div style={{ position: 'relative' }}>
       {/* Toolbar label */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.40)' }}>
+        <span style={{ ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-48)' }}>
           Shot Map — Δ SV% vs League
         </span>
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.35)' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)' }}>
           {bins.reduce((a, b) => a + (b.shots ?? 0), 0)} shots · {bins.reduce((a, b) => a + (b.goals ?? 0), 0)} goals
         </span>
       </div>
@@ -129,7 +129,7 @@ export default function GoalieShotMap({ shot_bins }: Props) {
         <rect x={BL} y={VB_Y} width={EB - BL} height={VB_H} fill="#E8F4F8" rx="2" />
 
         {/* Behind-goal tint */}
-        <rect x={GL} y={VB_Y} width={EB - GL} height={VB_H} fill="rgba(13,13,20,0.04)" />
+        <rect x={GL} y={VB_Y} width={EB - GL} height={VB_H} fill="var(--ink-04)" />
 
         {/* Blue line */}
         <line x1={BL} y1={VB_Y} x2={BL} y2={VB_Y + VB_H}
@@ -141,7 +141,7 @@ export default function GoalieShotMap({ shot_bins }: Props) {
 
         {/* End boards */}
         <line x1={EB} y1={VB_Y} x2={EB} y2={VB_Y + VB_H}
-          stroke="rgba(13,13,20,0.20)" strokeWidth="1" />
+          stroke="var(--ink-20)" strokeWidth="1" />
 
         {/* Crease — simplified D shape */}
         <path
@@ -150,7 +150,7 @@ export default function GoalieShotMap({ shot_bins }: Props) {
 
         {/* Goal posts */}
         <rect x={GL} y={GP_TOP} width="5" height={GP_BOT - GP_TOP}
-          fill="rgba(13,13,20,0.45)" rx="0.5" />
+          fill="var(--ink-48)" rx="0.5" />
 
         {/* Face-off circles */}
         <circle cx={FO} cy={FO1} r="18" fill="none"
@@ -162,9 +162,9 @@ export default function GoalieShotMap({ shot_bins }: Props) {
 
         {/* Top/bottom boards */}
         <line x1={BL} y1={VB_Y} x2={EB} y2={VB_Y}
-          stroke="rgba(13,13,20,0.18)" strokeWidth="1" />
+          stroke="var(--ink-20)" strokeWidth="1" />
         <line x1={BL} y1={VB_Y + VB_H} x2={EB} y2={VB_Y + VB_H}
-          stroke="rgba(13,13,20,0.18)" strokeWidth="1" />
+          stroke="var(--ink-20)" strokeWidth="1" />
 
         {/* Labels */}
         <text x={BL} y={VB_Y + VB_H + 10}
@@ -207,15 +207,15 @@ export default function GoalieShotMap({ shot_bins }: Props) {
         const delta = sv != null && lg != null ? (sv - lg) * 100 : null;
         const isGood = delta != null && delta > 0.5;
         const isBad  = delta != null && delta < -0.5;
-        const color  = isGood ? '#15803d' : isBad ? '#E8002D' : 'rgba(13,13,20,0.55)';
+        const color  = isGood ? '#15803d' : isBad ? 'var(--red)' : 'var(--ink-56)';
         return (
           <div style={{
             ...MONO,
             position: 'fixed',
             left: clientX + 12,
             top:  clientY - 60,
-            background: '#0d0d14',
-            color: '#EFEEE8',
+            background: 'var(--ink)',
+            color: 'var(--bg)',
             fontSize: 10,
             padding: '8px 12px',
             pointerEvents: 'none',
@@ -225,7 +225,7 @@ export default function GoalieShotMap({ shot_bins }: Props) {
             lineHeight: 1.7,
             borderRadius: 2,
           }}>
-            <div style={{ fontWeight: 700, marginBottom: 2, color: '#EFEEE8' }}>
+            <div style={{ fontWeight: 700, marginBottom: 2, color: 'var(--bg)' }}>
               x={bin.x} · y={(bin.y ?? 0) >= 0 ? '+' : ''}{bin.y}
             </div>
             <div>{bin.shots} shots · {bin.goals} goals</div>
@@ -242,14 +242,14 @@ export default function GoalieShotMap({ shot_bins }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#15803d', opacity: 0.8 }} />
-          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.08em', color: 'rgba(13,13,20,0.45)' }}>BETTER THAN LEAGUE</span>
+          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.08em', color: 'var(--ink-48)' }}>BETTER THAN LEAGUE</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#E8002D', opacity: 0.8 }} />
-          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.08em', color: 'rgba(13,13,20,0.45)' }}>WORSE THAN LEAGUE</span>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red)', opacity: 0.8 }} />
+          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.08em', color: 'var(--ink-48)' }}>WORSE THAN LEAGUE</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
-          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.06em', color: 'rgba(13,13,20,0.35)' }}>circle size = shot volume</span>
+          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.06em', color: 'var(--ink-32)' }}>circle size = shot volume</span>
         </div>
       </div>
     </div>

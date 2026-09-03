@@ -187,11 +187,11 @@ export default function ShotMapKDE({ shots, teamFor, teamAgainst }: ShotMapKDEPr
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         {(['scatter', 'density'] as const).map(m => (
           <button key={m} onClick={() => setMode(m)}
-            style={{ ...mono, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: mode === m ? '#0d0d14' : 'transparent', color: mode === m ? '#EFEEE8' : 'rgba(13,13,20,0.48)' }}>
+            style={{ ...mono, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid var(--ink-20)', cursor: 'pointer', background: mode === m ? 'var(--ink)' : 'transparent', color: mode === m ? 'var(--bg)' : 'var(--ink-48)' }}>
             {m === 'scatter' ? '● Scatter' : '◼ Density'}
           </button>
         ))}
-        <span style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.32)', marginLeft: 'auto' }}>
+        <span style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto' }}>
           {forShots.length} for · {agaShots.length} against · {shots.filter(s => s[2]).length} goals
         </span>
       </div>
@@ -225,7 +225,7 @@ export default function ShotMapKDE({ shots, teamFor, teamAgainst }: ShotMapKDEPr
 
         {/* Tooltip */}
         {tooltip && (
-          <div style={{ ...mono, position: 'absolute', left: tooltip.x + 8, top: tooltip.y, background: '#0d0d14', color: '#EFEEE8', fontSize: 10, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', letterSpacing: '0.06em', zIndex: 10 }}>
+          <div style={{ ...mono, position: 'absolute', left: tooltip.x + 8, top: tooltip.y, background: 'var(--ink)', color: 'var(--bg)', fontSize: 10, padding: '4px 8px', pointerEvents: 'none', whiteSpace: 'nowrap', letterSpacing: '0.06em', zIndex: 10 }}>
             {tooltip.text}
           </div>
         )}

@@ -105,24 +105,24 @@ function WPTooltip({
   return (
     <div style={{
       background: '#fff',
-      border: '1px solid rgba(13,13,20,0.14)',
+      border: '1px solid var(--ink-14)',
       padding: '8px 12px',
       lineHeight: 1.6,
       minWidth: 160,
     }}>
-      <div style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.42)', marginBottom: 4 }}>
+      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-48)', marginBottom: 4 }}>
         {tLabel(row.t)}
       </div>
       {row._goalMeta && (
-        <div style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.64)', marginBottom: 4 }}>
+        <div style={{ ...mono, fontSize: 10, color: 'var(--ink-64)', marginBottom: 4 }}>
           {row._goalMeta.scorer ?? 'Goal'} · {row._goalMeta.score}
         </div>
       )}
       <div style={{ ...mono }}>
         <span style={{ color: homeColor, fontWeight: 700 }}>{homeAbbr}</span>
-        <span style={{ color: 'rgba(13,13,20,0.56)', margin: '0 6px' }}>{hPct}%</span>
+        <span style={{ color: 'var(--ink-56)', margin: '0 6px' }}>{hPct}%</span>
         <span style={{ color: awayColor, fontWeight: 700 }}>{awayAbbr}</span>
-        <span style={{ color: 'rgba(13,13,20,0.56)', marginLeft: 6 }}>{aPct}%</span>
+        <span style={{ color: 'var(--ink-56)', marginLeft: 6 }}>{aPct}%</span>
       </div>
     </div>
   );
@@ -137,7 +137,7 @@ function GoalDot(props: DotItemDotProps & { homeColor: string; awayColor: string
   const color = row._goalMeta.is_home ? homeColor : awayColor;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={8} fill="none" stroke="#0d0d14" strokeWidth={0.8} strokeOpacity={0.22} />
+      <circle cx={cx} cy={cy} r={8} fill="none" stroke="var(--ink)" strokeWidth={0.8} strokeOpacity={0.22} />
       <circle cx={cx} cy={cy} r={6.5} fill={color} stroke="#fff" strokeWidth={1.5} fillOpacity={0.95} />
     </g>
   );
@@ -188,7 +188,7 @@ export default function WPChart({
       <div style={{
         padding: '24px 0', textAlign: 'center',
         fontFamily: 'var(--mono)', fontSize: 12,
-        color: 'rgba(13,13,20,0.32)', letterSpacing: '0.06em',
+        color: 'var(--ink-32)', letterSpacing: '0.06em',
       }}>
         Win probability not available.
       </div>
@@ -213,34 +213,34 @@ export default function WPChart({
           </linearGradient>
         </defs>
 
-        <CartesianGrid strokeDasharray="3 4" stroke="rgba(13,13,20,0.07)" vertical={false} />
+        <CartesianGrid strokeDasharray="3 4" stroke="var(--ink-06)" vertical={false} />
 
         {/* Period dividers */}
         {[1200, 2400, 3600].filter(t => t < maxT).map(t => (
           <ReferenceLine key={t} x={t}
-            stroke="rgba(13,13,20,0.10)" strokeDasharray="4 3" strokeWidth={1} />
+            stroke="var(--ink-10)" strokeDasharray="4 3" strokeWidth={1} />
         ))}
 
         {/* 50% midline */}
         <ReferenceLine y={0.5}
-          stroke="rgba(13,13,20,0.22)" strokeDasharray="4 4" strokeWidth={1.2}
+          stroke="var(--ink-20)" strokeDasharray="4 4" strokeWidth={1.2}
           label={{
             value: '50%', position: 'left', fontSize: 9,
             fontFamily: "'Barlow Condensed', sans-serif",
-            fontWeight: 700, fill: 'rgba(13,13,20,0.45)', offset: 4,
+            fontWeight: 700, fill: 'var(--ink-48)', offset: 4,
           }}
         />
 
         <XAxis
           dataKey="t" type="number" domain={[0, maxT]}
           ticks={xTicks} tickFormatter={periodLabel}
-          tick={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 10, fontWeight: 700, fill: 'rgba(13,13,20,0.42)' }}
+          tick={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 10, fontWeight: 700, fill: 'var(--ink-48)' }}
           axisLine={false} tickLine={false} tickMargin={4}
         />
         <YAxis
           domain={[0, 1]} ticks={[0, 0.25, 0.5, 0.75, 1.0]}
           tickFormatter={v => `${Math.round((v as number) * 100)}%`}
-          tick={{ fontFamily: 'var(--mono)', fontSize: 9, fill: 'rgba(13,13,20,0.35)' }}
+          tick={{ fontFamily: 'var(--mono)', fontSize: 9, fill: 'var(--ink-32)' }}
           axisLine={false} tickLine={false} width={28}
         />
 
@@ -249,7 +249,7 @@ export default function WPChart({
             <WPTooltip {...p} homeAbbr={homeAbbr} awayAbbr={awayAbbr}
               homeColor={homeColor} awayColor={awayColor} />
           )}
-          cursor={{ stroke: 'rgba(13,13,20,0.12)', strokeWidth: 1 }}
+          cursor={{ stroke: 'var(--ink-10)', strokeWidth: 1 }}
         />
 
         {/*
@@ -270,7 +270,7 @@ export default function WPChart({
         <Area
           type="monotone" dataKey="wp"
           fill={`url(#away-fill-${uid})`}
-          stroke="rgba(13,13,20,0.55)" strokeWidth={2}
+          stroke="var(--ink-56)" strokeWidth={2}
           dot={(p: DotItemDotProps) => (
             <GoalDot key={`dot-${p.cx}-${p.cy}`} {...p}
               homeColor={homeColor} awayColor={awayColor} />

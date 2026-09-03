@@ -80,14 +80,14 @@ export default function ChartsPOC() {
 
   if (status === 'loading') {
     return (
-      <div style={{ textAlign: 'center', padding: '64px 32px', ...mono, fontSize: 12, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.10em', textTransform: 'uppercase' }}>
+      <div style={{ textAlign: 'center', padding: '64px 32px', ...mono, fontSize: 12, color: 'var(--ink-48)', letterSpacing: '0.10em', textTransform: 'uppercase' }}>
         Loading flow data…
       </div>
     );
   }
   if (status === 'error' || !flow) {
     return (
-      <div style={{ textAlign: 'center', padding: '64px 32px', ...mono, fontSize: 12, color: '#E8002D' }}>
+      <div style={{ textAlign: 'center', padding: '64px 32px', ...mono, fontSize: 12, color: 'var(--red)' }}>
         Failed to load: {errorMsg}
       </div>
     );
@@ -114,7 +114,7 @@ export default function ChartsPOC() {
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         gap: 24, marginBottom: 24, padding: 16,
-        background: '#fff', border: '1px solid rgba(13,13,20,0.14)',
+        background: '#fff', border: '1px solid var(--ink-14)',
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
           <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 28, color: awayColor }}>
@@ -122,7 +122,7 @@ export default function ChartsPOC() {
           </span>
           <span style={{ ...mono, fontSize: 22, fontWeight: 700 }}>{awayScore}</span>
         </div>
-        <div style={{ ...mono, fontSize: 12, color: 'rgba(13,13,20,0.32)', textAlign: 'center', letterSpacing: '0.06em' }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-32)', textAlign: 'center', letterSpacing: '0.06em' }}>
           <div>GAME {GAME_ID}</div>
           <div style={{ fontSize: 10, marginTop: 2 }}>FINAL</div>
         </div>
@@ -135,12 +135,12 @@ export default function ChartsPOC() {
       </div>
 
       {/* WP Chart */}
-      <div style={{ background: '#fff', border: '1px solid rgba(13,13,20,0.14)', overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ padding: '10px 14px 6px', borderBottom: '1px solid rgba(13,13,20,0.06)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#E8002D' }}>
+      <div style={{ background: '#fff', border: '1px solid var(--ink-14)', overflow: 'hidden', marginBottom: 16 }}>
+        <div style={{ padding: '10px 14px 6px', borderBottom: '1px solid var(--ink-06)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--red)' }}>
             Win Probability
           </span>
-          <span style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.32)', letterSpacing: '0.06em' }}>
+          <span style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', letterSpacing: '0.06em' }}>
             {wpPoints.length} pts · {validGoals.length} goals
           </span>
         </div>
@@ -158,12 +158,12 @@ export default function ChartsPOC() {
       </div>
 
       {/* xG Chart */}
-      <div style={{ background: '#fff', border: '1px solid rgba(13,13,20,0.14)', overflow: 'hidden' }}>
-        <div style={{ padding: '10px 14px 6px', borderBottom: '1px solid rgba(13,13,20,0.06)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#E8002D' }}>
+      <div style={{ background: '#fff', border: '1px solid var(--ink-14)', overflow: 'hidden' }}>
+        <div style={{ padding: '10px 14px 6px', borderBottom: '1px solid var(--ink-06)', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--red)' }}>
             5v5 Expected Goals
           </span>
-          <span style={{ ...mono, fontSize: 10, color: 'rgba(13,13,20,0.32)', letterSpacing: '0.06em' }}>
+          <span style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', letterSpacing: '0.06em' }}>
             {xgPoints.length} events
           </span>
         </div>

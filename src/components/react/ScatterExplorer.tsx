@@ -129,12 +129,12 @@ const STAT_MAP = Object.fromEntries(STAT_DEFS.map(d => [d.key, d])) as Record<St
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
-const BG = '#EFEEE8';
-const INK = '#0d0d14';
+const BG = 'var(--bg)';
+const INK = 'var(--ink)';
 const SURFACE = '#FFFFFF';
-const BORDER = '1px solid rgba(13,13,20,0.14)';
-const MUTED = 'rgba(13,13,20,0.48)';
-const GRID = 'rgba(13,13,20,0.07)';
+const BORDER = '1px solid var(--ink-14)';
+const MUTED = 'var(--ink-48)';
+const GRID = 'var(--ink-06)';
 
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
@@ -459,7 +459,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
           style={{
             width: 1,
             height: 20,
-            background: 'rgba(13,13,20,0.12)',
+            background: 'var(--ink-10)',
             flexShrink: 0,
           }}
         />
@@ -476,7 +476,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
                 letterSpacing: '0.12em',
                 textTransform: 'uppercase',
                 padding: '5px 10px',
-                border: '1px solid rgba(13,13,20,0.2)',
+                border: '1px solid var(--ink-20)',
                 background: posFilter === v ? INK : 'transparent',
                 color: posFilter === v ? BG : MUTED,
                 cursor: 'pointer',
@@ -514,7 +514,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
           style={{
             ...MONO,
             fontSize: 10,
-            color: 'rgba(13,13,20,0.32)',
+            color: 'var(--ink-32)',
             marginLeft: 'auto',
           }}
         >
@@ -571,7 +571,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
                 x2={toSVGX(medX)}
                 y1={plotTop}
                 y2={plotBottom}
-                stroke="rgba(13,13,20,0.18)"
+                stroke="var(--ink-20)"
                 strokeDasharray="5 3"
                 strokeWidth={1}
               />
@@ -580,7 +580,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
                 x2={plotRight}
                 y1={toSVGY(medY)}
                 y2={toSVGY(medY)}
-                stroke="rgba(13,13,20,0.18)"
+                stroke="var(--ink-20)"
                 strokeDasharray="5 3"
                 strokeWidth={1}
               />
@@ -595,7 +595,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
               fontFamily: "'Barlow Condensed', sans-serif",
               fontSize: 10,
               fontWeight: 700 as const,
-              fill: 'rgba(13,13,20,0.16)',
+              fill: 'var(--ink-14)',
               letterSpacing: '0.10em',
               textTransform: 'uppercase' as const,
             };
@@ -633,7 +633,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
                 style={{
                   fontFamily: 'var(--mono)',
                   fontSize: 9,
-                  fill: 'rgba(13,13,20,0.45)',
+                  fill: 'var(--ink-48)',
                 }}
               >
                 {yDef.format(v)}
@@ -649,7 +649,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
               fontFamily: "'Barlow Condensed', sans-serif",
               fontSize: 11,
               fontWeight: 700,
-              fill: 'rgba(13,13,20,0.55)',
+              fill: 'var(--ink-56)',
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
             }}
@@ -669,7 +669,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
                 style={{
                   fontFamily: 'var(--mono)',
                   fontSize: 9,
-                  fill: 'rgba(13,13,20,0.45)',
+                  fill: 'var(--ink-48)',
                 }}
               >
                 {xDef.format(v)}
@@ -686,7 +686,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
               fontFamily: "'Barlow Condensed', sans-serif",
               fontSize: 11,
               fontWeight: 700,
-              fill: 'rgba(13,13,20,0.55)',
+              fill: 'var(--ink-56)',
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
             }}
@@ -786,7 +786,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
           style={{
             ...MONO,
             fontSize: 9,
-            color: 'rgba(13,13,20,0.32)',
+            color: 'var(--ink-32)',
             letterSpacing: '0.06em',
           }}
         >
@@ -801,7 +801,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
               letterSpacing: '0.1em',
               textTransform: 'uppercase',
               padding: '4px 8px',
-              border: '1px solid rgba(13,13,20,0.2)',
+              border: '1px solid var(--ink-20)',
               background: 'transparent',
               color: MUTED,
               cursor: 'pointer',
@@ -830,7 +830,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
           fontSize: 9,
           letterSpacing: '0.1em',
           textTransform: 'uppercase',
-          color: 'rgba(13,13,20,0.48)',
+          color: 'var(--ink-48)',
         }}
       >
         {label}
@@ -845,9 +845,9 @@ const selectStyle: React.CSSProperties = {
   fontFamily: 'var(--mono)',
   fontSize: 11,
   padding: '5px 8px',
-  border: '1px solid rgba(13,13,20,0.2)',
+  border: '1px solid var(--ink-20)',
   background: '#fff',
-  color: '#0d0d14',
+  color: 'var(--ink)',
   outline: 'none',
   cursor: 'pointer',
 };
@@ -857,8 +857,8 @@ const numberInputStyle: React.CSSProperties = {
   fontSize: 11,
   width: 50,
   padding: '4px 6px',
-  border: '1px solid rgba(13,13,20,0.2)',
+  border: '1px solid var(--ink-20)',
   background: '#fff',
-  color: '#0d0d14',
+  color: 'var(--ink)',
   outline: 'none',
 };

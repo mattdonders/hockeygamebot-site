@@ -219,7 +219,7 @@ function buildColumns(
         cell: (v, r) => (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f2(v as any)}</strong>
-            <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.imp_p)}</span>
+            <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.imp_p)}</span>
           </div>
         ),
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
@@ -229,9 +229,9 @@ function buildColumns(
         cell: (v, r) => v != null
           ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
               <strong style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f2(v as any)}</strong>
-              <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.war_p)}</span>
+              <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.war_p)}</span>
             </div>
-          : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+          : <span style={{ color: 'var(--ink-32)' }}>—</span>,
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
       },
       {
@@ -239,9 +239,9 @@ function buildColumns(
         cell: (v, r) => v != null
           ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
               <strong style={{ color: (v as number) >= 0 ? POS : NEG, fontVariantNumeric: 'tabular-nums' }}>{sgn(v as number)}{f2(v as any)}</strong>
-              {r.rating_p != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.rating_p!)}</span>}
+              {r.rating_p != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.rating_p!)}</span>}
             </div>
-          : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+          : <span style={{ color: 'var(--ink-32)' }}>—</span>,
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
         mobileHidden: true,
       },
@@ -290,7 +290,7 @@ function buildColumns(
     { id: 'fo_losses', header: 'FOL',    accessor: r => r.fo_losses, width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
     { id: 'fo_pct',    header: 'FO%',    accessor: r => (r.fo_wins + r.fo_losses) > 0 ? +(r.fo_wins / (r.fo_wins + r.fo_losses) * 100).toFixed(1) : null,
       width: 56,
-      cell: v => v != null ? `${(v as number).toFixed(1)}%` : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+      cell: v => v != null ? `${(v as number).toFixed(1)}%` : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: v => v != null ? `${(v as number).toFixed(1)}%` : '—' },
   ] : [];
 
@@ -302,9 +302,9 @@ function buildColumns(
       cell: (v, r) => v != null
         ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(1)}</strong>
-            {r.edge_speed_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_speed_pct)}</span>}
+            {r.edge_speed_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.edge_speed_pct)}</span>}
           </div>
-        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_speed_pct != null ? ordinal(r.edge_speed_pct) : '?'})` : '—',
     },
     {
@@ -313,9 +313,9 @@ function buildColumns(
       cell: (v, r) => v != null
         ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(0)}</strong>
-            {r.edge_dist_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_dist_pct)}</span>}
+            {r.edge_dist_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.edge_dist_pct)}</span>}
           </div>
-        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: (v, r) => v != null ? `${(v as number).toFixed(0)} mi (${r.edge_dist_pct != null ? ordinal(r.edge_dist_pct) : '?'})` : '—',
     },
     {
@@ -324,9 +324,9 @@ function buildColumns(
       cell: (v, r) => v != null
         ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{v as number}</strong>
-            {r.edge_bursts_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_bursts_pct)}</span>}
+            {r.edge_bursts_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.edge_bursts_pct)}</span>}
           </div>
-        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: (v, r) => v != null ? `${v} (${r.edge_bursts_pct != null ? ordinal(r.edge_bursts_pct) : '?'})` : '—',
     },
     {
@@ -335,9 +335,9 @@ function buildColumns(
       cell: (v, r) => v != null
         ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(1)}</strong>
-            {r.edge_shot_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)' }}>{ordinal(r.edge_shot_pct)}</span>}
+            {r.edge_shot_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.edge_shot_pct)}</span>}
           </div>
-        : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_shot_pct != null ? ordinal(r.edge_shot_pct) : '?'})` : '—',
     },
   ] : [];
@@ -364,7 +364,7 @@ function buildAggColumns(
       cell: (_v, row) => (
         <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
           {row.name}
-          {row.multiTeam && <span style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.4)', marginLeft: 6 }}>multi</span>}
+          {row.multiTeam && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)', marginLeft: 6 }}>multi</span>}
         </div>
       ),
       exportText: (_v, row) => row.name,
@@ -415,7 +415,7 @@ function buildAggColumns(
       id: 'xgf_pct', header: 'xGF%', accessor: r => r.xgf_pct ?? -1, width: 72, mobileHidden: true,
       cell: (v) => {
         const n = v as number;
-        if (n < 0) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+        if (n < 0) return <span style={{ color: 'var(--ink-32)' }}>—</span>;
         const col = n >= 55 ? POS : n <= 45 ? NEG : undefined;
         return <strong style={{ color: col }}>{n.toFixed(1)}%</strong>;
       },
@@ -427,22 +427,22 @@ function buildAggColumns(
         id: 'xgf_pct', header: 'xGF%', accessor: r => r.xgf_pct ?? -1, width: 72,
         cell: (v) => {
           const n = v as number;
-          if (n < 0) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+          if (n < 0) return <span style={{ color: 'var(--ink-32)' }}>—</span>;
           const col = n >= 55 ? POS : n <= 45 ? NEG : undefined;
           return <strong style={{ color: col }}>{n.toFixed(1)}%</strong>;
         },
         exportText: v => (v as number) >= 0 ? `${(v as number).toFixed(1)}%` : '—',
       },
       { id: 'xgf60', header: 'xGF/60', accessor: r => r.xgf60 ?? null, width: 72,
-        cell: v => v != null ? f2(v as number) : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        cell: v => v != null ? f2(v as number) : <span style={{ color: 'var(--ink-32)' }}>—</span>,
         exportText: v => v != null ? f2(v as number) : '—' },
       { id: 'xga60', header: 'xGA/60', accessor: r => r.xga60 ?? null, width: 72,
-        cell: v => v != null ? f2(v as number) : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+        cell: v => v != null ? f2(v as number) : <span style={{ color: 'var(--ink-32)' }}>—</span>,
         exportText: v => v != null ? f2(v as number) : '—' },
       ...(display === 'totals' ? [{
         id: 'gf_diff', header: 'G±', accessor: (r: AggRow) => r.gf_diff ?? null, width: 60,
         cell: (v: string | number | null) => {
-          if (v == null) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+          if (v == null) return <span style={{ color: 'var(--ink-32)' }}>—</span>;
           const n = v as number;
           return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{sgn(n)}{n}</span>;
         },
@@ -451,7 +451,7 @@ function buildAggColumns(
       {
         id: 'gf_diff_60', header: 'G±/60', accessor: r => r.gf_diff_60 ?? null, width: 72,
         cell: v => {
-          if (v == null) return <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>;
+          if (v == null) return <span style={{ color: 'var(--ink-32)' }}>—</span>;
           const n = v as number;
           return <span style={{ color: n > 0 ? POS : n < 0 ? NEG : undefined }}>{n >= 0 ? '+' : ''}{n.toFixed(2)}</span>;
         },
@@ -467,7 +467,7 @@ function buildAggColumns(
     { id: 'fo_wins',   header: 'FOW',    accessor: r => r.fo_wins,   width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
     { id: 'fo_losses', header: 'FOL',    accessor: r => r.fo_losses, width: 52, cell: v => String(v ?? '—'), exportText: v => String(v ?? '—') },
     { id: 'fo_pct',    header: 'FO%',    accessor: r => r.fo_pct,    width: 56,
-      cell: v => v != null ? `${(v as number).toFixed(1)}%` : <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>,
+      cell: v => v != null ? `${(v as number).toFixed(1)}%` : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: v => v != null ? `${(v as number).toFixed(1)}%` : '—' },
   ];
 
@@ -730,56 +730,56 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
   return (
     <div>
       {/* Zone 1 — always visible: stat tabs + meta + filter toggle */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid var(--ink-10)', marginBottom: 10 }}>
         <FilterChipGroup>
           {(['counting','rates','advanced','onice'] as Tab[]).map(t =>
             <FilterChip key={t} active={tab === t} label={{ counting: 'Counting', rates: 'Rates', advanced: 'Advanced', onice: 'On-Ice 5v5' }[t]} onClick={() => { setTab(t); if (t === 'rates') setDisplay('totals'); }} disabled={tabDisabled(t)} />
           )}
         </FilterChipGroup>
         <div style={{ flex: 1 }} />
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', whiteSpace: 'nowrap' }}>
           {useAgg
             ? (slimLoading ? 'loading…' : `${topN ? Math.min(topN, aggFiltered.length) : aggFiltered.length} skaters`)
             : `${topN ? Math.min(topN, filtered.length) : filtered.length} skaters`}
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={() => exportFnsRef.current?.exportCsv()} disabled={slimLoading}
-            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: slimLoading ? 'rgba(13,13,20,0.24)' : 'rgba(13,13,20,0.48)', cursor: slimLoading ? 'default' : 'pointer' }}>↓ CSV</button>
+            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: slimLoading ? 'var(--ink-20)' : 'var(--ink-48)', cursor: slimLoading ? 'default' : 'pointer' }}>↓ CSV</button>
           <button onClick={() => exportFnsRef.current?.exportPng()} disabled={slimLoading}
-            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: slimLoading ? 'rgba(13,13,20,0.24)' : 'rgba(13,13,20,0.48)', cursor: slimLoading ? 'default' : 'pointer' }}>↓ PNG</button>
+            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: slimLoading ? 'var(--ink-20)' : 'var(--ink-48)', cursor: slimLoading ? 'default' : 'pointer' }}>↓ PNG</button>
         </div>
-        <button onClick={() => setFiltersOpen(o => !o)} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
+        <button onClick={() => setFiltersOpen(o => !o)} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', cursor: 'pointer', background: filtersOpen ? 'var(--ink)' : '#fff', color: filtersOpen ? 'var(--bg)' : 'var(--ink-48)', display: 'flex', alignItems: 'center', gap: 5 }}>
           Filters <span style={{ fontSize: 8 }}>{filtersOpen ? '▲' : '▼'}</span>
         </button>
       </div>
 
       {/* Column toggles — physical/faceoff + EDGE columns, hidden by default */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.35)', marginRight: 2 }}>Cols</span>
+        <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-32)', marginRight: 2 }}>Cols</span>
         {PHYSICAL_COL_DEFS.map(col => {
           const active = visiblePhysical.has(col.id);
           return (
             <button key={col.id} onClick={() => togglePhysical(col.id)}
               style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 8px',
-                border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer',
-                background: active ? 'rgba(13,13,20,0.08)' : 'transparent',
-                color: active ? '#0d0d14' : 'rgba(13,13,20,0.35)' }}>
+                border: '1px solid var(--ink-20)', cursor: 'pointer',
+                background: active ? 'var(--ink-10)' : 'transparent',
+                color: active ? 'var(--ink)' : 'var(--ink-32)' }}>
               {col.label}
             </button>
           );
         })}
         {!useAgg && (
           <>
-            <span style={{ fontSize: 9, color: 'rgba(13,13,20,0.2)', margin: '0 2px' }}>·</span>
-            <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.35)', marginRight: 2 }}>Edge</span>
+            <span style={{ fontSize: 9, color: 'var(--ink-20)', margin: '0 2px' }}>·</span>
+            <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-32)', marginRight: 2 }}>Edge</span>
             {EDGE_COL_DEFS.map(col => {
               const active = visibleEdge.has(col.id);
               return (
                 <button key={col.id} onClick={() => toggleEdge(col.id)}
                   style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 8px',
-                    border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer',
-                    background: active ? 'rgba(13,13,20,0.08)' : 'transparent',
-                    color: active ? '#0d0d14' : 'rgba(13,13,20,0.35)' }}>
+                    border: '1px solid var(--ink-20)', cursor: 'pointer',
+                    background: active ? 'var(--ink-10)' : 'transparent',
+                    color: active ? 'var(--ink)' : 'var(--ink-32)' }}>
                   {col.label}
                 </button>
               );
@@ -801,17 +801,17 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
               <FilterLabel text="Season Range" />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <select value={fromSeason} onChange={e => setFromSeason(e.target.value)}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-72)', cursor: 'pointer' }}>
                   {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
                 </select>
-                <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.32)' }}>to</span>
+                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-32)' }}>to</span>
                 <select value={toSeason} onChange={e => setToSeason(e.target.value)}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-72)', cursor: 'pointer' }}>
                   {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
                 </select>
                 {seasonOptions.length > 1 && (
                   <button onClick={() => { setFromSeason(seasonOptions[seasonOptions.length - 1]); setToSeason(seasonOptions[0]); }}
-                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
                     All time
                   </button>
                 )}
@@ -841,14 +841,14 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             <div>
               <FilterLabel text="Min GP" />
               <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-                style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff', display: 'block' }} />
+                style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid var(--ink-14)', background: '#fff', display: 'block' }} />
             </div>
             <div>
               <FilterLabel text="Min TOI" />
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <input type="number" value={minToi} min={0} max={9999} step={100} onChange={e => setMinToi(Number(e.target.value))}
-                  style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff' }} />
-                <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.32)' }}>min</span>
+                  style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid var(--ink-14)', background: '#fff' }} />
+                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-32)' }}>min</span>
               </div>
             </div>
             <TopNFilter value={topN} onChange={setTopN} />
@@ -861,7 +861,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 const p = rows.find(r => r.slug === slug);
                 return (
                   <button key={slug} onClick={() => setPlayerFilter(f => f.filter(s => s !== slug))}
-                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid var(--ink-32)', background: 'var(--ink)', color: 'var(--bg)', cursor: 'pointer' }}>
                     {p?.name ?? slug} ×
                   </button>
                 );
@@ -874,23 +874,23 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                   onChange={e => { setPlayerSearch(e.target.value); setPlayerDropOpen(true); }}
                   onFocus={() => setPlayerDropOpen(true)}
                   onBlur={() => setTimeout(() => setPlayerDropOpen(false), 150)}
-                  style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: '#0d0d14', outline: 'none', width: 220 }}
+                  style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink)', outline: 'none', width: 220 }}
                 />
                 {playerDropOpen && playerSearch.trim().length >= 2 && (() => {
                   const q = playerSearch.toLowerCase();
                   const matches = filteredForSearch.filter(r => !playerFilter.includes(r.slug) && r.searchText.includes(q)).slice(0, 8);
                   if (!matches.length) return null;
                   return (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '2px solid #0d0d14', boxShadow: '0 4px 12px rgba(13,13,20,0.12)', minWidth: 220 }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '2px solid var(--ink)', boxShadow: '0 4px 12px var(--ink-10)', minWidth: 220 }}>
                       {matches.map(r => (
                         <button key={r.slug} type="button"
                           onMouseDown={e => { e.preventDefault(); setPlayerFilter(f => [...f, r.slug]); setPlayerSearch(''); setPlayerDropOpen(false); }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', borderBottom: '1px solid rgba(13,13,20,0.06)', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--body)' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(13,13,20,0.04)'; }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', border: 'none', borderBottom: '1px solid var(--ink-06)', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--body)' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ink-04)'; }}
                           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
                         >
                           <span style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: 13 }}>{r.first_name && r.last_name ? `${r.first_name} ${r.last_name}` : r.name}</span>
-                          <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.48)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{r.team} · {r.pos}</span>
+                          <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-48)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{r.team} · {r.pos}</span>
                         </button>
                       ))}
                     </div>
@@ -898,7 +898,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 })()}
               </div>
               {playerFilter.length > 0 && (
-                <button onClick={() => setPlayerFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                <button onClick={() => setPlayerFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-48)', cursor: 'pointer' }}>
                   Clear all
                 </button>
               )}
@@ -914,7 +914,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
               value={findInput}
               onChange={e => setFindInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') setFindKey(k => k + 1); }}
-              style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', outline: 'none', width: 140, color: '#0d0d14' }}
+              style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', outline: 'none', width: 140, color: 'var(--ink)' }}
             />
           </div>
 
@@ -924,19 +924,19 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
               {teamFilter.map(t => (
                 <button key={t} onClick={() => setTeamFilter(f => f.filter(x => x !== t))}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid var(--ink-32)', background: 'var(--ink)', color: 'var(--bg)', cursor: 'pointer' }}>
                   {t} ×
                 </button>
               ))}
               <select value="" onChange={e => { const v = e.target.value; if (v && !teamFilter.includes(v)) setTeamFilter(f => [...f, v]); e.target.value = ''; }}
-                style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
                 <option value="">Add team…</option>
                 {[...new Set(rows.map(r => r.team))].sort().filter(t => !teamFilter.includes(t)).map(t => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
               {teamFilter.length > 0 && (
-                <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Clear</button>
+                <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-48)', cursor: 'pointer' }}>Clear</button>
               )}
             </div>
           </div>{/* end row 2 */}
@@ -948,16 +948,16 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
       {(presets.length > 0 || filtersOpen) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 10 }}>
           {presets.map(p => (
-            <div key={p.name} style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid rgba(13,13,20,0.2)', background: '#fff' }}>
+            <div key={p.name} style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--ink-20)', background: '#fff' }}>
               <button
                 onClick={() => applyPreset(p)}
-                style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 10px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(13,13,20,0.72)' }}
+                style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 10px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-72)' }}
               >
                 {p.name}
               </button>
               <button
                 onClick={() => deletePreset(p.name)}
-                style={{ ...MONO, fontSize: 10, padding: '4px 6px 4px 2px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(13,13,20,0.3)', lineHeight: 1 }}
+                style={{ ...MONO, fontSize: 10, padding: '4px 6px 4px 2px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-32)', lineHeight: 1 }}
                 title="Delete preset"
               >×</button>
             </div>
@@ -965,7 +965,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           {filtersOpen && !saveMode && (
             <button
               onClick={() => { setSaveMode(true); setSaveName(''); }}
-              style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 10px', border: '1px dashed rgba(13,13,20,0.2)', background: 'none', cursor: 'pointer', color: 'rgba(13,13,20,0.4)' }}
+              style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 10px', border: '1px dashed var(--ink-20)', background: 'none', cursor: 'pointer', color: 'var(--ink-48)' }}
             >
               + Save filters
             </button>
@@ -980,17 +980,17 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 onChange={e => setSaveName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') savePreset(); if (e.key === 'Escape') setSaveMode(false); }}
                 maxLength={40}
-                style={{ ...MONO, fontSize: 11, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#fff', outline: 'none', width: 160, color: '#0d0d14' }}
+                style={{ ...MONO, fontSize: 11, padding: '4px 8px', border: '1px solid var(--ink-32)', background: '#fff', outline: 'none', width: 160, color: 'var(--ink)' }}
               />
-              <button onClick={savePreset} style={{ ...MONO, fontSize: 10, padding: '4px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>Save</button>
-              <button onClick={() => setSaveMode(false)} style={{ ...MONO, fontSize: 10, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.2)', background: 'none', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={savePreset} style={{ ...MONO, fontSize: 10, padding: '4px 10px', border: '1px solid var(--ink-20)', background: 'var(--ink)', color: 'var(--bg)', cursor: 'pointer' }}>Save</button>
+              <button onClick={() => setSaveMode(false)} style={{ ...MONO, fontSize: 10, padding: '4px 8px', border: '1px solid var(--ink-20)', background: 'none', color: 'var(--ink-48)', cursor: 'pointer' }}>Cancel</button>
             </div>
           )}
         </div>
       )}
 
       {useAgg && slimLoading ? (
-        <div style={{ ...MONO, fontSize: 12, color: 'rgba(13,13,20,0.4)', padding: '48px 0', textAlign: 'center' }}>
+        <div style={{ ...MONO, fontSize: 12, color: 'var(--ink-48)', padding: '48px 0', textAlign: 'center' }}>
           Loading multi-season data…
         </div>
       ) : useAgg ? (
@@ -1043,11 +1043,11 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         />
       )}
       {useAgg ? (
-        <p style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.32)', marginTop: 6, letterSpacing: '0.06em' }}>
+        <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-32)', marginTop: 6, letterSpacing: '0.06em' }}>
           {gameType === 'playoffs' ? 'Playoff' : 'Multi-season'} totals · TOI is 5v5 only · per-season ranks hidden when aggregating
         </p>
       ) : statsDate && (
-        <p style={{ ...MONO, fontSize: 9, color: 'rgba(13,13,20,0.32)', marginTop: 6, letterSpacing: '0.06em' }}>
+        <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-32)', marginTop: 6, letterSpacing: '0.06em' }}>
           Updated {statsDate} · 5v5 data via HGB Analytics
         </p>
       )}

@@ -12,9 +12,9 @@ type Props = {
   maxResults?: number;
 };
 
-const INK    = '#0d0d14';
-const MUTED  = 'rgba(13,13,20,0.48)';
-const BORDER = '1px solid rgba(13,13,20,0.14)';
+const INK    = 'var(--ink)';
+const MUTED  = 'var(--ink-48)';
+const BORDER = '1px solid var(--ink-14)';
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 
@@ -96,7 +96,7 @@ export default function PlayerSearchMulti({ players, maxResults = 8 }: Props) {
                   alignItems: 'center',
                   gap: 10,
                   padding: '8px 12px',
-                  borderBottom: i < selected.length - 1 ? '1px solid rgba(13,13,20,0.06)' : 'none',
+                  borderBottom: i < selected.length - 1 ? '1px solid var(--ink-06)' : 'none',
                 }}
               >
                 {/* Team logo */}

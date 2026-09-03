@@ -69,10 +69,10 @@ const RED   = '#991b1b';
 
 
 function pctColor(v: number | null): string {
-  if (v == null) return 'rgba(13,13,20,0.32)';
+  if (v == null) return 'var(--ink-32)';
   if (v >= 75) return GREEN;
   if (v <= 35) return RED;
-  return 'rgba(13,13,20,0.72)';
+  return 'var(--ink-72)';
 }
 
 const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
@@ -103,7 +103,7 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
     accessor: r => r.team,
     align: 'center',
     cell: (v) => (
-      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'var(--ink-48)', letterSpacing: '0.06em' }}>
         {v}
       </span>
     ),
@@ -115,7 +115,7 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
     accessor: r => r.pos,
     align: 'center',
     cell: (v) => (
-      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'rgba(13,13,20,0.32)' }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-32)' }}>
         {v}
       </span>
     ),
@@ -126,7 +126,7 @@ const followedCols: HGBColumnDef<DashboardPlayerRow>[] = [
   { id: 'a',  header: 'A',  accessor: r => r.a,  sortType: 'number', align: 'right', mobileHidden: true },
   {
     id: 'p', header: 'P', accessor: r => r.p, sortType: 'number', align: 'right',
-    cell: (v) => <span style={{ fontWeight: 700, color: '#0d0d14' }}>{v}</span>,
+    cell: (v) => <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{v}</span>,
   },
   {
     id: 'war_p', header: 'WAR%', accessor: r => r.war_p ?? -1,
@@ -159,7 +159,7 @@ export function DashboardFollowedPlayers() {
   }, []);
 
   if (players === null) {
-    return <div style={{ padding: '16px 0', color: 'rgba(13,13,20,0.32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+    return <div style={{ padding: '16px 0', color: 'var(--ink-32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
   }
 
   return (
@@ -213,7 +213,7 @@ const topImpactCols: HGBColumnDef<TopImpactRow>[] = [
     accessor: r => r.team_abbrev,
     align: 'center',
     cell: (v) => (
-      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'rgba(13,13,20,0.48)', letterSpacing: '0.06em' }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, fontWeight: 700, color: 'var(--ink-48)', letterSpacing: '0.06em' }}>
         {v}
       </span>
     ),
@@ -225,7 +225,7 @@ const topImpactCols: HGBColumnDef<TopImpactRow>[] = [
     accessor: r => r.pos,
     align: 'center',
     cell: (v) => (
-      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'rgba(13,13,20,0.32)' }}>
+      <span style={{ fontFamily: 'var(--mono)', fontSize: CELL_FONT_SIZE, color: 'var(--ink-32)' }}>
         {v}
       </span>
     ),

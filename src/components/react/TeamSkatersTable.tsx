@@ -29,14 +29,14 @@ type Props = {
 
 const POS = '#166534';
 const NEG = '#991b1b';
-const MUTED = 'rgba(13,13,20,0.48)';
+const MUTED = 'var(--ink-48)';
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 
 const sgn = (v: number) => v >= 0 ? '+' : '';
 
 function pctCls(p: number | null) {
   if (p == null) return MUTED;
-  return p >= 90 ? '#00c078' : p >= 70 ? '#60a5fa' : p >= 40 ? 'rgba(13,13,20,0.32)' : 'rgba(232,0,45,0.65)';
+  return p >= 90 ? '#00c078' : p >= 70 ? '#60a5fa' : p >= 40 ? 'var(--ink-32)' : 'rgba(232,0,45,0.65)';
 }
 
 function ordinal(p: number | null) {

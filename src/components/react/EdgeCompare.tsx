@@ -149,13 +149,13 @@ function CompareHero({ left, right }: { left: EdgePlayer | null; right: EdgePlay
         {left && (
           <span
             className="edge-cmp-chip"
-            style={{ background: pickTeamColor(left.team_abbrev), color: '#EFEEE8' }}
+            style={{ background: pickTeamColor(left.team_abbrev), color: 'var(--bg)' }}
           >{teamName(left.team_abbrev)}</span>
         )}
         {right && (
           <span
             className="edge-cmp-chip"
-            style={{ background: pickTeamColor(right.team_abbrev), color: '#EFEEE8' }}
+            style={{ background: pickTeamColor(right.team_abbrev), color: 'var(--bg)' }}
           >{teamName(right.team_abbrev)}</span>
         )}
         <span className="edge-cmp-chip edge-cmp-chip-ink">2025–26</span>
@@ -337,7 +337,7 @@ export default function EdgeCompare({ players, defaultLeft, defaultRight }: Prop
     try {
       const canvas = await toCanvas(node, {
         pixelRatio: 2,
-        backgroundColor: '#EFEEE8',
+        backgroundColor: 'var(--bg)',
         cacheBust: true,
       });
       const slug = [left, right]

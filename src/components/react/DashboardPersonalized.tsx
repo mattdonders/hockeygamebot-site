@@ -33,15 +33,15 @@ const TEAM_NAMES: Record<string, string> = {
   WSH:'Washington Capitals', WPG:'Winnipeg Jets', ARI:'Arizona Coyotes',
 };
 
-function tc(a: string) { return TEAM_COLORS[a] ?? '#E8002D'; }
+function tc(a: string) { return TEAM_COLORS[a] ?? 'var(--red)'; }
 function ordinal(n: number) { return n + (n===1?'st':n===2?'nd':n===3?'rd':'th'); }
 
 function teamLabel(rank: number | null): { text: string; color: string } {
-  if (!rank) return { text: '—', color: 'rgba(13,13,20,0.40)' };
+  if (!rank) return { text: '—', color: 'var(--ink-48)' };
   if (rank <= 8)  return { text: 'Contender Profile', color: '#166534' };
   if (rank <= 16) return { text: 'Playoff Fringe',    color: '#92400e' };
-  if (rank <= 24) return { text: 'Rebuild Watch',     color: 'rgba(13,13,20,0.40)' };
-  return              { text: 'Full Rebuild',         color: 'rgba(13,13,20,0.40)' };
+  if (rank <= 24) return { text: 'Rebuild Watch',     color: 'var(--ink-48)' };
+  return              { text: 'Full Rebuild',         color: 'var(--ink-48)' };
 }
 
 export async function fetchPrefs(): Promise<{ tracked_teams: string[]; tracked_players: number[] }> {
@@ -110,10 +110,10 @@ export function DashboardTeamCards() {
   }, []);
 
   if (cards === null) {
-    return <div style={{ padding: '12px 0', color: 'rgba(13,13,20,0.32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+    return <div style={{ padding: '12px 0', color: 'var(--ink-32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
   }
   if (!cards.length) {
-    return <div style={{ color: 'rgba(13,13,20,0.48)', fontSize: 13, padding: '12px 0' }}>No teams followed. <a href="/account">Add teams →</a></div>;
+    return <div style={{ color: 'var(--ink-48)', fontSize: 13, padding: '12px 0' }}>No teams followed. <a href="/account">Add teams →</a></div>;
   }
 
   return (
@@ -198,10 +198,10 @@ export function DashboardTrending() {
   }, []);
 
   if (rows === null) {
-    return <div className="trending-card" style={{ padding: '16px 14px', color: 'rgba(13,13,20,0.32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+    return <div className="trending-card" style={{ padding: '16px 14px', color: 'var(--ink-32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
   }
   if (!rows.length) {
-    return <div className="trending-card" style={{ padding: '16px 14px', color: 'rgba(13,13,20,0.48)', fontSize: 13 }}>No players followed. <a href="/account">Add players →</a></div>;
+    return <div className="trending-card" style={{ padding: '16px 14px', color: 'var(--ink-48)', fontSize: 13 }}>No players followed. <a href="/account">Add players →</a></div>;
   }
 
   return (
@@ -211,7 +211,7 @@ export function DashboardTrending() {
           <img src={`https://assets.nhle.com/logos/nhl/svg/${t.team}_light.svg`} alt={t.team} style={{ width: 28, height: 28, objectFit: 'contain', flexShrink: 0, marginRight: 6 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="trend-name">{t.name}</div>
-            <div className="trend-label" style={{ color: 'rgba(13,13,20,0.40)' }}>{t.team} · {t.pos ?? ''}</div>
+            <div className="trend-label" style={{ color: 'var(--ink-48)' }}>{t.team} · {t.pos ?? ''}</div>
           </div>
           <div className={`trend-delta ${t.dir === 'up' ? 'delta-up' : 'delta-down'}`}>
             {t.dir === 'up' ? '↑' : '↓'} {t.delta}
@@ -250,14 +250,14 @@ export function EntitySignals({ entityId, entityType, limit = 3 }: EntitySignals
       {signals.map((s, i) => (
         <div key={i} style={{
           background: 'var(--surface, #fff)',
-          border: '1px solid rgba(13,13,20,0.10)',
+          border: '1px solid var(--ink-10)',
           borderLeft: `3px solid ${SEVERITY_BORDER[s.severity] ?? '#C8102E'}`,
           padding: '10px 14px',
         }}>
-          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 6 }}>
+          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-48)', marginBottom: 6 }}>
             {s.category}
           </div>
-          <div style={{ fontFamily: 'var(--body, sans-serif)', fontWeight: 700, fontSize: 13.5, lineHeight: 1.55, color: 'rgba(13,13,20,0.80)' }}>
+          <div style={{ fontFamily: 'var(--body, sans-serif)', fontWeight: 700, fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-86)' }}>
             {s.copy}
           </div>
         </div>
@@ -343,10 +343,10 @@ export function DashboardModelSignals() {
   }, []);
 
   if (signals === null) {
-    return <div style={{ padding: '12px 0', color: 'rgba(13,13,20,0.32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+    return <div style={{ padding: '12px 0', color: 'var(--ink-32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
   }
   if (!signals.length) {
-    return <div style={{ color: 'rgba(13,13,20,0.48)', fontSize: 13, padding: '12px 0' }}>No signals for your followed teams and players.</div>;
+    return <div style={{ color: 'var(--ink-48)', fontSize: 13, padding: '12px 0' }}>No signals for your followed teams and players.</div>;
   }
 
   return (

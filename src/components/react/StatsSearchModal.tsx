@@ -58,22 +58,22 @@ export default function StatsSearchModal({ players }: Props) {
       <div ref={modalRef} style={{
         width: '100%', maxWidth: '560px', margin: '0 16px',
         background: 'var(--surface, #fff)',
-        border: '2px solid var(--ink, #0d0d14)',
-        boxShadow: '0 8px 32px rgba(13,13,20,0.24)',
+        border: '2px solid var(--ink)',
+        boxShadow: '0 8px 32px var(--ink-20)',
       }}>
         <div style={{
           padding: '10px 14px 6px',
-          borderBottom: '1px solid rgba(13,13,20,0.1)',
+          borderBottom: '1px solid var(--ink-10)',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <span style={{
             fontFamily: 'var(--mono, monospace)', fontSize: '9px', fontWeight: 700,
             letterSpacing: '0.14em', textTransform: 'uppercase',
-            color: 'rgba(13,13,20,0.4)',
+            color: 'var(--ink-48)',
           }}>Search players &amp; goalies</span>
           <span style={{
             fontFamily: 'var(--mono, monospace)', fontSize: '9px',
-            color: 'rgba(13,13,20,0.32)', letterSpacing: '0.06em',
+            color: 'var(--ink-32)', letterSpacing: '0.06em',
           }}>ESC to close</span>
         </div>
         <div style={{ padding: '0' }}>

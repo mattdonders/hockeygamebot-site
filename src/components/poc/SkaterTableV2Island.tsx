@@ -143,7 +143,7 @@ const COLUMNS: HGBColumnDef<SkaterRow>[] = [
           {(Number(v) >= 0 ? '+' : '') + Number(v).toFixed(2)}
         </span>
       ) : (
-        <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>
+        <span style={{ color: 'var(--ink-32)' }}>—</span>
       ),
     align: 'right',
     width: 64,
@@ -158,7 +158,7 @@ const COLUMNS: HGBColumnDef<SkaterRow>[] = [
       v !== null ? (
         <span>{v}%</span>
       ) : (
-        <span style={{ color: 'rgba(13,13,20,0.3)' }}>—</span>
+        <span style={{ color: 'var(--ink-32)' }}>—</span>
       ),
     align: 'right',
     width: 64,

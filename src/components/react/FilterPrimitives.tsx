@@ -33,11 +33,11 @@ export function FilterChip({ active, label, onClick, disabled = false }: FilterC
         letterSpacing: '0.10em',
         textTransform: 'uppercase',
         padding: '5px 12px',
-        border: '1px solid rgba(13,13,20,0.2)',
+        border: '1px solid var(--ink-20)',
         borderRight: 'none',
         cursor: disabled ? 'not-allowed' : 'pointer',
-        background: active ? '#0d0d14' : '#fff',
-        color: active ? '#EFEEE8' : disabled ? 'rgba(13,13,20,0.2)' : 'rgba(13,13,20,0.48)',
+        background: active ? 'var(--ink)' : '#fff',
+        color: active ? 'var(--bg)' : disabled ? 'var(--ink-20)' : 'var(--ink-48)',
         opacity: disabled ? 0.5 : 1,
       }}
     >
@@ -48,7 +48,7 @@ export function FilterChip({ active, label, onClick, disabled = false }: FilterC
 
 export function FilterChipGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: 'inline-flex', border: '1px solid rgba(13,13,20,0.2)', borderLeft: 'none' }}>
+    <div style={{ display: 'inline-flex', border: '1px solid var(--ink-20)', borderLeft: 'none' }}>
       {children}
     </div>
   );
@@ -56,7 +56,7 @@ export function FilterChipGroup({ children }: { children: React.ReactNode }) {
 
 export function FilterLabel({ text }: { text: string }) {
   return (
-    <div style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.48)', marginBottom: 5 }}>
+    <div style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-48)', marginBottom: 5 }}>
       {text}
     </div>
   );

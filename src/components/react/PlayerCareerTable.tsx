@@ -75,13 +75,13 @@ type Props = {
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const BODY: React.CSSProperties = { fontFamily: 'var(--body)' };
 const CELL_FONT_SIZE = 14; // matches HGBTable.CELL_FONT_SIZE
-const INK_LIGHT = '#0d0d14';
-const INK_DARK  = '#EFEEE8';
-const BG_LIGHT  = '#EFEEE8';
+const INK_LIGHT = 'var(--ink)';
+const INK_DARK  = 'var(--bg)';
+const BG_LIGHT  = 'var(--bg)';
 const BG_DARK   = '#1A1A26';
-const BORDER_LIGHT = '1px solid rgba(13,13,20,0.14)';
+const BORDER_LIGHT = '1px solid var(--ink-14)';
 const BORDER_DARK  = '1px solid rgba(239,238,232,0.12)';
-const MUTED_LIGHT  = 'rgba(13,13,20,0.48)';
+const MUTED_LIGHT  = 'var(--ink-48)';
 const MUTED_DARK   = 'rgba(239,238,232,0.48)';
 const POS = '#137333';
 const NEG = '#991b1b';
@@ -104,10 +104,10 @@ function pctColor(v: number | null): string | undefined {
 
 // Percentile tier coloring: ≥70 green, ≤30 red, mid neutral
 function rapmPctColor(v: number | null): string {
-  if (v == null) return 'rgba(13,13,20,0.32)';
+  if (v == null) return 'var(--ink-32)';
   if (v >= 70) return '#137333';
   if (v <= 30) return '#991b1b';
-  return 'rgba(13,13,20,0.72)';
+  return 'var(--ink-72)';
 }
 
 // ── Row type (computed from CareerSeason) ────────────────────────────────────
@@ -228,7 +228,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
               style={{
                 ...MONO,
                 fontWeight: row.is_current ? 700 : 500,
-                color: row.is_current ? INK : 'rgba(13,13,20,0.72)',
+                color: row.is_current ? INK : 'var(--ink-72)',
               }}
             >
               {row.season_fmt}
@@ -253,7 +253,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 style={TEAM_LOGO_STYLE}
                 alt={abbr}
               />
-              <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr}</span>
+              <span style={{ ...MONO, fontSize: 11, color: 'var(--ink-72)' }}>{abbr}</span>
             </div>
           );
         },
@@ -282,7 +282,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           const v = info.getValue<number | null>();
           const color = pctColor(v);
           return (
-            <span style={{ fontWeight: 700, color: color ?? 'rgba(13,13,20,0.72)' }}>
+            <span style={{ fontWeight: 700, color: color ?? 'var(--ink-72)' }}>
               {v == null ? '—' : `${Number(v).toFixed(1)}%`}
             </span>
           );
@@ -297,7 +297,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           const v = info.getValue<number | null>();
           const color = pctColor(v);
           return (
-            <span style={{ fontWeight: 700, color: color ?? 'rgba(13,13,20,0.72)' }}>
+            <span style={{ fontWeight: 700, color: color ?? 'var(--ink-72)' }}>
               {v == null ? '—' : `${Number(v).toFixed(1)}%`}
             </span>
           );
@@ -355,7 +355,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         cell: (info) => {
           const row = info.row.original;
           return (
-            <span style={{ ...MONO, fontWeight: row.is_current ? 700 : 500, color: row.is_current ? INK : 'rgba(13,13,20,0.72)' }}>
+            <span style={{ ...MONO, fontWeight: row.is_current ? 700 : 500, color: row.is_current ? INK : 'var(--ink-72)' }}>
               {row.season_fmt}
             </span>
           );
@@ -372,7 +372,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           return (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <img src={teamLogoSrc(abbr)} width={TEAM_LOGO_SIZE} height={TEAM_LOGO_SIZE} style={TEAM_LOGO_STYLE} alt={abbr} />
-              <span style={{ ...MONO, fontSize: 11, color: 'rgba(13,13,20,0.72)' }}>{abbr}</span>
+              <span style={{ ...MONO, fontSize: 11, color: 'var(--ink-72)' }}>{abbr}</span>
             </div>
           );
         },
@@ -422,7 +422,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
           const v = info.getValue<number | null>();
           const color = pctColor(v ?? null);
           return (
-            <span style={{ fontWeight: 700, color: color ?? 'rgba(13,13,20,0.72)' }}>
+            <span style={{ fontWeight: 700, color: color ?? 'var(--ink-72)' }}>
               {v == null ? '—' : `${Number(v).toFixed(1)}%`}
             </span>
           );
@@ -435,7 +435,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         accessorFn: (r) => r.gax ?? -999,
         cell: (info) => {
           const v = info.row.original.gax;
-          const color = v == null ? 'rgba(13,13,20,0.72)' : v > 0 ? POS : v < 0 ? NEG : 'rgba(13,13,20,0.72)';
+          const color = v == null ? 'var(--ink-72)' : v > 0 ? POS : v < 0 ? NEG : 'var(--ink-72)';
           return (
             <span style={{ fontWeight: 700, color }}>
               {v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`}
@@ -660,11 +660,11 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                   data-career-season={orig.season_normalized}
                   onClick={isPlayoffs ? undefined : () => handleSeasonClick(orig.season_normalized)}
                   style={{
-                    borderBottom: '1px solid rgba(13,13,20,0.05)',
+                    borderBottom: '1px solid var(--ink-06)',
                     background: isActive
-                      ? (isDark ? 'rgba(239,238,232,0.07)' : 'rgba(13,13,20,0.05)')
-                      : (i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'rgba(13,13,20,0.02)')),
-                    borderLeft: isActive ? `3px solid rgba(13,13,20,0.45)` : '3px solid transparent',
+                      ? (isDark ? 'rgba(239,238,232,0.07)' : 'var(--ink-06)')
+                      : (i % 2 === 0 ? SURFACE : (isDark ? 'rgba(239,238,232,0.03)' : 'var(--ink-04)')),
+                    borderLeft: isActive ? `3px solid var(--ink-48)` : '3px solid transparent',
                     cursor: isPlayoffs ? 'default' : 'pointer',
                   }}
                   title={isPlayoffs ? undefined : `Click to view ${orig.season_fmt} percentiles`}
@@ -678,7 +678,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                         padding: '10px 10px',
                         textAlign: ci === 0 ? 'left' : 'center',
                         whiteSpace: 'nowrap',
-                        borderRight: '1px solid rgba(13,13,20,0.03)',
+                        borderRight: '1px solid var(--ink-04)',
                       }}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -694,10 +694,10 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                         fontSize: 10,
                         textAlign: 'center',
                         padding: '4px 0',
-                        color: isDark ? 'rgba(239,238,232,0.20)' : 'rgba(13,13,20,0.22)',
+                        color: isDark ? 'rgba(239,238,232,0.20)' : 'var(--ink-20)',
                         letterSpacing: '0.25em',
-                        borderTop: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'rgba(13,13,20,0.08)'}`,
-                        borderBottom: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'rgba(13,13,20,0.08)'}`,
+                        borderTop: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'var(--ink-10)'}`,
+                        borderBottom: `1px dashed ${isDark ? 'rgba(239,238,232,0.08)' : 'var(--ink-10)'}`,
                       }}
                     >
                       · · ·
@@ -712,7 +712,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         <tfoot>
           <tr style={{
             borderTop: `2px solid ${INK}`,
-            background: isDark ? 'rgba(239,238,232,0.05)' : 'rgba(13,13,20,0.04)',
+            background: isDark ? 'rgba(239,238,232,0.05)' : 'var(--ink-04)',
           }}>
             {isPlayoffs ? (
               <>
@@ -724,7 +724,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerA}</td>
                 <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: 700, padding: '9px 10px', textAlign: 'center', color: INK }}>{playoffCareerPTS}</td>
                 <td style={{ ...MONO, fontSize: 11, padding: '9px 10px', textAlign: 'center', color: MUTED }}>—</td>
-                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: playoffCareerGax != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerGax != null ? (playoffCareerGax >= 0 ? '#14803c' : '#E8002D') : MUTED }}>
+                <td style={{ ...MONO, fontSize: CELL_FONT_SIZE, fontWeight: playoffCareerGax != null ? 700 : 400, padding: '9px 10px', textAlign: 'center', color: playoffCareerGax != null ? (playoffCareerGax >= 0 ? '#14803c' : 'var(--red)') : MUTED }}>
                   {playoffCareerGax != null ? `${playoffCareerGax > 0 ? '+' : ''}${playoffCareerGax.toFixed(2)}` : '—'}
                 </td>
               </>
@@ -753,7 +753,7 @@ export default function PlayerCareerTable({ seasons, playoffSeasons = [], player
         style={{
           ...MONO,
           fontSize: 10,
-          color: 'rgba(13,13,20,0.40)',
+          color: 'var(--ink-48)',
           margin: '12px 18px 14px',
           letterSpacing: '0.04em',
           lineHeight: 1.5,

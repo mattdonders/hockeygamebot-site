@@ -226,34 +226,34 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
   return (
     <div>
       {/* Zone 1 — game type + count + exports + filter toggle */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid rgba(13,13,20,0.1)', marginBottom: 10 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid var(--ink-10)', marginBottom: 10 }}>
         <GameTypeFilter value={gameType} onChange={switchGameType} />
         <div style={{ flex: 1 }} />
-        <span style={{ ...MONO, fontSize: 10, color: 'rgba(13,13,20,0.32)', whiteSpace: 'nowrap' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', whiteSpace: 'nowrap' }}>
           {filteredRows.length} goalies
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={() => exportFnsRef.current?.exportCsv()}
-            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ CSV</button>
+            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>↓ CSV</button>
           <button onClick={() => exportFnsRef.current?.exportPng()}
-            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>↓ PNG</button>
+            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>↓ PNG</button>
         </div>
-        <button onClick={() => setFiltersOpen(o => !o)} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer', background: filtersOpen ? '#0d0d14' : '#fff', color: filtersOpen ? '#EFEEE8' : 'rgba(13,13,20,0.48)', display: 'flex', alignItems: 'center', gap: 5 }}>
+        <button onClick={() => setFiltersOpen(o => !o)} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', cursor: 'pointer', background: filtersOpen ? 'var(--ink)' : '#fff', color: filtersOpen ? 'var(--bg)' : 'var(--ink-48)', display: 'flex', alignItems: 'center', gap: 5 }}>
           Filters <span style={{ fontSize: 8 }}>{filtersOpen ? '▲' : '▼'}</span>
         </button>
       </div>
 
       {/* Cols toggle row — always visible */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(13,13,20,0.35)', marginRight: 2 }}>Cols</span>
+        <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-32)', marginRight: 2 }}>Cols</span>
         {OPTIONAL_COL_DEFS.map(col => {
           const active = visibleOptional.has(col.id);
           return (
             <button key={col.id} onClick={() => toggleOptional(col.id)}
               style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 8px',
-                border: '1px solid rgba(13,13,20,0.2)', cursor: 'pointer',
-                background: active ? 'rgba(13,13,20,0.08)' : 'transparent',
-                color: active ? '#0d0d14' : 'rgba(13,13,20,0.35)' }}>
+                border: '1px solid var(--ink-20)', cursor: 'pointer',
+                background: active ? 'var(--ink-10)' : 'transparent',
+                color: active ? 'var(--ink)' : 'var(--ink-32)' }}>
               {col.label}
             </button>
           );
@@ -270,12 +270,12 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
               <FilterLabel text="Season Range" />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <select value={fromSeason} onChange={e => setFromSeason(e.target.value)}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-72)', cursor: 'pointer' }}>
                   {seasons.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
-                <span style={{ ...SEMI, fontSize: 11, color: 'rgba(13,13,20,0.32)' }}>to</span>
+                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-32)' }}>to</span>
                 <select value={toSeason} onChange={e => setToSeason(e.target.value)}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.72)', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-72)', cursor: 'pointer' }}>
                   {seasons.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
@@ -303,7 +303,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
             <div>
               <FilterLabel text="Min GP" />
               <input type="number" value={minGP} min={0} max={82} onChange={e => setMinGP(Number(e.target.value))}
-                style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid rgba(13,13,20,0.14)', background: '#fff', display: 'block' }} />
+                style={{ ...MONO, fontSize: 11, width: 52, padding: '4px 6px', border: '1px solid var(--ink-14)', background: '#fff', display: 'block' }} />
             </div>
             <TopNFilter value={topN} onChange={setTopN} />
 
@@ -315,7 +315,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
                 value={findInput}
                 onChange={e => setFindInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') setFindKey(k => k + 1); }}
-                style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', outline: 'none', width: 140, color: '#0d0d14' }}
+                style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', outline: 'none', width: 140, color: 'var(--ink)' }}
               />
             </div>
 
@@ -324,19 +324,19 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
                 {teamFilter.map(t => (
                   <button key={t} onClick={() => setTeamFilter(f => f.filter(x => x !== t))}
-                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid rgba(13,13,20,0.3)', background: '#0d0d14', color: '#EFEEE8', cursor: 'pointer' }}>
+                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 8px', border: '1px solid var(--ink-32)', background: 'var(--ink)', color: 'var(--bg)', cursor: 'pointer' }}>
                     {t} ×
                   </button>
                 ))}
                 <select value="" onChange={e => { const v = e.target.value; if (v && !teamFilter.includes(v)) setTeamFilter(f => [...f, v]); e.target.value = ''; }}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.2)', background: '#fff', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
                   <option value="">Add team…</option>
                   {availableTeams.filter(t => !teamFilter.includes(t)).map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
                 {teamFilter.length > 0 && (
-                  <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid rgba(13,13,20,0.14)', background: 'transparent', color: 'rgba(13,13,20,0.48)', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-48)', cursor: 'pointer' }}>Clear</button>
                 )}
               </div>
             </div>

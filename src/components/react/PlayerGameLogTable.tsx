@@ -15,8 +15,8 @@ import type { GameLogEntry } from '../../lib/stats-loader';
 const MONO: React.CSSProperties = { fontFamily: 'var(--mono)' };
 const POS = '#137333';
 const NEG = '#991b1b';
-const INK = '#0d0d14';
-const MUTED = 'rgba(13,13,20,0.48)';
+const INK = 'var(--ink)';
+const MUTED = 'var(--ink-48)';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -97,8 +97,8 @@ export default function PlayerGameLogTable({ games, label }: Props) {
         accessor: r => r.is_home ? 'H' : 'A',
         cell: v => (
           <span style={{ ...MONO, fontSize: 10, letterSpacing: '0.08em', padding: '2px 6px',
-            border: '1px solid rgba(13,13,20,0.14)',
-            background: v === 'H' ? 'rgba(13,13,20,0.06)' : 'transparent',
+            border: '1px solid var(--ink-14)',
+            background: v === 'H' ? 'var(--ink-06)' : 'transparent',
             color: v === 'H' ? INK : MUTED }}>
             {v}
           </span>
