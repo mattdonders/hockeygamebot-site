@@ -695,7 +695,7 @@ export default function GoalieCareerTable({
       <p style={{
         ...MONO,
         fontSize: 10,
-        color: 'var(--ink-48)',
+        color: 'var(--ink-60)',
         margin: '12px 18px 14px',
         letterSpacing: '0.04em',
         lineHeight: 1.5,

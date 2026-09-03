@@ -200,7 +200,7 @@ export default function TeamsTable({ regularRows, playoffRows, statsDate, availa
             ))}
           </select>
         </div>
-        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
           {rows.length} teams{statsDate ? ` · updated ${statsDate}` : ''}
         </span>
       </div>

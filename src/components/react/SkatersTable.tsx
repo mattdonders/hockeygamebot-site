@@ -219,7 +219,7 @@ function buildColumns(
         cell: (v, r) => (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f2(v as any)}</strong>
-            <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.imp_p)}</span>
+            <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)',}}>{ordinal(r.imp_p)}</span>
           </div>
         ),
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
@@ -229,7 +229,7 @@ function buildColumns(
         cell: (v, r) => v != null
           ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
               <strong style={{ color: (v as number) >= 0 ? POS : NEG }}>{sgn(v as number)}{f2(v as any)}</strong>
-              <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.war_p)}</span>
+              <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)',}}>{ordinal(r.war_p)}</span>
             </div>
           : <span style={{ color: 'var(--ink-32)' }}>—</span>,
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
@@ -239,7 +239,7 @@ function buildColumns(
         cell: (v, r) => v != null
           ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
               <strong style={{ color: (v as number) >= 0 ? POS : NEG, fontVariantNumeric: 'tabular-nums' }}>{sgn(v as number)}{f2(v as any)}</strong>
-              {r.rating_p != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.rating_p!)}</span>}
+              {r.rating_p != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)',}}>{ordinal(r.rating_p!)}</span>}
             </div>
           : <span style={{ color: 'var(--ink-32)' }}>—</span>,
         exportText: v => v != null ? `${sgn(v as number)}${f2(v as any)}` : '—',
@@ -302,7 +302,7 @@ function buildColumns(
       cell: (v, r) => v != null
         ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(1)}</strong>
-            {r.edge_speed_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.edge_speed_pct)}</span>}
+            {r.edge_speed_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)',}}>{ordinal(r.edge_speed_pct)}</span>}
           </div>
         : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_speed_pct != null ? ordinal(r.edge_speed_pct) : '?'})` : '—',
@@ -313,7 +313,7 @@ function buildColumns(
       cell: (v, r) => v != null
         ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(0)}</strong>
-            {r.edge_dist_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.edge_dist_pct)}</span>}
+            {r.edge_dist_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)',}}>{ordinal(r.edge_dist_pct)}</span>}
           </div>
         : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: (v, r) => v != null ? `${(v as number).toFixed(0)} mi (${r.edge_dist_pct != null ? ordinal(r.edge_dist_pct) : '?'})` : '—',
@@ -324,7 +324,7 @@ function buildColumns(
       cell: (v, r) => v != null
         ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{v as number}</strong>
-            {r.edge_bursts_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.edge_bursts_pct)}</span>}
+            {r.edge_bursts_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)',}}>{ordinal(r.edge_bursts_pct)}</span>}
           </div>
         : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: (v, r) => v != null ? `${v} (${r.edge_bursts_pct != null ? ordinal(r.edge_bursts_pct) : '?'})` : '—',
@@ -335,7 +335,7 @@ function buildColumns(
       cell: (v, r) => v != null
         ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.2 }}>
             <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{(v as number).toFixed(1)}</strong>
-            {r.edge_shot_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)' }}>{ordinal(r.edge_shot_pct)}</span>}
+            {r.edge_shot_pct != null && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)',}}>{ordinal(r.edge_shot_pct)}</span>}
           </div>
         : <span style={{ color: 'var(--ink-32)' }}>—</span>,
       exportText: (v, r) => v != null ? `${(v as number).toFixed(1)} mph (${r.edge_shot_pct != null ? ordinal(r.edge_shot_pct) : '?'})` : '—',
@@ -364,7 +364,7 @@ function buildAggColumns(
       cell: (_v, row) => (
         <div style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: NAME_FONT_SIZE }}>
           {row.name}
-          {row.multiTeam && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-48)', marginLeft: 6 }}>multi</span>}
+          {row.multiTeam && <span style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)', marginLeft: 6 }}>multi</span>}
         </div>
       ),
       exportText: (_v, row) => row.name,
@@ -737,7 +737,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           )}
         </FilterChipGroup>
         <div style={{ flex: 1 }} />
-        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', whiteSpace: 'nowrap' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)', whiteSpace: 'nowrap' }}>
           {useAgg
             ? (slimLoading ? 'loading…' : `${topN ? Math.min(topN, aggFiltered.length) : aggFiltered.length} skaters`)
             : `${topN ? Math.min(topN, filtered.length) : filtered.length} skaters`}
@@ -755,7 +755,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
 
       {/* Column toggles — physical/faceoff + EDGE columns, hidden by default */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-32)', marginRight: 2 }}>Cols</span>
+        <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-60)', marginRight: 2 }}>Cols</span>
         {PHYSICAL_COL_DEFS.map(col => {
           const active = visiblePhysical.has(col.id);
           return (
@@ -771,7 +771,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         {!useAgg && (
           <>
             <span style={{ fontSize: 9, color: 'var(--ink-20)', margin: '0 2px' }}>·</span>
-            <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-32)', marginRight: 2 }}>Edge</span>
+            <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-60)', marginRight: 2 }}>Edge</span>
             {EDGE_COL_DEFS.map(col => {
               const active = visibleEdge.has(col.id);
               return (
@@ -804,14 +804,14 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                   style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-72)', cursor: 'pointer' }}>
                   {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
                 </select>
-                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-32)' }}>to</span>
+                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-60)',}}>to</span>
                 <select value={toSeason} onChange={e => setToSeason(e.target.value)}
                   style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-72)', cursor: 'pointer' }}>
                   {seasonOptions.map(s => <option key={s} value={s}>{fmtSeasonShort(s)}</option>)}
                 </select>
                 {seasonOptions.length > 1 && (
                   <button onClick={() => { setFromSeason(seasonOptions[seasonOptions.length - 1]); setToSeason(seasonOptions[0]); }}
-                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
+                    style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-60)', cursor: 'pointer' }}>
                     All time
                   </button>
                 )}
@@ -848,7 +848,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <input type="number" value={minToi} min={0} max={9999} step={100} onChange={e => setMinToi(Number(e.target.value))}
                   style={{ ...MONO, fontSize: 11, width: 72, padding: '4px 6px', border: '1px solid var(--ink-14)', background: '#fff' }} />
-                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-32)' }}>min</span>
+                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-60)',}}>min</span>
               </div>
             </div>
             <TopNFilter value={topN} onChange={setTopN} />
@@ -890,7 +890,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                           onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
                         >
                           <span style={{ fontFamily: 'var(--body)', fontWeight: 600, fontSize: 13 }}>{r.first_name && r.last_name ? `${r.first_name} ${r.last_name}` : r.name}</span>
-                          <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-48)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{r.team} · {r.pos}</span>
+                          <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)', marginLeft: 'auto', whiteSpace: 'nowrap' }}>{r.team} · {r.pos}</span>
                         </button>
                       ))}
                     </div>
@@ -898,7 +898,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 })()}
               </div>
               {playerFilter.length > 0 && (
-                <button onClick={() => setPlayerFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-48)', cursor: 'pointer' }}>
+                <button onClick={() => setPlayerFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-60)', cursor: 'pointer' }}>
                   Clear all
                 </button>
               )}
@@ -929,14 +929,14 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 </button>
               ))}
               <select value="" onChange={e => { const v = e.target.value; if (v && !teamFilter.includes(v)) setTeamFilter(f => [...f, v]); e.target.value = ''; }}
-                style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
+                style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-60)', cursor: 'pointer' }}>
                 <option value="">Add team…</option>
                 {[...new Set(rows.map(r => r.team))].sort().filter(t => !teamFilter.includes(t)).map(t => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
               {teamFilter.length > 0 && (
-                <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-48)', cursor: 'pointer' }}>Clear</button>
+                <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-60)', cursor: 'pointer' }}>Clear</button>
               )}
             </div>
           </div>{/* end row 2 */}
@@ -957,7 +957,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
               </button>
               <button
                 onClick={() => deletePreset(p.name)}
-                style={{ ...MONO, fontSize: 10, padding: '4px 6px 4px 2px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-32)', lineHeight: 1 }}
+                style={{ ...MONO, fontSize: 10, padding: '4px 6px 4px 2px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-60)', lineHeight: 1 }}
                 title="Delete preset"
               >×</button>
             </div>
@@ -965,7 +965,7 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
           {filtersOpen && !saveMode && (
             <button
               onClick={() => { setSaveMode(true); setSaveName(''); }}
-              style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 10px', border: '1px dashed var(--ink-20)', background: 'none', cursor: 'pointer', color: 'var(--ink-48)' }}
+              style={{ ...MONO, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '4px 10px', border: '1px dashed var(--ink-20)', background: 'none', cursor: 'pointer', color: 'var(--ink-60)',}}
             >
               + Save filters
             </button>
@@ -983,14 +983,14 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
                 style={{ ...MONO, fontSize: 11, padding: '4px 8px', border: '1px solid var(--ink-32)', background: '#fff', outline: 'none', width: 160, color: 'var(--ink)' }}
               />
               <button onClick={savePreset} style={{ ...MONO, fontSize: 10, padding: '4px 10px', border: '1px solid var(--ink-20)', background: 'var(--ink)', color: 'var(--bg)', cursor: 'pointer' }}>Save</button>
-              <button onClick={() => setSaveMode(false)} style={{ ...MONO, fontSize: 10, padding: '4px 8px', border: '1px solid var(--ink-20)', background: 'none', color: 'var(--ink-48)', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => setSaveMode(false)} style={{ ...MONO, fontSize: 10, padding: '4px 8px', border: '1px solid var(--ink-20)', background: 'none', color: 'var(--ink-60)', cursor: 'pointer' }}>Cancel</button>
             </div>
           )}
         </div>
       )}
 
       {useAgg && slimLoading ? (
-        <div style={{ ...MONO, fontSize: 12, color: 'var(--ink-48)', padding: '48px 0', textAlign: 'center' }}>
+        <div style={{ ...MONO, fontSize: 12, color: 'var(--ink-60)', padding: '48px 0', textAlign: 'center' }}>
           Loading multi-season data…
         </div>
       ) : useAgg ? (
@@ -1043,11 +1043,11 @@ export default function SkatersTable({ rows, statsDate, currentSeason, isPlayoff
         />
       )}
       {useAgg ? (
-        <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-32)', marginTop: 6, letterSpacing: '0.06em' }}>
+        <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)', marginTop: 6, letterSpacing: '0.06em' }}>
           {gameType === 'playoffs' ? 'Playoff' : 'Multi-season'} totals · TOI is 5v5 only · per-season ranks hidden when aggregating
         </p>
       ) : statsDate && (
-        <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-32)', marginTop: 6, letterSpacing: '0.06em' }}>
+        <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)', marginTop: 6, letterSpacing: '0.06em' }}>
           Updated {statsDate} · 5v5 data via HGB Analytics
         </p>
       )}

@@ -3000,7 +3000,7 @@ export default function AttendedTracker({
           return (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {teamSpan(r.away)}
-              <span style={{ color: 'var(--ink-32)', fontSize: 12 }}>@</span>
+              <span style={{ color: 'var(--ink-60)', fontSize: 12 }}>@</span>
               {teamSpan(r.home)}
               {chip ? <span className="att-chip">{chip}</span> : null}
               {r.is_manual ? (
@@ -3054,9 +3054,9 @@ export default function AttendedTracker({
         mobileHidden: true,
         cell: (v) =>
           v ? (
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-48)' }}>{v}</span>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-60)',}}>{v}</span>
           ) : (
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-32)', fontStyle: 'italic' }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-60)', fontStyle: 'italic' }}>
               venue unknown
             </span>
           ),

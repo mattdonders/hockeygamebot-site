@@ -159,7 +159,7 @@ export function DashboardFollowedPlayers() {
   }, []);
 
   if (players === null) {
-    return <div style={{ padding: '16px 0', color: 'var(--ink-32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+    return <div style={{ padding: '16px 0', color: 'var(--ink-60)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
   }
 
   return (

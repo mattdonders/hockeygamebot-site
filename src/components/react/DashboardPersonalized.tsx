@@ -110,10 +110,10 @@ export function DashboardTeamCards() {
   }, []);
 
   if (cards === null) {
-    return <div style={{ padding: '12px 0', color: 'var(--ink-32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+    return <div style={{ padding: '12px 0', color: 'var(--ink-60)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
   }
   if (!cards.length) {
-    return <div style={{ color: 'var(--ink-48)', fontSize: 13, padding: '12px 0' }}>No teams followed. <a href="/account">Add teams →</a></div>;
+    return <div style={{ color: 'var(--ink-60)', fontSize: 13, padding: '12px 0' }}>No teams followed. <a href="/account">Add teams →</a></div>;
   }
 
   return (
@@ -198,10 +198,10 @@ export function DashboardTrending() {
   }, []);
 
   if (rows === null) {
-    return <div className="trending-card" style={{ padding: '16px 14px', color: 'var(--ink-32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+    return <div className="trending-card" style={{ padding: '16px 14px', color: 'var(--ink-60)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
   }
   if (!rows.length) {
-    return <div className="trending-card" style={{ padding: '16px 14px', color: 'var(--ink-48)', fontSize: 13 }}>No players followed. <a href="/account">Add players →</a></div>;
+    return <div className="trending-card" style={{ padding: '16px 14px', color: 'var(--ink-60)', fontSize: 13 }}>No players followed. <a href="/account">Add players →</a></div>;
   }
 
   return (
@@ -254,7 +254,7 @@ export function EntitySignals({ entityId, entityType, limit = 3 }: EntitySignals
           borderLeft: `3px solid ${SEVERITY_BORDER[s.severity] ?? '#C8102E'}`,
           padding: '10px 14px',
         }}>
-          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-48)', marginBottom: 6 }}>
+          <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-60)', marginBottom: 6 }}>
             {s.category}
           </div>
           <div style={{ fontFamily: 'var(--body, sans-serif)', fontWeight: 700, fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink-86)' }}>
@@ -343,10 +343,10 @@ export function DashboardModelSignals() {
   }, []);
 
   if (signals === null) {
-    return <div style={{ padding: '12px 0', color: 'var(--ink-32)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
+    return <div style={{ padding: '12px 0', color: 'var(--ink-60)', fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.06em' }}>Loading…</div>;
   }
   if (!signals.length) {
-    return <div style={{ color: 'var(--ink-48)', fontSize: 13, padding: '12px 0' }}>No signals for your followed teams and players.</div>;
+    return <div style={{ color: 'var(--ink-60)', fontSize: 13, padding: '12px 0' }}>No signals for your followed teams and players.</div>;
   }
 
   return (

@@ -56,7 +56,7 @@ export function FilterChipGroup({ children }: { children: React.ReactNode }) {
 
 export function FilterLabel({ text }: { text: string }) {
   return (
-    <div style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-48)', marginBottom: 5 }}>
+    <div style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-60)', marginBottom: 5 }}>
       {text}
     </div>
   );

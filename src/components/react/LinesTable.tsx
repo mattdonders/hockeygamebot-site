@@ -131,7 +131,7 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
             <FilterLabel text="Season" />
             {sel(season, setSeason, allSeasons.map(s => ({ value: s, label: s === 'all' ? 'All Seasons' : fmtSeasonShort(s) })))}
           </div>
-          <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
+          <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)', marginLeft: 'auto', alignSelf: 'flex-end', paddingBottom: 4 }}>
             {filtered.length} lines{statsDate ? ` · updated ${statsDate}` : ''}
           </span>
         </div>
@@ -148,7 +148,7 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
               ))}
               {selectedTeams.length < MAX_TEAMS && (
                 <select value="" onChange={e => { addTeam(e.target.value); e.target.value = ''; }}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-60)', cursor: 'pointer' }}>
                   <option value="">Add team…</option>
                   {allTeams.filter(t => !selectedTeams.includes(t)).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -160,7 +160,7 @@ export default function LinesTable({ rows, statsDate, isPlayoffSeason = false }:
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input type="range" min={20} max={400} step={10} value={minToi} onChange={e => setMinToi(Number(e.target.value))}
                 style={{ width: 100, accentColor: 'var(--red)' }} />
-              <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-48)', minWidth: 32 }}>{minToi}m</span>
+              <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-60)', minWidth: 32 }}>{minToi}m</span>
             </div>
           </div>
         </div>

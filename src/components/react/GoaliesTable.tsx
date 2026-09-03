@@ -229,14 +229,14 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingBottom: 10, borderBottom: '1px solid var(--ink-10)', marginBottom: 10 }}>
         <GameTypeFilter value={gameType} onChange={switchGameType} />
         <div style={{ flex: 1 }} />
-        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', whiteSpace: 'nowrap' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)', whiteSpace: 'nowrap' }}>
           {filteredRows.length} goalies
         </span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={() => exportFnsRef.current?.exportCsv()}
-            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>↓ CSV</button>
+            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-60)', cursor: 'pointer' }}>↓ CSV</button>
           <button onClick={() => exportFnsRef.current?.exportPng()}
-            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>↓ PNG</button>
+            style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-60)', cursor: 'pointer' }}>↓ PNG</button>
         </div>
         <button onClick={() => setFiltersOpen(o => !o)} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', cursor: 'pointer', background: filtersOpen ? 'var(--ink)' : '#fff', color: filtersOpen ? 'var(--bg)' : 'var(--ink-48)', display: 'flex', alignItems: 'center', gap: 5 }}>
           Filters <span style={{ fontSize: 8 }}>{filtersOpen ? '▲' : '▼'}</span>
@@ -245,7 +245,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
 
       {/* Cols toggle row — always visible */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-32)', marginRight: 2 }}>Cols</span>
+        <span style={{ ...SEMI, fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-60)', marginRight: 2 }}>Cols</span>
         {OPTIONAL_COL_DEFS.map(col => {
           const active = visibleOptional.has(col.id);
           return (
@@ -273,7 +273,7 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
                   style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-72)', cursor: 'pointer' }}>
                   {seasons.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
-                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-32)' }}>to</span>
+                <span style={{ ...SEMI, fontSize: 11, color: 'var(--ink-60)',}}>to</span>
                 <select value={toSeason} onChange={e => setToSeason(e.target.value)}
                   style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', padding: '5px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-72)', cursor: 'pointer' }}>
                   {seasons.map(s => <option key={s} value={s}>{s}</option>)}
@@ -329,14 +329,14 @@ export default function GoaliesTable({ regularRows, playoffRows, statsDate, team
                   </button>
                 ))}
                 <select value="" onChange={e => { const v = e.target.value; if (v && !teamFilter.includes(v)) setTeamFilter(f => [...f, v]); e.target.value = ''; }}
-                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
+                  style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-60)', cursor: 'pointer' }}>
                   <option value="">Add team…</option>
                   {availableTeams.filter(t => !teamFilter.includes(t)).map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
                 {teamFilter.length > 0 && (
-                  <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-48)', cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => setTeamFilter([])} style={{ ...SEMI, fontSize: 11, fontWeight: 600, padding: '4px 8px', border: '1px solid var(--ink-14)', background: 'transparent', color: 'var(--ink-60)', cursor: 'pointer' }}>Clear</button>
                 )}
               </div>
             </div>

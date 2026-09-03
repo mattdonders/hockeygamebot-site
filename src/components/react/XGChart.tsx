@@ -105,7 +105,7 @@ function XGTooltip({
       lineHeight: 1.6,
       minWidth: 160,
     }}>
-      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-48)', marginBottom: 4 }}>
+      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-60)', marginBottom: 4 }}>
         {tLabel(row.t)}
       </div>
       {row._goalMeta && (
@@ -213,7 +213,7 @@ export default function XGChart({
       <div style={{
         padding: '24px 0', textAlign: 'center',
         fontFamily: 'var(--mono)', fontSize: 12,
-        color: 'var(--ink-32)', letterSpacing: '0.06em',
+        color: 'var(--ink-60)', letterSpacing: '0.06em',
       }}>
         xG data not available.
       </div>

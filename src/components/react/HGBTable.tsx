@@ -703,12 +703,12 @@ export default function HGBTable<T extends object>({
         {!isMobile && ((showToolbarCsv && exportFilename) || (showToolbarPng && exportTitle)) && (
           <div style={{ display: 'flex', gap: 4 }}>
             {showToolbarCsv && exportFilename && (
-              <button onClick={handleExport} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
+              <button onClick={handleExport} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-60)', cursor: 'pointer' }}>
                 ↓ CSV
               </button>
             )}
             {showToolbarPng && exportTitle && (
-              <button onClick={handleExportPng} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-48)', cursor: 'pointer' }}>
+              <button onClick={handleExportPng} style={{ ...SEMI, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink-60)', cursor: 'pointer' }}>
                 ↓ PNG
               </button>
             )}
@@ -720,7 +720,7 @@ export default function HGBTable<T extends object>({
           style={{
             ...MONO,
             fontSize: 10,
-            color: 'var(--ink-32)',
+            color: 'var(--ink-60)',
             marginLeft: 'auto',
           }}
         >
@@ -915,7 +915,7 @@ export default function HGBTable<T extends object>({
           style={{
             ...MONO,
             fontSize: 9,
-            color: 'var(--ink-32)',
+            color: 'var(--ink-60)',
             marginTop: 6,
             letterSpacing: '0.06em',
           }}

@@ -191,7 +191,7 @@ export default function ShotMapKDE({ shots, teamFor, teamAgainst }: ShotMapKDEPr
             {m === 'scatter' ? '● Scatter' : '◼ Density'}
           </button>
         ))}
-        <span style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto' }}>
+        <span style={{ ...mono, fontSize: 10, color: 'var(--ink-60)', marginLeft: 'auto' }}>
           {forShots.length} for · {agaShots.length} against · {shots.filter(s => s[2]).length} goals
         </span>
       </div>

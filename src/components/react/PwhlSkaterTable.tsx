@@ -138,7 +138,7 @@ export default function PwhlSkaterTable({ data }: Props) {
         virtualize
         emptyMessage="No players match the selected filters."
       />
-      <p style={{ fontSize: 11, color: 'var(--ink-48)', marginTop: 8, fontFamily: 'var(--mono)' }}>
+      <p style={{ fontSize: 11, color: 'var(--ink-60)', marginTop: 8, fontFamily: 'var(--mono)' }}>
         iXG (est.) = individual expected goals, estimated from shot location using uncalibrated coefficients. GP approximated from on-ice goal events.
       </p>
     </div>

@@ -139,7 +139,7 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
             style={{ ...MONO, fontSize: 11, padding: '5px 10px', border: '1px solid var(--ink-20)', background: '#fff', color: 'var(--ink)', outline: 'none', width: 160, display: 'block' }}
           />
         </div>
-        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)', marginLeft: 'auto' }}>
           {filtered.length} of {totalSeries} series · rank is global
         </span>
       </div>
@@ -153,7 +153,7 @@ export default function SeriesRecordsTable({ series, scope, totalSeries }: Props
         toolbar={{ show: false }}
       />
 
-      <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-32)', marginTop: 8, letterSpacing: '0.06em' }}>
+      <p style={{ ...MONO, fontSize: 9, color: 'var(--ink-60)', marginTop: 8, letterSpacing: '0.06em' }}>
         W = series winner · R3 = Conference Finals · 5v5 non-empty-net shots only · Score-adjustment not applied
       </p>
     </div>

@@ -93,7 +93,7 @@ export default function ImpactTable({ rows, statsDate }: Props) {
         <div>
           <PositionFilter value={pos} onChange={setPos} />
         </div>
-        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)', marginLeft: 'auto' }}>
           {filtered.length} skaters{statsDate ? ` · updated ${statsDate}` : ''}
         </span>
       </div>

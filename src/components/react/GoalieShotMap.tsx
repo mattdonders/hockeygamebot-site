@@ -110,10 +110,10 @@ export default function GoalieShotMap({ shot_bins }: Props) {
     <div style={{ position: 'relative' }}>
       {/* Toolbar label */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-48)' }}>
+        <span style={{ ...MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-60)',}}>
           Shot Map — Δ SV% vs League
         </span>
-        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)' }}>
+        <span style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)',}}>
           {bins.reduce((a, b) => a + (b.shots ?? 0), 0)} shots · {bins.reduce((a, b) => a + (b.goals ?? 0), 0)} goals
         </span>
       </div>
@@ -242,14 +242,14 @@ export default function GoalieShotMap({ shot_bins }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#15803d', opacity: 0.8 }} />
-          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.08em', color: 'var(--ink-48)' }}>BETTER THAN LEAGUE</span>
+          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.08em', color: 'var(--ink-60)',}}>BETTER THAN LEAGUE</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red)', opacity: 0.8 }} />
-          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.08em', color: 'var(--ink-48)' }}>WORSE THAN LEAGUE</span>
+          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.08em', color: 'var(--ink-60)',}}>WORSE THAN LEAGUE</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>
-          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.06em', color: 'var(--ink-32)' }}>circle size = shot volume</span>
+          <span style={{ ...MONO, fontSize: 9, letterSpacing: '0.06em', color: 'var(--ink-60)',}}>circle size = shot volume</span>
         </div>
       </div>
     </div>

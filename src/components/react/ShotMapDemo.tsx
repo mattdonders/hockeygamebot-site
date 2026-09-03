@@ -38,7 +38,7 @@ export default function ShotMapDemo() {
         ))}
       </div>
 
-      {loading && <div style={{ ...mono, fontSize: 11, color: 'var(--ink-32)', padding: '60px 0', textAlign: 'center' }}>Loading shots…</div>}
+      {loading && <div style={{ ...mono, fontSize: 11, color: 'var(--ink-60)', padding: '60px 0', textAlign: 'center' }}>Loading shots…</div>}
       {error   && <div style={{ ...mono, fontSize: 11, color: 'var(--red)', padding: '40px 0', textAlign: 'center' }}>Error: {error}</div>}
       {!loading && !error && (
         <ShotMapKDE

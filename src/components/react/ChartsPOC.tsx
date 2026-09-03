@@ -80,7 +80,7 @@ export default function ChartsPOC() {
 
   if (status === 'loading') {
     return (
-      <div style={{ textAlign: 'center', padding: '64px 32px', ...mono, fontSize: 12, color: 'var(--ink-48)', letterSpacing: '0.10em', textTransform: 'uppercase' }}>
+      <div style={{ textAlign: 'center', padding: '64px 32px', ...mono, fontSize: 12, color: 'var(--ink-60)', letterSpacing: '0.10em', textTransform: 'uppercase' }}>
         Loading flow data…
       </div>
     );
@@ -122,7 +122,7 @@ export default function ChartsPOC() {
           </span>
           <span style={{ ...mono, fontSize: 22, fontWeight: 700 }}>{awayScore}</span>
         </div>
-        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-32)', textAlign: 'center', letterSpacing: '0.06em' }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-60)', textAlign: 'center', letterSpacing: '0.06em' }}>
           <div>GAME {GAME_ID}</div>
           <div style={{ fontSize: 10, marginTop: 2 }}>FINAL</div>
         </div>
@@ -140,7 +140,7 @@ export default function ChartsPOC() {
           <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--red)' }}>
             Win Probability
           </span>
-          <span style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', letterSpacing: '0.06em' }}>
+          <span style={{ ...mono, fontSize: 10, color: 'var(--ink-60)', letterSpacing: '0.06em' }}>
             {wpPoints.length} pts · {validGoals.length} goals
           </span>
         </div>
@@ -163,7 +163,7 @@ export default function ChartsPOC() {
           <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--red)' }}>
             5v5 Expected Goals
           </span>
-          <span style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', letterSpacing: '0.06em' }}>
+          <span style={{ ...mono, fontSize: 10, color: 'var(--ink-60)', letterSpacing: '0.06em' }}>
             {xgPoints.length} events
           </span>
         </div>

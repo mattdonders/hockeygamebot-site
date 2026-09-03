@@ -65,7 +65,7 @@ export default function GameChartsDemo() {
         <div style={{ ...disp, fontWeight: 800, fontSize: 44, textTransform: 'uppercase', color: selected.awayColor }}>{selected.away}</div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ ...disp, fontWeight: 800, fontSize: 52 }}>{score || '–'}</div>
-          <div style={{ ...mono, fontSize: 10, color: 'var(--ink-48)' }}>{status}</div>
+          <div style={{ ...mono, fontSize: 10, color: 'var(--ink-60)',}}>{status}</div>
         </div>
         <div style={{ ...disp, fontWeight: 800, fontSize: 44, textTransform: 'uppercase', color: selected.homeColor }}>{selected.home}</div>
       </div>
@@ -74,7 +74,7 @@ export default function GameChartsDemo() {
       <div style={{ background: '#fff', border: '1px solid var(--ink-14)', padding: '18px 20px 12px', marginBottom: 12 }}>
         <div style={{ ...mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--red)', marginBottom: 12 }}>Win Probability</div>
         {loading
-          ? <div style={{ ...mono, fontSize: 11, color: 'var(--ink-32)', padding: '60px 0', textAlign: 'center' }}>Loading…</div>
+          ? <div style={{ ...mono, fontSize: 11, color: 'var(--ink-60)', padding: '60px 0', textAlign: 'center' }}>Loading…</div>
           : <WPChart points={points} goals={goals} homeColor={selected.homeColor} awayColor={selected.awayColor} homeAbbr={selected.home} awayAbbr={selected.away} height={220} />
         }
       </div>
@@ -83,7 +83,7 @@ export default function GameChartsDemo() {
       <div style={{ background: '#fff', border: '1px solid var(--ink-14)', padding: '18px 20px 12px' }}>
         <div style={{ ...mono, fontSize: 10, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--red)', marginBottom: 12 }}>5v5 Expected Goals</div>
         {loading
-          ? <div style={{ ...mono, fontSize: 11, color: 'var(--ink-32)', padding: '60px 0', textAlign: 'center' }}>Loading…</div>
+          ? <div style={{ ...mono, fontSize: 11, color: 'var(--ink-60)', padding: '60px 0', textAlign: 'center' }}>Loading…</div>
           : <XGChart points={points} goals={goals} homeColor={selected.homeColor} awayColor={selected.awayColor} homeAbbr={selected.home} awayAbbr={selected.away} height={180} />
         }
       </div>

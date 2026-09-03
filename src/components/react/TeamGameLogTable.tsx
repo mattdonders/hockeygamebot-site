@@ -165,7 +165,7 @@ export default function TeamGameLogTable({ rows, teamNames, initialOpp = '' }: P
   return (
     <div>
       {/* Section label row (mirrors .gl-head eyebrow text) */}
-      <div style={{ ...MONO, fontSize: 10, color: 'var(--ink-32)', marginBottom: 4, letterSpacing: '0.06em' }}>
+      <div style={{ ...MONO, fontSize: 10, color: 'var(--ink-60)', marginBottom: 4, letterSpacing: '0.06em' }}>
         {title} · {displayRows.length} game{displayRows.length !== 1 ? 's' : ''}
       </div>
       <HGBTable

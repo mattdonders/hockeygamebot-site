@@ -201,13 +201,13 @@ function ShotTooltip({ data }: { data: TooltipData }) {
       minWidth: 140,
       boxShadow: '0 2px 8px var(--ink-10)',
     }}>
-      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-48)', marginBottom: 2 }}>
+      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-60)', marginBottom: 2 }}>
         {teamAbbrev} · Game {gameNum}
       </div>
       <div style={{ ...mono, fontWeight: 700, color: isGoal ? 'var(--red)' : 'var(--ink-72)' }}>
         {isGoal ? 'GOAL' : 'Shot'} · {shotType || '—'}
       </div>
-      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-48)' }}>
+      <div style={{ ...mono, fontSize: 10, color: 'var(--ink-60)',}}>
         x={sx.toFixed(1)} y={sy.toFixed(1)}
       </div>
     </div>
@@ -532,13 +532,13 @@ export default function ShotMap({
           {title && (
             <div style={{
               ...mono, fontSize: 11, letterSpacing: '0.10em',
-              textTransform: 'uppercase', color: 'var(--ink-48)',
+              textTransform: 'uppercase', color: 'var(--ink-60)',
               marginBottom: 3,
             }}>
               {title}
             </div>
           )}
-          <div style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', letterSpacing: '0.06em' }}>
+          <div style={{ ...mono, fontSize: 10, color: 'var(--ink-60)', letterSpacing: '0.06em' }}>
             <span style={{ color: colorA, fontWeight: 700 }}>{teamA}</span>
             {' '}{forCount} shots · {forShots.filter(s => s[2]).length} goals
             {' '}
@@ -563,7 +563,7 @@ export default function ShotMap({
               padding: '5px 12px',
               border: '1px solid var(--ink-20)',
               background: 'transparent',
-              color: 'var(--ink-48)',
+              color: 'var(--ink-60)',
               cursor: 'pointer',
               lineHeight: 1,
             }}
@@ -617,7 +617,7 @@ export default function ShotMap({
       <div style={{
         display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap',
         ...mono, fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase',
-        color: 'var(--ink-48)',
+        color: 'var(--ink-60)',
       }}>
         {mode === 'scatter' && (
           <>

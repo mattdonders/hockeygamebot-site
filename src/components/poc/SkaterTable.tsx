@@ -200,7 +200,7 @@ export default function SkaterTable({ data }: { data: Skater[] }) {
           </button>
         ))}
         {!isMobile && (
-          <label style={{ ...mono, fontSize: 10, color: 'var(--ink-48)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <label style={{ ...mono, fontSize: 10, color: 'var(--ink-60)', display: 'flex', alignItems: 'center', gap: 6 }}>
             Min GP
             <input type="number" value={minGP} min={0} max={82}
               onChange={e => setMinGP(Number(e.target.value))}
@@ -212,7 +212,7 @@ export default function SkaterTable({ data }: { data: Skater[] }) {
           style={{ ...mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '5px 12px', border: '1px solid var(--ink-20)', background: colorScale ? 'var(--red)' : 'transparent', color: colorScale ? '#fff' : 'var(--ink-48)', cursor: 'pointer' }}>
           {colorScale ? '● Color On' : '○ Color Off'}
         </button>
-        <span style={{ ...mono, fontSize: 10, color: 'var(--ink-32)', marginLeft: 'auto' }}>
+        <span style={{ ...mono, fontSize: 10, color: 'var(--ink-60)', marginLeft: 'auto' }}>
           {filtered.length} skaters{isMobile ? '' : ' · click header to sort'}
         </span>
       </div>
@@ -226,7 +226,7 @@ export default function SkaterTable({ data }: { data: Skater[] }) {
                 {hg.headers.map(h => (
                   <th key={h.id}
                     onClick={h.column.getToggleSortingHandler()}
-                    style={{ ...mono, fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-48)', padding: isMobile ? '8px 8px' : '8px 10px', textAlign: h.id === 'display_name' ? 'left' : 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                    style={{ ...mono, fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-60)', padding: isMobile ? '8px 8px' : '8px 10px', textAlign: h.id === 'display_name' ? 'left' : 'right', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
                     {flexRender(h.column.columnDef.header, h.getContext())}
                     {h.column.getIsSorted() === 'asc' ? ' ↑' : h.column.getIsSorted() === 'desc' ? ' ↓' : ''}
                   </th>
@@ -253,7 +253,7 @@ export default function SkaterTable({ data }: { data: Skater[] }) {
       </div>
 
       {isMobile && (
-        <p style={{ ...mono, fontSize: 9, color: 'var(--ink-32)', marginTop: 6, letterSpacing: '0.06em' }}>
+        <p style={{ ...mono, fontSize: 9, color: 'var(--ink-60)', marginTop: 6, letterSpacing: '0.06em' }}>
           Showing Player · Team · Pos · GP · iXG/60 on mobile · tap header to sort
         </p>
       )}

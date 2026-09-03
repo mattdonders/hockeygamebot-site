@@ -69,11 +69,11 @@ export default function StatsSearchModal({ players }: Props) {
           <span style={{
             fontFamily: 'var(--mono, monospace)', fontSize: '9px', fontWeight: 700,
             letterSpacing: '0.14em', textTransform: 'uppercase',
-            color: 'var(--ink-48)',
+            color: 'var(--ink-60)',
           }}>Search players &amp; goalies</span>
           <span style={{
             fontFamily: 'var(--mono, monospace)', fontSize: '9px',
-            color: 'var(--ink-32)', letterSpacing: '0.06em',
+            color: 'var(--ink-60)', letterSpacing: '0.06em',
           }}>ESC to close</span>
         </div>
         <div style={{ padding: '0' }}>

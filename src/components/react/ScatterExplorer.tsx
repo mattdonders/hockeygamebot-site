@@ -514,7 +514,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
           style={{
             ...MONO,
             fontSize: 10,
-            color: 'var(--ink-32)',
+            color: 'var(--ink-60)',
             marginLeft: 'auto',
           }}
         >
@@ -786,7 +786,7 @@ export default function ScatterExplorer({ players: rawPlayers }: ScatterExplorer
           style={{
             ...MONO,
             fontSize: 9,
-            color: 'var(--ink-32)',
+            color: 'var(--ink-60)',
             letterSpacing: '0.06em',
           }}
         >
@@ -830,7 +830,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
           fontSize: 9,
           letterSpacing: '0.1em',
           textTransform: 'uppercase',
-          color: 'var(--ink-48)',
+          color: 'var(--ink-60)',
         }}
       >
         {label}
