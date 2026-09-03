@@ -211,8 +211,8 @@ async function fetchTrackedPlayerRows(): Promise<DenseRow[]> {
 
 function pctColor(v: number | null): string {
   if (v == null) return 'var(--ink-32)';
-  if (v >= 75) return 'var(--stats-pos)';
-  if (v <= 35) return 'var(--stats-neg)';
+  if (v >= 75) return 'var(--pos)';
+  if (v <= 35) return 'var(--neg)';
   return 'var(--ink-72)';
 }
 
