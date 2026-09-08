@@ -246,8 +246,10 @@ const defaultRapmDefPct: number | null = latestSeasonEntry?.rapm_def_pct ?? null
 
 const pctBars = [
   // Green/red (skill / impact) group — high=green good, low=red.
-  { label: 'EV Offense', key: 'ev_offence', val: defaultRapmOffPct ?? player.percentiles_vs_pos.ev_offence, grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
-  { label: 'EV Defense', key: 'ev_defence', val: defaultRapmDefPct ?? player.percentiles_vs_pos.ev_defence, grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  // No cross-metric fallback: `percentiles_vs_pos.ev_offence` is a RAW on-ice
+  // rate percentile, not RAPM, and must never be shown under a RAPM label.
+  { label: 'EV Offense', key: 'ev_offence', val: defaultRapmOffPct, grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
+  { label: 'EV Defense', key: 'ev_defence', val: defaultRapmDefPct, grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
   { label: 'Goals / 60', key: 'goals',      val: player.percentiles_vs_pos.goals,       grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
   { label: 'A1 / 60',    key: 'a1',         val: player.percentiles_vs_pos.a1,          grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
   { label: 'xG / 60',    key: 'ixg',        val: player.percentiles_vs_pos.ixg,         grad: 'linear-gradient(90deg,#c8e6d0,#137333)' },
@@ -862,11 +864,14 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       <!-- PERCENTILE PROFILE (hidden for soft launch) -->
       {false && (() => {
         // EV RAPM bars — swap between season percentile and 3yr Rating percentile
-        // SEASON tab: uses single-season RAPM percentile from player_season_stats.json
-        //   falls back to on-ice percentile when rapm_off/def_pct is null
+        // SEASON tab: single-season RAPM percentile from player_season_stats.json.
+        //   NO fallback — a skater below the RAPM TOI floor has no value here and
+        //   the bar renders '—'. This used to fall back to
+        //   percentiles_vs_pos.ev_offence, a raw unadjusted on-ice rate percentile,
+        //   which is a different statistic under the same label.
         // HGB RATING tab: uses blended multi-season rating from players.json (unchanged)
-        const evOffSeasonVal = defaultRapmOffPct ?? player.percentiles_vs_pos.ev_offence;
-        const evDefSeasonVal = defaultRapmDefPct ?? player.percentiles_vs_pos.ev_defence;
+        const evOffSeasonVal = defaultRapmOffPct;
+        const evDefSeasonVal = defaultRapmDefPct;
         const rapmBars = [
           {
             label: 'EV Offense',
@@ -917,7 +922,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
             </div>
             <div class="pct-rows">
               {rapmBars.map(bar => {
-                const tierC = bar.val >= 75
+                const tierC = bar.val == null
+                  ? 'rgba(13,13,20,0.32)'
+                  : bar.val >= 75
                   ? (bar.isBlue ? '#4285f4' : '#137333')
                   : bar.val >= 50
                     ? (bar.isBlue ? '#7baaf7' : '#34a853')
@@ -925,7 +932,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
                 return (
                   <div class="pct-row"
                     data-bar-key={bar.key}
-                    data-season-val={bar.val.toFixed(1)}
+                    data-season-val={bar.val != null ? bar.val.toFixed(1) : ''}
                     data-rating-val={bar.ratingVal != null ? bar.ratingVal.toFixed(1) : ''}
                     data-is-blue={bar.isBlue ? 'true' : 'false'}
                     data-is-red="false"
@@ -942,9 +949,9 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
                     </span>
                     <span class="pct-rate"></span>
                     <div class="pct-track">
-                      <div class="pct-fill" style={`width:${bar.val.toFixed(1)}%;background:${tierC}`}></div>
+                      <div class="pct-fill" style={`width:${bar.val != null ? bar.val.toFixed(1) : '0'}%;background:${tierC}`}></div>
                     </div>
-                    <span class="pct-pct" style={`color:${tierC}`}>{Math.round(bar.val)}%</span>
+                    <span class="pct-pct" style={`color:${tierC}`}>{bar.val != null ? `${Math.round(bar.val)}%` : '—'}</span>
                   </div>
                 );
               })}
@@ -1233,9 +1240,6 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     };
   });
   })(),
-  // Fallback percentiles from players.json (used when season RAPM is null)
-  _evOffFallback: player.percentiles_vs_pos.ev_offence,
-  _evDefFallback: player.percentiles_vs_pos.ev_defence,
   _card: {
     firstName:   player.first_name,
     lastName:    player.last_name,
@@ -1769,6 +1773,25 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         return currentVal;
       }
 
+      // Eligibility-gated RAPM percentiles have NO substitute.
+      //
+      // A skater below the RAPM fitter's 500-minute EV floor simply has no
+      // single-season RAPM percentile. Until 2026-09-07 these bars ran through
+      // sp(), whose fallback is `D.percentiles.<x>` — a percentile of the RAW,
+      // unadjusted on-ice rate (xGF/60 at 5v5) over a different pool. That is a
+      // different statistic under the same label: among the 637 skaters who had
+      // both, the median disagreement was 11.1 percentile points, and 234 of 871
+      // skaters were served the raw value with no visual difference (Tristan
+      // Luneau, 1 GP, rendered "EV OFFENSE 100%").
+      //
+      // One card label = one metric. Missing renders '—' (the bar loop below is
+      // already null-safe); it must never be filled with a plausible-looking
+      // number from another metric, another window, or a league average.
+      function rp(histKey) {
+        var src = isHistorical ? seasonData : currentSeasonEntry;
+        return (src && src[histKey] != null) ? src[histKey] : null;
+      }
+
       // Heights
       const HDR_H = 52, CHIP_H = 34;
       const ID_H = 122, BAR_ROW_H = 29, BAR_ROWS = 11;
@@ -1931,15 +1954,15 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
       // Single-season bars
       const pct = D.percentiles;
-      const bars_ev_off  = sp(pct.ev_offence,  'rapm_off_pct');
-      const bars_ev_def  = sp(pct.ev_defence,  'rapm_def_pct');
+      const bars_ev_off  = rp('rapm_off_pct');
+      const bars_ev_def  = rp('rapm_def_pct');
       const bars_goals   = sp(pct.goals,        'goals_pct');
       const bars_a1      = sp(pct.a1,           'a1_pct');
       const bars_ixg     = sp(pct.ixg,          'ixg_pct');
-      const bars_fin     = sp(pct.finishing,     'rapm_finishing_pct');
+      const bars_fin     = rp('rapm_finishing_pct');
       const bars_pen     = sp(pct.pen_diff,      'pen_diff_pct');
-      const bars_pp      = sp(pct.pp_off ?? null,'rapm_pp_pct');
-      const bars_pk      = sp(pct.pk_def ?? null,'rapm_pk_pct');
+      const bars_pp      = rp('rapm_pp_pct');
+      const bars_pk      = rp('rapm_pk_pct');
       const bars_qoc     = sp(D.qoc,             'qoc_pct');
       const bars_qot     = sp(D.qot,             'qot_pct');
       function barFillS(v, kind) {
@@ -2097,6 +2120,24 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         return currentVal;
       }
 
+      // Eligibility-gated RAPM percentiles have NO substitute.
+      //
+      // A skater below the RAPM fitter's 500-minute EV floor simply has no
+      // single-season RAPM percentile. Until 2026-09-07 these bars ran through
+      // sp(), whose fallback is `D.percentiles.<x>` — a percentile of the RAW,
+      // unadjusted on-ice rate (xGF/60 at 5v5) over a different pool. That is a
+      // different statistic under the same label: among the 637 skaters who had
+      // both, the median disagreement was 11.1 percentile points, and 234 of 871
+      // skaters were served the raw value with no visual difference (Tristan
+      // Luneau, 1 GP, rendered "EV OFFENSE 100%").
+      //
+      // One card label = one metric. Missing renders '—' (the bar loop below is
+      // already null-safe); it must never be filled with a plausible-looking
+      // number from another metric, another window, or a league average.
+      function rp(histKey) {
+        return (currentSeasonEntry && currentSeasonEntry[histKey] != null) ? currentSeasonEntry[histKey] : null;
+      }
+
       const HDR_H = 52, CHIP_H = 34;
       const ID_H = 122, BAR_ROW_H = 29, BAR_ROWS = 11;
       const COUNTS_H_S = 68;
@@ -2234,15 +2275,15 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
 
       // Single-season bars — identical to drawSeasonCard
       const pct = D.percentiles;
-      const bars_ev_off = sp(pct.ev_offence, 'rapm_off_pct');
-      const bars_ev_def = sp(pct.ev_defence, 'rapm_def_pct');
+      const bars_ev_off = rp('rapm_off_pct');
+      const bars_ev_def = rp('rapm_def_pct');
       const bars_goals  = sp(pct.goals,      'goals_pct');
       const bars_a1     = sp(pct.a1,         'a1_pct');
       const bars_ixg    = sp(pct.ixg,        'ixg_pct');
-      const bars_fin    = sp(pct.finishing,   'rapm_finishing_pct');
+      const bars_fin    = rp('rapm_finishing_pct');
       const bars_pen    = sp(pct.pen_diff,    'pen_diff_pct');
-      const bars_pp     = sp(pct.pp_off ?? null, 'rapm_pp_pct');
-      const bars_pk     = sp(pct.pk_def ?? null, 'rapm_pk_pct');
+      const bars_pp     = rp('rapm_pp_pct');
+      const bars_pk     = rp('rapm_pk_pct');
       const bars_qoc    = sp(D.qoc,           'qoc_pct');
       const bars_qot    = sp(D.qot,           'qot_pct');
       function barFillSM(v, kind) {
@@ -2580,21 +2621,29 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
       ctx.fillText('  ' + (isF ? 'VS. FORWARDS' : 'VS. DEFENSEMEN'), PAD + tsW, y);
       y += 12;
 
-      // ── Talent bars — same set as the portrait Talent card, 3yr → season fallback
-      const pct3 = D.percentiles;
-      const v3 = (a, b) => (a != null ? a : (b != null ? b : null));
+      // ── Talent bars — the multi-season values only.
+      //
+      // These sit under a "MULTI-YEAR TALENT" header, so every bar must be the
+      // 3-year value. This used to run each one through
+      // `v3(threeYear, singleSeason)`, which silently degraded the bar to the
+      // CURRENT-SEASON percentile whenever the 3-year one was absent — the same
+      // one-label-two-metrics defect as the Season Card's RAPM bars, over a
+      // different axis (window rather than adjustment). It substitutes nothing
+      // in today's payload (all six *_pct_3yr fields are non-null for all 871
+      // skaters, and the 112 without qoc_pct_3yr have no qoc either), so this is
+      // a tightening, not a value change. Missing renders '—'.
       const bars = [
-        { label: 'EV Offense',       val: D.hgb_rating_off_pct,                    kind: 'performance' },
-        { label: 'EV Defense',       val: D.hgb_rating_def_pct,                    kind: 'performance' },
-        { label: 'Goals / 60',       val: v3(D.g_60_pct_3yr,      pct3.goals),     kind: 'performance' },
-        { label: 'A1 / 60',          val: v3(D.a1_60_pct_3yr,     pct3.a1),        kind: 'performance' },
-        { label: 'xG / 60',          val: v3(D.xg_60_pct_3yr,     pct3.ixg),       kind: 'performance' },
-        { label: 'Pen Diff',         val: v3(D.pen_diff_pct_3yr,  pct3.pen_diff),  kind: 'performance' },
-        { label: 'Power Play',       val: pct3.pp_off ?? null,                     kind: 'performance' },
-        { label: 'Penalty Kill',     val: pct3.pk_def ?? null,                     kind: 'performance' },
-        { label: 'Finishing',        val: v3(D.finishing_pct_3yr, pct3.finishing), kind: 'context'     },
-        { label: 'Opponent Quality', val: v3(D.qoc_pct_3yr,       D.qoc),          kind: 'context'     },
-        { label: 'Teammate Quality', val: v3(D.qot_pct_3yr,       D.qot),          kind: 'context'     },
+        { label: 'EV Offense',       val: D.hgb_rating_off_pct  ?? null, kind: 'performance' },
+        { label: 'EV Defense',       val: D.hgb_rating_def_pct  ?? null, kind: 'performance' },
+        { label: 'Goals / 60',       val: D.g_60_pct_3yr        ?? null, kind: 'performance' },
+        { label: 'A1 / 60',          val: D.a1_60_pct_3yr       ?? null, kind: 'performance' },
+        { label: 'xG / 60',          val: D.xg_60_pct_3yr       ?? null, kind: 'performance' },
+        { label: 'Pen Diff',         val: D.pen_diff_pct_3yr    ?? null, kind: 'performance' },
+        { label: 'Power Play',       val: D.percentiles.pp_off  ?? null, kind: 'performance' },
+        { label: 'Penalty Kill',     val: D.percentiles.pk_def  ?? null, kind: 'performance' },
+        { label: 'Finishing',        val: D.finishing_pct_3yr   ?? null, kind: 'context'     },
+        { label: 'Opponent Quality', val: D.qoc_pct_3yr         ?? null, kind: 'context'     },
+        { label: 'Teammate Quality', val: D.qot_pct_3yr         ?? null, kind: 'context'     },
       ];
       function barFillTS(v, kind) {
         if (kind === 'context') return '#4285f4';
@@ -3344,7 +3393,7 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
   // a custom event), or in the history card table, we update the SEASON tab EV
   // bars to reflect that season's single-season RAPM percentiles.
   (() => {
-    // _seasonStats and _evOffFallback / _evDefFallback come from define:vars above
+    // _seasonStats comes from define:vars above
     // (they are globals serialized into this script's scope by Astro).
     const seasonMap = {};
     // _seasonStats is injected by define:vars into the inline script block above.
@@ -3370,10 +3419,12 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     // Apply a season's RAPM data to the EV bars (SEASON mode only)
     function applySeasonToEvBars(seasonStr) {
       const entry = seasonMap[seasonStr];
-      const _off = typeof _evOffFallback !== 'undefined' ? _evOffFallback : (window as any)._evOffFallback ?? 50;
-      const _def = typeof _evDefFallback !== 'undefined' ? _evDefFallback : (window as any)._evDefFallback ?? 50;
-      const offVal = (entry?.rapm_off_pct != null) ? entry.rapm_off_pct : _off;
-      const defVal = (entry?.rapm_def_pct != null) ? entry.rapm_def_pct : _def;
+      // A season with no RAPM percentile has no EV Offense / EV Defense value.
+      // This used to fall back to the raw on-ice percentile, and to a literal 50
+      // if even that was absent — a fabricated league-average that was
+      // indistinguishable from a measurement. Missing now renders '—'.
+      const offVal = entry?.rapm_off_pct ?? null;
+      const defVal = entry?.rapm_def_pct ?? null;
 
       document.querySelectorAll('#pct-profile-card .pct-row[data-bar-key]').forEach(row => {
         const key    = row.dataset.barKey;
@@ -3381,16 +3432,16 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
         const val    = key === 'ev_offence' ? offVal : defVal;
 
         // Update data-season-val for future mode toggles
-        row.dataset.seasonVal = val.toFixed(1);
+        row.dataset.seasonVal = val != null ? val.toFixed(1) : '';
 
         // Only update DOM if currently in SEASON mode
         if (currentRapmMode !== 'season') return;
 
         const fill  = row.querySelector('.pct-fill');
         const pctEl = row.querySelector('.pct-pct');
-        const color = tierColor(val, isBlue);
-        if (fill)  { fill.style.width = val.toFixed(1) + '%'; fill.style.background = color; }
-        if (pctEl) { pctEl.textContent = Math.round(val) + '%'; pctEl.style.color = color; }
+        const color = val != null ? tierColor(val, isBlue) : 'rgba(13,13,20,0.32)';
+        if (fill)  { fill.style.width = val != null ? val.toFixed(1) + '%' : '0%'; fill.style.background = color; }
+        if (pctEl) { pctEl.textContent = val != null ? Math.round(val) + '%' : '\u2014'; pctEl.style.color = color; }
       });
     }
 
