@@ -3080,14 +3080,21 @@ const enrichedCareerSeasons = (player.career_seasons ?? []).map(cs => {
     const statX = hsCX + heroR + 18;
     const statW = (W - statX - PAD) / 3;
     const ratingPctVal = D.talentV1Pct ?? null;
-    const warPctVal  = D.warPct ?? Math.round(D.impactPct);
+    // HGB WAR has no substitute. This used to read `D.warPct ?? Math.round(D.impactPct)`,
+    // which silently printed the GAME IMPACT percentile under the HGB WAR label whenever
+    // WAR was absent — 251 of 871 skaters in the 2026-09-07 payload, i.e. everyone below
+    // the 500-minute RAPM floor. warIsProvisional requires D.warPct != null, so the
+    // substituted value carried no asterisk: the card showed two identical numbers and
+    // one of them was mislabelled. A missing metric now renders an em dash, matching the
+    // Season and Shotmap card heroes, which were already null-safe.
+    const warPctVal  = D.warPct != null ? Math.round(D.warPct) : null;
     const warIsProvisional = D.warPct != null && D.warProvisional;
-    const impPctVal  = Math.round(D.impactPct);
+    const impPctVal  = D.impactPct != null ? Math.round(D.impactPct) : null;
     // Percentile-only heroes (raw value subtitles dropped, matching Season/Talent cards).
     const heroStats  = [
       { label: 'HGB TALENT',      big: ratingPctVal != null ? ratingPctVal+'%' : '—' },
-      { label: 'HGB WAR',         big: warPctVal+'%'+(warIsProvisional ? '*' : ''), color: warIsProvisional ? provisionalColor(TEAM_C) : TEAM_C },
-      { label: 'HGB GAME IMPACT', big: impPctVal+'%' },
+      { label: 'HGB WAR',         big: warPctVal != null ? warPctVal+'%'+(warIsProvisional ? '*' : '') : '—', color: warIsProvisional ? provisionalColor(TEAM_C) : TEAM_C },
+      { label: 'HGB GAME IMPACT', big: impPctVal != null ? impPctVal+'%' : '—' },
     ];
     for (let i = 0; i < heroStats.length; i++) {
       const hs = heroStats[i];
