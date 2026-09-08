@@ -352,6 +352,17 @@ img { display: block; max-width: 100%; }
           <div class="user-actions">
             <button class="btn-secondary" id="signout-btn">Sign out</button>
           </div>
+          <!-- Results of an authenticated LINK flow. Lives inside the auth panel
+               because #status-msg belongs to the signed-out form and is hidden
+               once setState('auth') runs. -->
+          <div class="status-msg" id="link-status"></div>
+          <div id="link-confirm" style="display:none;margin-top:12px;">
+            <p style="font-family:var(--mono);font-size:12px;color:var(--ink-48);margin:0 0 10px;">
+              Add this email address as a sign-in method for the account above? It
+              won't create a new account or move any Passport data.
+            </p>
+            <button class="btn-primary" type="button" id="link-confirm-btn">Add this email sign-in</button>
+          </div>
         </div>
       </div>
 
@@ -385,7 +396,7 @@ import {
   SESSION_KEY,
   getSessionToken,
   setSessionToken,
-  clearSessionToken,
+  signOutSession,
   apiFetch,
   getMe,
   getPrefs,
@@ -440,7 +451,6 @@ let _filterPresets = [];  // array of { name, filters } saved filter presets
 // Local aliases keep the existing call sites readable.
 const saveToken = setSessionToken;
 const loadToken = getSessionToken;
-const clearToken = clearSessionToken;
 
 // ── State machine ─────────────────────────────────────────────────────────────
 
@@ -454,6 +464,83 @@ function showStatus(msg, type = 'error') {
   const el = document.getElementById('status-msg');
   el.textContent = msg;
   el.className = `status-msg visible ${type}`;
+}
+
+// ── Authenticated identity linking ────────────────────────────────────────────
+//
+// LINK is not sign-in and not merge: it attaches a web-compatible credential to
+// the account the user is ALREADY signed into. Every refusal below is a real,
+// distinct server outcome — mirrors linkErrorMessage() in hgb-api's auth.js.
+// Deliberately NOT collapsed into "Sign-in failed": a conflict here is
+// actionable, and telling a fan to "try again" on an unmovable identity is a
+// lie that wastes their time.
+const LINK_ERROR_MSGS = {
+  identity_owned_by_another_account: "That sign-in method already belongs to a different HockeyGameBot account. We can't move it automatically — email support@hockeygamebot.com and we'll sort it out.",
+  verified_email_claimed_by_other_identity: "That email is already verified on a different HockeyGameBot account. Email support@hockeygamebot.com and we'll sort it out.",
+  account_already_has_active_google_identity: 'This account already has a Google sign-in linked.',
+  account_already_has_active_email_identity: 'This account already has an email sign-in linked.',
+  account_already_has_active_apple_identity: 'This account already has an Apple sign-in linked.',
+  identity_detached: "That sign-in method was previously removed and can't be re-linked.",
+  link_session_required: "Sign in to the account you're linking to, then try again.",
+  link_session_mismatch: "Sign in to the account you're linking to, then try again.",
+  invalid_link_state: 'That linking request has expired or was already used. Start it again from your account.',
+  google_unverified: "We couldn't verify your Google sign-in. Nothing changed on your account — please try again.",
+  unverified_email: 'That Google account email is not verified, so it cannot be used to sign in here.',
+  cancelled: 'Linking cancelled. Nothing changed on your account.',
+};
+
+// Set only by an emailed link-verification URL. The token is never acted on
+// automatically — the API requires an explicit POST, and so does the UI.
+let pendingEmailLinkToken = null;
+
+function showLinkStatus(msg, type = 'error') {
+  const el = document.getElementById('link-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `status-msg visible ${type}`;
+}
+
+function showEmailLinkConfirm() {
+  const panel = document.getElementById('link-confirm');
+  if (panel) panel.style.display = 'block';
+}
+
+async function confirmEmailLink() {
+  const btn = document.getElementById('link-confirm-btn') as HTMLButtonElement | null;
+  if (!pendingEmailLinkToken) {
+    showLinkStatus(LINK_ERROR_MSGS.invalid_link_state, 'error');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  try {
+    const res = await apiFetch(`${API}/v1/auth/link/email/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ link_token: pendingEmailLinkToken }),
+    });
+    const data = await res.json().catch(() => ({}));
+    // Single-use on the server: whatever the outcome, this token is spent.
+    pendingEmailLinkToken = null;
+    document.getElementById('link-confirm').style.display = 'none';
+    if (res.ok && data.ok) {
+      showLinkStatus(
+        data.already_linked
+          ? 'That email sign-in was already on this account. Nothing changed.'
+          : 'Email sign-in added. You can now sign in here with an email link.',
+        'success',
+      );
+      await checkSession();
+    } else {
+      showLinkStatus(
+        LINK_ERROR_MSGS[data.code] || data.error || "We couldn't add that sign-in method. Please try again.",
+        'error',
+      );
+    }
+  } catch {
+    showLinkStatus('Could not reach the server. Please try again.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add this email sign-in'; }
+  }
 }
 
 // ── Auth flow ─────────────────────────────────────────────────────────────────
@@ -481,8 +568,50 @@ async function checkToken() {
       token_failed: 'Could not complete Google sign-in. Please try again.',
       profile_failed: 'Could not retrieve your Google profile. Please try again.',
       unverified_email: 'Your Google account email is not verified.',
+      // The API can no longer fall back to email when Google's identity token
+      // won't verify — it fails the attempt closed instead. That is retryable and
+      // affects nothing about the account, so say so rather than implying damage.
+      google_unverified: "We couldn't verify your Google sign-in. Please try again.",
+      identity_detached: 'This Google account is no longer linked to a HockeyGameBot account.',
+      account_conflict: "We couldn't safely match this Google account to one HockeyGameBot account. Email support@hockeygamebot.com and we'll sort it out.",
     };
     showStatus(msgs[authError] || 'Sign-in failed. Please try again.', 'error');
+    return true;
+  }
+
+  // Result of an authenticated LINK flow (adding a sign-in method to the account
+  // you are ALREADY signed in as). Deliberately separate from auth_error: "we
+  // couldn't add Google to your account" is not "we couldn't sign you in", and a
+  // conflict here means a real, actionable thing rather than a retry.
+  const linkOk = params.get('link');
+  const linkError = params.get('link_error');
+  if (linkOk || linkError) {
+    history.replaceState({}, '', '/account');
+    const msg = linkOk
+      ? 'Google sign-in added. You can now sign in here with Google.'
+      : (LINK_ERROR_MSGS[linkError] || "We couldn't add that sign-in method. Please try again.");
+    // The link flow issues no session, so the browser must still hold the one
+    // that authorized it. Report into whichever panel is actually visible.
+    const signedIn = await checkSession();
+    if (signedIn) showLinkStatus(msg, linkOk ? 'success' : 'error');
+    else { setState('unauth'); showStatus(msg, 'error'); }
+    return true;
+  }
+
+  // A link-verification email was opened here. This is NOT a sign-in link: it
+  // confirms an email address for the account the user is already signed in as,
+  // and it requires an explicit click rather than firing on page load.
+  const linkToken = params.get('link_token');
+  if (linkToken) {
+    history.replaceState({}, '', '/account');
+    pendingEmailLinkToken = linkToken;
+    const ok = await checkSession();
+    if (!ok) {
+      setState('unauth');
+      showStatus('Sign in to the account you want to add this email to, then open the link again.', 'error');
+    } else {
+      showEmailLinkConfirm();
+    }
     return true;
   }
 
@@ -921,16 +1050,23 @@ document.getElementById('google-signin-btn').addEventListener('click', (e) => {
   window.location.href = `${API}/v1/auth/google?from=${encodeURIComponent(window.location.origin)}`;
 });
 
+document.getElementById('link-confirm-btn').addEventListener('click', confirmEmailLink);
+
 document.getElementById('signout-btn').addEventListener('click', async () => {
   _trackedTeams = [];
   _trackedPlayers = [];
   _allPlayers = [];
-  clearToken();
-  try {
-    await apiFetch(`${API}/v1/auth/logout`, { method: 'POST' });
-  } catch {
-    /* local token already cleared — proceed to unauth UI regardless */
-  }
+  // A pending link confirmation must not survive sign-out — the server also
+  // deletes this user's pending link states on logout.
+  pendingEmailLinkToken = null;
+  document.getElementById('link-confirm').style.display = 'none';
+  document.getElementById('link-status').className = 'status-msg';
+  // Server revocation FIRST, with the bearer token still in hand — clearing it
+  // first would send the logout unauthenticated wherever the cookie can't ride
+  // along, and the server would revoke neither the session nor this user's
+  // pending link states. signOutSession() clears local state in its `finally`,
+  // so an offline sign-out still completes here.
+  await signOutSession();
   setState('unauth');
   document.getElementById('user-email').textContent = '—';
   document.getElementById('content-panel').innerHTML = '';
