@@ -97,6 +97,12 @@ export type Me = {
   email: string;
   handle: string | null;
   is_public: boolean;
+  /** Active provider identities on this canonical account ('apple'|'google'|'email').
+   *  Absent on older API deploys — treat undefined as "unknown", not "none". */
+  linked_providers?: string[];
+  /** True when at least one linked provider can sign in on the website. An
+   *  Apple-only account is false: that is what identity linking exists to fix. */
+  has_web_signin?: boolean;
 };
 
 /** GET /v1/auth/me — returns { user }, or null on 401/error. */
