@@ -74,6 +74,41 @@ export function clearSessionToken(): void {
   }
 }
 
+/**
+ * Sign out: best-effort SERVER revocation first, guaranteed local clear second.
+ *
+ * Order matters and is the whole point of this function. `apiFetch` reads the
+ * bearer token out of localStorage at call time, so clearing the token before
+ * calling `/v1/auth/logout` sends the request unauthenticated whenever the
+ * cookie transport is unavailable (Safari ITP, third-party cookie blocking).
+ * The server would then revoke nothing — leaving the KV session alive AND
+ * leaving this user's pending `auth_link_states` completable after a
+ * deliberate sign-out. Capture, revoke, then clear in `finally`.
+ *
+ * Local sign-out is unconditional: a network failure must never strand the user
+ * signed in. Best-effort revocation, not a retry queue.
+ *
+ * @returns `revoked` — whether the server confirmed revocation. Local state is
+ *          cleared either way; callers use this only for reporting.
+ */
+export async function signOutSession(): Promise<{ revoked: boolean }> {
+  const token = getSessionToken();
+  try {
+    const headers = new Headers();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const r = await fetch(`${API_BASE}/v1/auth/logout`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+    });
+    return { revoked: r.ok };
+  } catch {
+    return { revoked: false };
+  } finally {
+    clearSessionToken();
+  }
+}
+
 // ── Fetch wrapper ─────────────────────────────────────────────────────────────
 
 /**

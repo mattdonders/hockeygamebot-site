@@ -396,7 +396,7 @@ import {
   SESSION_KEY,
   getSessionToken,
   setSessionToken,
-  clearSessionToken,
+  signOutSession,
   apiFetch,
   getMe,
   getPrefs,
@@ -451,7 +451,6 @@ let _filterPresets = [];  // array of { name, filters } saved filter presets
 // Local aliases keep the existing call sites readable.
 const saveToken = setSessionToken;
 const loadToken = getSessionToken;
-const clearToken = clearSessionToken;
 
 // ── State machine ─────────────────────────────────────────────────────────────
 
@@ -1062,12 +1061,12 @@ document.getElementById('signout-btn').addEventListener('click', async () => {
   pendingEmailLinkToken = null;
   document.getElementById('link-confirm').style.display = 'none';
   document.getElementById('link-status').className = 'status-msg';
-  clearToken();
-  try {
-    await apiFetch(`${API}/v1/auth/logout`, { method: 'POST' });
-  } catch {
-    /* local token already cleared — proceed to unauth UI regardless */
-  }
+  // Server revocation FIRST, with the bearer token still in hand — clearing it
+  // first would send the logout unauthenticated wherever the cookie can't ride
+  // along, and the server would revoke neither the session nor this user's
+  // pending link states. signOutSession() clears local state in its `finally`,
+  // so an offline sign-out still completes here.
+  await signOutSession();
   setState('unauth');
   document.getElementById('user-email').textContent = '—';
   document.getElementById('content-panel').innerHTML = '';
