@@ -57,6 +57,7 @@ import { drawPassportCard, drawTicketStub, drawStubGrid, type PassportShareData 
 import { trackEvent } from '../../lib/track';
 import { isFeatureEnabled } from '../../lib/feature-flags';
 import { shouldShowLogPrompt, type AttendedAddSource } from '../../lib/attended-log-source';
+import { attendedScoresKnown } from '../../lib/attended-scores';
 import { resolveEarnedResult, type EarnedResultVM } from '../../lib/earned-result';
 import EarnedResultCard from './EarnedResultCard';
 import TonightGameCard from './TonightGameCard';
@@ -133,6 +134,11 @@ export type AttendedGame = {
   is_manual?: boolean;
   home_score?: number | null;
   away_score?: number | null;
+  /** False when `home.score`/`away.score` are the `?? 0` placeholder rather than a
+   *  real result (see `mapD1Row`). Undefined for every locally-added game, whose
+   *  scores come straight from the game payload — so absent means "trust them",
+   *  and no existing persisted record changes meaning. */
+  scores_known?: boolean;
 };
 
 /** LOCKED backend contract for a manually-logged game (snake_case). Its id is
@@ -643,6 +649,17 @@ function mapD1Row(
   };
   const isFinal = r.is_final != null ? !!r.is_final : snap?.status === 'final';
   const isManual = r.is_manual != null ? !!r.is_manual : r.game_id.startsWith('manual-');
+  // Did we get a REAL score for both sides, or did `side()` fall back to `?? 0`?
+  // `TeamSide.score` is a plain `number`, so an unknown score becomes a perfectly
+  // ordinary-looking 0 — and a row flagged final with no scores then rendered as a
+  // confident 0–0 "FINAL · TIE" on the share ticket for a game that actually ended
+  // 4–3. Recorded rather than fabricated away, so the ticket can print dashes.
+  const scoresKnown = attendedScoresKnown({
+    rowHomeScore: r.home_score,
+    rowAwayScore: r.away_score,
+    snapHomeScore: snap?.home?.score,
+    snapAwayScore: snap?.away?.score,
+  });
   return {
     game_id: r.game_id,
     date: r.game_date ?? snap?.date ?? '',
@@ -654,6 +671,7 @@ function mapD1Row(
     last_period_type: r.last_period_type ?? snap?.last_period_type ?? null,
     status: isFinal ? 'final' : snap?.status ?? 'scheduled',
     added_at: r.created_at ?? snap?.added_at ?? '',
+    scores_known: scoresKnown,
     ...(isManual
       ? { is_manual: true, home_score: r.home_score ?? snap?.home_score ?? null, away_score: r.away_score ?? snap?.away_score ?? null }
       : {}),

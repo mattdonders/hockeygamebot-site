@@ -600,6 +600,10 @@ export interface TicketStubGame {
   is_manual?: boolean;
   home_score?: number | null;
   away_score?: number | null;
+  /** False when `home.score`/`away.score` are placeholder zeros rather than a real
+   *  result — see `mapD1Row` in AttendedTracker. Absent ⇒ trust the scores (every
+   *  pre-existing caller). */
+  scores_known?: boolean;
 }
 /** Resolved rooting anchor (from the passport summary), used for the team colour. */
 export interface TicketStubAnchor {
@@ -1035,6 +1039,11 @@ export async function drawTicketStub(opts: TicketStubOpts): Promise<HTMLCanvasEl
   const bothScoresFinite = Number.isFinite(homeScore) && Number.isFinite(awayScore);
   const hasScores =
     bothScoresFinite &&
+    // A finite 0 is not proof of a result: `mapD1Row` fills an unknown score with 0
+    // to satisfy `TeamSide.score: number`, which turned a FINAL game whose scores
+    // weren't carried into a confident "FINAL · TIE" 0–0. There is no 0–0 final in
+    // hockey — that's missing data, not a tie. Dashes + a plain FINAL instead.
+    game.scores_known !== false &&
     !(game.is_manual && (game.home_score == null || game.away_score == null)) &&
     (game.is_manual || game.status === 'final');
   const winner: 'home' | 'away' | null = !hasScores
